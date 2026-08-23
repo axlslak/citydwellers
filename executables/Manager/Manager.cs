@@ -39,7 +39,7 @@ public class PluginLoader
     static void Main(string[] args)
     {
         string configFile;
-        string configPath = AppDomain.CurrentDomain.BaseDirectory + "config.json";
+        string configPath = AppDomain.CurrentDomain.BaseDirectory + "manager.json";
 
         try
         {
