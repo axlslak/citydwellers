@@ -113,7 +113,7 @@ namespace CityFlipper
             //{
             //    Target = controller.Identity
             //});
-
+/*
             Client.Send(new GenericCmdMessage
             {
                 Temp1 = 0,
@@ -124,7 +124,7 @@ namespace CityFlipper
                 Target = controller.Identity,
                 Unknown = 1
             });
-
+*/
             Logger.Information(
                 "Requested City Controller open.");
 
@@ -188,6 +188,34 @@ namespace CityFlipper
                                 $"AOTransportSignal action = {signal.Action}");
 
                             HandleTransportSignal(signal);
+
+                            break;
+                        }
+                    case N3MessageType.PlayfieldAnarchyF:
+                        {
+                            var pf =
+                                (PlayfieldAnarchyFMessage)e.Body;
+
+                            Logger.Information(
+                                $"PlayfieldAnarchyF received. " +
+                                $"PlayfieldId={pf.PlayfieldId1}, " +
+                                $"ProxyId={pf.ProxyId}, " +
+                                $"SG={pf.SG}, " +
+                                $"Dynels={pf.Dynels?.Length ?? 0}");
+
+                            if (pf.Dynels != null)
+                            {
+                                foreach (var d in pf.Dynels)
+                                {
+                                    Logger.Information(
+                                        $"PF DYNEL: " +
+                                        $"Type={d.IdentityType}, " +
+                                        $"Instance=0x{d.Instance:X}, " +
+                                        $"U1={d.Unknown1}, " +
+                                        $"U2={d.Unknown2}, " +
+                                        $"U3={d.Unknown3}");
+                                }
+                            }
 
                             break;
                         }
