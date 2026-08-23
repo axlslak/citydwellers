@@ -1,10 +1,12 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Chat;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
+using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.GameData;
 using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
@@ -13,229 +15,480 @@ namespace CityManager
 {
     public class CityManager : ClientlessPluginEntry
     {
-        int Remaining;
-        double TimeStamp;
-        CloakStatus Status = new CloakStatus();
-        ControllerState CurrentControllerState = new ControllerState();
-        ControllerState ChatControllerState = new ControllerState();
+        private string _pluginDir;
+        private string _statePath;
+        private string _eventsPath;
+
+        private bool _charInPlay;
+
+        private CloakStatus _status = CloakStatus.Unknown;
+        private int _shieldTimerInSeconds;
+
+        private DateTime? _lastObservedUtc;
+        private DateTime? _lastChangedUtc;
+        private DateTime? _canRaiseAtUtc;
+
+        private bool _raiseDueLogged;
 
         public override void Init(string pluginDir)
         {
-            Logger.Information("CloakBot Init");
-            CurrentControllerState = ControllerState.Move;
+            _pluginDir = pluginDir;
+            _statePath = Path.Combine(
+                _pluginDir,
+                "citymanager-cloak-state.json");
+            _eventsPath = Path.Combine(
+                _pluginDir,
+                "citymanager-cloak-events.jsonl");
+
+            Logger.Information("CityManager cloak observer initialized.");
+
+            LoadState();
+
             Client.MessageReceived += MessageReceived;
+        }
+
+        public override void Teardown()
+        {
+            try
+            {
+                Client.MessageReceived -= MessageReceived;
+                Client.Chat.PrivateMessageReceived -= HandlePrivateMessage;
+                Client.OnUpdate -= Tick;
+                SaveState();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"CityManager teardown error: {ex}");
+            }
         }
 
         private void MessageReceived(object sender, Message e)
         {
-            //if (e.Header.PacketType != PacketType.N3Message) { return; }
-            if (e.Body.PacketType != PacketType.N3Message) { return; }
-
-            var n3Message = (N3Message)e.Body;
-            //if (n3Message.Identity.Instance != Client.LocalDynelId) { return; }
-
-            Logger.Debug($"N3MessageType = {n3Message.N3MessageType}");
-
-            switch (n3Message.N3MessageType)
+            try
             {
-                case N3MessageType.AOTransportSignal:
-                    var sigMsg = (AOTransportSignalMessage)e.Body;
-                    switch (sigMsg.Action)
+                if (e?.Body == null)
+                    return;
+
+                if (e.Body.PacketType != PacketType.N3Message)
+                    return;
+
+                var n3Message = (N3Message)e.Body;
+
+                switch (n3Message.N3MessageType)
+                {
+                    case N3MessageType.AOTransportSignal:
                     {
-                        case AOSignalAction.CityInfo:
-                            Logger.Information("AOSignalAction.CityInfo");
-                            var cityInfo = (CityInfo)sigMsg.TransportSignalMessage;
-                            if (cityInfo.Unknown1 == 0) { return; }
-                            Logger.Information("Controller opened");
-                            CurrentControllerState = ControllerState.Opened;
-                            break;
-                        case AOSignalAction.CloakInfo:
-                            Logger.Information("AOSignalAction.CloakInfo");
-                            var cloakInfo = (CloakInfo)sigMsg.TransportSignalMessage;
-                            Remaining = cloakInfo.ShieldTimerInSeconds;
-                            Status = cloakInfo.CloakState;
-                            TimeStamp = (int)(DateTime.Now - new DateTime(1970, 1, 1)).TotalSeconds; ;
-                            break;
+                        /*
+                         * Intentionally do NOT filter on message identity.
+                         *
+                         * Manager is the always-online observer. It needs to
+                         * see cloak events caused by Flipper or by a human,
+                         * even though Manager itself is inside HQ and never
+                         * opens/interacts with the City Controller.
+                         */
+                        var signal = (AOTransportSignalMessage)e.Body;
+
+                        if (signal.Action == AOSignalAction.CloakInfo)
+                        {
+                            HandleCloakInfo(
+                                (CloakInfo)signal.TransportSignalMessage);
+                        }
+
+                        break;
                     }
 
-                    break;
-                case N3MessageType.GenericCmd:
-                    break;
-                case N3MessageType.LookAt:
-                    break;
-                case N3MessageType.CharInPlay:
-                    var charInPlayMsg = (CharInPlayMessage)e.Body;
-                    if (charInPlayMsg?.Identity.Instance != Client.LocalDynelId) { return; }
-                    Logger.Information("In play");
-                    Client.Chat.PrivateMessageReceived += HandlePrivateMessage;
-                    Client.OnUpdate += Tick;
-                    break;
+                    case N3MessageType.CharInPlay:
+                    {
+                        var charInPlay = (CharInPlayMessage)e.Body;
+
+                        if (charInPlay.Identity.Instance != Client.LocalDynelId)
+                            return;
+
+                        OnCharInPlay();
+                        break;
+                    }
+                }
             }
+            catch (Exception ex)
+            {
+                Logger.Error($"CityManager message error: {ex}");
+            }
+        }
+
+        private void OnCharInPlay()
+        {
+            if (_charInPlay)
+                return;
+
+            _charInPlay = true;
+
+            Logger.Information("CityManager is in play and observing cloak events.");
+
+            Client.Chat.PrivateMessageReceived += HandlePrivateMessage;
+            Client.OnUpdate += Tick;
+        }
+
+        private void HandleCloakInfo(CloakInfo cloakInfo)
+        {
+            DateTime now = DateTime.UtcNow;
+
+            CloakStatus previousStatus = _status;
+            bool previousKnown = previousStatus != CloakStatus.Unknown;
+            bool stateChanged =
+                previousKnown && previousStatus != cloakInfo.CloakState;
+
+            _status = cloakInfo.CloakState;
+            _shieldTimerInSeconds = cloakInfo.ShieldTimerInSeconds;
+            _lastObservedUtc = now;
+
+            /*
+             * AOSharp's own CanToggleCloak logic treats a positive
+             * ShieldTimerInSeconds as a wait starting when CloakInfo is
+             * received. A zero/negative value is already toggleable.
+             *
+             * For a disabled cloak this therefore gives Manager the
+             * earliest time at which Flipper should be allowed to raise it.
+             */
+            if (_status == CloakStatus.Disabled)
+            {
+                int waitSeconds = Math.Max(0, _shieldTimerInSeconds);
+                _canRaiseAtUtc = now.AddSeconds(waitSeconds);
+                _raiseDueLogged = false;
+            }
+            else
+            {
+                _canRaiseAtUtc = null;
+                _raiseDueLogged = false;
+            }
+
+            if (stateChanged)
+            {
+                _lastChangedUtc = now;
+
+                AppendCloakEvent(
+                    previousStatus,
+                    _status,
+                    now,
+                    _shieldTimerInSeconds,
+                    _canRaiseAtUtc,
+                    "state_change");
+
+                if (_status == CloakStatus.Disabled)
+                {
+                    Logger.Warning(
+                        $"CLOAK LOWERED observed at {now:O}. " +
+                        $"Server timer={_shieldTimerInSeconds}s. " +
+                        $"Earliest raise={_canRaiseAtUtc:O}.");
+                }
+                else if (_status == CloakStatus.Enabled)
+                {
+                    Logger.Warning(
+                        $"CLOAK RAISED observed at {now:O}. " +
+                        $"Server timer={_shieldTimerInSeconds}s.");
+                }
+                else
+                {
+                    Logger.Information(
+                        $"Cloak state changed {previousStatus} -> {_status} " +
+                        $"at {now:O}.");
+                }
+            }
+            else if (!previousKnown)
+            {
+                /*
+                 * On a fresh install/restart the first packet is our
+                 * baseline. If that baseline is Disabled, it still matters:
+                 * schedule the raise from the server timer even though we
+                 * cannot prove that this packet itself represents the flip.
+                 */
+                Logger.Information(
+                    $"Initial cloak observation: {_status}, " +
+                    $"timer={_shieldTimerInSeconds}s at {now:O}.");
+
+                if (_status == CloakStatus.Disabled)
+                {
+                    _lastChangedUtc = now;
+
+                    AppendCloakEvent(
+                        CloakStatus.Unknown,
+                        _status,
+                        now,
+                        _shieldTimerInSeconds,
+                        _canRaiseAtUtc,
+                        "disabled_baseline");
+                }
+            }
+            else
+            {
+                Logger.Debug(
+                    $"Cloak observation unchanged: {_status}, " +
+                    $"timer={_shieldTimerInSeconds}s.");
+            }
+
+            SaveState();
+        }
+
+        private void Tick(object sender, double e)
+        {
+            if (_status != CloakStatus.Disabled)
+                return;
+
+            if (!_canRaiseAtUtc.HasValue)
+                return;
+
+            if (_raiseDueLogged)
+                return;
+
+            if (DateTime.UtcNow < _canRaiseAtUtc.Value)
+                return;
+
+            _raiseDueLogged = true;
+
+            Logger.Warning(
+                $"CLOAK RAISE IS NOW DUE. " +
+                $"Earliest raise time was {_canRaiseAtUtc.Value:O}. " +
+                "Flipper may now be asked to raise the cloak.");
+
+            SaveState();
         }
 
         private void HandlePrivateMessage(object sender, PrivateMessage msg)
         {
-            var stringIgnores = new List<string> { "You have been auto-invited to the private channel.",
-                "Unknown", "AnarchyOnline", "Reconnecting you to", "Darknet", "<" };
-            if (stringIgnores.Any(i => msg.Message.Contains(i))) { return; }
-            Logger.Information($"{msg.SenderName} sent {msg.Message}");
-            string[] commandParts = msg.Message.Split(' ');
-            string command = commandParts.Length > 0 ? commandParts[0].ToLower() : string.Empty;
-            switch (command)
+            try
             {
-                case "help":
-                case "Help":
-                    SendHelpMessage(msg.SenderId);
-                    break;
-                case "cloak":
-                    Client.SendPrivateMessage(msg.SenderId, $"Cloak = {Status}, " +
-                            $"Time remaining = {Math.Round(((TimeStamp + Remaining) - (int)(DateTime.Now - new DateTime(1970, 1, 1)).TotalSeconds) / 60)} minutes");
-                    break;
-                case "lower":
-                    if (Status != CloakStatus.Enabled) { return; }
-                    CurrentControllerState = ControllerState.CloakLower;
-                    break;
-                case "stand":
-                    DynelManager.LocalPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
-                    break;
-                case "sit":
-                    DynelManager.LocalPlayer.MovementComponent.ChangeMovement(MovementAction.SwitchToSit);
-                    break;
+                var stringIgnores = new List<string>
+                {
+                    "You have been auto-invited to the private channel.",
+                    "Unknown",
+                    "AnarchyOnline",
+                    "Reconnecting you to",
+                    "Darknet",
+                    "<"
+                };
+
+                if (stringIgnores.Any(i => msg.Message.Contains(i)))
+                    return;
+
+                Logger.Information($"{msg.SenderName} sent {msg.Message}");
+
+                string[] commandParts = msg.Message.Split(' ');
+                string command =
+                    commandParts.Length > 0
+                        ? commandParts[0].ToLowerInvariant()
+                        : string.Empty;
+
+                switch (command)
+                {
+                    case "help":
+                        SendHelpMessage(msg.SenderId);
+                        break;
+
+                    case "cloak":
+                    case "status":
+                        SendCloakStatus(msg.SenderId);
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error handling private message: {ex}");
             }
         }
 
         private void SendHelpMessage(uint senderId)
         {
-            string helpMessage = "Available commands:\n" +
-                                 "help: Display this help message.\n" +
-                                 "cloak: prints cloak status.\n" +
-                                 "lower: Lowers the cloak.\n";
+            string helpMessage =
+                "Available commands:\n" +
+                "help: Display this help message.\n" +
+                "cloak: Show observed cloak state and raise timer.\n" +
+                "status: Same as cloak.\n";
 
+            Client.SendPrivateMessage(senderId, helpMessage);
+        }
+
+        private void SendCloakStatus(uint senderId)
+        {
+            if (_status == CloakStatus.Unknown)
+            {
+                Client.SendPrivateMessage(
+                    senderId,
+                    "Cloak = Unknown. No CloakInfo packet has been observed yet.");
+                return;
+            }
+
+            if (_status == CloakStatus.Disabled && _canRaiseAtUtc.HasValue)
+            {
+                TimeSpan remaining =
+                    _canRaiseAtUtc.Value - DateTime.UtcNow;
+
+                if (remaining.TotalSeconds > 0)
+                {
+                    Client.SendPrivateMessage(
+                        senderId,
+                        $"Cloak = Disabled. " +
+                        $"Raise available in {FormatDuration(remaining)}. " +
+                        $"Server timer raw = {_shieldTimerInSeconds}s.");
+                }
+                else
+                {
+                    Client.SendPrivateMessage(
+                        senderId,
+                        $"Cloak = Disabled. Raise available now. " +
+                        $"Server timer raw = {_shieldTimerInSeconds}s.");
+                }
+
+                return;
+            }
+
+            Client.SendPrivateMessage(
+                senderId,
+                $"Cloak = {_status}. " +
+                $"Server timer raw = {_shieldTimerInSeconds}s. " +
+                $"Last observed = " +
+                $"{(_lastObservedUtc.HasValue ? _lastObservedUtc.Value.ToString("O") : "unknown")}.");
+        }
+
+        private string FormatDuration(TimeSpan value)
+        {
+            int totalSeconds = Math.Max(0, (int)Math.Ceiling(value.TotalSeconds));
+            int hours = totalSeconds / 3600;
+            int minutes = (totalSeconds % 3600) / 60;
+            int seconds = totalSeconds % 60;
+
+            if (hours > 0)
+                return $"{hours}h {minutes}m {seconds}s";
+
+            if (minutes > 0)
+                return $"{minutes}m {seconds}s";
+
+            return $"{seconds}s";
+        }
+
+        private void LoadState()
+        {
             try
             {
-                Client.SendPrivateMessage(senderId, helpMessage);
+                if (!File.Exists(_statePath))
+                {
+                    Logger.Information("No persisted cloak state found; starting Unknown.");
+                    return;
+                }
+
+                string json = File.ReadAllText(_statePath);
+                PersistedCloakState state =
+                    JsonConvert.DeserializeObject<PersistedCloakState>(json);
+
+                if (state == null)
+                    return;
+
+                _status = state.Status;
+                _shieldTimerInSeconds = state.ShieldTimerInSeconds;
+                _lastObservedUtc = state.LastObservedUtc;
+                _lastChangedUtc = state.LastChangedUtc;
+                _canRaiseAtUtc = state.CanRaiseAtUtc;
+                _raiseDueLogged = state.RaiseDueLogged;
+
+                Logger.Information(
+                    $"Restored cloak state: {_status}, " +
+                    $"timer={_shieldTimerInSeconds}s, " +
+                    $"lastObserved={_lastObservedUtc:O}, " +
+                    $"canRaiseAt={_canRaiseAtUtc:O}.");
             }
             catch (Exception ex)
             {
-                Logger.Error($"Error sending help message to {senderId}: {ex.Message}");
+                Logger.Error($"Failed loading persisted cloak state: {ex}");
             }
         }
 
-        private void Tick(object sender, double e)
+        private void SaveState()
         {
-            var citycontroller = DynelManager.AllDynels.FirstOrDefault(c => c.Name == "City Controller");
-
-            if (citycontroller == null) { return; }
-
-            var cru = ControllerRecompilerUnit.Crus.Select(id => Inventory.Find(id, out var item) ? item : null).FirstOrDefault(item => item != null);
-
-            //if (Remaining == 0 || (int)(DateTime.Now - new DateTime(1970, 1, 1)).TotalSeconds > TimeStamp + Remaining || CurrentControllerState== ControllerState.None)
-            //{
-            //    CurrentControllerState = ControllerState.Move;
-            //}
-
-            if (CurrentControllerState != ChatControllerState)
+            try
             {
-                Logger.Information($"Controller State = {CurrentControllerState}");
-                ChatControllerState = CurrentControllerState;
+                var state = new PersistedCloakState
+                {
+                    Status = _status,
+                    ShieldTimerInSeconds = _shieldTimerInSeconds,
+                    LastObservedUtc = _lastObservedUtc,
+                    LastChangedUtc = _lastChangedUtc,
+                    CanRaiseAtUtc = _canRaiseAtUtc,
+                    RaiseDueLogged = _raiseDueLogged
+                };
+
+                string json =
+                    JsonConvert.SerializeObject(
+                        state,
+                        Formatting.Indented);
+
+                string tempPath = _statePath + ".tmp";
+
+                File.WriteAllText(tempPath, json);
+
+                if (File.Exists(_statePath))
+                    File.Delete(_statePath);
+
+                File.Move(tempPath, _statePath);
             }
-
-            switch (CurrentControllerState)
+            catch (Exception ex)
             {
-                case ControllerState.Move:
-                    if (DynelManager.LocalPlayer.DistanceFrom(citycontroller) > 10f) { return; }
-                    ;
-                    CurrentControllerState = ControllerState.Open;
-                    break;
-                case ControllerState.Open:
-                    if (citycontroller == null) { Logger.Information("cc null"); return; }
-                    //Logger.Information($"Try opening cc, distance = {DynelManager.LocalPlayer.DistanceFrom(citycontroller)}");
-                    Use(citycontroller);
-                    Use(citycontroller);
-                    Use(citycontroller);
-                    CurrentControllerState = ControllerState.Waiting;
-                    break;
-                case ControllerState.Opened:
-                    //if (!CityController.CanToggleCloak()) { return; }
-                    //switch (CityController.CloakState)
-                    //{
-                    //    case CloakStatus.Disabled:
-                    //        if (CityController.Charge <= 0.75f)
-                    //        {
-                    //            CurrentControllerState = ControllerState.Charge;
-                    //        }
-                    //        else
-                    //        {
-                    //            CurrentControllerState = ControllerState.CloakRaise;
-                    //        }
-                    //        break;
-                    //    case CloakStatus.Enabled:
-                    //        break;
-                    //}
-                    break;
-                case ControllerState.Charge:
-                    if (cru != null)
-                    {
-                        Client.Send(new GenericCmdMessage
-                        {
-                            Action = GenericCmdAction.UseItemOnItem,
-                            User = citycontroller.Identity,
-                            Target = cru.Slot,
-                            Count = 1
-                        });
-                        CurrentControllerState = ControllerState.CloakRaise;
-                    }
-                    else { CurrentControllerState = ControllerState.CloakRaise; }
-
-                    break;
-                case ControllerState.CloakRaise:
-                    Client.Send(new ToggleCloakMessage
-                    {
-                        Unknown1 = 49152
-                    });
-                    CurrentControllerState = ControllerState.Done;
-                    break;
-                case ControllerState.CloakLower:
-                    Client.Send(new ToggleCloakMessage
-                    {
-                        Unknown1 = 49152
-                    });
-                    CurrentControllerState = ControllerState.Done;
-                    break;
-                case ControllerState.Done:
-                    citycontroller?.Use();
-                    break;
+                Logger.Error($"Failed saving cloak state: {ex}");
             }
         }
 
-        class ControllerRecompilerUnit
+        private void AppendCloakEvent(
+            CloakStatus previousStatus,
+            CloakStatus newStatus,
+            DateTime occurredUtc,
+            int shieldTimerInSeconds,
+            DateTime? canRaiseAtUtc,
+            string eventType)
         {
-            public static readonly int[] Crus = {
-                257110, 254364, 305225, 254367, 254359, 258522, 254350, 254329, 254328, 254327, 254326
-            };
+            try
+            {
+                var evt = new CloakEvent
+                {
+                    EventType = eventType,
+                    OccurredUtc = occurredUtc,
+                    PreviousStatus = previousStatus,
+                    NewStatus = newStatus,
+                    ShieldTimerInSeconds = shieldTimerInSeconds,
+                    CanRaiseAtUtc = canRaiseAtUtc,
+                    Source = "AOTransportSignal.CloakInfo"
+                };
+
+                string line =
+                    JsonConvert.SerializeObject(
+                        evt,
+                        Formatting.None);
+
+                File.AppendAllText(
+                    _eventsPath,
+                    line + Environment.NewLine);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Failed appending cloak event: {ex}");
+            }
         }
 
-        enum ControllerState { None, Waiting, Move, Open, Opened, Charge, CloakLower, CloakRaise, Done }
-        //public enum CloakStatus { Unknown = 0, Disabled = -1, Enabled = 1 }
-
-        void Use(Dynel target)
+        private class PersistedCloakState
         {
-            Client.Send(new LookAtMessage
-            {
-                Target = target.Identity
-            });
+            public CloakStatus Status;
+            public int ShieldTimerInSeconds;
+            public DateTime? LastObservedUtc;
+            public DateTime? LastChangedUtc;
+            public DateTime? CanRaiseAtUtc;
+            public bool RaiseDueLogged;
+        }
 
-            //Targeting.SetTarget(target.Identity);
-
-            Client.Send(new GenericCmdMessage
-            {
-                Temp1 = 0,
-                Action = GenericCmdAction.Use,
-                Temp4 = 1,
-                User = DynelManager.LocalPlayer.Identity,
-                Target = target.Identity,
-                Unknown = 1,
-            });
+        private class CloakEvent
+        {
+            public string EventType;
+            public DateTime OccurredUtc;
+            public CloakStatus PreviousStatus;
+            public CloakStatus NewStatus;
+            public int ShieldTimerInSeconds;
+            public DateTime? CanRaiseAtUtc;
+            public string Source;
         }
     }
 }
