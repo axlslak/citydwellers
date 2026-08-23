@@ -13,11 +13,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CityFlipper", "plugins\City
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Executables", "Executables", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Buddies", "..\..\Users\admin\source\repos\citydwellers\executables\Buddies\Buddies.csproj", "{62DB44B0-3E0D-4B96-80A1-91A77D9A427E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Buddies", "executables\Buddies\Buddies.csproj", "{62DB44B0-3E0D-4B96-80A1-91A77D9A427E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Flipper", "..\..\Users\admin\source\repos\citydwellers\executables\Flipper\Flipper.csproj", "{0D4088B8-B32E-4B9E-8B10-091FDBE25924}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Flipper", "executables\Flipper\Flipper.csproj", "{0D4088B8-B32E-4B9E-8B10-091FDBE25924}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Manager", "..\..\Users\admin\source\repos\citydwellers\executables\Manager\Manager.csproj", "{32B47588-DCE4-4DB9-91B6-C24FB466A49C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Manager", "executables\Manager\Manager.csproj", "{32B47588-DCE4-4DB9-91B6-C24FB466A49C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
