@@ -15,6 +15,8 @@ namespace CityManager
 {
     public class CityManager : ClientlessPluginEntry
     {
+        private const int ProvisionalCloakDownSeconds = 3600;
+
         private string _pluginDir;
         private string _statePath;
         private string _eventsPath;
@@ -29,6 +31,8 @@ namespace CityManager
         private DateTime? _canRaiseAtUtc;
 
         private bool _raiseDueLogged;
+        private bool _raiseTimeIsProvisional;
+        private string _observationSource = "Unknown";
 
         public override void Init(string pluginDir)
         {
@@ -53,6 +57,7 @@ namespace CityManager
             {
                 Client.MessageReceived -= MessageReceived;
                 Client.Chat.PrivateMessageReceived -= HandlePrivateMessage;
+                Client.Chat.GroupMessageReceived -= HandleGroupMessage;
                 Client.OnUpdate -= Tick;
                 SaveState();
             }
@@ -78,14 +83,6 @@ namespace CityManager
                 {
                     case N3MessageType.AOTransportSignal:
                     {
-                        /*
-                         * Intentionally do NOT filter on message identity.
-                         *
-                         * Manager is the always-online observer. It needs to
-                         * see cloak events caused by Flipper or by a human,
-                         * even though Manager itself is inside HQ and never
-                         * opens/interacts with the City Controller.
-                         */
                         var signal = (AOTransportSignalMessage)e.Body;
 
                         if (signal.Action == AOSignalAction.CloakInfo)
@@ -122,10 +119,126 @@ namespace CityManager
 
             _charInPlay = true;
 
-            Logger.Information("CityManager is in play and observing cloak events.");
+            Logger.Information(
+                "CityManager is in play and observing cloak packets and org chat events.");
 
             Client.Chat.PrivateMessageReceived += HandlePrivateMessage;
+            Client.Chat.GroupMessageReceived += HandleGroupMessage;
             Client.OnUpdate += Tick;
+        }
+
+        private void HandleGroupMessage(object sender, GroupMsg msg)
+        {
+            try
+            {
+                if (msg == null || string.IsNullOrWhiteSpace(msg.Message))
+                    return;
+
+                Logger.Information(
+                    $"GROUP [{msg.ChannelName}] {msg.SenderName}: {msg.Message}");
+
+                const string cloakOffSuffix =
+                    " turned the cloaking device in your city off.";
+                const string cloakOnSuffix =
+                    " turned the cloaking device in your city on.";
+
+                if (msg.Message.EndsWith(
+                    cloakOffSuffix,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    string actor = msg.Message.Substring(
+                        0,
+                        msg.Message.Length - cloakOffSuffix.Length).Trim();
+
+                    HandleCloakAnnouncement(
+                        CloakStatus.Disabled,
+                        actor,
+                        msg.ChannelName,
+                        msg.Message);
+
+                    return;
+                }
+
+                if (msg.Message.EndsWith(
+                    cloakOnSuffix,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    string actor = msg.Message.Substring(
+                        0,
+                        msg.Message.Length - cloakOnSuffix.Length).Trim();
+
+                    HandleCloakAnnouncement(
+                        CloakStatus.Enabled,
+                        actor,
+                        msg.ChannelName,
+                        msg.Message);
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error handling group message: {ex}");
+            }
+        }
+
+        private void HandleCloakAnnouncement(
+            CloakStatus newStatus,
+            string actor,
+            string channelName,
+            string rawMessage)
+        {
+            DateTime now = DateTime.UtcNow;
+            CloakStatus previousStatus = _status;
+
+            _status = newStatus;
+            _lastObservedUtc = now;
+            _lastChangedUtc = now;
+            _observationSource = "OrgChat.CloakAnnouncement";
+            _raiseDueLogged = false;
+
+            if (newStatus == CloakStatus.Disabled)
+            {
+                /*
+                 * The org announcement proves the cloak really went down,
+                 * but it does not carry the server's cooldown value.
+                 *
+                 * Use one hour only as the time to wake Flipper for a
+                 * controller check. Flipper must still open the controller
+                 * and obey the actual ShieldTimerInSeconds before raising.
+                 */
+                _shieldTimerInSeconds = 0;
+                _canRaiseAtUtc = now.AddSeconds(ProvisionalCloakDownSeconds);
+                _raiseTimeIsProvisional = true;
+
+                Logger.Warning(
+                    $"CLOAK LOWERED announced at {now:O}. " +
+                    $"Actor={actor}. " +
+                    $"Provisional Flipper check={_canRaiseAtUtc:O}.");
+            }
+            else
+            {
+                _shieldTimerInSeconds = 0;
+                _canRaiseAtUtc = null;
+                _raiseTimeIsProvisional = false;
+
+                Logger.Warning(
+                    $"CLOAK RAISED announced at {now:O}. Actor={actor}.");
+            }
+
+            AppendCloakEvent(
+                previousStatus,
+                newStatus,
+                now,
+                null,
+                _canRaiseAtUtc,
+                newStatus == CloakStatus.Disabled
+                    ? "cloak_off_announcement"
+                    : "cloak_on_announcement",
+                "OrgChat.CloakAnnouncement",
+                actor,
+                channelName,
+                rawMessage);
+
+            SaveState();
         }
 
         private void HandleCloakInfo(CloakInfo cloakInfo)
@@ -140,25 +253,20 @@ namespace CityManager
             _status = cloakInfo.CloakState;
             _shieldTimerInSeconds = cloakInfo.ShieldTimerInSeconds;
             _lastObservedUtc = now;
+            _observationSource = "AOTransportSignal.CloakInfo";
 
-            /*
-             * AOSharp's own CanToggleCloak logic treats a positive
-             * ShieldTimerInSeconds as a wait starting when CloakInfo is
-             * received. A zero/negative value is already toggleable.
-             *
-             * For a disabled cloak this therefore gives Manager the
-             * earliest time at which Flipper should be allowed to raise it.
-             */
             if (_status == CloakStatus.Disabled)
             {
                 int waitSeconds = Math.Max(0, _shieldTimerInSeconds);
                 _canRaiseAtUtc = now.AddSeconds(waitSeconds);
                 _raiseDueLogged = false;
+                _raiseTimeIsProvisional = false;
             }
             else
             {
                 _canRaiseAtUtc = null;
                 _raiseDueLogged = false;
+                _raiseTimeIsProvisional = false;
             }
 
             if (stateChanged)
@@ -171,36 +279,18 @@ namespace CityManager
                     now,
                     _shieldTimerInSeconds,
                     _canRaiseAtUtc,
-                    "state_change");
+                    "state_change",
+                    "AOTransportSignal.CloakInfo",
+                    null,
+                    null,
+                    null);
 
-                if (_status == CloakStatus.Disabled)
-                {
-                    Logger.Warning(
-                        $"CLOAK LOWERED observed at {now:O}. " +
-                        $"Server timer={_shieldTimerInSeconds}s. " +
-                        $"Earliest raise={_canRaiseAtUtc:O}.");
-                }
-                else if (_status == CloakStatus.Enabled)
-                {
-                    Logger.Warning(
-                        $"CLOAK RAISED observed at {now:O}. " +
-                        $"Server timer={_shieldTimerInSeconds}s.");
-                }
-                else
-                {
-                    Logger.Information(
-                        $"Cloak state changed {previousStatus} -> {_status} " +
-                        $"at {now:O}.");
-                }
+                Logger.Warning(
+                    $"CloakInfo changed {previousStatus} -> {_status} at {now:O}. " +
+                    $"Server timer={_shieldTimerInSeconds}s.");
             }
             else if (!previousKnown)
             {
-                /*
-                 * On a fresh install/restart the first packet is our
-                 * baseline. If that baseline is Disabled, it still matters:
-                 * schedule the raise from the server timer even though we
-                 * cannot prove that this packet itself represents the flip.
-                 */
                 Logger.Information(
                     $"Initial cloak observation: {_status}, " +
                     $"timer={_shieldTimerInSeconds}s at {now:O}.");
@@ -215,7 +305,11 @@ namespace CityManager
                         now,
                         _shieldTimerInSeconds,
                         _canRaiseAtUtc,
-                        "disabled_baseline");
+                        "disabled_baseline",
+                        "AOTransportSignal.CloakInfo",
+                        null,
+                        null,
+                        null);
                 }
             }
             else
@@ -244,10 +338,20 @@ namespace CityManager
 
             _raiseDueLogged = true;
 
-            Logger.Warning(
-                $"CLOAK RAISE IS NOW DUE. " +
-                $"Earliest raise time was {_canRaiseAtUtc.Value:O}. " +
-                "Flipper may now be asked to raise the cloak.");
+            if (_raiseTimeIsProvisional)
+            {
+                Logger.Warning(
+                    $"CLOAK CHECK IS NOW DUE. " +
+                    $"One-hour provisional time reached at {_canRaiseAtUtc.Value:O}. " +
+                    "Flipper should now inspect the controller and raise only if the server permits it.");
+            }
+            else
+            {
+                Logger.Warning(
+                    $"CLOAK RAISE IS NOW DUE. " +
+                    $"Server-derived earliest raise time was {_canRaiseAtUtc.Value:O}. " +
+                    "Flipper may now be asked to raise the cloak.");
+            }
 
             SaveState();
         }
@@ -300,7 +404,7 @@ namespace CityManager
             string helpMessage =
                 "Available commands:\n" +
                 "help: Display this help message.\n" +
-                "cloak: Show observed cloak state and raise timer.\n" +
+                "cloak: Show observed cloak state and raise/check timer.\n" +
                 "status: Same as cloak.\n";
 
             Client.SendPrivateMessage(senderId, helpMessage);
@@ -312,29 +416,32 @@ namespace CityManager
             {
                 Client.SendPrivateMessage(
                     senderId,
-                    "Cloak = Unknown. No CloakInfo packet has been observed yet.");
+                    "Cloak = Unknown. No cloak event or CloakInfo snapshot has been observed yet.");
                 return;
             }
 
             if (_status == CloakStatus.Disabled && _canRaiseAtUtc.HasValue)
             {
-                TimeSpan remaining =
-                    _canRaiseAtUtc.Value - DateTime.UtcNow;
+                TimeSpan remaining = _canRaiseAtUtc.Value - DateTime.UtcNow;
+
+                string timerKind = _raiseTimeIsProvisional
+                    ? "provisional Flipper check"
+                    : "server-derived raise time";
 
                 if (remaining.TotalSeconds > 0)
                 {
                     Client.SendPrivateMessage(
                         senderId,
                         $"Cloak = Disabled. " +
-                        $"Raise available in {FormatDuration(remaining)}. " +
-                        $"Server timer raw = {_shieldTimerInSeconds}s.");
+                        $"{timerKind} in {FormatDuration(remaining)}. " +
+                        $"Source = {_observationSource}.");
                 }
                 else
                 {
                     Client.SendPrivateMessage(
                         senderId,
-                        $"Cloak = Disabled. Raise available now. " +
-                        $"Server timer raw = {_shieldTimerInSeconds}s.");
+                        $"Cloak = Disabled. {timerKind} is due now. " +
+                        $"Source = {_observationSource}.");
                 }
 
                 return;
@@ -343,7 +450,7 @@ namespace CityManager
             Client.SendPrivateMessage(
                 senderId,
                 $"Cloak = {_status}. " +
-                $"Server timer raw = {_shieldTimerInSeconds}s. " +
+                $"Source = {_observationSource}. " +
                 $"Last observed = " +
                 $"{(_lastObservedUtc.HasValue ? _lastObservedUtc.Value.ToString("O") : "unknown")}.");
         }
@@ -387,12 +494,15 @@ namespace CityManager
                 _lastChangedUtc = state.LastChangedUtc;
                 _canRaiseAtUtc = state.CanRaiseAtUtc;
                 _raiseDueLogged = state.RaiseDueLogged;
+                _raiseTimeIsProvisional = state.RaiseTimeIsProvisional;
+                _observationSource = state.ObservationSource ?? "Unknown";
 
                 Logger.Information(
                     $"Restored cloak state: {_status}, " +
-                    $"timer={_shieldTimerInSeconds}s, " +
                     $"lastObserved={_lastObservedUtc:O}, " +
-                    $"canRaiseAt={_canRaiseAtUtc:O}.");
+                    $"canRaiseAt={_canRaiseAtUtc:O}, " +
+                    $"provisional={_raiseTimeIsProvisional}, " +
+                    $"source={_observationSource}.");
             }
             catch (Exception ex)
             {
@@ -411,7 +521,9 @@ namespace CityManager
                     LastObservedUtc = _lastObservedUtc,
                     LastChangedUtc = _lastChangedUtc,
                     CanRaiseAtUtc = _canRaiseAtUtc,
-                    RaiseDueLogged = _raiseDueLogged
+                    RaiseDueLogged = _raiseDueLogged,
+                    RaiseTimeIsProvisional = _raiseTimeIsProvisional,
+                    ObservationSource = _observationSource
                 };
 
                 string json =
@@ -438,9 +550,13 @@ namespace CityManager
             CloakStatus previousStatus,
             CloakStatus newStatus,
             DateTime occurredUtc,
-            int shieldTimerInSeconds,
+            int? shieldTimerInSeconds,
             DateTime? canRaiseAtUtc,
-            string eventType)
+            string eventType,
+            string source,
+            string actor,
+            string channelName,
+            string rawMessage)
         {
             try
             {
@@ -452,7 +568,10 @@ namespace CityManager
                     NewStatus = newStatus,
                     ShieldTimerInSeconds = shieldTimerInSeconds,
                     CanRaiseAtUtc = canRaiseAtUtc,
-                    Source = "AOTransportSignal.CloakInfo"
+                    Source = source,
+                    Actor = actor,
+                    ChannelName = channelName,
+                    RawMessage = rawMessage
                 };
 
                 string line =
@@ -478,6 +597,8 @@ namespace CityManager
             public DateTime? LastChangedUtc;
             public DateTime? CanRaiseAtUtc;
             public bool RaiseDueLogged;
+            public bool RaiseTimeIsProvisional;
+            public string ObservationSource;
         }
 
         private class CloakEvent
@@ -486,9 +607,12 @@ namespace CityManager
             public DateTime OccurredUtc;
             public CloakStatus PreviousStatus;
             public CloakStatus NewStatus;
-            public int ShieldTimerInSeconds;
+            public int? ShieldTimerInSeconds;
             public DateTime? CanRaiseAtUtc;
             public string Source;
+            public string Actor;
+            public string ChannelName;
+            public string RawMessage;
         }
     }
 }
