@@ -366,6 +366,41 @@ namespace CityManager
                     break;
                 }
 
+                case "spinup":
+                {
+                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
+                    int level;
+                    int count;
+                    if (parts.Length != 3 ||
+                        !int.TryParse(parts[1], out level) ||
+                        !int.TryParse(parts[2], out count) ||
+                        level <= 0 ||
+                        count <= 0)
+                    {
+                        Reply(devTarget, "Usage: spinup [level] [count]");
+                        break;
+                    }
+
+                    BeginBuddiesCommand(devTarget, "spinup", level, count);
+                    break;
+                }
+
+                case "spindown":
+                {
+                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
+                    int count;
+                    if (parts.Length != 2 ||
+                        !int.TryParse(parts[1], out count) ||
+                        count <= 0)
+                    {
+                        Reply(devTarget, "Usage: spindown [count]");
+                        break;
+                    }
+
+                    BeginBuddiesCommand(devTarget, "spindown", null, count);
+                    break;
+                }
+
                 default:
                     Reply(
                         replyTarget,
@@ -381,20 +416,20 @@ namespace CityManager
             if (target.IsOrg)
             {
                 return
-                    "Commands: #help, #cloak, #wakeup [level] [index], #sleep [index]. " +
-                    "Buddy control output goes to Apcmanager private.";
+                    "Commands: #help, #cloak, #wakeup [level] [index], #sleep [index], " +
+                    "#spinup [level] [count], #spindown [count]. Buddy control output goes to Apcmanager private.";
             }
 
             if (target.IsDev)
             {
                 return
-                    "Dev: help, cloak, status, probe, wakeup [level] [index], sleep [index]. " +
-                    "# is optional here.";
+                    "Dev: help, cloak, status, probe, wakeup [level] [index], sleep [index], " +
+                    "spinup [level] [count], spindown [count]. # is optional here.";
             }
 
             return
-                "Commands: help, cloak, wakeup [level] [index], sleep [index]. " +
-                "Buddy control output goes to Apcmanager private.";
+                "Commands: help, cloak, wakeup [level] [index], sleep [index], " +
+                "spinup [level] [count], spindown [count]. Buddy control output goes to Apcmanager private.";
         }
 
         private void BeginFlipperProbe(ReplyTarget target)
@@ -470,12 +505,22 @@ namespace CityManager
                         Index = index
                     };
 
+                    bool usesCount =
+                        string.Equals(command, "spinup", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(command, "spindown", StringComparison.OrdinalIgnoreCase);
+
+                    string quantity = usesCount
+                        ? $"count={index}"
+                        : $"index={index}";
+
                     string shortId = ShortId(request.Id);
-                    Logger.Information($"IPC -> Buddies {request.Id}: {command} level={level} index={index}");
+                    Logger.Information(
+                        $"IPC -> Buddies {request.Id}: {command} level={level} {quantity}");
+
                     DevTrace(
                         level.HasValue
-                            ? $"BUDDIES -> {command} level={level.Value} index={index} [{shortId}]"
-                            : $"BUDDIES -> {command} index={index} [{shortId}]");
+                            ? $"BUDDIES -> {command} level={level.Value} {quantity} [{shortId}]"
+                            : $"BUDDIES -> {command} {quantity} [{shortId}]");
 
                     WorkerResponse response = SendWorkerRequest(
                         BuddiesPipeName,
