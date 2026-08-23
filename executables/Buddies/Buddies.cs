@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Threading;
@@ -15,6 +16,7 @@ using Serilog.Core;
 public class PluginLoader
 {
     private const string PipeName = "citydwellers-buddies";
+    private const int WakeupTimeoutMs = 20000;
 
     private static readonly object ActiveLock = new object();
     private static readonly Dictionary<int, ActiveBuddy> ActiveBuddies =
@@ -228,6 +230,9 @@ public class PluginLoader
 
             string username = _config.AccountPrefix + index;
             string character = BuildCharacterName(level, index);
+            string readyPath = GetReadyPath(character);
+
+            DeleteReadyMarker(readyPath);
 
             Logger logger =
                 new LoggerConfiguration()
@@ -254,6 +259,30 @@ public class PluginLoader
 
                 domain.Start();
 
+                Console.WriteLine(
+                    $"Buddy domain started; waiting for {character} to reach InPlay...");
+
+                if (!WaitForReady(character, readyPath, WakeupTimeoutMs))
+                {
+                    Console.WriteLine(
+                        $"TIMEOUT waiting for {character} to reach InPlay.");
+
+                    try
+                    {
+                        domain.Unload();
+                    }
+                    catch
+                    {
+                    }
+
+                    domain = null;
+                    DeleteReadyMarker(readyPath);
+
+                    return Fail(
+                        request,
+                        $"{character} did not reach InPlay within {WakeupTimeoutMs / 1000} seconds.");
+                }
+
                 ActiveBuddies[index] = new ActiveBuddy
                 {
                     Index = index,
@@ -265,7 +294,7 @@ public class PluginLoader
                 domain = null;
 
                 Console.WriteLine(
-                    $"Buddy domain started: {character} (index {index}).");
+                    $"Buddy ready: {character} reached InPlay (index {index}).");
 
                 return Ok(
                     request,
@@ -286,6 +315,8 @@ public class PluginLoader
                     {
                     }
                 }
+
+                DeleteReadyMarker(readyPath);
 
                 Console.WriteLine(
                     $"Failed starting buddy {character}: {ex}");
@@ -325,6 +356,7 @@ public class PluginLoader
             {
                 buddy.Domain.Unload();
                 ActiveBuddies.Remove(index);
+                DeleteReadyMarker(GetReadyPath(buddy.Character));
 
                 Console.WriteLine(
                     $"Buddy unloaded: {buddy.Character}.");
@@ -371,6 +403,50 @@ public class PluginLoader
         return $"Apcr{level}{index:D2}";
     }
 
+    private static string GetReadyPath(string character)
+    {
+        return Path.Combine(
+            _baseDir,
+            $"citybuddies-ready-{character}.ready");
+    }
+
+    private static bool WaitForReady(string character, string readyPath, int timeoutMs)
+    {
+        var timer = Stopwatch.StartNew();
+
+        while (timer.ElapsedMilliseconds < timeoutMs)
+        {
+            try
+            {
+                if (File.Exists(readyPath))
+                {
+                    string marker = File.ReadAllText(readyPath);
+                    if (marker.StartsWith(character + "|", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+            catch
+            {
+            }
+
+            Thread.Sleep(50);
+        }
+
+        return false;
+    }
+
+    private static void DeleteReadyMarker(string readyPath)
+    {
+        try
+        {
+            if (File.Exists(readyPath))
+                File.Delete(readyPath);
+        }
+        catch
+        {
+        }
+    }
+
     private static void ShutdownAll()
     {
         lock (ActiveLock)
@@ -381,6 +457,7 @@ public class PluginLoader
                 {
                     Console.WriteLine($"Unloading {buddy.Character}...");
                     buddy.Domain.Unload();
+                    DeleteReadyMarker(GetReadyPath(buddy.Character));
                 }
                 catch (Exception ex)
                 {
