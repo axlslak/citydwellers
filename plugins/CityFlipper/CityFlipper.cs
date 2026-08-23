@@ -109,10 +109,10 @@ namespace CityFlipper
             Logger.Information(
                 $"Opening City Controller at {distance:F2} m.");
 
-            Client.Send(new LookAtMessage
-            {
-                Target = controller.Identity
-            });
+            //Client.Send(new LookAtMessage
+            //{
+            //    Target = controller.Identity
+            //});
 
             Client.Send(new GenericCmdMessage
             {
