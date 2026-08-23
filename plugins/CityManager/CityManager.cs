@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Chat;
@@ -24,7 +22,9 @@ namespace CityManager
         private const string BuddiesPipeName = "citydwellers-buddies";
         private const int WorkerConnectTimeoutMs = 1000;
         private const string OrgChannelName = "Athen Paladins";
-        private const string OrgCommandPrefix = "#";
+        private const string CommandPrefix = "#";
+        private const string DeveloperCharacter = "Kavem";
+        private const int DevBacklogLimit = 25;
 
         private static readonly HashSet<string> AllowedCommandSenders =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -34,11 +34,17 @@ namespace CityManager
             };
 
         private readonly object _stateSync = new object();
+        private readonly object _devSync = new object();
+        private readonly Queue<string> _devBacklog = new Queue<string>();
 
         private string _pluginDir;
         private string _statePath;
         private string _eventsPath;
         private bool _charInPlay;
+
+        private bool _devInviteSent;
+        private bool _devChannelConfirmed;
+        private DateTime _nextDevLookupUtc = DateTime.MinValue;
 
         private CloakStatus _status = CloakStatus.Unknown;
         private int _shieldTimerInSeconds;
@@ -55,7 +61,7 @@ namespace CityManager
             _statePath = Path.Combine(_pluginDir, "citymanager-cloak-state.json");
             _eventsPath = Path.Combine(_pluginDir, "citymanager-cloak-events.jsonl");
 
-            Logger.Information("CityManager cloak observer initialized.");
+            Logger.Information("CityManager initialized.");
             LoadState();
             Client.MessageReceived += MessageReceived;
         }
@@ -65,8 +71,14 @@ namespace CityManager
             try
             {
                 Client.MessageReceived -= MessageReceived;
-                Client.Chat.PrivateMessageReceived -= HandlePrivateMessage;
-                Client.Chat.GroupMessageReceived -= HandleGroupMessage;
+
+                if (Client.Chat != null)
+                {
+                    Client.Chat.PrivateMessageReceived -= HandlePrivateMessage;
+                    Client.Chat.GroupMessageReceived -= HandleGroupMessage;
+                    Client.Chat.PrivateGroupMessageReceived -= HandlePrivateGroupMessage;
+                }
+
                 Client.OnUpdate -= Tick;
                 SaveState();
             }
@@ -103,6 +115,7 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Error($"CityManager message error: {ex}");
+                DevTrace($"ERROR manager message: {ex.Message}");
             }
         }
 
@@ -112,11 +125,16 @@ namespace CityManager
                 return;
 
             _charInPlay = true;
-            Logger.Information("CityManager is in play and observing cloak packets, tells, and org chat.");
+            Logger.Information("CityManager is in play and observing cloak packets, tells, org chat, and dev private chat.");
 
             Client.Chat.PrivateMessageReceived += HandlePrivateMessage;
             Client.Chat.GroupMessageReceived += HandleGroupMessage;
+            Client.Chat.PrivateGroupMessageReceived += HandlePrivateGroupMessage;
             Client.OnUpdate += Tick;
+
+            DevTrace("MANAGER online. Dev telemetry initialized.");
+            _nextDevLookupUtc = DateTime.UtcNow;
+            TryInviteDeveloper();
         }
 
         private void HandlePrivateMessage(object sender, PrivateMessage msg)
@@ -149,6 +167,7 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Error($"Error handling private message: {ex}");
+                DevTrace($"ERROR tell handler: {ex.Message}");
             }
         }
 
@@ -166,16 +185,16 @@ namespace CityManager
                     return;
 
                 string text = msg.Message.TrimStart();
-                bool isCommand = text.StartsWith(OrgCommandPrefix, StringComparison.Ordinal);
+                bool isCommand = text.StartsWith(CommandPrefix, StringComparison.Ordinal);
 
                 if (!isCommand)
                 {
-                    // Keep unusual AO/server traffic visible while suppressing ordinary org chatter.
                     if (string.Equals(msg.SenderName, "<Unknown>", StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(msg.SenderName, "Unknown", StringComparison.OrdinalIgnoreCase))
                     {
                         Logger.Information(
                             $"ORG SYSTEM [{msg.ChannelName}] {msg.SenderName}: {msg.Message}");
+                        DevTrace($"CITY RAW: {msg.Message}");
                     }
 
                     return;
@@ -184,16 +203,54 @@ namespace CityManager
                 Logger.Information(
                     $"ORG COMMAND [{msg.ChannelName}] {msg.SenderName}: {msg.Message}");
 
-                string commandText = text.Substring(OrgCommandPrefix.Length).TrimStart();
+                string commandText = text.Substring(CommandPrefix.Length).TrimStart();
 
                 ProcessCommand(
                     msg.SenderName,
                     commandText,
-                    ReplyTarget.ForGroup(msg.SenderId, msg.ChannelId, msg.ChannelName));
+                    ReplyTarget.ForOrg(msg.SenderId, msg.ChannelId, msg.ChannelName));
             }
             catch (Exception ex)
             {
                 Logger.Error($"Error handling group message: {ex}");
+                DevTrace($"ERROR org handler: {ex.Message}");
+            }
+        }
+
+        private void HandlePrivateGroupMessage(object sender, PrivateGroupMsg msg)
+        {
+            try
+            {
+                if (msg == null || string.IsNullOrWhiteSpace(msg.Message) || Client.Chat == null)
+                    return;
+
+                if (msg.ChannelId != Client.Chat.CharId)
+                    return;
+
+                if (!string.Equals(msg.SenderName, DeveloperCharacter, StringComparison.OrdinalIgnoreCase))
+                {
+                    Logger.Warning($"Ignoring private-channel traffic from unauthorized sender {msg.SenderName}.");
+                    return;
+                }
+
+                ConfirmDevChannel();
+
+                string text = msg.Message.TrimStart();
+                if (!text.StartsWith(CommandPrefix, StringComparison.Ordinal))
+                    return;
+
+                string commandText = text.Substring(CommandPrefix.Length).TrimStart();
+                Logger.Information($"DEV COMMAND {msg.SenderName}: {msg.Message}");
+
+                ProcessCommand(
+                    msg.SenderName,
+                    commandText,
+                    ReplyTarget.ForDev(msg.SenderId, msg.ChannelId));
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Error handling private group message: {ex}");
+                DevTrace($"ERROR dev handler: {ex.Message}");
             }
         }
 
@@ -224,7 +281,12 @@ namespace CityManager
             if (string.IsNullOrWhiteSpace(rawCommand))
                 return;
 
-            if (!AllowedCommandSenders.Contains(senderName ?? string.Empty))
+            if (replyTarget.IsDev)
+            {
+                if (!string.Equals(senderName, DeveloperCharacter, StringComparison.OrdinalIgnoreCase))
+                    return;
+            }
+            else if (!AllowedCommandSenders.Contains(senderName ?? string.Empty))
             {
                 Logger.Warning($"Ignoring command from unauthorized sender {senderName}.");
                 Reply(replyTarget, "You are not authorized to use this bot yet.");
@@ -237,13 +299,22 @@ namespace CityManager
 
             string command = parts[0].ToLowerInvariant();
 
+            if (replyTarget.IsOrg && command != "help" && command != "cloak")
+            {
+                Reply(replyTarget, $"Unknown command '{parts[0]}'. Try #help.");
+                return;
+            }
+
             switch (command)
             {
                 case "help":
-                    Reply(replyTarget, BuildHelpMessage(replyTarget.IsGroup));
+                    Reply(replyTarget, BuildHelpMessage(replyTarget));
                     break;
 
                 case "cloak":
+                    BeginFlipperProbe(replyTarget);
+                    break;
+
                 case "status":
                     Reply(replyTarget, BuildCloakStatus());
                     break;
@@ -261,7 +332,7 @@ namespace CityManager
                         !int.TryParse(parts[1], out level) ||
                         !int.TryParse(parts[2], out index))
                     {
-                        Reply(replyTarget, "Usage: wakeup <level> <index>");
+                        Reply(replyTarget, "Usage: wakeup [level] [index]");
                         break;
                     }
 
@@ -274,7 +345,7 @@ namespace CityManager
                     int index;
                     if (parts.Length != 2 || !int.TryParse(parts[1], out index))
                     {
-                        Reply(replyTarget, "Usage: sleep <index>");
+                        Reply(replyTarget, "Usage: sleep [index]");
                         break;
                     }
 
@@ -283,25 +354,30 @@ namespace CityManager
                 }
 
                 default:
-                    Reply(replyTarget, $"Unknown command '{parts[0]}'. Try {(replyTarget.IsGroup ? "#help" : "help")}.");
+                    Reply(replyTarget, $"Unknown command '{parts[0]}'. Try #help.");
                     break;
             }
         }
 
-        private string BuildHelpMessage(bool group)
+        private string BuildHelpMessage(ReplyTarget target)
         {
-            if (group)
+            if (target.IsOrg)
+                return "Commands: #help, #cloak.";
+
+            if (target.IsDev)
             {
-                return "Commands: #help, #status/#cloak, #probe, #wakeup <level> <index>, #sleep <index>.";
+                return
+                    "Dev: #help, #cloak, #status, #probe, " +
+                    "#wakeup [level] [index], #sleep [index].";
             }
 
             return
                 "Available commands:\n" +
                 "help: Display this help message.\n" +
-                "status/cloak: Show Manager's observed cloak state.\n" +
-                "probe: Ask Flipper for a fresh City Controller reading.\n" +
-                "wakeup <level> <index>: Start one buddy.\n" +
-                "sleep <index>: Unload one buddy.\n";
+                "cloak/probe: Ask Flipper for a fresh City Controller reading.\n" +
+                "status: Show Manager's remembered cloak state.\n" +
+                "wakeup [level] [index]: Start one buddy.\n" +
+                "sleep [index]: Unload one buddy.\n";
         }
 
         private void BeginFlipperProbe(ReplyTarget target)
@@ -316,7 +392,9 @@ namespace CityManager
                         Command = "observe"
                     };
 
+                    string shortId = ShortId(request.Id);
                     Logger.Information($"IPC -> Flipper {request.Id}: observe");
+                    DevTrace($"FLIPPER -> observe [{shortId}]");
 
                     WorkerResponse response = SendWorkerRequest(
                         FlipperPipeName,
@@ -326,7 +404,8 @@ namespace CityManager
                     if (!response.Ok)
                     {
                         Logger.Warning($"IPC <- Flipper {request.Id}: FAIL {response.Message}");
-                        Reply(target, $"Flipper probe failed: {response.Message}");
+                        DevTrace($"FLIPPER FAIL [{shortId}]: {response.Message}");
+                        Reply(target, $"Cloak check failed: {response.Message}");
                         return;
                     }
 
@@ -340,16 +419,18 @@ namespace CityManager
                         : "unknown";
 
                     string reply =
-                        $"Flipper: Cloak = {response.CloakState ?? "Unknown"}. " +
+                        $"Cloak = {response.CloakState ?? "Unknown"}. " +
                         $"Shield timer = {timerText}. Charge = {chargeText}.";
 
                     Logger.Information($"IPC <- Flipper {request.Id}: {reply}");
+                    DevTrace($"FLIPPER OK [{shortId}]: {reply}");
                     Reply(target, reply);
                 }
                 catch (Exception ex)
                 {
                     Logger.Warning($"Flipper IPC failed: {ex.Message}");
-                    Reply(target, $"Flipper service unavailable: {ex.Message}");
+                    DevTrace($"FLIPPER ERROR: {ex.Message}");
+                    Reply(target, $"Cloak check unavailable: {ex.Message}");
                 }
             });
         }
@@ -368,7 +449,12 @@ namespace CityManager
                         Index = index
                     };
 
+                    string shortId = ShortId(request.Id);
                     Logger.Information($"IPC -> Buddies {request.Id}: {command} level={level} index={index}");
+                    DevTrace(
+                        level.HasValue
+                            ? $"BUDDIES -> {command} level={level.Value} index={index} [{shortId}]"
+                            : $"BUDDIES -> {command} index={index} [{shortId}]");
 
                     WorkerResponse response = SendWorkerRequest(
                         BuddiesPipeName,
@@ -378,6 +464,9 @@ namespace CityManager
                     Logger.Information(
                         $"IPC <- Buddies {request.Id}: {(response.Ok ? "OK" : "FAIL")} {response.Message}");
 
+                    DevTrace(
+                        $"BUDDIES {(response.Ok ? "OK" : "FAIL")} [{shortId}]: {response.Message}");
+
                     Reply(target, response.Ok
                         ? $"Buddies: {response.Message}"
                         : $"Buddies failed: {response.Message}");
@@ -385,6 +474,7 @@ namespace CityManager
                 catch (Exception ex)
                 {
                     Logger.Warning($"Buddies IPC failed: {ex.Message}");
+                    DevTrace($"BUDDIES ERROR: {ex.Message}");
                     Reply(target, $"Buddies service unavailable: {ex.Message}");
                 }
             });
@@ -417,26 +507,33 @@ namespace CityManager
         {
             try
             {
-                if (!target.IsGroup)
+                if (target.IsDev)
                 {
-                    Client.SendPrivateMessage(target.SenderId, text);
+                    SendDevMessage(text);
                     return;
                 }
 
-                if (TrySendGroupMessage(target.ChannelId, target.ChannelName, text))
-                    return;
+                if (target.IsOrg)
+                {
+                    if (TrySendOrgMessage(text))
+                        return;
 
-                Logger.Warning("Unable to send org reply; falling back to tell.");
-                if (target.SenderId != 0)
-                    Client.SendPrivateMessage(target.SenderId, "[org reply fallback] " + text);
+                    Logger.Warning("Unable to send org reply; falling back to tell.");
+                    if (target.SenderId != 0)
+                        Client.SendPrivateMessage(target.SenderId, "[org reply fallback] " + text);
+                    return;
+                }
+
+                Client.SendPrivateMessage(target.SenderId, text);
             }
             catch (Exception ex)
             {
                 Logger.Error($"Failed sending command reply: {ex}");
+                DevTrace($"ERROR reply: {ex.Message}");
             }
         }
 
-        private bool TrySendGroupMessage(object channelId, string channelName, string text)
+        private bool TrySendOrgMessage(string text)
         {
             try
             {
@@ -447,106 +544,130 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Warning($"Client.SendOrgMessage failed: {ex.Message}");
+                DevTrace($"ORG SEND ERROR: {ex.Message}");
                 return false;
             }
         }
 
-        private bool TryInvokeGroupSender(Type type, object instance, object channelId, string channelName, string text)
+        private void TryInviteDeveloper()
         {
-            BindingFlags flags = BindingFlags.Public |
-                (instance == null ? BindingFlags.Static : BindingFlags.Instance);
+            if (_devInviteSent || Client.Chat == null)
+                return;
 
-            MethodInfo[] methods = type.GetMethods(flags)
-                .Where(m =>
-                    m.Name.IndexOf("send", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                    m.Name.IndexOf("private", StringComparison.OrdinalIgnoreCase) < 0 &&
-                    (m.Name.IndexOf("group", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     m.Name.IndexOf("channel", StringComparison.OrdinalIgnoreCase) >= 0))
-                .OrderBy(m =>
-                    m.Name.Equals("SendPublicGroupMessage", StringComparison.OrdinalIgnoreCase) ? 0 :
-                    m.Name.Equals("SendGroupMessage", StringComparison.OrdinalIgnoreCase) ? 1 :
-                    m.Name.Equals("SendChannelMessage", StringComparison.OrdinalIgnoreCase) ? 2 :
-                    3)
-                .ToArray();
+            DateTime now = DateTime.UtcNow;
+            if (now < _nextDevLookupUtc)
+                return;
 
-            foreach (MethodInfo method in methods)
+            uint developerId;
+            if (!Client.Chat.NameToIdMap.TryGetValue(DeveloperCharacter, out developerId))
             {
-                object[] args;
-                if (!TryBuildGroupSendArguments(method.GetParameters(), channelId, channelName, text, out args))
-                    continue;
-
                 try
                 {
-                    method.Invoke(instance, args);
-                    Logger.Information($"Org reply sent through {type.FullName}.{method.Name}.");
-                    return true;
-                }
-                catch (TargetInvocationException ex)
-                {
-                    Logger.Warning($"Org send candidate {type.FullName}.{method.Name} failed: {ex.InnerException?.Message ?? ex.Message}");
+                    Client.Chat.RequestCharacterId(DeveloperCharacter);
+                    _nextDevLookupUtc = now.AddSeconds(2);
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Org send candidate {type.FullName}.{method.Name} failed: {ex.Message}");
+                    Logger.Warning($"Developer lookup failed: {ex.Message}");
+                    _nextDevLookupUtc = now.AddSeconds(5);
                 }
+
+                return;
             }
 
-            return false;
+            try
+            {
+                Client.Chat.InvitePrivateGroup(developerId);
+                _devInviteSent = true;
+                Logger.Information($"Dev private-channel invite sent to {DeveloperCharacter} ({developerId}).");
+                DevTrace($"DEV invite sent to {DeveloperCharacter}.");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Dev private-channel invite failed: {ex.Message}");
+                _nextDevLookupUtc = now.AddSeconds(5);
+            }
         }
 
-        private bool TryBuildGroupSendArguments(
-            ParameterInfo[] parameters,
-            object channelId,
-            string channelName,
-            string text,
-            out object[] args)
+        private void ConfirmDevChannel()
         {
-            args = null;
-            if (parameters.Length != 2)
-                return false;
+            bool shouldFlush = false;
 
-            args = new object[2];
-            int stringCount = parameters.Count(p => p.ParameterType == typeof(string));
-
-            for (int i = 0; i < parameters.Length; i++)
+            lock (_devSync)
             {
-                ParameterInfo p = parameters[i];
-                string pname = (p.Name ?? string.Empty).ToLowerInvariant();
-
-                if (p.ParameterType == typeof(string))
+                if (!_devChannelConfirmed)
                 {
-                    if (stringCount == 2)
-                    {
-                        if (pname.Contains("channel") || pname.Contains("group"))
-                            args[i] = channelName;
-                        else if (pname.Contains("message") || pname.Contains("text") || pname.Contains("msg"))
-                            args[i] = text;
-                        else
-                            return false;
-                    }
-                    else
-                    {
-                        args[i] = text;
-                    }
-
-                    continue;
-                }
-
-                if (channelId == null)
-                    return false;
-
-                try
-                {
-                    Type targetType = Nullable.GetUnderlyingType(p.ParameterType) ?? p.ParameterType;
-                    args[i] = Convert.ChangeType(channelId, targetType, CultureInfo.InvariantCulture);
-                }
-                catch
-                {
-                    return false;
+                    _devChannelConfirmed = true;
+                    shouldFlush = true;
                 }
             }
 
-            return true;
+            if (!shouldFlush)
+                return;
+
+            SendDevMessage("DEV channel confirmed. Flushing buffered telemetry.");
+            FlushDevBacklog();
+        }
+
+        private void DevTrace(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            lock (_devSync)
+            {
+                if (!_devChannelConfirmed)
+                {
+                    while (_devBacklog.Count >= DevBacklogLimit)
+                        _devBacklog.Dequeue();
+
+                    _devBacklog.Enqueue(text);
+                    return;
+                }
+            }
+
+            SendDevMessage(text);
+        }
+
+        private void FlushDevBacklog()
+        {
+            while (true)
+            {
+                string message;
+
+                lock (_devSync)
+                {
+                    if (_devBacklog.Count == 0)
+                        return;
+
+                    message = _devBacklog.Dequeue();
+                }
+
+                SendDevMessage(message);
+            }
+        }
+
+        private void SendDevMessage(string text)
+        {
+            try
+            {
+                if (Client.Chat == null)
+                    return;
+
+                Client.Chat.SendPrivateGroupMessage(Client.Chat.CharId, text);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Dev private-channel send failed: {ex.Message}");
+            }
+        }
+
+        private string ShortId(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+                return "no-id";
+
+            return id.Length <= 8 ? id : id.Substring(0, 8);
         }
 
         private void HandleCloakAnnouncement(
@@ -570,6 +691,7 @@ namespace CityManager
                 _canRaiseAtUtc = now.AddSeconds(ProvisionalCloakDownSeconds);
                 _raiseTimeIsProvisional = true;
                 Logger.Warning($"CLOAK LOWERED announced at {now:O}. Actor={actor}. Provisional Flipper check={_canRaiseAtUtc:O}.");
+                DevTrace($"CITY cloak DISABLED by {actor}; provisional check in 1h.");
             }
             else
             {
@@ -577,6 +699,7 @@ namespace CityManager
                 _canRaiseAtUtc = null;
                 _raiseTimeIsProvisional = false;
                 Logger.Warning($"CLOAK RAISED announced at {now:O}. Actor={actor}.");
+                DevTrace($"CITY cloak ENABLED by {actor}.");
             }
 
             AppendCloakEvent(
@@ -634,10 +757,12 @@ namespace CityManager
                     null,
                     null);
                 Logger.Warning($"CloakInfo changed {previousStatus} -> {_status} at {now:O}. Server timer={_shieldTimerInSeconds}s.");
+                DevTrace($"CITY CloakInfo changed {previousStatus} -> {_status}; timer={_shieldTimerInSeconds}s.");
             }
             else if (!previousKnown)
             {
                 Logger.Information($"Initial cloak observation: {_status}, timer={_shieldTimerInSeconds}s at {now:O}.");
+                DevTrace($"CITY initial cloak={_status}; timer={_shieldTimerInSeconds}s.");
             }
 
             SaveState();
@@ -649,6 +774,7 @@ namespace CityManager
             if (!Enum.TryParse(response.CloakState, true, out parsedStatus))
             {
                 Logger.Warning($"Flipper returned unknown cloak state '{response.CloakState}'.");
+                DevTrace($"FLIPPER WARN: unknown cloak state '{response.CloakState}'.");
                 return;
             }
 
@@ -715,6 +841,8 @@ namespace CityManager
 
         private void Tick(object sender, double e)
         {
+            TryInviteDeveloper();
+
             if (_status != CloakStatus.Disabled || !_canRaiseAtUtc.HasValue || _raiseDueLogged)
                 return;
 
@@ -722,10 +850,12 @@ namespace CityManager
                 return;
 
             _raiseDueLogged = true;
-            Logger.Warning(
-                _raiseTimeIsProvisional
-                    ? $"CLOAK CHECK IS NOW DUE. Provisional time reached at {_canRaiseAtUtc.Value:O}."
-                    : $"CLOAK RAISE IS NOW DUE. Server-derived earliest raise time was {_canRaiseAtUtc.Value:O}.");
+            string message = _raiseTimeIsProvisional
+                ? $"CLOAK CHECK IS NOW DUE. Provisional time reached at {_canRaiseAtUtc.Value:O}."
+                : $"CLOAK RAISE IS NOW DUE. Server-derived earliest raise time was {_canRaiseAtUtc.Value:O}.";
+
+            Logger.Warning(message);
+            DevTrace(message);
             SaveState();
         }
 
@@ -804,6 +934,7 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Error($"Failed saving cloak state: {ex}");
+                DevTrace($"ERROR save state: {ex.Message}");
             }
         }
 
@@ -840,29 +971,55 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Error($"Failed appending cloak event: {ex}");
+                DevTrace($"ERROR append cloak event: {ex.Message}");
             }
+        }
+
+        private enum ReplyKind
+        {
+            Tell,
+            Org,
+            Dev
         }
 
         private class ReplyTarget
         {
-            public bool IsGroup;
+            public ReplyKind Kind;
             public uint SenderId;
             public object ChannelId;
             public string ChannelName;
 
-            public static ReplyTarget ForTell(uint senderId)
-            {
-                return new ReplyTarget { SenderId = senderId };
-            }
+            public bool IsOrg => Kind == ReplyKind.Org;
+            public bool IsDev => Kind == ReplyKind.Dev;
 
-            public static ReplyTarget ForGroup(uint senderId, object channelId, string channelName)
+            public static ReplyTarget ForTell(uint senderId)
             {
                 return new ReplyTarget
                 {
-                    IsGroup = true,
+                    Kind = ReplyKind.Tell,
+                    SenderId = senderId
+                };
+            }
+
+            public static ReplyTarget ForOrg(uint senderId, object channelId, string channelName)
+            {
+                return new ReplyTarget
+                {
+                    Kind = ReplyKind.Org,
                     SenderId = senderId,
                     ChannelId = channelId,
                     ChannelName = channelName
+                };
+            }
+
+            public static ReplyTarget ForDev(uint senderId, object channelId)
+            {
+                return new ReplyTarget
+                {
+                    Kind = ReplyKind.Dev,
+                    SenderId = senderId,
+                    ChannelId = channelId,
+                    ChannelName = "Apcmanager private"
                 };
             }
         }
