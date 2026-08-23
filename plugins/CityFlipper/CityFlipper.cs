@@ -12,7 +12,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 
 namespace CityFlipper
 {
@@ -43,6 +42,18 @@ namespace CityFlipper
 
         private Dictionary<string, string> _cityInfo = new Dictionary<string, string>();
         private Dictionary<string, string> _cloakInfo = new Dictionary<string, string>();
+        private Dictionary<string, string> _postToggleCloakInfo = new Dictionary<string, string>();
+
+        private bool _toggleRequested;
+        private bool _toggleSent;
+        private bool _gotPostToggleCloakInfo;
+        private string _toggleBlockedReason;
+        private double _toggleSentMs;
+        private double _postToggleCloakInfoMs;
+        private string _initialCloakState;
+        private int _initialShieldTimerInSeconds;
+        private string _postToggleCloakState;
+        private int _postToggleShieldTimerInSeconds;
 
         private bool _resultWritten;
 
@@ -50,7 +61,18 @@ namespace CityFlipper
         {
             _pluginDir = pluginDir;
 
+            string toggleRequestPath = Path.Combine(
+                _pluginDir,
+                "cityflipper-toggle.request");
+
+            _toggleRequested = File.Exists(toggleRequestPath);
+
             Logger.Information("CityFlipper diagnostic probe initialized.");
+            Logger.Information(
+                _toggleRequested
+                    ? "Mode: TOGGLE (one guarded cloak toggle requested)."
+                    : "Mode: OBSERVE (read-only).");
+
             _timer.Start();
 
             Client.MessageReceived += MessageReceived;
@@ -239,17 +261,42 @@ namespace CityFlipper
                     case AOSignalAction.CloakInfo:
                     {
                         double now = _timer.Elapsed.TotalMilliseconds;
-                        object value = signal.TransportSignalMessage;
+                        var cloakInfo = (CloakInfo)signal.TransportSignalMessage;
+                        bool postToggle;
 
                         lock (_sync)
                         {
-                            _cloakInfoMs = now;
-                            _cloakInfo = DumpObject(value);
-                            _gotCloakInfo = true;
+                            postToggle = _toggleSent && _gotCloakInfo;
+
+                            if (!postToggle)
+                            {
+                                _cloakInfoMs = now;
+                                _cloakInfo = DumpObject(cloakInfo);
+                                _initialCloakState = cloakInfo.CloakState.ToString();
+                                _initialShieldTimerInSeconds = cloakInfo.ShieldTimerInSeconds;
+                                _gotCloakInfo = true;
+                            }
+                            else if (!_gotPostToggleCloakInfo)
+                            {
+                                _postToggleCloakInfoMs = now;
+                                _postToggleCloakInfo = DumpObject(cloakInfo);
+                                _postToggleCloakState = cloakInfo.CloakState.ToString();
+                                _postToggleShieldTimerInSeconds = cloakInfo.ShieldTimerInSeconds;
+                                _gotPostToggleCloakInfo = true;
+                            }
                         }
 
-                        Logger.Information($"CloakInfo received after {now:F0} ms.");
-                        LogDictionary("CLOAK INFO", _cloakInfo);
+                        if (!postToggle)
+                        {
+                            Logger.Information($"CloakInfo received after {now:F0} ms.");
+                            LogDictionary("CLOAK INFO", _cloakInfo);
+                        }
+                        else
+                        {
+                            Logger.Information(
+                                $"Post-toggle CloakInfo received after {now:F0} ms.");
+                            LogDictionary("POST-TOGGLE CLOAK INFO", _postToggleCloakInfo);
+                        }
 
                         TryFinish();
                         break;
@@ -281,6 +328,87 @@ namespace CityFlipper
             {
                 Logger.Error($"Error processing AOTransportSignal: {ex}");
             }
+        }
+
+        private void TryFinish()
+        {
+            bool sendToggle = false;
+            bool writeResult = false;
+
+            lock (_sync)
+            {
+                if (_resultWritten)
+                    return;
+
+                if (!_gotCityInfo || !_gotCloakInfo || !_gotChargeInfo)
+                    return;
+
+                if (!_toggleRequested)
+                {
+                    _resultWritten = true;
+                    writeResult = true;
+                }
+                else if (!_toggleSent)
+                {
+                    if (_initialShieldTimerInSeconds > 0)
+                    {
+                        _toggleBlockedReason =
+                            $"Shield timer is {_initialShieldTimerInSeconds} seconds; " +
+                            "cloak is not currently toggleable.";
+
+                        _resultWritten = true;
+                        writeResult = true;
+                    }
+                    else
+                    {
+                        _toggleSent = true;
+                        _toggleSentMs = _timer.Elapsed.TotalMilliseconds;
+                        sendToggle = true;
+                    }
+                }
+                else
+                {
+                    if (!_gotPostToggleCloakInfo)
+                        return;
+
+                    _resultWritten = true;
+                    writeResult = true;
+                }
+            }
+
+            if (sendToggle)
+            {
+                try
+                {
+                    Logger.Warning(
+                        $"Sending ONE cloak toggle. " +
+                        $"Pre-state={_initialCloakState}, " +
+                        $"ShieldTimerInSeconds={_initialShieldTimerInSeconds}.");
+
+                    Client.Send(new ToggleCloakMessage
+                    {
+                        Unknown1 = 49152
+                    });
+
+                    Logger.Warning("Cloak toggle packet sent; waiting for post-toggle CloakInfo.");
+                }
+                catch (Exception ex)
+                {
+                    lock (_sync)
+                    {
+                        _toggleBlockedReason = $"Failed to send toggle packet: {ex.Message}";
+                        _resultWritten = true;
+                    }
+
+                    Logger.Error($"Failed sending cloak toggle: {ex}");
+                    WriteResult();
+                }
+
+                return;
+            }
+
+            if (writeResult)
+                WriteResult();
         }
 
         private Dictionary<string, string> DumpObject(object value)
@@ -340,25 +468,18 @@ namespace CityFlipper
             Logger.Information("====================");
         }
 
-        private void TryFinish()
-        {
-            lock (_sync)
-            {
-                if (_resultWritten)
-                    return;
-
-                if (!_gotCityInfo || !_gotCloakInfo || !_gotChargeInfo)
-                    return;
-
-                _resultWritten = true;
-                WriteResult();
-            }
-        }
-
         private void WriteResult()
         {
             try
             {
+                bool toggleSucceeded =
+                    _toggleSent &&
+                    _gotPostToggleCloakInfo &&
+                    !string.Equals(
+                        _initialCloakState,
+                        _postToggleCloakState,
+                        StringComparison.OrdinalIgnoreCase);
+
                 var result = new FlipperResult
                 {
                     Character = Client.CharacterName,
@@ -369,7 +490,19 @@ namespace CityFlipper
                     InitToChargeInfoMs = _chargeInfoMs,
                     ControllerCharge = _controllerCharge,
                     CityInfo = _cityInfo,
-                    CloakInfo = _cloakInfo
+                    CloakInfo = _cloakInfo,
+
+                    ToggleRequested = _toggleRequested,
+                    ToggleSent = _toggleSent,
+                    ToggleSucceeded = toggleSucceeded,
+                    ToggleBlockedReason = _toggleBlockedReason,
+                    InitToToggleSentMs = _toggleSentMs,
+                    InitToPostToggleCloakInfoMs = _postToggleCloakInfoMs,
+                    InitialCloakState = _initialCloakState,
+                    InitialShieldTimerInSeconds = _initialShieldTimerInSeconds,
+                    PostToggleCloakState = _postToggleCloakState,
+                    PostToggleShieldTimerInSeconds = _postToggleShieldTimerInSeconds,
+                    PostToggleCloakInfo = _postToggleCloakInfo
                 };
 
                 string resultPath = Path.Combine(_pluginDir, "cityflipper-result.json");
@@ -408,6 +541,18 @@ namespace CityFlipper
 
             public Dictionary<string, string> CityInfo;
             public Dictionary<string, string> CloakInfo;
+
+            public bool ToggleRequested;
+            public bool ToggleSent;
+            public bool ToggleSucceeded;
+            public string ToggleBlockedReason;
+            public double InitToToggleSentMs;
+            public double InitToPostToggleCloakInfoMs;
+            public string InitialCloakState;
+            public int InitialShieldTimerInSeconds;
+            public string PostToggleCloakState;
+            public int PostToggleShieldTimerInSeconds;
+            public Dictionary<string, string> PostToggleCloakInfo;
         }
     }
 }
