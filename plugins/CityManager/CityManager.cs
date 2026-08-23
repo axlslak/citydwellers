@@ -235,11 +235,13 @@ namespace CityManager
 
                 ConfirmDevChannel();
 
-                string text = msg.Message.TrimStart();
-                if (!text.StartsWith(CommandPrefix, StringComparison.Ordinal))
+                string commandText = msg.Message.Trim();
+                if (commandText.StartsWith(CommandPrefix, StringComparison.Ordinal))
+                    commandText = commandText.Substring(CommandPrefix.Length).TrimStart();
+
+                if (string.IsNullOrWhiteSpace(commandText))
                     return;
 
-                string commandText = text.Substring(CommandPrefix.Length).TrimStart();
                 Logger.Information($"DEV COMMAND {msg.SenderName}: {msg.Message}");
 
                 ProcessCommand(
@@ -299,7 +301,12 @@ namespace CityManager
 
             string command = parts[0].ToLowerInvariant();
 
-            if (!replyTarget.IsDev && command != "help" && command != "cloak")
+            bool devOnlyCommand =
+                command == "status" ||
+                command == "probe" ||
+                command == "observe";
+
+            if (!replyTarget.IsDev && devOnlyCommand)
             {
                 Reply(
                     replyTarget,
@@ -330,35 +337,41 @@ namespace CityManager
 
                 case "wakeup":
                 {
+                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
                     int level;
                     int index;
                     if (parts.Length != 3 ||
                         !int.TryParse(parts[1], out level) ||
                         !int.TryParse(parts[2], out index))
                     {
-                        Reply(replyTarget, "Usage: wakeup [level] [index]");
+                        Reply(devTarget, "Usage: wakeup [level] [index]");
                         break;
                     }
 
-                    BeginBuddiesCommand(replyTarget, "wakeup", level, index);
+                    BeginBuddiesCommand(devTarget, "wakeup", level, index);
                     break;
                 }
 
                 case "sleep":
                 {
+                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
                     int index;
                     if (parts.Length != 2 || !int.TryParse(parts[1], out index))
                     {
-                        Reply(replyTarget, "Usage: sleep [index]");
+                        Reply(devTarget, "Usage: sleep [index]");
                         break;
                     }
 
-                    BeginBuddiesCommand(replyTarget, "sleep", null, index);
+                    BeginBuddiesCommand(devTarget, "sleep", null, index);
                     break;
                 }
 
                 default:
-                    Reply(replyTarget, "No such command. Try #help.");
+                    Reply(
+                        replyTarget,
+                        replyTarget.IsOrg
+                            ? "No such command. Try #help."
+                            : "No such command. Try help.");
                     break;
             }
         }
@@ -366,16 +379,22 @@ namespace CityManager
         private string BuildHelpMessage(ReplyTarget target)
         {
             if (target.IsOrg)
-                return "Commands: #help, #cloak.";
+            {
+                return
+                    "Commands: #help, #cloak, #wakeup [level] [index], #sleep [index]. " +
+                    "Buddy control output goes to Apcmanager private.";
+            }
 
             if (target.IsDev)
             {
                 return
-                    "Dev: #help, #cloak, #status, #probe, " +
-                    "#wakeup [level] [index], #sleep [index].";
+                    "Dev: help, cloak, status, probe, wakeup [level] [index], sleep [index]. " +
+                    "# is optional here.";
             }
 
-            return "Commands: help, cloak. Developer controls are in Apcmanager private channel.";
+            return
+                "Commands: help, cloak, wakeup [level] [index], sleep [index]. " +
+                "Buddy control output goes to Apcmanager private.";
         }
 
         private void BeginFlipperProbe(ReplyTarget target)
@@ -422,13 +441,17 @@ namespace CityManager
 
                     Logger.Information($"IPC <- Flipper {request.Id}: {reply}");
                     DevTrace($"FLIPPER OK [{shortId}]: {reply}");
-                    Reply(target, reply);
+
+                    if (!target.IsDev)
+                        Reply(target, reply);
                 }
                 catch (Exception ex)
                 {
                     Logger.Warning($"Flipper IPC failed: {ex.Message}");
                     DevTrace($"FLIPPER ERROR: {ex.Message}");
-                    Reply(target, $"Cloak check unavailable: {ex.Message}");
+
+                    if (!target.IsDev)
+                        Reply(target, $"Cloak check unavailable: {ex.Message}");
                 }
             });
         }
@@ -465,15 +488,20 @@ namespace CityManager
                     DevTrace(
                         $"BUDDIES {(response.Ok ? "OK" : "FAIL")} [{shortId}]: {response.Message}");
 
-                    Reply(target, response.Ok
-                        ? $"Buddies: {response.Message}"
-                        : $"Buddies failed: {response.Message}");
+                    if (!target.IsDev)
+                    {
+                        Reply(target, response.Ok
+                            ? $"Buddies: {response.Message}"
+                            : $"Buddies failed: {response.Message}");
+                    }
                 }
                 catch (Exception ex)
                 {
                     Logger.Warning($"Buddies IPC failed: {ex.Message}");
                     DevTrace($"BUDDIES ERROR: {ex.Message}");
-                    Reply(target, $"Buddies service unavailable: {ex.Message}");
+
+                    if (!target.IsDev)
+                        Reply(target, $"Buddies service unavailable: {ex.Message}");
                 }
             });
         }
@@ -507,7 +535,7 @@ namespace CityManager
             {
                 if (target.IsDev)
                 {
-                    SendDevMessage(text);
+                    DevTrace(text);
                     return;
                 }
 
