@@ -114,7 +114,16 @@ namespace CityFlipper
                 Target = controller.Identity
             });
 
-            controller.Use();
+            Client.Send(new GenericCmdMessage
+            {
+                Temp1 = 0,
+                Count = 5,
+                Action = GenericCmdAction.Use,
+                Temp4 = 1,
+                User = DynelManager.LocalPlayer.Identity,
+                Target = controller.Identity,
+                Unknown = 1
+            });
 
             Logger.Information(
                 "Requested City Controller open.");
@@ -207,10 +216,10 @@ namespace CityFlipper
 
         private void Use(Dynel target)
         {
-            Client.Send(new LookAtMessage
-            {
-                Target = target.Identity
-            });
+            //Client.Send(new LookAtMessage
+            //{
+            //    Target = target.Identity
+            //});
 
             Client.Send(new GenericCmdMessage
             {
