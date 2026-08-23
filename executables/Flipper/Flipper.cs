@@ -48,6 +48,19 @@ public class FlipperLoader
             return;
         }
 
+        bool toggleMode =
+            args.Length == 1 &&
+            string.Equals(args[0], "toggle", StringComparison.OrdinalIgnoreCase);
+
+        if (args.Length > 0 && !toggleMode)
+        {
+            Console.WriteLine("Usage:");
+            Console.WriteLine("  Flipper.exe         # read-only two-pass observation");
+            Console.WriteLine("  Flipper.exe toggle  # one guarded cloak toggle test");
+            Environment.Exit(1);
+            return;
+        }
+
         AccountInfo account = config.Accounts[0];
 
         int timeoutMs = config.ProbeTimeoutMs > 0
@@ -58,43 +71,70 @@ public class FlipperLoader
             ? config.DelayBetweenPassesMs
             : 5000;
 
-        Console.WriteLine("======================================");
-        Console.WriteLine(" City Dwellers - Flipper Probe");
-        Console.WriteLine("======================================");
-        Console.WriteLine();
-        Console.WriteLine($"Character: {account.Character}");
-        Console.WriteLine();
+        string pluginPath = Path.GetFullPath(config.Plugins[0]);
+        string pluginDir = Path.GetDirectoryName(pluginPath);
+        string toggleRequestPath = Path.Combine(
+            pluginDir,
+            "cityflipper-toggle.request");
 
-        ProbeRun pass1 = RunProbe(1, account, config.Plugins, timeoutMs);
+        DeleteIfExists(toggleRequestPath);
 
-        if (!pass1.Success)
+        if (toggleMode)
+            File.WriteAllText(toggleRequestPath, "toggle");
+
+        try
         {
+            Console.WriteLine("======================================");
+            Console.WriteLine(" City Dwellers - Flipper Probe");
+            Console.WriteLine("======================================");
             Console.WriteLine();
-            Console.WriteLine("PASS 1 FAILED.");
-            Console.WriteLine("Aborting second pass.");
-            Environment.Exit(1);
-            return;
+            Console.WriteLine($"Character: {account.Character}");
+            Console.WriteLine($"Mode:      {(toggleMode ? "TOGGLE" : "OBSERVE")}");
+            Console.WriteLine();
+
+            ProbeRun pass1 = RunProbe(1, account, config.Plugins, timeoutMs);
+
+            if (!pass1.Success)
+            {
+                Console.WriteLine();
+                Console.WriteLine("PASS 1 FAILED.");
+                Environment.Exit(1);
+                return;
+            }
+
+            if (toggleMode)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Toggle mode performs one login/pass only.");
+                Console.WriteLine("Press ENTER to exit.");
+                Console.ReadLine();
+                return;
+            }
+
+            Console.WriteLine();
+            Console.WriteLine($"Waiting {delayMs} ms before second fresh login...");
+            Console.WriteLine();
+
+            Thread.Sleep(delayMs);
+
+            ProbeRun pass2 = RunProbe(2, account, config.Plugins, timeoutMs);
+
+            Console.WriteLine();
+            Console.WriteLine();
+            Console.WriteLine("======================================");
+            Console.WriteLine(" COMPARISON");
+            Console.WriteLine("======================================");
+
+            PrintComparison(pass1, pass2);
+
+            Console.WriteLine();
+            Console.WriteLine("Press ENTER to exit.");
+            Console.ReadLine();
         }
-
-        Console.WriteLine();
-        Console.WriteLine($"Waiting {delayMs} ms before second fresh login...");
-        Console.WriteLine();
-
-        Thread.Sleep(delayMs);
-
-        ProbeRun pass2 = RunProbe(2, account, config.Plugins, timeoutMs);
-
-        Console.WriteLine();
-        Console.WriteLine();
-        Console.WriteLine("======================================");
-        Console.WriteLine(" COMPARISON");
-        Console.WriteLine("======================================");
-
-        PrintComparison(pass1, pass2);
-
-        Console.WriteLine();
-        Console.WriteLine("Press ENTER to exit.");
-        Console.ReadLine();
+        finally
+        {
+            DeleteIfExists(toggleRequestPath);
+        }
     }
 
     private static ProbeRun RunProbe(
@@ -244,12 +284,43 @@ public class FlipperLoader
             $"  Candidate percent = {result.ControllerCharge * 100:F1}%");
 
         Console.WriteLine();
-        Console.WriteLine("CityInfo:");
-        PrintDictionary(result.CityInfo);
-
-        Console.WriteLine();
         Console.WriteLine("CloakInfo:");
         PrintDictionary(result.CloakInfo);
+
+        if (result.ToggleRequested)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Toggle test:");
+            Console.WriteLine($"  Requested = {result.ToggleRequested}");
+            Console.WriteLine($"  Sent = {result.ToggleSent}");
+            Console.WriteLine($"  Initial state = {result.InitialCloakState}");
+            Console.WriteLine(
+                $"  Initial shield timer = {result.InitialShieldTimerInSeconds}");
+
+            if (!string.IsNullOrWhiteSpace(result.ToggleBlockedReason))
+                Console.WriteLine($"  Blocked/reason = {result.ToggleBlockedReason}");
+
+            if (result.ToggleSent)
+            {
+                Console.WriteLine(
+                    $"  Plugin Init -> ToggleSent: {result.InitToToggleSentMs:F0} ms");
+                Console.WriteLine(
+                    $"  Plugin Init -> PostToggleCloakInfo: " +
+                    $"{result.InitToPostToggleCloakInfoMs:F0} ms");
+                Console.WriteLine($"  Post state = {result.PostToggleCloakState}");
+                Console.WriteLine(
+                    $"  Post shield timer = {result.PostToggleShieldTimerInSeconds}");
+                Console.WriteLine($"  State changed = {result.ToggleSucceeded}");
+
+                Console.WriteLine();
+                Console.WriteLine("Post-toggle CloakInfo:");
+                PrintDictionary(result.PostToggleCloakInfo);
+            }
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("CityInfo:");
+        PrintDictionary(result.CityInfo);
     }
 
     private static void PrintComparison(ProbeRun first, ProbeRun second)
@@ -352,5 +423,17 @@ public class FlipperLoader
 
         public Dictionary<string, string> CityInfo;
         public Dictionary<string, string> CloakInfo;
+
+        public bool ToggleRequested;
+        public bool ToggleSent;
+        public bool ToggleSucceeded;
+        public string ToggleBlockedReason;
+        public double InitToToggleSentMs;
+        public double InitToPostToggleCloakInfoMs;
+        public string InitialCloakState;
+        public int InitialShieldTimerInSeconds;
+        public string PostToggleCloakState;
+        public int PostToggleShieldTimerInSeconds;
+        public Dictionary<string, string> PostToggleCloakInfo;
     }
 }
