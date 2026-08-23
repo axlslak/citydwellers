@@ -130,6 +130,11 @@ namespace CityFlipper
                     return;
 
                 var n3Message = (N3Message)e.Body;
+                if (_charInPlay)
+                {
+                    Logger.Debug(
+                        $"N3MessageType = {n3Message.N3MessageType}");
+                }
 
                 switch (n3Message.N3MessageType)
                 {
@@ -148,9 +153,14 @@ namespace CityFlipper
                         }
 
                     case N3MessageType.AOTransportSignal:
-                        {
-                            HandleTransportSignal(
-                                (AOTransportSignalMessage)e.Body);
+                        { 
+                            var signal =
+                                (AOTransportSignalMessage)e.Body;
+
+                            Logger.Information(
+                                $"AOTransportSignal action = {signal.Action}");
+
+                            HandleTransportSignal(signal);
 
                             break;
                         }
