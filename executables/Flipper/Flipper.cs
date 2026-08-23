@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Threading;
 
 using AOSharp.Clientless;
@@ -14,147 +15,282 @@ using Serilog.Core;
 
 public class FlipperLoader
 {
+    private const string PipeName = "citydwellers-flipper";
+
+    private static Config _config;
+    private static AccountInfo _account;
+    private static string _baseDir;
+    private static string _pluginPath;
+    private static string _pluginDir;
+    private static string _toggleRequestPath;
+    private static int _timeoutMs;
+
     static void Main(string[] args)
     {
-        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string configPath = Path.Combine(baseDir, "flipper.json");
+        _baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
-        Config config;
+        if (!LoadConfig())
+        {
+            Environment.Exit(1);
+            return;
+        }
+
+        if (args.Length == 0)
+        {
+            RunService();
+            return;
+        }
+
+        if (args.Length == 1 &&
+            string.Equals(args[0], "probe", StringComparison.OrdinalIgnoreCase))
+        {
+            RunManualProbe(false);
+            return;
+        }
+
+        if (args.Length == 1 &&
+            string.Equals(args[0], "toggle", StringComparison.OrdinalIgnoreCase))
+        {
+            RunManualProbe(true);
+            return;
+        }
+
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  Flipper.exe         # persistent idle service");
+        Console.WriteLine("  Flipper.exe probe   # one read-only controller probe");
+        Console.WriteLine("  Flipper.exe toggle  # one guarded cloak toggle probe");
+        Environment.Exit(1);
+    }
+
+    private static bool LoadConfig()
+    {
+        string configPath = Path.Combine(_baseDir, "flipper.json");
 
         try
         {
             string configText = File.ReadAllText(configPath);
-            config = JsonConvert.DeserializeObject<Config>(configText);
+            _config = JsonConvert.DeserializeObject<Config>(configText);
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Unable to read '{configPath}'.");
             Console.WriteLine(ex);
-            Environment.Exit(1);
-            return;
+            return false;
         }
 
-        if (config == null || config.Accounts == null || config.Accounts.Count != 1)
+        if (_config == null ||
+            _config.Accounts == null ||
+            _config.Accounts.Count != 1)
         {
             Console.WriteLine("flipper.json must contain exactly one account.");
-            Environment.Exit(1);
-            return;
+            return false;
         }
 
-        if (config.Plugins == null || config.Plugins.Count != 1)
+        if (_config.Plugins == null || _config.Plugins.Count != 1)
         {
             Console.WriteLine("flipper.json must contain exactly one plugin.");
-            Environment.Exit(1);
-            return;
+            return false;
         }
 
-        bool toggleMode =
-            args.Length == 1 &&
-            string.Equals(args[0], "toggle", StringComparison.OrdinalIgnoreCase);
+        _account = _config.Accounts[0];
 
-        if (args.Length > 0 && !toggleMode)
-        {
-            Console.WriteLine("Usage:");
-            Console.WriteLine("  Flipper.exe         # read-only two-pass observation");
-            Console.WriteLine("  Flipper.exe toggle  # one guarded cloak toggle test");
-            Environment.Exit(1);
-            return;
-        }
-
-        AccountInfo account = config.Accounts[0];
-
-        int timeoutMs = config.ProbeTimeoutMs > 0
-            ? config.ProbeTimeoutMs
+        _timeoutMs = _config.ProbeTimeoutMs > 0
+            ? _config.ProbeTimeoutMs
             : 20000;
 
-        int delayMs = config.DelayBetweenPassesMs > 0
-            ? config.DelayBetweenPassesMs
-            : 5000;
+        string configuredPlugin = _config.Plugins[0];
 
-        string pluginPath = Path.GetFullPath(config.Plugins[0]);
-        string pluginDir = Path.GetDirectoryName(pluginPath);
-        string toggleRequestPath = Path.Combine(
-            pluginDir,
-            "cityflipper-toggle.request");
+        _pluginPath = Path.GetFullPath(
+            Path.IsPathRooted(configuredPlugin)
+                ? configuredPlugin
+                : Path.Combine(_baseDir, configuredPlugin));
 
-        DeleteIfExists(toggleRequestPath);
+        _pluginDir = Path.GetDirectoryName(_pluginPath);
+        _toggleRequestPath =
+            Path.Combine(_pluginDir, "cityflipper-toggle.request");
 
-        if (toggleMode)
-            File.WriteAllText(toggleRequestPath, "toggle");
+        DeleteIfExists(_toggleRequestPath);
 
-        try
+        return true;
+    }
+
+    private static void RunService()
+    {
+        Console.WriteLine("======================================");
+        Console.WriteLine(" City Dwellers - Flipper Service");
+        Console.WriteLine("======================================");
+        Console.WriteLine();
+        Console.WriteLine($"Character: {_account.Character}");
+        Console.WriteLine($"Pipe:      {PipeName}");
+        Console.WriteLine();
+        Console.WriteLine("Flipper service idle. Apcflipper is NOT logged in.");
+        Console.WriteLine("Waiting for Manager probe requests.");
+        Console.WriteLine("Press ENTER to stop Flipper.");
+        Console.WriteLine();
+
+        Thread pipeThread = new Thread(RunPipeServer)
         {
-            Console.WriteLine("======================================");
-            Console.WriteLine(" City Dwellers - Flipper Probe");
-            Console.WriteLine("======================================");
-            Console.WriteLine();
-            Console.WriteLine($"Character: {account.Character}");
-            Console.WriteLine($"Mode:      {(toggleMode ? "TOGGLE" : "OBSERVE")}");
-            Console.WriteLine();
+            IsBackground = true,
+            Name = "CityDwellers.Flipper.Pipe"
+        };
 
-            ProbeRun pass1 = RunProbe(1, account, config.Plugins, timeoutMs);
+        pipeThread.Start();
 
-            if (!pass1.Success)
-            {
-                Console.WriteLine();
-                Console.WriteLine("PASS 1 FAILED.");
-                Environment.Exit(1);
-                return;
-            }
+        Console.ReadLine();
 
-            if (toggleMode)
-            {
-                Console.WriteLine();
-                Console.WriteLine("Toggle mode performs one login/pass only.");
-                Console.WriteLine("Press ENTER to exit.");
-                Console.ReadLine();
-                return;
-            }
+        DeleteIfExists(_toggleRequestPath);
+        Console.WriteLine("Flipper service stopped.");
+    }
 
-            Console.WriteLine();
-            Console.WriteLine($"Waiting {delayMs} ms before second fresh login...");
-            Console.WriteLine();
-
-            Thread.Sleep(delayMs);
-
-            ProbeRun pass2 = RunProbe(2, account, config.Plugins, timeoutMs);
-
-            Console.WriteLine();
-            Console.WriteLine();
-            Console.WriteLine("======================================");
-            Console.WriteLine(" COMPARISON");
-            Console.WriteLine("======================================");
-
-            PrintComparison(pass1, pass2);
-
-            Console.WriteLine();
-            Console.WriteLine("Press ENTER to exit.");
-            Console.ReadLine();
-        }
-        finally
+    private static void RunPipeServer()
+    {
+        while (true)
         {
-            DeleteIfExists(toggleRequestPath);
+            try
+            {
+                using (var pipe = new NamedPipeServerStream(
+                    PipeName,
+                    PipeDirection.InOut,
+                    1,
+                    PipeTransmissionMode.Byte,
+                    PipeOptions.None))
+                {
+                    pipe.WaitForConnection();
+
+                    var reader = new StreamReader(pipe);
+                    var writer = new StreamWriter(pipe) { AutoFlush = true };
+
+                    string line = reader.ReadLine();
+                    WorkerResponse response;
+
+                    try
+                    {
+                        WorkerRequest request =
+                            JsonConvert.DeserializeObject<WorkerRequest>(line ?? string.Empty);
+
+                        response = HandleRequest(request);
+                    }
+                    catch (Exception ex)
+                    {
+                        response = new WorkerResponse
+                        {
+                            Ok = false,
+                            Message = $"Invalid Flipper request: {ex.Message}"
+                        };
+                    }
+
+                    writer.WriteLine(JsonConvert.SerializeObject(response));
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Flipper pipe server error: {ex}");
+                Thread.Sleep(500);
+            }
         }
     }
 
-    private static ProbeRun RunProbe(
-        int pass,
-        AccountInfo account,
-        List<string> plugins,
-        int timeoutMs)
+    private static WorkerResponse HandleRequest(WorkerRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Command))
+            return Fail(request, "Missing command.");
+
+        string command = request.Command.Trim().ToLowerInvariant();
+
+        Console.WriteLine(
+            $"IPC request {request.Id ?? "<no-id>"}: {command}");
+
+        switch (command)
+        {
+            case "observe":
+            case "probe":
+            {
+                ProbeRun run = RunProbe(false);
+
+                if (!run.Success || run.Result == null)
+                {
+                    return Fail(
+                        request,
+                        "Flipper probe failed. See Flipper console for details.");
+                }
+
+                string cloakState = GetDictionaryValue(
+                    run.Result.CloakInfo,
+                    "CloakState");
+
+                int shieldTimer;
+                int? parsedTimer = null;
+
+                if (int.TryParse(
+                    GetDictionaryValue(run.Result.CloakInfo, "ShieldTimerInSeconds"),
+                    out shieldTimer))
+                {
+                    parsedTimer = shieldTimer;
+                }
+
+                return new WorkerResponse
+                {
+                    Id = request.Id,
+                    Ok = true,
+                    Message = "Fresh City Controller observation complete.",
+                    CloakState = cloakState,
+                    ShieldTimerInSeconds = parsedTimer,
+                    ControllerCharge = run.Result.ControllerCharge,
+                    Character = _account.Character
+                };
+            }
+
+            case "ping":
+                return Ok(request, "Flipper service is running.");
+
+            default:
+                return Fail(
+                    request,
+                    $"Unknown Flipper command '{request.Command}'.");
+        }
+    }
+
+    private static void RunManualProbe(bool toggle)
+    {
+        Console.WriteLine("======================================");
+        Console.WriteLine(" City Dwellers - Flipper Probe");
+        Console.WriteLine("======================================");
+        Console.WriteLine();
+        Console.WriteLine($"Character: {_account.Character}");
+        Console.WriteLine($"Mode:      {(toggle ? "TOGGLE" : "OBSERVE")}");
+        Console.WriteLine();
+
+        ProbeRun run = RunProbe(toggle);
+
+        Console.WriteLine();
+
+        if (!run.Success)
+            Console.WriteLine("PROBE FAILED.");
+        else
+            PrintResult(run);
+
+        Console.WriteLine();
+        Console.WriteLine("Press ENTER to exit.");
+        Console.ReadLine();
+    }
+
+    private static ProbeRun RunProbe(bool toggle)
     {
         Console.WriteLine();
         Console.WriteLine("--------------------------------------");
-        Console.WriteLine($"PASS {pass}");
+        Console.WriteLine(toggle ? "TOGGLE PROBE" : "OBSERVE PROBE");
         Console.WriteLine("--------------------------------------");
 
-        string pluginPath = Path.GetFullPath(plugins[0]);
-        string pluginDir = Path.GetDirectoryName(pluginPath);
-        string resultPath = Path.Combine(pluginDir, "cityflipper-result.json");
+        string resultPath =
+            Path.Combine(_pluginDir, "cityflipper-result.json");
         string tempPath = resultPath + ".tmp";
 
         DeleteIfExists(resultPath);
         DeleteIfExists(tempPath);
+        DeleteIfExists(_toggleRequestPath);
+
+        if (toggle)
+            File.WriteAllText(_toggleRequestPath, "toggle");
 
         Logger logger = new LoggerConfiguration()
             .WriteTo.Console()
@@ -164,10 +300,7 @@ public class FlipperLoader
         ClientDomain domain = null;
         Stopwatch totalTimer = Stopwatch.StartNew();
 
-        ProbeRun run = new ProbeRun
-        {
-            Pass = pass
-        };
+        ProbeRun run = new ProbeRun();
 
         try
         {
@@ -175,21 +308,20 @@ public class FlipperLoader
                 $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Creating client domain.");
 
             domain = Client.CreateInstance(
-                account.Username,
-                account.Password,
-                account.Character,
+                _account.Username,
+                _account.Password,
+                _account.Character,
                 Dimension.RubiKa,
                 logger);
 
-            foreach (string plugin in plugins)
-                domain.LoadPlugin(plugin);
+            domain.LoadPlugin(_pluginPath);
 
             Console.WriteLine(
                 $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Starting AO client.");
 
             domain.Start();
 
-            DateTime timeout = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            DateTime timeout = DateTime.UtcNow.AddMilliseconds(_timeoutMs);
 
             while (!File.Exists(resultPath))
             {
@@ -214,10 +346,7 @@ public class FlipperLoader
             string json = File.ReadAllText(resultPath);
             run.Result = JsonConvert.DeserializeObject<FlipperResult>(json);
             run.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds;
-            run.Success = true;
-
-            Console.WriteLine();
-            PrintResult(run);
+            run.Success = run.Result != null;
 
             return run;
         }
@@ -254,6 +383,7 @@ public class FlipperLoader
 
             DeleteIfExists(resultPath);
             DeleteIfExists(tempPath);
+            DeleteIfExists(_toggleRequestPath);
         }
     }
 
@@ -261,9 +391,8 @@ public class FlipperLoader
     {
         FlipperResult result = run.Result;
 
-        Console.WriteLine($"PASS {run.Pass} RESULT");
+        Console.WriteLine("PROBE RESULT");
         Console.WriteLine();
-
         Console.WriteLine(
             $"Total host time:             {run.TotalMilliseconds:F0} ms");
         Console.WriteLine(
@@ -311,54 +440,19 @@ public class FlipperLoader
                 Console.WriteLine(
                     $"  Post shield timer = {result.PostToggleShieldTimerInSeconds}");
                 Console.WriteLine($"  State changed = {result.ToggleSucceeded}");
-
-                Console.WriteLine();
-                Console.WriteLine("Post-toggle CloakInfo:");
-                PrintDictionary(result.PostToggleCloakInfo);
             }
         }
-
-        Console.WriteLine();
-        Console.WriteLine("CityInfo:");
-        PrintDictionary(result.CityInfo);
     }
 
-    private static void PrintComparison(ProbeRun first, ProbeRun second)
+    private static string GetDictionaryValue(
+        Dictionary<string, string> values,
+        string key)
     {
-        if (!first.Success)
-        {
-            Console.WriteLine("Pass 1 failed.");
-            return;
-        }
+        if (values == null)
+            return null;
 
-        if (!second.Success)
-        {
-            Console.WriteLine("Pass 2 failed.");
-            return;
-        }
-
-        Console.WriteLine(
-            $"Total time:        {first.TotalMilliseconds:F0} ms  ->  " +
-            $"{second.TotalMilliseconds:F0} ms");
-        Console.WriteLine(
-            $"To CharInPlay:     {first.Result.InitToInPlayMs:F0} ms  ->  " +
-            $"{second.Result.InitToInPlayMs:F0} ms");
-        Console.WriteLine(
-            $"To Controller:     {first.Result.InitToControllerMs:F0} ms  ->  " +
-            $"{second.Result.InitToControllerMs:F0} ms");
-        Console.WriteLine(
-            $"To CloakInfo:      {first.Result.InitToCloakInfoMs:F0} ms  ->  " +
-            $"{second.Result.InitToCloakInfoMs:F0} ms");
-        Console.WriteLine(
-            $"To ChargeInfo:     {first.Result.InitToChargeInfoMs:F0} ms  ->  " +
-            $"{second.Result.InitToChargeInfoMs:F0} ms");
-        Console.WriteLine(
-            $"Charge raw:        {first.Result.ControllerCharge}  ->  " +
-            $"{second.Result.ControllerCharge}");
-
-        Console.WriteLine();
-        Console.WriteLine(
-            "Compare the CityInfo/CloakInfo/charge values above.");
+        string value;
+        return values.TryGetValue(key, out value) ? value : null;
     }
 
     private static void PrintDictionary(Dictionary<string, string> values)
@@ -371,6 +465,26 @@ public class FlipperLoader
 
         foreach (var item in values)
             Console.WriteLine($"  {item.Key} = {item.Value}");
+    }
+
+    private static WorkerResponse Ok(WorkerRequest request, string message)
+    {
+        return new WorkerResponse
+        {
+            Id = request?.Id,
+            Ok = true,
+            Message = message
+        };
+    }
+
+    private static WorkerResponse Fail(WorkerRequest request, string message)
+    {
+        return new WorkerResponse
+        {
+            Id = request?.Id,
+            Ok = false,
+            Message = message
+        };
     }
 
     private static void DeleteIfExists(string path)
@@ -389,7 +503,6 @@ public class FlipperLoader
     {
         public List<AccountInfo> Accounts;
         public List<string> Plugins;
-
         public int ProbeTimeoutMs = 20000;
         public int DelayBetweenPassesMs = 5000;
     }
@@ -403,7 +516,6 @@ public class FlipperLoader
 
     public class ProbeRun
     {
-        public int Pass;
         public bool Success;
         public double TotalMilliseconds;
         public FlipperResult Result;
@@ -435,5 +547,22 @@ public class FlipperLoader
         public string PostToggleCloakState;
         public int PostToggleShieldTimerInSeconds;
         public Dictionary<string, string> PostToggleCloakInfo;
+    }
+
+    private class WorkerRequest
+    {
+        public string Id;
+        public string Command;
+    }
+
+    private class WorkerResponse
+    {
+        public string Id;
+        public bool Ok;
+        public string Message;
+        public string Character;
+        public string CloakState;
+        public int? ShieldTimerInSeconds;
+        public float? ControllerCharge;
     }
 }
