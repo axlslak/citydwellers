@@ -136,6 +136,23 @@ namespace CityFlipper
                     "Could not find City Controller after 20 attempts.");
             });
         }
+        private void Use(Dynel target)
+        {
+            Client.Send(new LookAtMessage
+            {
+                Target = target.Identity
+            });
+
+            Client.Send(new GenericCmdMessage
+            {
+                Temp1 = 0,
+                Action = GenericCmdAction.Use,
+                Temp4 = 1,
+                User = DynelManager.LocalPlayer.Identity,
+                Target = target.Identity,
+                Unknown = 1
+            });
+        }
 
         private bool TryOpenCityController()
         {
