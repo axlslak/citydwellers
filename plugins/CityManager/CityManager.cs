@@ -426,7 +426,7 @@ namespace CityManager
                 if (TrySendGroupMessage(target.ChannelId, target.ChannelName, text))
                     return;
 
-                Logger.Warning("Unable to resolve an outbound group-chat method; falling back to tell.");
+                Logger.Warning("Unable to send org reply; falling back to tell.");
                 if (target.SenderId != 0)
                     Client.SendPrivateMessage(target.SenderId, "[org reply fallback] " + text);
             }
@@ -438,14 +438,17 @@ namespace CityManager
 
         private bool TrySendGroupMessage(object channelId, string channelName, string text)
         {
-            if (TryInvokeGroupSender(typeof(Client), null, channelId, channelName, text))
+            try
+            {
+                Client.SendOrgMessage(text);
+                Logger.Information("Org reply sent through AOSharp.Clientless.Client.SendOrgMessage.");
                 return true;
-
-            object chat = Client.Chat;
-            if (chat != null && TryInvokeGroupSender(chat.GetType(), chat, channelId, channelName, text))
-                return true;
-
-            return false;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"Client.SendOrgMessage failed: {ex.Message}");
+                return false;
+            }
         }
 
         private bool TryInvokeGroupSender(Type type, object instance, object channelId, string channelName, string text)
