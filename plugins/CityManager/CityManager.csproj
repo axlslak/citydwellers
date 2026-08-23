@@ -84,7 +84,7 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\..\..\Users\admin\source\repos\aosharp.clientless\AOSharp.Clientless\bin\Release\System.Runtime.CompilerServices.Unsafe.dll</HintPath>
     </Reference>
-    <Reference Include="System.Text.Encoding.CodePages, Version=10.0.0.8, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL">
+    <Reference Include="System.Text.Encoding.CodePages, Version=10.0.0.8, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\..\..\Users\admin\source\repos\aosharp.clientless\AOSharp.Clientless\bin\Release\System.Text.Encoding.CodePages.dll</HintPath>
     </Reference>
@@ -99,6 +99,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CityManager.cs" />
+    <Compile Include="CloakPresentation.cs" />
+    <Compile Include="OrgRankAuthorizer.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
