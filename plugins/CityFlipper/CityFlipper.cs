@@ -63,38 +63,44 @@ namespace CityFlipper
              * path behaves correctly with the clientless defaults.
              */
 
-            Client.MessageReceived += (sender, message) =>
-            {
-                HandleMessage(message);
-            };
+            Client.MessageReceived += MessageReceived;
         }
 
-        private void HandleMessage(object message)
+        private void MessageReceived(object sender, Message e)
         {
             try
             {
-                /*
-                 * First important milestone:
-                 * our own character has entered the world.
-                 */
-                if (message is CharInPlayMessage charInPlay)
-                {
-                    if (charInPlay.Identity.Instance ==
-                        Client.LocalDynelId)
-                    {
-                        OnCharInPlay();
-                    }
-
+                if (e?.Body == null)
                     return;
-                }
 
-                /*
-                 * City Controller information arrives as
-                 * AOTransportSignal messages.
-                 */
-                if (message is AOTransportSignalMessage signal)
+                if (e.Body.PacketType != PacketType.N3Message)
+                    return;
+
+                var n3Message = (N3Message)e.Body;
+
+                switch (n3Message.N3MessageType)
                 {
-                    HandleTransportSignal(signal);
+                    case N3MessageType.CharInPlay:
+                        {
+                            var charInPlay =
+                                (CharInPlayMessage)e.Body;
+
+                            if (charInPlay.Identity.Instance ==
+                                Client.LocalDynelId)
+                            {
+                                OnCharInPlay();
+                            }
+
+                            break;
+                        }
+
+                    case N3MessageType.AOTransportSignal:
+                        {
+                            HandleTransportSignal(
+                                (AOTransportSignalMessage)e.Body);
+
+                            break;
+                        }
                 }
             }
             catch (Exception ex)
@@ -192,18 +198,7 @@ namespace CityFlipper
                  * in this POC can remain unchanged.
                  */
 
-                Client.Send(
-                    new LookAtMessage
-                    {
-                        Target = controller.Identity
-                    });
-
-                Client.Send(
-                    new GenericCmdMessage
-                    {
-                        Target = controller.Identity,
-                        Action = GenericCmdAction.Use
-                    });
+                Use(controller);
 
                 Logger.Information(
                     "Requested City Controller open.");
