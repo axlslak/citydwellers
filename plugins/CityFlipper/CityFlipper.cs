@@ -100,8 +100,7 @@ namespace CityFlipper
             catch (Exception ex)
             {
                 Logger.Error(
-                    ex,
-                    "Exception processing CityFlipper message.");
+                    $"Exception processing CityFlipper message: {ex}");
             }
         }
 
@@ -197,8 +196,7 @@ namespace CityFlipper
             catch (Exception ex)
             {
                 Logger.Error(
-                    ex,
-                    "Failed to open City Controller.");
+                    $"Failed to open City Controller: {ex}");
 
                 return false;
             }
@@ -273,8 +271,7 @@ namespace CityFlipper
             catch (Exception ex)
             {
                 Logger.Error(
-                    ex,
-                    "Error processing AOTransportSignal.");
+                    $"Error processing AOTransportSignal: {ex}");
             }
         }
 
@@ -450,8 +447,7 @@ namespace CityFlipper
             catch (Exception ex)
             {
                 Logger.Error(
-                    ex,
-                    "Failed writing flipper result.");
+                    $"Failed writing flipper result: {ex}");
             }
         }
 
