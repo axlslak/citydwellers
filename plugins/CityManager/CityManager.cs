@@ -159,8 +159,6 @@ namespace CityManager
                 if (msg == null || string.IsNullOrWhiteSpace(msg.Message))
                     return;
 
-                Logger.Information($"GROUP [{msg.ChannelName}] {msg.SenderName}: {msg.Message}");
-
                 if (TryHandleCloakAnnouncement(msg))
                     return;
 
@@ -168,8 +166,23 @@ namespace CityManager
                     return;
 
                 string text = msg.Message.TrimStart();
-                if (!text.StartsWith(OrgCommandPrefix, StringComparison.Ordinal))
+                bool isCommand = text.StartsWith(OrgCommandPrefix, StringComparison.Ordinal);
+
+                if (!isCommand)
+                {
+                    // Keep unusual AO/server traffic visible while suppressing ordinary org chatter.
+                    if (string.Equals(msg.SenderName, "<Unknown>", StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(msg.SenderName, "Unknown", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Logger.Information(
+                            $"ORG SYSTEM [{msg.ChannelName}] {msg.SenderName}: {msg.Message}");
+                    }
+
                     return;
+                }
+
+                Logger.Information(
+                    $"ORG COMMAND [{msg.ChannelName}] {msg.SenderName}: {msg.Message}");
 
                 string commandText = text.Substring(OrgCommandPrefix.Length).TrimStart();
 
