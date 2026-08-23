@@ -66,9 +66,13 @@ namespace CityManager
                 if (age < TimeSpan.Zero)
                     age = TimeSpan.Zero;
 
+                string ageText = age.TotalSeconds < 5
+                    ? "last verified just now"
+                    : $"last verified {FormatAge(age)} ago";
+
                 reply +=
                     $" <font color={Separator}>|</font> " +
-                    $"<font color={Gray}>last verified {FormatAge(age)} ago</font>";
+                    $"<font color={Gray}>{ageText}</font>";
             }
 
             return reply;
@@ -113,8 +117,6 @@ namespace CityManager
 
         private static string FormatAge(TimeSpan value)
         {
-            if (value.TotalSeconds < 5)
-                return "just now";
             if (value.TotalMinutes < 1)
                 return $"{Math.Max(1, (int)value.TotalSeconds)}s";
             if (value.TotalHours < 1)
