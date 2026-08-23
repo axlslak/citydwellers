@@ -111,6 +111,10 @@ public class FlipperLoader
 
         DeleteIfExists(_toggleRequestPath);
 
+        FlipperCacheStore.Initialize(
+            _baseDir,
+            _config.CacheFreshSeconds > 0 ? _config.CacheFreshSeconds : 60);
+
         return true;
     }
 
@@ -122,9 +126,11 @@ public class FlipperLoader
         Console.WriteLine();
         Console.WriteLine($"Character: {_account.Character}");
         Console.WriteLine($"Pipe:      {PipeName}");
+        Console.WriteLine($"Cache:     {_config.CacheFreshSeconds > 0 ? _config.CacheFreshSeconds : 60}s fresh window");
         Console.WriteLine();
         Console.WriteLine("Flipper service idle. Apcflipper is NOT logged in.");
-        Console.WriteLine("Waiting for Manager probe requests.");
+        Console.WriteLine("Recent confirmed city state is served from cache before a new login.");
+        Console.WriteLine("Waiting for Manager requests.");
         Console.WriteLine("Press ENTER to stop Flipper.");
         Console.WriteLine();
 
@@ -203,42 +209,10 @@ public class FlipperLoader
         switch (command)
         {
             case "observe":
+                return Observe(request, true);
+
             case "probe":
-            {
-                ProbeRun run = RunProbe(false);
-
-                if (!run.Success || run.Result == null)
-                {
-                    return Fail(
-                        request,
-                        "Flipper probe failed. See Flipper console for details.");
-                }
-
-                string cloakState = GetDictionaryValue(
-                    run.Result.CloakInfo,
-                    "CloakState");
-
-                int shieldTimer;
-                int? parsedTimer = null;
-
-                if (int.TryParse(
-                    GetDictionaryValue(run.Result.CloakInfo, "ShieldTimerInSeconds"),
-                    out shieldTimer))
-                {
-                    parsedTimer = shieldTimer;
-                }
-
-                return new WorkerResponse
-                {
-                    Id = request.Id,
-                    Ok = true,
-                    Message = "Fresh City Controller observation complete.",
-                    CloakState = cloakState,
-                    ShieldTimerInSeconds = parsedTimer,
-                    ControllerCharge = run.Result.ControllerCharge,
-                    Character = _account.Character
-                };
-            }
+                return Observe(request, false);
 
             case "ping":
                 return Ok(request, "Flipper service is running.");
@@ -248,6 +222,93 @@ public class FlipperLoader
                     request,
                     $"Unknown Flipper command '{request.Command}'.");
         }
+    }
+
+    private static WorkerResponse Observe(WorkerRequest request, bool allowFreshCache)
+    {
+        FlipperCacheSnapshot cached;
+
+        if (allowFreshCache && FlipperCacheStore.TryGetFresh(out cached))
+        {
+            Console.WriteLine(
+                $"Serving recent Flipper cache from {cached.ObservedUtc:O} ({cached.Source}).");
+
+            return FromCache(
+                request,
+                cached,
+                "Recent confirmed Flipper state served from cache.");
+        }
+
+        ProbeRun run = RunProbe(false);
+
+        if (run.Success && run.Result != null)
+            return FromFreshResult(request, run.Result);
+
+        if (FlipperCacheStore.TryGetAny(out cached))
+        {
+            Console.WriteLine(
+                $"Fresh probe failed; falling back to Flipper cache from {cached.ObservedUtc:O} ({cached.Source}).");
+
+            return FromCache(
+                request,
+                cached,
+                "Fresh probe failed; using last confirmed Flipper state.");
+        }
+
+        return Fail(
+            request,
+            "Flipper probe failed and no confirmed cache exists. See Flipper console for details.");
+    }
+
+    private static WorkerResponse FromFreshResult(
+        WorkerRequest request,
+        FlipperResult result)
+    {
+        string cloakState = GetDictionaryValue(
+            result.CloakInfo,
+            "CloakState");
+
+        int shieldTimer;
+        int? parsedTimer = null;
+
+        if (int.TryParse(
+            GetDictionaryValue(result.CloakInfo, "ShieldTimerInSeconds"),
+            out shieldTimer))
+        {
+            parsedTimer = shieldTimer;
+        }
+
+        return new WorkerResponse
+        {
+            Id = request.Id,
+            Ok = true,
+            Message = "Fresh City Controller observation complete.",
+            CloakState = cloakState,
+            ShieldTimerInSeconds = parsedTimer,
+            ControllerCharge = result.ControllerCharge,
+            Character = _account.Character,
+            Cached = false,
+            ObservedUtc = DateTime.UtcNow
+        };
+    }
+
+    private static WorkerResponse FromCache(
+        WorkerRequest request,
+        FlipperCacheSnapshot cache,
+        string message)
+    {
+        return new WorkerResponse
+        {
+            Id = request.Id,
+            Ok = true,
+            Message = message,
+            CloakState = cache.CloakState,
+            ShieldTimerInSeconds = cache.ShieldTimerInSeconds,
+            ControllerCharge = cache.ControllerCharge,
+            Character = _account.Character,
+            Cached = true,
+            ObservedUtc = cache.ObservedUtc
+        };
     }
 
     private static void RunManualProbe(bool toggle)
@@ -347,6 +408,9 @@ public class FlipperLoader
             run.Result = JsonConvert.DeserializeObject<FlipperResult>(json);
             run.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds;
             run.Success = run.Result != null;
+
+            if (run.Success)
+                FlipperCacheStore.SaveFromResult(run.Result);
 
             return run;
         }
@@ -505,6 +569,7 @@ public class FlipperLoader
         public List<string> Plugins;
         public int ProbeTimeoutMs = 20000;
         public int DelayBetweenPassesMs = 5000;
+        public int CacheFreshSeconds = 60;
     }
 
     public class AccountInfo
@@ -564,5 +629,7 @@ public class FlipperLoader
         public string CloakState;
         public int? ShieldTimerInSeconds;
         public float? ControllerCharge;
+        public bool Cached;
+        public DateTime? ObservedUtc;
     }
 }
