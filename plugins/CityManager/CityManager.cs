@@ -17,6 +17,13 @@ namespace CityManager
     {
         private const int ProvisionalCloakDownSeconds = 3600;
 
+        private static readonly HashSet<string> AllowedTellSenders =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "Kavem",
+                "Doczy"
+            };
+
         private string _pluginDir;
         private string _statePath;
         private string _eventsPath;
@@ -197,14 +204,6 @@ namespace CityManager
 
             if (newStatus == CloakStatus.Disabled)
             {
-                /*
-                 * The org announcement proves the cloak really went down,
-                 * but it does not carry the server's cooldown value.
-                 *
-                 * Use one hour only as the time to wake Flipper for a
-                 * controller check. Flipper must still open the controller
-                 * and obey the actual ShieldTimerInSeconds before raising.
-                 */
                 _shieldTimerInSeconds = 0;
                 _canRaiseAtUtc = now.AddSeconds(ProvisionalCloakDownSeconds);
                 _raiseTimeIsProvisional = true;
@@ -374,6 +373,13 @@ namespace CityManager
                     return;
 
                 Logger.Information($"{msg.SenderName} sent {msg.Message}");
+
+                if (!AllowedTellSenders.Contains(msg.SenderName))
+                {
+                    Logger.Warning(
+                        $"Ignoring tell command from unauthorized sender {msg.SenderName}.");
+                    return;
+                }
 
                 string[] commandParts = msg.Message.Split(' ');
                 string command =
@@ -560,28 +566,22 @@ namespace CityManager
         {
             try
             {
-                var evt = new CloakEvent
+                var record = new CloakEventRecord
                 {
-                    EventType = eventType,
                     OccurredUtc = occurredUtc,
                     PreviousStatus = previousStatus,
                     NewStatus = newStatus,
                     ShieldTimerInSeconds = shieldTimerInSeconds,
                     CanRaiseAtUtc = canRaiseAtUtc,
+                    EventType = eventType,
                     Source = source,
                     Actor = actor,
                     ChannelName = channelName,
                     RawMessage = rawMessage
                 };
 
-                string line =
-                    JsonConvert.SerializeObject(
-                        evt,
-                        Formatting.None);
-
-                File.AppendAllText(
-                    _eventsPath,
-                    line + Environment.NewLine);
+                string line = JsonConvert.SerializeObject(record);
+                File.AppendAllText(_eventsPath, line + Environment.NewLine);
             }
             catch (Exception ex)
             {
@@ -591,28 +591,28 @@ namespace CityManager
 
         private class PersistedCloakState
         {
-            public CloakStatus Status;
-            public int ShieldTimerInSeconds;
-            public DateTime? LastObservedUtc;
-            public DateTime? LastChangedUtc;
-            public DateTime? CanRaiseAtUtc;
-            public bool RaiseDueLogged;
-            public bool RaiseTimeIsProvisional;
-            public string ObservationSource;
+            public CloakStatus Status { get; set; }
+            public int ShieldTimerInSeconds { get; set; }
+            public DateTime? LastObservedUtc { get; set; }
+            public DateTime? LastChangedUtc { get; set; }
+            public DateTime? CanRaiseAtUtc { get; set; }
+            public bool RaiseDueLogged { get; set; }
+            public bool RaiseTimeIsProvisional { get; set; }
+            public string ObservationSource { get; set; }
         }
 
-        private class CloakEvent
+        private class CloakEventRecord
         {
-            public string EventType;
-            public DateTime OccurredUtc;
-            public CloakStatus PreviousStatus;
-            public CloakStatus NewStatus;
-            public int? ShieldTimerInSeconds;
-            public DateTime? CanRaiseAtUtc;
-            public string Source;
-            public string Actor;
-            public string ChannelName;
-            public string RawMessage;
+            public DateTime OccurredUtc { get; set; }
+            public CloakStatus PreviousStatus { get; set; }
+            public CloakStatus NewStatus { get; set; }
+            public int? ShieldTimerInSeconds { get; set; }
+            public DateTime? CanRaiseAtUtc { get; set; }
+            public string EventType { get; set; }
+            public string Source { get; set; }
+            public string Actor { get; set; }
+            public string ChannelName { get; set; }
+            public string RawMessage { get; set; }
         }
     }
 }
