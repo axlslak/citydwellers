@@ -63,6 +63,7 @@ namespace CityManager
 
             Logger.Information("CityManager initialized.");
             LoadState();
+            OrgRankAuthorizer.Initialize();
             Client.MessageReceived += MessageReceived;
         }
 
@@ -71,6 +72,7 @@ namespace CityManager
             try
             {
                 Client.MessageReceived -= MessageReceived;
+                OrgRankAuthorizer.Shutdown();
 
                 if (Client.Chat != null)
                 {
@@ -283,6 +285,33 @@ namespace CityManager
             if (string.IsNullOrWhiteSpace(rawCommand))
                 return;
 
+            string[] parts = rawCommand.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 0)
+                return;
+
+            string command = parts[0].ToLowerInvariant();
+
+            if (command == "cloak")
+            {
+                if (replyTarget.IsDev)
+                {
+                    if (!string.Equals(senderName, DeveloperCharacter, StringComparison.OrdinalIgnoreCase))
+                        return;
+
+                    BeginFlipperProbe(replyTarget);
+                    return;
+                }
+
+                if (replyTarget.IsOrg)
+                {
+                    BeginOrgCloakAuthorization(senderName, replyTarget);
+                    return;
+                }
+
+                Reply(replyTarget, "No such command. Try help.");
+                return;
+            }
+
             if (replyTarget.IsDev)
             {
                 if (!string.Equals(senderName, DeveloperCharacter, StringComparison.OrdinalIgnoreCase))
@@ -294,12 +323,6 @@ namespace CityManager
                 Reply(replyTarget, "You are not authorized to use this bot yet.");
                 return;
             }
-
-            string[] parts = rawCommand.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0)
-                return;
-
-            string command = parts[0].ToLowerInvariant();
 
             bool devOnlyCommand =
                 command == "status" ||
@@ -320,10 +343,6 @@ namespace CityManager
             {
                 case "help":
                     Reply(replyTarget, BuildHelpMessage(replyTarget));
-                    break;
-
-                case "cloak":
-                    BeginFlipperProbe(replyTarget);
                     break;
 
                 case "status":
@@ -411,12 +430,43 @@ namespace CityManager
             }
         }
 
+        private void BeginOrgCloakAuthorization(string senderName, ReplyTarget target)
+        {
+            OrgRankAuthorizer.Authorize(
+                target.SenderId,
+                senderName,
+                authorization =>
+                {
+                    if (!string.IsNullOrWhiteSpace(authorization.Error))
+                    {
+                        DevTrace(
+                            $"ORG #cloak rank lookup failed for {senderName}: {authorization.Error}");
+                        Reply(target, CloakPresentation.RankLookupFailed());
+                        return;
+                    }
+
+                    if (!authorization.Allowed)
+                    {
+                        DevTrace(
+                            $"ORG #cloak denied for {senderName}; rank={authorization.Rank ?? "unknown"}.");
+                        Reply(target, CloakPresentation.RankDenied(authorization.Rank));
+                        return;
+                    }
+
+                    DevTrace(
+                        $"ORG #cloak authorized for {senderName}; rank={authorization.Rank}" +
+                        (authorization.FromCache ? " (rank cache)." : "."));
+
+                    BeginFlipperProbe(target);
+                });
+        }
+
         private string BuildHelpMessage(ReplyTarget target)
         {
             if (target.IsOrg)
             {
                 return
-                    "Commands: #help, #cloak, #wakeup [level] [index], #sleep [index], " +
+                    "Commands: #cloak (Squad Commander+), #help, #wakeup [level] [index], #sleep [index], " +
                     "#spinup [level] [count], #spindown [count]. Buddy control output goes to Apcmanager private.";
             }
 
@@ -428,8 +478,8 @@ namespace CityManager
             }
 
             return
-                "Commands: help, cloak, wakeup [level] [index], sleep [index], " +
-                "spinup [level] [count], spindown [count]. Buddy control output goes to Apcmanager private.";
+                "Commands: help, wakeup [level] [index], sleep [index], " +
+                "spinup [level] [count], spindown [count]. #cloak is organization-chat only.";
         }
 
         private void BeginFlipperProbe(ReplyTarget target)
@@ -457,42 +507,37 @@ namespace CityManager
                     {
                         Logger.Warning($"IPC <- Flipper {request.Id}: FAIL {response.Message}");
                         DevTrace($"FLIPPER FAIL [{shortId}]: {response.Message}");
-                        Reply(target, $"Cloak check failed: {response.Message}");
+
+                        if (target.IsOrg)
+                            Reply(target, CloakPresentation.Unavailable());
+                        else if (!target.IsDev)
+                            Reply(target, $"Cloak check failed: {response.Message}");
+
                         return;
                     }
 
                     ApplyFlipperObservation(response);
 
+                    string reply = CloakPresentation.Build(
+                        response.CloakState,
+                        response.ShieldTimerInSeconds,
+                        response.ControllerCharge,
+                        response.Cached,
+                        response.ObservedUtc);
+
                     string chargeText = response.ControllerCharge.HasValue
                         ? $"{response.ControllerCharge.Value * 100:F1}%"
                         : "unknown";
-
-                    string shieldText;
-                    if (!response.ShieldTimerInSeconds.HasValue)
-                    {
-                        shieldText = "Shield status = unknown";
-                    }
-                    else if (response.ShieldTimerInSeconds.Value > 0)
-                    {
-                        shieldText =
-                            $"Shield ready in {FormatDuration(TimeSpan.FromSeconds(response.ShieldTimerInSeconds.Value))}";
-                    }
-                    else
-                    {
-                        shieldText = "Shield ready";
-                    }
-
-                    string reply =
-                        $"Cloak = {response.CloakState ?? "Unknown"}. " +
-                        $"{shieldText}. Charge = {chargeText}.";
-
                     string rawTimerText = response.ShieldTimerInSeconds.HasValue
                         ? $"{response.ShieldTimerInSeconds.Value}s"
                         : "unknown";
+                    string sourceText = response.Cached
+                        ? $"cache observed={response.ObservedUtc:O}"
+                        : "fresh";
 
                     string diagnosticReply =
                         $"Cloak = {response.CloakState ?? "Unknown"}. " +
-                        $"Raw shield timer = {rawTimerText}. Charge = {chargeText}.";
+                        $"Raw shield timer = {rawTimerText}. Charge = {chargeText}. Source = {sourceText}.";
 
                     Logger.Information($"IPC <- Flipper {request.Id}: {diagnosticReply}");
                     DevTrace($"FLIPPER OK [{shortId}]: {diagnosticReply}");
@@ -505,7 +550,9 @@ namespace CityManager
                     Logger.Warning($"Flipper IPC failed: {ex.Message}");
                     DevTrace($"FLIPPER ERROR: {ex.Message}");
 
-                    if (!target.IsDev)
+                    if (target.IsOrg)
+                        Reply(target, CloakPresentation.Unavailable());
+                    else if (!target.IsDev)
                         Reply(target, $"Cloak check unavailable: {ex.Message}");
                 }
             });
@@ -877,8 +924,8 @@ namespace CityManager
 
                 _status = parsedStatus;
                 _shieldTimerInSeconds = response.ShieldTimerInSeconds ?? 0;
-                _lastObservedUtc = now;
-                _observationSource = "Flipper.Probe";
+                _lastObservedUtc = response.ObservedUtc ?? now;
+                _observationSource = response.Cached ? "Flipper.Cache" : "Flipper.Probe";
                 _raiseTimeIsProvisional = false;
                 _raiseDueLogged = false;
 
@@ -895,8 +942,8 @@ namespace CityManager
                     now,
                     response.ShieldTimerInSeconds,
                     _canRaiseAtUtc,
-                    "flipper_probe",
-                    "Flipper.Probe",
+                    response.Cached ? "flipper_cache" : "flipper_probe",
+                    _observationSource,
                     response.Character,
                     null,
                     response.Message);
@@ -1160,6 +1207,8 @@ namespace CityManager
             public float? ControllerCharge;
             public int? Level;
             public int? Index;
+            public bool Cached;
+            public DateTime? ObservedUtc;
         }
     }
 }
