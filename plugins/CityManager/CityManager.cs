@@ -456,9 +456,14 @@ namespace CityManager
             MethodInfo[] methods = type.GetMethods(flags)
                 .Where(m =>
                     m.Name.IndexOf("send", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                    m.Name.IndexOf("private", StringComparison.OrdinalIgnoreCase) < 0 &&
                     (m.Name.IndexOf("group", StringComparison.OrdinalIgnoreCase) >= 0 ||
                      m.Name.IndexOf("channel", StringComparison.OrdinalIgnoreCase) >= 0))
-                .OrderBy(m => m.Name.Equals("SendGroupMessage", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .OrderBy(m =>
+                    m.Name.Equals("SendPublicGroupMessage", StringComparison.OrdinalIgnoreCase) ? 0 :
+                    m.Name.Equals("SendGroupMessage", StringComparison.OrdinalIgnoreCase) ? 1 :
+                    m.Name.Equals("SendChannelMessage", StringComparison.OrdinalIgnoreCase) ? 2 :
+                    3)
                 .ToArray();
 
             foreach (MethodInfo method in methods)
