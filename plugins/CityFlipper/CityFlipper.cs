@@ -1,6 +1,7 @@
 ﻿using AOSharp.Clientless;
 using AOSharp.Clientless.Common;
 using AOSharp.Clientless.Logging;
+using AOSharp.Common.GameData;
 using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.GameData;
 // These are used by the original clientless cloak code.
@@ -40,6 +41,9 @@ namespace CityFlipper
         private double _cloakInfoMs;
 
         private bool _controllerOpenRequested;
+
+        private Identity _liveControllerIdentity;
+        private bool _haveLiveControllerIdentity;
 
         private Dictionary<string, string> _cityInfo =
             new Dictionary<string, string>();
@@ -81,6 +85,9 @@ namespace CityFlipper
             if (controller == null)
                 return;
 
+            if (!_haveLiveControllerIdentity)
+                return;
+
             float distance =
                 DynelManager.LocalPlayer.DistanceFrom(controller);
 
@@ -109,11 +116,12 @@ namespace CityFlipper
             Logger.Information(
                 $"Opening City Controller at {distance:F2} m.");
 
-            //Client.Send(new LookAtMessage
-            //{
-            //    Target = controller.Identity
-            //});
-/*
+            Logger.Information(
+                $"Static controller identity: {controller.Identity}");
+
+            Logger.Information(
+                $"Live controller identity: {_liveControllerIdentity}");
+
             Client.Send(new GenericCmdMessage
             {
                 Temp1 = 0,
@@ -121,10 +129,10 @@ namespace CityFlipper
                 Action = GenericCmdAction.Use,
                 Temp4 = 1,
                 User = DynelManager.LocalPlayer.Identity,
-                Target = controller.Identity,
+                Target = _liveControllerIdentity,
                 Unknown = 1
             });
-*/
+
             Logger.Information(
                 "Requested City Controller open.");
 
@@ -214,11 +222,27 @@ namespace CityFlipper
                                         $"U1={d.Unknown1}, " +
                                         $"U2={d.Unknown2}, " +
                                         $"U3={d.Unknown3}");
+
+                                    if (d.IdentityType ==
+                                        IdentityType.CityController)
+                                    {
+                                        _liveControllerIdentity =
+                                            new Identity(
+                                                IdentityType.CityController,
+                                                (int)d.Instance);
+
+                                        _haveLiveControllerIdentity = true;
+
+                                        Logger.Information(
+                                            $"Live City Controller identity: " +
+                                            $"{_liveControllerIdentity}");
+                                    }
                                 }
                             }
 
                             break;
                         }
+
                 }
             }
             catch (Exception ex)
@@ -258,60 +282,6 @@ namespace CityFlipper
                 Target = target.Identity,
                 Unknown = 1
             });
-        }
-
-        private bool TryOpenCityController()
-        {
-            try
-            {
-                var controller =
-                    DynelManager.AllDynels
-                        .FirstOrDefault(
-                            d => d.Name == "City Controller");
-
-                if (controller == null)
-                    return false;
-
-                if (!_controllerFound)
-                {
-                    _controllerFound = true;
-                    _controllerMs =
-                        _timer.Elapsed.TotalMilliseconds;
-
-                    Logger.Information(
-                        $"City Controller found after " +
-                        $"{_controllerMs:F0} ms.");
-
-                    Logger.Information(
-                        $"Controller identity: {controller.Identity}");
-                }
-
-                /*
-                 * This is the actual AO-specific part borrowed from the
-                 * existing cloak-bot approach:
-                 *
-                 * look at the controller, then issue USE.
-                 *
-                 * If your checked-out Server Rack CloakBot uses a
-                 * slightly different message class for GenericCmd,
-                 * keep its exact two send calls here. Everything else
-                 * in this POC can remain unchanged.
-                 */
-
-                Use(controller);
-
-                Logger.Information(
-                    "Requested City Controller open.");
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(
-                    $"Failed to open City Controller: {ex}");
-
-                return false;
-            }
         }
 
         private void HandleTransportSignal(
