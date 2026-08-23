@@ -55,7 +55,7 @@ public class PluginLoader
         Console.WriteLine(
             $"Accounts: {_config.AccountPrefix}0 .. " +
             $"{_config.AccountPrefix}{_config.AccountCount - 1}");
-        Console.WriteLine("Character scheme: Apcraider{level}{index:00}");
+        Console.WriteLine("Character scheme: Apcr{level}{index:00}");
         Console.WriteLine($"Pipe: {PipeName}");
         Console.WriteLine();
         Console.WriteLine("Buddies service idle. Zero buddy AO sessions are started automatically.");
@@ -368,7 +368,7 @@ public class PluginLoader
 
     private static string BuildCharacterName(int level, int index)
     {
-        return $"Apcraider{level}{index:D2}";
+        return $"Apcr{level}{index:D2}";
     }
 
     private static void ShutdownAll()
