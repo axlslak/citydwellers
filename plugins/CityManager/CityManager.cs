@@ -299,9 +299,13 @@ namespace CityManager
 
             string command = parts[0].ToLowerInvariant();
 
-            if (replyTarget.IsOrg && command != "help" && command != "cloak")
+            if (!replyTarget.IsDev && command != "help" && command != "cloak")
             {
-                Reply(replyTarget, "No such command. Try #help.");
+                Reply(
+                    replyTarget,
+                    replyTarget.IsOrg
+                        ? "No such command. Try #help."
+                        : "No such command. Try help.");
                 return;
             }
 
@@ -354,7 +358,7 @@ namespace CityManager
                 }
 
                 default:
-                    Reply(replyTarget, $"Unknown command '{parts[0]}'. Try #help.");
+                    Reply(replyTarget, "No such command. Try #help.");
                     break;
             }
         }
@@ -371,13 +375,7 @@ namespace CityManager
                     "#wakeup [level] [index], #sleep [index].";
             }
 
-            return
-                "Available commands:\n" +
-                "help: Display this help message.\n" +
-                "cloak/probe: Ask Flipper for a fresh City Controller reading.\n" +
-                "status: Show Manager's remembered cloak state.\n" +
-                "wakeup [level] [index]: Start one buddy.\n" +
-                "sleep [index]: Unload one buddy.\n";
+            return "Commands: help, cloak. Developer controls are in Apcmanager private channel.";
         }
 
         private void BeginFlipperProbe(ReplyTarget target)
