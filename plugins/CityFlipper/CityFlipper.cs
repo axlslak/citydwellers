@@ -39,6 +39,8 @@ namespace CityFlipper
         private double _cityInfoMs;
         private double _cloakInfoMs;
 
+        private bool _controllerOpenRequested;
+
         private Dictionary<string, string> _cityInfo =
             new Dictionary<string, string>();
 
@@ -64,6 +66,57 @@ namespace CityFlipper
              */
 
             Client.MessageReceived += MessageReceived;
+        }
+
+        private void Tick(object sender, double e)
+        {
+            if (_controllerOpenRequested)
+                return;
+
+            var controller =
+                DynelManager.AllDynels
+                    .FirstOrDefault(
+                        d => d.Name == "City Controller");
+
+            if (controller == null)
+                return;
+
+            float distance =
+                DynelManager.LocalPlayer.DistanceFrom(controller);
+
+            if (!_controllerFound)
+            {
+                _controllerFound = true;
+                _controllerMs =
+                    _timer.Elapsed.TotalMilliseconds;
+
+                Logger.Information(
+                    $"City Controller found after " +
+                    $"{_controllerMs:F0} ms.");
+
+                Logger.Information(
+                    $"Controller identity: {controller.Identity}");
+
+                Logger.Information(
+                    $"Distance to controller: {distance:F2} m");
+            }
+
+            if (distance > 10f)
+                return;
+
+            _controllerOpenRequested = true;
+
+            Logger.Information(
+                $"Opening City Controller at {distance:F2} m.");
+
+            Use(controller);
+            Use(controller);
+            Use(controller);
+
+            Logger.Information(
+                "Requested City Controller open.");
+
+            Client.OnUpdate -= Tick;
         }
 
         private void MessageReceived(object sender, Message e)
@@ -121,27 +174,9 @@ namespace CityFlipper
             Logger.Information(
                 $"CharInPlay after {_inPlayMs:F0} ms.");
 
-            /*
-             * Give the playfield/dynel list a short moment to populate.
-             *
-             * For the POC this is intentionally simple. Once we know
-             * actual timing, we can replace this with a state-driven
-             * retry loop.
-             */
-            Task.Run(async () =>
-            {
-                for (int attempt = 1; attempt <= 20; attempt++)
-                {
-                    await Task.Delay(100);
-
-                    if (TryOpenCityController())
-                        return;
-                }
-
-                Logger.Error(
-                    "Could not find City Controller after 20 attempts.");
-            });
+            Client.OnUpdate += Tick;
         }
+
         private void Use(Dynel target)
         {
             Client.Send(new LookAtMessage
