@@ -301,7 +301,7 @@ namespace CityManager
 
             if (replyTarget.IsOrg && command != "help" && command != "cloak")
             {
-                Reply(replyTarget, $"Unknown command '{parts[0]}'. Try #help.");
+                Reply(replyTarget, "No such command. Try #help.");
                 return;
             }
 
