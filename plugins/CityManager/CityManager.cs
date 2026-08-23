@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
+using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Chat;
 using AOSharp.Clientless.Logging;
@@ -16,6 +18,9 @@ namespace CityManager
     public class CityManager : ClientlessPluginEntry
     {
         private const int ProvisionalCloakDownSeconds = 3600;
+        private const string FlipperPipeName = "citydwellers-flipper";
+        private const string BuddiesPipeName = "citydwellers-buddies";
+        private const int WorkerConnectTimeoutMs = 1000;
 
         private static readonly HashSet<string> AllowedTellSenders =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -23,6 +28,8 @@ namespace CityManager
                 "Kavem",
                 "Doczy"
             };
+
+        private readonly object _stateSync = new object();
 
         private string _pluginDir;
         private string _statePath;
@@ -381,7 +388,10 @@ namespace CityManager
                     return;
                 }
 
-                string[] commandParts = msg.Message.Split(' ');
+                string[] commandParts = msg.Message.Split(
+                    new[] { ' ' },
+                    StringSplitOptions.RemoveEmptyEntries);
+
                 string command =
                     commandParts.Length > 0
                         ? commandParts[0].ToLowerInvariant()
@@ -397,6 +407,55 @@ namespace CityManager
                     case "status":
                         SendCloakStatus(msg.SenderId);
                         break;
+
+                    case "probe":
+                    case "observe":
+                        BeginFlipperProbe(msg.SenderId);
+                        break;
+
+                    case "wakeup":
+                    {
+                        int level;
+                        int index;
+
+                        if (commandParts.Length != 3 ||
+                            !int.TryParse(commandParts[1], out level) ||
+                            !int.TryParse(commandParts[2], out index))
+                        {
+                            Client.SendPrivateMessage(
+                                msg.SenderId,
+                                "Usage: wakeup <level> <index>");
+                            break;
+                        }
+
+                        BeginBuddiesCommand(
+                            msg.SenderId,
+                            "wakeup",
+                            level,
+                            index);
+                        break;
+                    }
+
+                    case "sleep":
+                    {
+                        int index;
+
+                        if (commandParts.Length != 2 ||
+                            !int.TryParse(commandParts[1], out index))
+                        {
+                            Client.SendPrivateMessage(
+                                msg.SenderId,
+                                "Usage: sleep <index>");
+                            break;
+                        }
+
+                        BeginBuddiesCommand(
+                            msg.SenderId,
+                            "sleep",
+                            null,
+                            index);
+                        break;
+                    }
                 }
             }
             catch (Exception ex)
@@ -405,13 +464,233 @@ namespace CityManager
             }
         }
 
+        private void BeginFlipperProbe(uint senderId)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    var request = new WorkerRequest
+                    {
+                        Id = Guid.NewGuid().ToString("N"),
+                        Command = "observe"
+                    };
+
+                    Logger.Information(
+                        $"IPC -> Flipper {request.Id}: observe");
+
+                    WorkerResponse response =
+                        SendWorkerRequest(
+                            FlipperPipeName,
+                            request,
+                            WorkerConnectTimeoutMs);
+
+                    if (!response.Ok)
+                    {
+                        Logger.Warning(
+                            $"IPC <- Flipper {request.Id}: FAIL {response.Message}");
+
+                        Client.SendPrivateMessage(
+                            senderId,
+                            $"Flipper probe failed: {response.Message}");
+                        return;
+                    }
+
+                    ApplyFlipperObservation(response);
+
+                    string chargeText =
+                        response.ControllerCharge.HasValue
+                            ? $"{response.ControllerCharge.Value * 100:F1}%"
+                            : "unknown";
+
+                    string timerText =
+                        response.ShieldTimerInSeconds.HasValue
+                            ? $"{response.ShieldTimerInSeconds.Value}s"
+                            : "unknown";
+
+                    string reply =
+                        $"Flipper: Cloak = {response.CloakState ?? "Unknown"}. " +
+                        $"Shield timer = {timerText}. " +
+                        $"Charge = {chargeText}.";
+
+                    Logger.Information(
+                        $"IPC <- Flipper {request.Id}: {reply}");
+
+                    Client.SendPrivateMessage(senderId, reply);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Flipper IPC failed: {ex.Message}");
+
+                    Client.SendPrivateMessage(
+                        senderId,
+                        $"Flipper service unavailable: {ex.Message}");
+                }
+            });
+        }
+
+        private void BeginBuddiesCommand(
+            uint senderId,
+            string command,
+            int? level,
+            int index)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    var request = new WorkerRequest
+                    {
+                        Id = Guid.NewGuid().ToString("N"),
+                        Command = command,
+                        Level = level,
+                        Index = index
+                    };
+
+                    Logger.Information(
+                        $"IPC -> Buddies {request.Id}: " +
+                        $"{command} level={level} index={index}");
+
+                    WorkerResponse response =
+                        SendWorkerRequest(
+                            BuddiesPipeName,
+                            request,
+                            WorkerConnectTimeoutMs);
+
+                    string prefix = response.Ok
+                        ? "Buddies"
+                        : "Buddies failed";
+
+                    Logger.Information(
+                        $"IPC <- Buddies {request.Id}: " +
+                        $"{(response.Ok ? "OK" : "FAIL")} {response.Message}");
+
+                    Client.SendPrivateMessage(
+                        senderId,
+                        $"{prefix}: {response.Message}");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Buddies IPC failed: {ex.Message}");
+
+                    Client.SendPrivateMessage(
+                        senderId,
+                        $"Buddies service unavailable: {ex.Message}");
+                }
+            });
+        }
+
+        private WorkerResponse SendWorkerRequest(
+            string pipeName,
+            WorkerRequest request,
+            int connectTimeoutMs)
+        {
+            using (var pipe = new NamedPipeClientStream(
+                ".",
+                pipeName,
+                PipeDirection.InOut,
+                PipeOptions.None))
+            {
+                pipe.Connect(connectTimeoutMs);
+
+                var reader = new StreamReader(pipe);
+                var writer = new StreamWriter(pipe) { AutoFlush = true };
+
+                writer.WriteLine(JsonConvert.SerializeObject(request));
+
+                string line = reader.ReadLine();
+
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    throw new IOException(
+                        $"Worker '{pipeName}' closed without a response.");
+                }
+
+                WorkerResponse response =
+                    JsonConvert.DeserializeObject<WorkerResponse>(line);
+
+                if (response == null)
+                {
+                    throw new IOException(
+                        $"Worker '{pipeName}' returned invalid JSON.");
+                }
+
+                return response;
+            }
+        }
+
+        private void ApplyFlipperObservation(WorkerResponse response)
+        {
+            CloakStatus parsedStatus;
+
+            if (!Enum.TryParse(
+                response.CloakState,
+                true,
+                out parsedStatus))
+            {
+                Logger.Warning(
+                    $"Flipper returned unknown cloak state '{response.CloakState}'.");
+                return;
+            }
+
+            DateTime now = DateTime.UtcNow;
+
+            lock (_stateSync)
+            {
+                CloakStatus previousStatus = _status;
+
+                _status = parsedStatus;
+                _shieldTimerInSeconds =
+                    response.ShieldTimerInSeconds ?? 0;
+                _lastObservedUtc = now;
+                _observationSource = "Flipper.Probe";
+                _raiseTimeIsProvisional = false;
+                _raiseDueLogged = false;
+
+                if (_status == CloakStatus.Disabled)
+                {
+                    int waitSeconds =
+                        Math.Max(0, _shieldTimerInSeconds);
+
+                    _canRaiseAtUtc =
+                        now.AddSeconds(waitSeconds);
+                }
+                else
+                {
+                    _canRaiseAtUtc = null;
+                }
+
+                if (previousStatus != CloakStatus.Unknown &&
+                    previousStatus != _status)
+                {
+                    _lastChangedUtc = now;
+                }
+
+                AppendCloakEvent(
+                    previousStatus,
+                    _status,
+                    now,
+                    response.ShieldTimerInSeconds,
+                    _canRaiseAtUtc,
+                    "flipper_probe",
+                    "Flipper.Probe",
+                    response.Character,
+                    null,
+                    response.Message);
+
+                SaveState();
+            }
+        }
+
         private void SendHelpMessage(uint senderId)
         {
             string helpMessage =
                 "Available commands:\n" +
                 "help: Display this help message.\n" +
-                "cloak: Show observed cloak state and raise/check timer.\n" +
-                "status: Same as cloak.\n";
+                "status/cloak: Show Manager's observed cloak state.\n" +
+                "probe: Ask Flipper for a fresh City Controller reading.\n" +
+                "wakeup <level> <index>: Start one buddy.\n" +
+                "sleep <index>: Unload one buddy.\n";
 
             Client.SendPrivateMessage(senderId, helpMessage);
         }
@@ -428,7 +707,8 @@ namespace CityManager
 
             if (_status == CloakStatus.Disabled && _canRaiseAtUtc.HasValue)
             {
-                TimeSpan remaining = _canRaiseAtUtc.Value - DateTime.UtcNow;
+                TimeSpan remaining =
+                    _canRaiseAtUtc.Value - DateTime.UtcNow;
 
                 string timerKind = _raiseTimeIsProvisional
                     ? "provisional Flipper check"
@@ -463,7 +743,9 @@ namespace CityManager
 
         private string FormatDuration(TimeSpan value)
         {
-            int totalSeconds = Math.Max(0, (int)Math.Ceiling(value.TotalSeconds));
+            int totalSeconds =
+                Math.Max(0, (int)Math.Ceiling(value.TotalSeconds));
+
             int hours = totalSeconds / 3600;
             int minutes = (totalSeconds % 3600) / 60;
             int seconds = totalSeconds % 60;
@@ -483,11 +765,13 @@ namespace CityManager
             {
                 if (!File.Exists(_statePath))
                 {
-                    Logger.Information("No persisted cloak state found; starting Unknown.");
+                    Logger.Information(
+                        "No persisted cloak state found; starting Unknown.");
                     return;
                 }
 
                 string json = File.ReadAllText(_statePath);
+
                 PersistedCloakState state =
                     JsonConvert.DeserializeObject<PersistedCloakState>(json);
 
@@ -495,13 +779,20 @@ namespace CityManager
                     return;
 
                 _status = state.Status;
-                _shieldTimerInSeconds = state.ShieldTimerInSeconds;
-                _lastObservedUtc = state.LastObservedUtc;
-                _lastChangedUtc = state.LastChangedUtc;
-                _canRaiseAtUtc = state.CanRaiseAtUtc;
-                _raiseDueLogged = state.RaiseDueLogged;
-                _raiseTimeIsProvisional = state.RaiseTimeIsProvisional;
-                _observationSource = state.ObservationSource ?? "Unknown";
+                _shieldTimerInSeconds =
+                    state.ShieldTimerInSeconds;
+                _lastObservedUtc =
+                    state.LastObservedUtc;
+                _lastChangedUtc =
+                    state.LastChangedUtc;
+                _canRaiseAtUtc =
+                    state.CanRaiseAtUtc;
+                _raiseDueLogged =
+                    state.RaiseDueLogged;
+                _raiseTimeIsProvisional =
+                    state.RaiseTimeIsProvisional;
+                _observationSource =
+                    state.ObservationSource ?? "Unknown";
 
                 Logger.Information(
                     $"Restored cloak state: {_status}, " +
@@ -512,7 +803,8 @@ namespace CityManager
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed loading persisted cloak state: {ex}");
+                Logger.Error(
+                    $"Failed loading persisted cloak state: {ex}");
             }
         }
 
@@ -523,13 +815,20 @@ namespace CityManager
                 var state = new PersistedCloakState
                 {
                     Status = _status,
-                    ShieldTimerInSeconds = _shieldTimerInSeconds,
-                    LastObservedUtc = _lastObservedUtc,
-                    LastChangedUtc = _lastChangedUtc,
-                    CanRaiseAtUtc = _canRaiseAtUtc,
-                    RaiseDueLogged = _raiseDueLogged,
-                    RaiseTimeIsProvisional = _raiseTimeIsProvisional,
-                    ObservationSource = _observationSource
+                    ShieldTimerInSeconds =
+                        _shieldTimerInSeconds,
+                    LastObservedUtc =
+                        _lastObservedUtc,
+                    LastChangedUtc =
+                        _lastChangedUtc,
+                    CanRaiseAtUtc =
+                        _canRaiseAtUtc,
+                    RaiseDueLogged =
+                        _raiseDueLogged,
+                    RaiseTimeIsProvisional =
+                        _raiseTimeIsProvisional,
+                    ObservationSource =
+                        _observationSource
                 };
 
                 string json =
@@ -548,7 +847,8 @@ namespace CityManager
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed saving cloak state: {ex}");
+                Logger.Error(
+                    $"Failed saving cloak state: {ex}");
             }
         }
 
@@ -571,21 +871,33 @@ namespace CityManager
                     OccurredUtc = occurredUtc,
                     PreviousStatus = previousStatus,
                     NewStatus = newStatus,
-                    ShieldTimerInSeconds = shieldTimerInSeconds,
-                    CanRaiseAtUtc = canRaiseAtUtc,
-                    EventType = eventType,
-                    Source = source,
-                    Actor = actor,
-                    ChannelName = channelName,
-                    RawMessage = rawMessage
+                    ShieldTimerInSeconds =
+                        shieldTimerInSeconds,
+                    CanRaiseAtUtc =
+                        canRaiseAtUtc,
+                    EventType =
+                        eventType,
+                    Source =
+                        source,
+                    Actor =
+                        actor,
+                    ChannelName =
+                        channelName,
+                    RawMessage =
+                        rawMessage
                 };
 
-                string line = JsonConvert.SerializeObject(record);
-                File.AppendAllText(_eventsPath, line + Environment.NewLine);
+                string line =
+                    JsonConvert.SerializeObject(record);
+
+                File.AppendAllText(
+                    _eventsPath,
+                    line + Environment.NewLine);
             }
             catch (Exception ex)
             {
-                Logger.Error($"Failed appending cloak event: {ex}");
+                Logger.Error(
+                    $"Failed appending cloak event: {ex}");
             }
         }
 
@@ -613,6 +925,27 @@ namespace CityManager
             public string Actor { get; set; }
             public string ChannelName { get; set; }
             public string RawMessage { get; set; }
+        }
+
+        private class WorkerRequest
+        {
+            public string Id;
+            public string Command;
+            public int? Level;
+            public int? Index;
+        }
+
+        private class WorkerResponse
+        {
+            public string Id;
+            public bool Ok;
+            public string Message;
+            public string Character;
+            public string CloakState;
+            public int? ShieldTimerInSeconds;
+            public float? ControllerCharge;
+            public int? Level;
+            public int? Index;
         }
     }
 }
