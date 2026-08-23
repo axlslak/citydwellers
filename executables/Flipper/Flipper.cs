@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -34,38 +34,29 @@ public class FlipperLoader
             return;
         }
 
-        if (config == null ||
-            config.Accounts == null ||
-            config.Accounts.Count != 1)
+        if (config == null || config.Accounts == null || config.Accounts.Count != 1)
         {
-            Console.WriteLine(
-                "flipper.json must contain exactly one account.");
-
+            Console.WriteLine("flipper.json must contain exactly one account.");
             Environment.Exit(1);
             return;
         }
 
-        if (config.Plugins == null ||
-            config.Plugins.Count != 1)
+        if (config.Plugins == null || config.Plugins.Count != 1)
         {
-            Console.WriteLine(
-                "flipper.json must contain exactly one plugin.");
-
+            Console.WriteLine("flipper.json must contain exactly one plugin.");
             Environment.Exit(1);
             return;
         }
 
         AccountInfo account = config.Accounts[0];
 
-        int timeoutMs =
-            config.ProbeTimeoutMs > 0
-                ? config.ProbeTimeoutMs
-                : 20000;
+        int timeoutMs = config.ProbeTimeoutMs > 0
+            ? config.ProbeTimeoutMs
+            : 20000;
 
-        int delayMs =
-            config.DelayBetweenPassesMs > 0
-                ? config.DelayBetweenPassesMs
-                : 5000;
+        int delayMs = config.DelayBetweenPassesMs > 0
+            ? config.DelayBetweenPassesMs
+            : 5000;
 
         Console.WriteLine("======================================");
         Console.WriteLine(" City Dwellers - Flipper Probe");
@@ -74,36 +65,24 @@ public class FlipperLoader
         Console.WriteLine($"Character: {account.Character}");
         Console.WriteLine();
 
-        ProbeRun pass1 =
-            RunProbe(
-                1,
-                account,
-                config.Plugins,
-                timeoutMs);
+        ProbeRun pass1 = RunProbe(1, account, config.Plugins, timeoutMs);
 
         if (!pass1.Success)
         {
             Console.WriteLine();
             Console.WriteLine("PASS 1 FAILED.");
             Console.WriteLine("Aborting second pass.");
-
             Environment.Exit(1);
             return;
         }
 
         Console.WriteLine();
-        Console.WriteLine(
-            $"Waiting {delayMs} ms before second fresh login...");
+        Console.WriteLine($"Waiting {delayMs} ms before second fresh login...");
         Console.WriteLine();
 
         Thread.Sleep(delayMs);
 
-        ProbeRun pass2 =
-            RunProbe(
-                2,
-                account,
-                config.Plugins,
-                timeoutMs);
+        ProbeRun pass2 = RunProbe(2, account, config.Plugins, timeoutMs);
 
         Console.WriteLine();
         Console.WriteLine();
@@ -129,33 +108,21 @@ public class FlipperLoader
         Console.WriteLine($"PASS {pass}");
         Console.WriteLine("--------------------------------------");
 
-        string pluginPath =
-            Path.GetFullPath(plugins[0]);
-
-        string pluginDir =
-            Path.GetDirectoryName(pluginPath);
-
-        string resultPath =
-            Path.Combine(
-                pluginDir,
-                "cityflipper-result.json");
-
-        string tempPath =
-            resultPath + ".tmp";
+        string pluginPath = Path.GetFullPath(plugins[0]);
+        string pluginDir = Path.GetDirectoryName(pluginPath);
+        string resultPath = Path.Combine(pluginDir, "cityflipper-result.json");
+        string tempPath = resultPath + ".tmp";
 
         DeleteIfExists(resultPath);
         DeleteIfExists(tempPath);
 
-        Logger logger =
-            new LoggerConfiguration()
-                .WriteTo.Console()
-                .MinimumLevel.Debug()
-                .CreateLogger();
+        Logger logger = new LoggerConfiguration()
+            .WriteTo.Console()
+            .MinimumLevel.Debug()
+            .CreateLogger();
 
         ClientDomain domain = null;
-
-        Stopwatch totalTimer =
-            Stopwatch.StartNew();
+        Stopwatch totalTimer = Stopwatch.StartNew();
 
         ProbeRun run = new ProbeRun
         {
@@ -167,26 +134,22 @@ public class FlipperLoader
             Console.WriteLine(
                 $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Creating client domain.");
 
-            domain =
-                Client.CreateInstance(
-                    account.Username,
-                    account.Password,
-                    account.Character,
-                    Dimension.RubiKa,
-                    logger);
+            domain = Client.CreateInstance(
+                account.Username,
+                account.Password,
+                account.Character,
+                Dimension.RubiKa,
+                logger);
 
             foreach (string plugin in plugins)
-            {
                 domain.LoadPlugin(plugin);
-            }
 
             Console.WriteLine(
                 $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Starting AO client.");
 
             domain.Start();
 
-            DateTime timeout =
-                DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            DateTime timeout = DateTime.UtcNow.AddMilliseconds(timeoutMs);
 
             while (!File.Exists(resultPath))
             {
@@ -206,18 +169,11 @@ public class FlipperLoader
             totalTimer.Stop();
 
             Console.WriteLine(
-                $"[{totalTimer.Elapsed.TotalSeconds:F3}s] " +
-                "Observation received.");
+                $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Observation received.");
 
-            string json =
-                File.ReadAllText(resultPath);
-
-            run.Result =
-                JsonConvert.DeserializeObject<FlipperResult>(json);
-
-            run.TotalMilliseconds =
-                totalTimer.Elapsed.TotalMilliseconds;
-
+            string json = File.ReadAllText(resultPath);
+            run.Result = JsonConvert.DeserializeObject<FlipperResult>(json);
+            run.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds;
             run.Success = true;
 
             Console.WriteLine();
@@ -234,8 +190,7 @@ public class FlipperLoader
             Console.WriteLine(ex);
 
             run.Success = false;
-            run.TotalMilliseconds =
-                totalTimer.Elapsed.TotalMilliseconds;
+            run.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds;
 
             return run;
         }
@@ -253,8 +208,7 @@ public class FlipperLoader
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine(
-                        $"Client unload failed: {ex}");
+                    Console.WriteLine($"Client unload failed: {ex}");
                 }
             }
 
@@ -272,33 +226,33 @@ public class FlipperLoader
 
         Console.WriteLine(
             $"Total host time:             {run.TotalMilliseconds:F0} ms");
-
         Console.WriteLine(
             $"Plugin Init -> CharInPlay:   {result.InitToInPlayMs:F0} ms");
-
         Console.WriteLine(
             $"Plugin Init -> Controller:   {result.InitToControllerMs:F0} ms");
-
         Console.WriteLine(
             $"Plugin Init -> CityInfo:     {result.InitToCityInfoMs:F0} ms");
-
         Console.WriteLine(
             $"Plugin Init -> CloakInfo:    {result.InitToCloakInfoMs:F0} ms");
+        Console.WriteLine(
+            $"Plugin Init -> ChargeInfo:   {result.InitToChargeInfoMs:F0} ms");
+
+        Console.WriteLine();
+        Console.WriteLine("Controller charge:");
+        Console.WriteLine($"  Raw = {result.ControllerCharge}");
+        Console.WriteLine(
+            $"  Candidate percent = {result.ControllerCharge * 100:F1}%");
 
         Console.WriteLine();
         Console.WriteLine("CityInfo:");
-
         PrintDictionary(result.CityInfo);
 
         Console.WriteLine();
         Console.WriteLine("CloakInfo:");
-
         PrintDictionary(result.CloakInfo);
     }
 
-    private static void PrintComparison(
-        ProbeRun first,
-        ProbeRun second)
+    private static void PrintComparison(ProbeRun first, ProbeRun second)
     {
         if (!first.Success)
         {
@@ -313,32 +267,30 @@ public class FlipperLoader
         }
 
         Console.WriteLine(
-            $"Total time:        " +
-            $"{first.TotalMilliseconds:F0} ms  ->  " +
+            $"Total time:        {first.TotalMilliseconds:F0} ms  ->  " +
             $"{second.TotalMilliseconds:F0} ms");
-
         Console.WriteLine(
-            $"To CharInPlay:     " +
-            $"{first.Result.InitToInPlayMs:F0} ms  ->  " +
+            $"To CharInPlay:     {first.Result.InitToInPlayMs:F0} ms  ->  " +
             $"{second.Result.InitToInPlayMs:F0} ms");
-
         Console.WriteLine(
-            $"To Controller:     " +
-            $"{first.Result.InitToControllerMs:F0} ms  ->  " +
+            $"To Controller:     {first.Result.InitToControllerMs:F0} ms  ->  " +
             $"{second.Result.InitToControllerMs:F0} ms");
-
         Console.WriteLine(
-            $"To CloakInfo:      " +
-            $"{first.Result.InitToCloakInfoMs:F0} ms  ->  " +
+            $"To CloakInfo:      {first.Result.InitToCloakInfoMs:F0} ms  ->  " +
             $"{second.Result.InitToCloakInfoMs:F0} ms");
+        Console.WriteLine(
+            $"To ChargeInfo:     {first.Result.InitToChargeInfoMs:F0} ms  ->  " +
+            $"{second.Result.InitToChargeInfoMs:F0} ms");
+        Console.WriteLine(
+            $"Charge raw:        {first.Result.ControllerCharge}  ->  " +
+            $"{second.Result.ControllerCharge}");
 
         Console.WriteLine();
         Console.WriteLine(
-            "Compare the CityInfo/CloakInfo values above.");
+            "Compare the CityInfo/CloakInfo/charge values above.");
     }
 
-    private static void PrintDictionary(
-        Dictionary<string, string> values)
+    private static void PrintDictionary(Dictionary<string, string> values)
     {
         if (values == null || values.Count == 0)
         {
@@ -347,10 +299,7 @@ public class FlipperLoader
         }
 
         foreach (var item in values)
-        {
-            Console.WriteLine(
-                $"  {item.Key} = {item.Value}");
-        }
+            Console.WriteLine($"  {item.Key} = {item.Value}");
     }
 
     private static void DeleteIfExists(string path)
@@ -397,6 +346,9 @@ public class FlipperLoader
         public double InitToControllerMs;
         public double InitToCityInfoMs;
         public double InitToCloakInfoMs;
+        public double InitToChargeInfoMs;
+
+        public float ControllerCharge;
 
         public Dictionary<string, string> CityInfo;
         public Dictionary<string, string> CloakInfo;
