@@ -1,83 +1,377 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using Serilog;
-using Serilog.Core;
-using AOSharp.Clientless;
+using System.Diagnostics;
 using System.IO;
+using System.Threading;
+
+using AOSharp.Clientless;
 using AOSharp.Clientless.Common;
+
 using Newtonsoft.Json;
 
-public class PluginLoader
+using Serilog;
+using Serilog.Core;
+
+public class FlipperLoader
 {
-    //This plugin loader assumes you have a file 'config.json' in your debug folder, change account info and plugin paths to your liking
-
-    // Example config:
-    //{
-    //  "Accounts": [
-    //    {
-    //      "Username": "TestUsername1",
-    //      "Password": "Testpass1",
-    //      "Character": "Testchar1"
-    //    },
-    //    {
-    //    "Username": "TestUsername2",
-    //      "Password": "Testpass2",
-    //      "Character": "Testchar2"
-    //    }
-    //  ],
-    //  "Plugins": [
-    //    "C:\\lolis\\repos\\aosharp.clientless\\Test\\bin\\Debug\\TestClientlessPlugin.dll",
-    //    "C:\\lolis\\repos\\someotherrepo\\bin\\Debug\\someotherplugin.dll",
-    //  ]
-    //}
-
-    private static List<ClientDomain> BotDomains = new List<ClientDomain>();
-
     static void Main(string[] args)
     {
-        string configFile;
-        string configPath = AppDomain.CurrentDomain.BaseDirectory + "config.json";
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        string configPath = Path.Combine(baseDir, "flipper.json");
+
+        Config config;
 
         try
         {
-            configFile = File.ReadAllText(configPath);
+            string configText = File.ReadAllText(configPath);
+            config = JsonConvert.DeserializeObject<Config>(configText);
         }
-        catch
+        catch (Exception ex)
         {
-            Console.WriteLine($"Config file not found at '{configPath}', read the instructions.");
-            Console.ReadLine();
+            Console.WriteLine($"Unable to read '{configPath}'.");
+            Console.WriteLine(ex);
+            Environment.Exit(1);
             return;
         }
 
-        Config config = JsonConvert.DeserializeObject<Config>(configFile);
+        if (config == null ||
+            config.Accounts == null ||
+            config.Accounts.Count != 1)
+        {
+            Console.WriteLine(
+                "flipper.json must contain exactly one account.");
 
-        foreach (AccountInfo acc in config.Accounts)
-            CreateBot(acc, config.Plugins);
+            Environment.Exit(1);
+            return;
+        }
 
+        if (config.Plugins == null ||
+            config.Plugins.Count != 1)
+        {
+            Console.WriteLine(
+                "flipper.json must contain exactly one plugin.");
+
+            Environment.Exit(1);
+            return;
+        }
+
+        AccountInfo account = config.Accounts[0];
+
+        int timeoutMs =
+            config.ProbeTimeoutMs > 0
+                ? config.ProbeTimeoutMs
+                : 20000;
+
+        int delayMs =
+            config.DelayBetweenPassesMs > 0
+                ? config.DelayBetweenPassesMs
+                : 5000;
+
+        Console.WriteLine("======================================");
+        Console.WriteLine(" City Dwellers - Flipper Probe");
+        Console.WriteLine("======================================");
+        Console.WriteLine();
+        Console.WriteLine($"Character: {account.Character}");
+        Console.WriteLine();
+
+        ProbeRun pass1 =
+            RunProbe(
+                1,
+                account,
+                config.Plugins,
+                timeoutMs);
+
+        if (!pass1.Success)
+        {
+            Console.WriteLine();
+            Console.WriteLine("PASS 1 FAILED.");
+            Console.WriteLine("Aborting second pass.");
+
+            Environment.Exit(1);
+            return;
+        }
+
+        Console.WriteLine();
+        Console.WriteLine(
+            $"Waiting {delayMs} ms before second fresh login...");
+        Console.WriteLine();
+
+        Thread.Sleep(delayMs);
+
+        ProbeRun pass2 =
+            RunProbe(
+                2,
+                account,
+                config.Plugins,
+                timeoutMs);
+
+        Console.WriteLine();
+        Console.WriteLine();
+        Console.WriteLine("======================================");
+        Console.WriteLine(" COMPARISON");
+        Console.WriteLine("======================================");
+
+        PrintComparison(pass1, pass2);
+
+        Console.WriteLine();
+        Console.WriteLine("Press ENTER to exit.");
         Console.ReadLine();
-
-        foreach (var domain in BotDomains)
-            domain.Unload();
     }
 
-    private static void CreateBot(AccountInfo accInfo, List<string> pluginPaths)
+    private static ProbeRun RunProbe(
+        int pass,
+        AccountInfo account,
+        List<string> plugins,
+        int timeoutMs)
     {
-        Logger logger = new LoggerConfiguration().WriteTo.Console().MinimumLevel.Debug().CreateLogger();
-        ClientDomain instance = Client.CreateInstance(accInfo.Username, accInfo.Password, accInfo.Character, Dimension.RubiKa, logger);
+        Console.WriteLine();
+        Console.WriteLine("--------------------------------------");
+        Console.WriteLine($"PASS {pass}");
+        Console.WriteLine("--------------------------------------");
 
-        foreach (var path in pluginPaths)
-            instance.LoadPlugin(path);
+        string pluginPath =
+            Path.GetFullPath(plugins[0]);
 
-        instance.Start();
+        string pluginDir =
+            Path.GetDirectoryName(pluginPath);
+
+        string resultPath =
+            Path.Combine(
+                pluginDir,
+                "cityflipper-result.json");
+
+        string tempPath =
+            resultPath + ".tmp";
+
+        DeleteIfExists(resultPath);
+        DeleteIfExists(tempPath);
+
+        Logger logger =
+            new LoggerConfiguration()
+                .WriteTo.Console()
+                .MinimumLevel.Debug()
+                .CreateLogger();
+
+        ClientDomain domain = null;
+
+        Stopwatch totalTimer =
+            Stopwatch.StartNew();
+
+        ProbeRun run = new ProbeRun
+        {
+            Pass = pass
+        };
+
+        try
+        {
+            Console.WriteLine(
+                $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Creating client domain.");
+
+            domain =
+                Client.CreateInstance(
+                    account.Username,
+                    account.Password,
+                    account.Character,
+                    Dimension.RubiKa,
+                    logger);
+
+            foreach (string plugin in plugins)
+            {
+                domain.LoadPlugin(plugin);
+            }
+
+            Console.WriteLine(
+                $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Starting AO client.");
+
+            domain.Start();
+
+            DateTime timeout =
+                DateTime.UtcNow.AddMilliseconds(timeoutMs);
+
+            while (!File.Exists(resultPath))
+            {
+                if (DateTime.UtcNow >= timeout)
+                {
+                    Console.WriteLine(
+                        $"[{totalTimer.Elapsed.TotalSeconds:F3}s] " +
+                        "TIMEOUT waiting for CityFlipper result.");
+
+                    run.Success = false;
+                    return run;
+                }
+
+                Thread.Sleep(50);
+            }
+
+            totalTimer.Stop();
+
+            Console.WriteLine(
+                $"[{totalTimer.Elapsed.TotalSeconds:F3}s] " +
+                "Observation received.");
+
+            string json =
+                File.ReadAllText(resultPath);
+
+            run.Result =
+                JsonConvert.DeserializeObject<FlipperResult>(json);
+
+            run.TotalMilliseconds =
+                totalTimer.Elapsed.TotalMilliseconds;
+
+            run.Success = true;
+
+            Console.WriteLine();
+            PrintResult(run);
+
+            return run;
+        }
+        catch (Exception ex)
+        {
+            totalTimer.Stop();
+
+            Console.WriteLine();
+            Console.WriteLine("FLIPPER PROBE EXCEPTION:");
+            Console.WriteLine(ex);
+
+            run.Success = false;
+            run.TotalMilliseconds =
+                totalTimer.Elapsed.TotalMilliseconds;
+
+            return run;
+        }
+        finally
+        {
+            if (domain != null)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Unloading flipper client...");
+
+                try
+                {
+                    domain.Unload();
+                    Console.WriteLine("Flipper client unloaded.");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(
+                        $"Client unload failed: {ex}");
+                }
+            }
+
+            DeleteIfExists(resultPath);
+            DeleteIfExists(tempPath);
+        }
+    }
+
+    private static void PrintResult(ProbeRun run)
+    {
+        FlipperResult result = run.Result;
+
+        Console.WriteLine($"PASS {run.Pass} RESULT");
+        Console.WriteLine();
+
+        Console.WriteLine(
+            $"Total host time:             {run.TotalMilliseconds:F0} ms");
+
+        Console.WriteLine(
+            $"Plugin Init -> CharInPlay:   {result.InitToInPlayMs:F0} ms");
+
+        Console.WriteLine(
+            $"Plugin Init -> Controller:   {result.InitToControllerMs:F0} ms");
+
+        Console.WriteLine(
+            $"Plugin Init -> CityInfo:     {result.InitToCityInfoMs:F0} ms");
+
+        Console.WriteLine(
+            $"Plugin Init -> CloakInfo:    {result.InitToCloakInfoMs:F0} ms");
+
+        Console.WriteLine();
+        Console.WriteLine("CityInfo:");
+
+        PrintDictionary(result.CityInfo);
+
+        Console.WriteLine();
+        Console.WriteLine("CloakInfo:");
+
+        PrintDictionary(result.CloakInfo);
+    }
+
+    private static void PrintComparison(
+        ProbeRun first,
+        ProbeRun second)
+    {
+        if (!first.Success)
+        {
+            Console.WriteLine("Pass 1 failed.");
+            return;
+        }
+
+        if (!second.Success)
+        {
+            Console.WriteLine("Pass 2 failed.");
+            return;
+        }
+
+        Console.WriteLine(
+            $"Total time:        " +
+            $"{first.TotalMilliseconds:F0} ms  ->  " +
+            $"{second.TotalMilliseconds:F0} ms");
+
+        Console.WriteLine(
+            $"To CharInPlay:     " +
+            $"{first.Result.InitToInPlayMs:F0} ms  ->  " +
+            $"{second.Result.InitToInPlayMs:F0} ms");
+
+        Console.WriteLine(
+            $"To Controller:     " +
+            $"{first.Result.InitToControllerMs:F0} ms  ->  " +
+            $"{second.Result.InitToControllerMs:F0} ms");
+
+        Console.WriteLine(
+            $"To CloakInfo:      " +
+            $"{first.Result.InitToCloakInfoMs:F0} ms  ->  " +
+            $"{second.Result.InitToCloakInfoMs:F0} ms");
+
+        Console.WriteLine();
+        Console.WriteLine(
+            "Compare the CityInfo/CloakInfo values above.");
+    }
+
+    private static void PrintDictionary(
+        Dictionary<string, string> values)
+    {
+        if (values == null || values.Count == 0)
+        {
+            Console.WriteLine("  <none>");
+            return;
+        }
+
+        foreach (var item in values)
+        {
+            Console.WriteLine(
+                $"  {item.Key} = {item.Value}");
+        }
+    }
+
+    private static void DeleteIfExists(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
     }
 
     public class Config
     {
         public List<AccountInfo> Accounts;
         public List<string> Plugins;
+
+        public int ProbeTimeoutMs = 20000;
+        public int DelayBetweenPassesMs = 5000;
     }
 
     public class AccountInfo
@@ -85,5 +379,26 @@ public class PluginLoader
         public string Username;
         public string Password;
         public string Character;
+    }
+
+    public class ProbeRun
+    {
+        public int Pass;
+        public bool Success;
+        public double TotalMilliseconds;
+        public FlipperResult Result;
+    }
+
+    public class FlipperResult
+    {
+        public string Character;
+
+        public double InitToInPlayMs;
+        public double InitToControllerMs;
+        public double InitToCityInfoMs;
+        public double InitToCloakInfoMs;
+
+        public Dictionary<string, string> CityInfo;
+        public Dictionary<string, string> CloakInfo;
     }
 }

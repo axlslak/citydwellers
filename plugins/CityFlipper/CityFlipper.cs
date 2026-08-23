@@ -1,240 +1,471 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using AOSharp.Clientless;
-using AOSharp.Clientless.Chat;
+﻿using AOSharp.Clientless;
+using AOSharp.Clientless.Common;
 using AOSharp.Clientless.Logging;
-using AOSharp.Common.GameData;
+using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.GameData;
+// These are used by the original clientless cloak code.
+// Depending on exactly which AOSharp.Common revision your project
+// references, Visual Studio may already have one or both namespaces.
 using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
 
 namespace CityFlipper
 {
     public class CityFlipper : ClientlessPluginEntry
     {
-        int Remaining;
-        double TimeStamp;
-        CloakStatus Status = new CloakStatus();
-        ControllerState CurrentControllerState = new ControllerState();
-        ControllerState ChatControllerState = new ControllerState();
+        private string _pluginDir;
+
+        private readonly Stopwatch _timer =
+            new Stopwatch();
+
+        private readonly object _sync =
+            new object();
+
+        private bool _charInPlay;
+        private bool _controllerFound;
+
+        private bool _gotCityInfo;
+        private bool _gotCloakInfo;
+
+        private double _inPlayMs;
+        private double _controllerMs;
+        private double _cityInfoMs;
+        private double _cloakInfoMs;
+
+        private Dictionary<string, string> _cityInfo =
+            new Dictionary<string, string>();
+
+        private Dictionary<string, string> _cloakInfo =
+            new Dictionary<string, string>();
+
+        private bool _resultWritten;
 
         public override void Init(string pluginDir)
         {
-            Logger.Information("CloakBot Init");
-            CurrentControllerState = ControllerState.Move;
-            Client.MessageReceived += MessageReceived;
-        }
+            _pluginDir = pluginDir;
 
-        private void MessageReceived(object sender, Message e)
-        {
-            //if (e.Header.PacketType != PacketType.N3Message) { return; }
-            if(e.Body.PacketType != PacketType.N3Message) { return; }
+            Logger.Information(
+                "CityFlipper diagnostic probe initialized.");
 
-            var n3Message = (N3Message)e.Body;
-            //if (n3Message.Identity.Instance != Client.LocalDynelId) { return; }
+            _timer.Start();
 
-            Logger.Debug($"N3MessageType = {n3Message.N3MessageType}");
+            /*
+             * Do NOT set AutoReconnect=false.
+             *
+             * We already proved that the normal ClientDomain.Unload()
+             * path behaves correctly with the clientless defaults.
+             */
 
-            switch (n3Message.N3MessageType)
+            Client.MessageReceived += (sender, message) =>
             {
-                case N3MessageType.AOTransportSignal:
-                    var sigMsg = (AOTransportSignalMessage)e.Body;
-                    switch (sigMsg.Action)
-                    {
-                        case AOSignalAction.CityInfo:
-                            Logger.Information("AOSignalAction.CityInfo");
-                            var cityInfo = (CityInfo)sigMsg.TransportSignalMessage;
-                            if (cityInfo.Unknown1 == 0) { return; }
-                            Logger.Information("Controller opened");
-                            CurrentControllerState = ControllerState.Opened;
-                            break;
-                        case AOSignalAction.CloakInfo:
-                            Logger.Information("AOSignalAction.CloakInfo");
-                            var cloakInfo = (CloakInfo)sigMsg.TransportSignalMessage;
-                            Remaining = cloakInfo.ShieldTimerInSeconds;
-                            Status = cloakInfo.CloakState;
-                            TimeStamp = (int)(DateTime.Now - new DateTime(1970, 1, 1)).TotalSeconds; ;
-                            break;
-                    }
-
-                    break;
-                case N3MessageType.GenericCmd:
-                    break;
-                case N3MessageType.LookAt:
-                    break;
-                case N3MessageType.CharInPlay:
-                    var charInPlayMsg = (CharInPlayMessage)e.Body;
-                    if (charInPlayMsg?.Identity.Instance != Client.LocalDynelId) { return; }
-                    Logger.Information("In play");
-                    Client.Chat.PrivateMessageReceived += HandlePrivateMessage;
-                    Client.OnUpdate += Tick;
-                    break;
-            }
-        }
-
-        private void HandlePrivateMessage(object sender, PrivateMessage msg)
-        {
-            var stringIgnores = new List<string> { "You have been auto-invited to the private channel.",
-                "Unknown", "AnarchyOnline", "Reconnecting you to", "Darknet", "<" };
-            if (stringIgnores.Any(i => msg.Message.Contains(i))) { return; }
-            Logger.Information($"{msg.SenderName} sent {msg.Message}");
-            string[] commandParts = msg.Message.Split(' ');
-            string command = commandParts.Length > 0 ? commandParts[0].ToLower() : string.Empty;
-            switch (command)
-            {
-                case "help":
-                case "Help":
-                    SendHelpMessage(msg.SenderId);
-                    break;
-                case "cloak":
-                    Client.SendPrivateMessage(msg.SenderId, $"Cloak = {Status}, " +
-                            $"Time remaining = {Math.Round(((TimeStamp + Remaining) - (int)(DateTime.Now - new DateTime(1970, 1, 1)).TotalSeconds) / 60)} minutes");
-                    break;
-                case "lower":
-                    if (Status != CloakStatus.Enabled) { return; }
-                    CurrentControllerState = ControllerState.CloakLower;
-                    break;
-                case "stand":
-                    DynelManager.LocalPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
-                    break;
-                case "sit":
-                    DynelManager.LocalPlayer.MovementComponent.ChangeMovement(MovementAction.SwitchToSit);
-                    break;
-            }
-        }
-
-        private void SendHelpMessage(uint senderId)
-        {
-            string helpMessage = "Available commands:\n" +
-                                 "help: Display this help message.\n" +
-                                 "cloak: prints cloak status.\n" +
-                                 "lower: Lowers the cloak.\n";
-
-            try
-            {
-                Client.SendPrivateMessage(senderId, helpMessage);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Error sending help message to {senderId}: {ex.Message}");
-            }
-        }
-
-        private void Tick(object sender, double e)
-        {
-            var citycontroller = DynelManager.AllDynels.FirstOrDefault(c => c.Name == "City Controller");
-
-            if (citycontroller == null) { return; }
-
-            var cru = ControllerRecompilerUnit.Crus.Select(id => Inventory.Find(id, out var item) ? item : null).FirstOrDefault(item => item != null);
-
-            //if (Remaining == 0 || (int)(DateTime.Now - new DateTime(1970, 1, 1)).TotalSeconds > TimeStamp + Remaining || CurrentControllerState== ControllerState.None)
-            //{
-            //    CurrentControllerState = ControllerState.Move;
-            //}
-
-            if (CurrentControllerState != ChatControllerState)
-            {
-                Logger.Information($"Controller State = {CurrentControllerState}");
-                ChatControllerState = CurrentControllerState;
-            }
-
-            switch (CurrentControllerState)
-            {
-                case ControllerState.Move:
-                    if (DynelManager.LocalPlayer.DistanceFrom(citycontroller) > 10f) { return; };
-                    CurrentControllerState = ControllerState.Open;
-                    break;
-                case ControllerState.Open:
-                    if (citycontroller == null) { Logger.Information("cc null"); return; }
-                    //Logger.Information($"Try opening cc, distance = {DynelManager.LocalPlayer.DistanceFrom(citycontroller)}");
-                    Use(citycontroller);
-                    Use(citycontroller);
-                    Use(citycontroller);
-                    CurrentControllerState = ControllerState.Waiting;
-                    break;
-                case ControllerState.Opened:
-                    //if (!CityController.CanToggleCloak()) { return; }
-                    //switch (CityController.CloakState)
-                    //{
-                    //    case CloakStatus.Disabled:
-                    //        if (CityController.Charge <= 0.75f)
-                    //        {
-                    //            CurrentControllerState = ControllerState.Charge;
-                    //        }
-                    //        else
-                    //        {
-                    //            CurrentControllerState = ControllerState.CloakRaise;
-                    //        }
-                    //        break;
-                    //    case CloakStatus.Enabled:
-                    //        break;
-                    //}
-                    break;
-                case ControllerState.Charge:
-                    if (cru != null)
-                    {
-                        Client.Send(new GenericCmdMessage
-                        {
-                            Action = GenericCmdAction.UseItemOnItem,
-                            User = citycontroller.Identity,
-                            Target = cru.Slot,
-                            Count = 1
-                        });
-                        CurrentControllerState = ControllerState.CloakRaise;
-                    }
-                    else { CurrentControllerState = ControllerState.CloakRaise; }
-
-                    break;
-                case ControllerState.CloakRaise:
-                    Client.Send(new ToggleCloakMessage
-                    {
-                        Unknown1 = 49152
-                    });
-                    CurrentControllerState = ControllerState.Done;
-                    break;
-                case ControllerState.CloakLower:
-                    Client.Send(new ToggleCloakMessage
-                    {
-                        Unknown1 = 49152
-                    });
-                    CurrentControllerState = ControllerState.Done;
-                    break;
-                case ControllerState.Done:
-                    citycontroller?.Use();
-                    break;
-            }
-        }
-
-        class ControllerRecompilerUnit
-        {
-            public static readonly int[] Crus = {
-                257110, 254364, 305225, 254367, 254359, 258522, 254350, 254329, 254328, 254327, 254326
+                HandleMessage(message);
             };
         }
 
-        enum ControllerState { None, Waiting, Move, Open, Opened, Charge, CloakLower, CloakRaise, Done }
-        //public enum CloakStatus { Unknown = 0, Disabled = -1, Enabled = 1 }
-
-        void Use(Dynel target)
+        private void HandleMessage(object message)
         {
-            Client.Send(new LookAtMessage
+            try
             {
-                Target = target.Identity
-            });
+                /*
+                 * First important milestone:
+                 * our own character has entered the world.
+                 */
+                if (message is CharInPlayMessage charInPlay)
+                {
+                    if (charInPlay.Identity.Instance ==
+                        Client.LocalDynelId)
+                    {
+                        OnCharInPlay();
+                    }
 
-            //Targeting.SetTarget(target.Identity);
+                    return;
+                }
 
-            Client.Send(new GenericCmdMessage
+                /*
+                 * City Controller information arrives as
+                 * AOTransportSignal messages.
+                 */
+                if (message is AOTransportSignalMessage signal)
+                {
+                    HandleTransportSignal(signal);
+                }
+            }
+            catch (Exception ex)
             {
-                Temp1 = 0,
-                Action = GenericCmdAction.Use,
-                Temp4 = 1,
-                User = DynelManager.LocalPlayer.Identity,
-                Target = target.Identity,
-                Unknown = 1,
+                Logger.Error(
+                    ex,
+                    "Exception processing CityFlipper message.");
+            }
+        }
+
+        private void OnCharInPlay()
+        {
+            if (_charInPlay)
+                return;
+
+            _charInPlay = true;
+            _inPlayMs = _timer.Elapsed.TotalMilliseconds;
+
+            Logger.Information(
+                $"CharInPlay after {_inPlayMs:F0} ms.");
+
+            /*
+             * Give the playfield/dynel list a short moment to populate.
+             *
+             * For the POC this is intentionally simple. Once we know
+             * actual timing, we can replace this with a state-driven
+             * retry loop.
+             */
+            Task.Run(async () =>
+            {
+                for (int attempt = 1; attempt <= 20; attempt++)
+                {
+                    await Task.Delay(100);
+
+                    if (TryOpenCityController())
+                        return;
+                }
+
+                Logger.Error(
+                    "Could not find City Controller after 20 attempts.");
             });
+        }
+
+        private bool TryOpenCityController()
+        {
+            try
+            {
+                var controller =
+                    DynelManager.AllDynels
+                        .FirstOrDefault(
+                            d => d.Name == "City Controller");
+
+                if (controller == null)
+                    return false;
+
+                if (!_controllerFound)
+                {
+                    _controllerFound = true;
+                    _controllerMs =
+                        _timer.Elapsed.TotalMilliseconds;
+
+                    Logger.Information(
+                        $"City Controller found after " +
+                        $"{_controllerMs:F0} ms.");
+
+                    Logger.Information(
+                        $"Controller identity: {controller.Identity}");
+                }
+
+                /*
+                 * This is the actual AO-specific part borrowed from the
+                 * existing cloak-bot approach:
+                 *
+                 * look at the controller, then issue USE.
+                 *
+                 * If your checked-out Server Rack CloakBot uses a
+                 * slightly different message class for GenericCmd,
+                 * keep its exact two send calls here. Everything else
+                 * in this POC can remain unchanged.
+                 */
+
+                Client.Send(
+                    new LookAtMessage
+                    {
+                        Target = controller.Identity
+                    });
+
+                Client.Send(
+                    new GenericCmdMessage
+                    {
+                        Target = controller.Identity,
+                        Action = GenericCmdAction.Use
+                    });
+
+                Logger.Information(
+                    "Requested City Controller open.");
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(
+                    ex,
+                    "Failed to open City Controller.");
+
+                return false;
+            }
+        }
+
+        private void HandleTransportSignal(
+            AOTransportSignalMessage signal)
+        {
+            try
+            {
+                switch (signal.Action)
+                {
+                    case AOSignalAction.CityInfo:
+                        {
+                            double now =
+                                _timer.Elapsed.TotalMilliseconds;
+
+                            object value =
+                                signal.TransportSignalMessage;
+
+                            lock (_sync)
+                            {
+                                _cityInfoMs = now;
+
+                                _cityInfo =
+                                    DumpObject(value);
+
+                                _gotCityInfo = true;
+                            }
+
+                            Logger.Information(
+                                $"CityInfo received after {now:F0} ms.");
+
+                            LogDictionary(
+                                "CITY INFO",
+                                _cityInfo);
+
+                            TryFinish();
+                            break;
+                        }
+
+                    case AOSignalAction.CloakInfo:
+                        {
+                            double now =
+                                _timer.Elapsed.TotalMilliseconds;
+
+                            object value =
+                                signal.TransportSignalMessage;
+
+                            lock (_sync)
+                            {
+                                _cloakInfoMs = now;
+
+                                _cloakInfo =
+                                    DumpObject(value);
+
+                                _gotCloakInfo = true;
+                            }
+
+                            Logger.Information(
+                                $"CloakInfo received after {now:F0} ms.");
+
+                            LogDictionary(
+                                "CLOAK INFO",
+                                _cloakInfo);
+
+                            TryFinish();
+                            break;
+                        }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(
+                    ex,
+                    "Error processing AOTransportSignal.");
+            }
+        }
+
+        /*
+         * Reflection is intentional here.
+         *
+         * For this first probe we want AO to tell us what fields are
+         * actually available. We don't yet hard-code assumptions such
+         * as ChargePercentage, ShieldTimerInSeconds, CanToggle, etc.
+         */
+        private Dictionary<string, string> DumpObject(
+            object value)
+        {
+            var result =
+                new Dictionary<string, string>();
+
+            if (value == null)
+            {
+                result["<null>"] = "";
+                return result;
+            }
+
+            Type type = value.GetType();
+
+            result["$Type"] =
+                type.FullName;
+
+            foreach (PropertyInfo property
+                in type.GetProperties(
+                    BindingFlags.Instance |
+                    BindingFlags.Public))
+            {
+                try
+                {
+                    object propertyValue =
+                        property.GetValue(value);
+
+                    result[property.Name] =
+                        propertyValue?.ToString()
+                        ?? "<null>";
+                }
+                catch (Exception ex)
+                {
+                    result[property.Name] =
+                        $"<error: {ex.Message}>";
+                }
+            }
+
+            foreach (FieldInfo field
+                in type.GetFields(
+                    BindingFlags.Instance |
+                    BindingFlags.Public))
+            {
+                try
+                {
+                    /*
+                     * Don't overwrite a property of the same name.
+                     */
+                    if (result.ContainsKey(field.Name))
+                        continue;
+
+                    object fieldValue =
+                        field.GetValue(value);
+
+                    result[field.Name] =
+                        fieldValue?.ToString()
+                        ?? "<null>";
+                }
+                catch (Exception ex)
+                {
+                    result[field.Name] =
+                        $"<error: {ex.Message}>";
+                }
+            }
+
+            return result;
+        }
+
+        private void LogDictionary(
+            string title,
+            Dictionary<string, string> values)
+        {
+            Logger.Information($"===== {title} =====");
+
+            foreach (var item in values)
+            {
+                Logger.Information(
+                    $"{item.Key} = {item.Value}");
+            }
+
+            Logger.Information("====================");
+        }
+
+        private void TryFinish()
+        {
+            lock (_sync)
+            {
+                if (_resultWritten)
+                    return;
+
+                /*
+                 * For this probe we want BOTH observations.
+                 */
+                if (!_gotCityInfo || !_gotCloakInfo)
+                    return;
+
+                _resultWritten = true;
+
+                WriteResult();
+            }
+        }
+
+        private void WriteResult()
+        {
+            try
+            {
+                var result =
+                    new FlipperResult
+                    {
+                        Character =
+                            Client.CharacterName,
+
+                        InitToInPlayMs =
+                            _inPlayMs,
+
+                        InitToControllerMs =
+                            _controllerMs,
+
+                        InitToCityInfoMs =
+                            _cityInfoMs,
+
+                        InitToCloakInfoMs =
+                            _cloakInfoMs,
+
+                        CityInfo =
+                            _cityInfo,
+
+                        CloakInfo =
+                            _cloakInfo
+                    };
+
+                string resultPath =
+                    Path.Combine(
+                        _pluginDir,
+                        "cityflipper-result.json");
+
+                string tempPath =
+                    resultPath + ".tmp";
+
+                string json =
+                    JsonConvert.SerializeObject(
+                        result,
+                        Formatting.Indented);
+
+                File.WriteAllText(
+                    tempPath,
+                    json);
+
+                if (File.Exists(resultPath))
+                    File.Delete(resultPath);
+
+                File.Move(
+                    tempPath,
+                    resultPath);
+
+                Logger.Information(
+                    $"Flipper observation complete after " +
+                    $"{_timer.Elapsed.TotalMilliseconds:F0} ms.");
+
+                Logger.Information(
+                    "Waiting for Flipper.exe to unload client.");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(
+                    ex,
+                    "Failed writing flipper result.");
+            }
+        }
+
+        private class FlipperResult
+        {
+            public string Character;
+
+            public double InitToInPlayMs;
+            public double InitToControllerMs;
+            public double InitToCityInfoMs;
+            public double InitToCloakInfoMs;
+
+            public Dictionary<string, string> CityInfo;
+            public Dictionary<string, string> CloakInfo;
         }
     }
 }
