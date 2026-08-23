@@ -466,16 +466,36 @@ namespace CityManager
                     string chargeText = response.ControllerCharge.HasValue
                         ? $"{response.ControllerCharge.Value * 100:F1}%"
                         : "unknown";
-                    string timerText = response.ShieldTimerInSeconds.HasValue
-                        ? $"{response.ShieldTimerInSeconds.Value}s"
-                        : "unknown";
+
+                    string shieldText;
+                    if (!response.ShieldTimerInSeconds.HasValue)
+                    {
+                        shieldText = "Shield status = unknown";
+                    }
+                    else if (response.ShieldTimerInSeconds.Value > 0)
+                    {
+                        shieldText =
+                            $"Shield ready in {FormatDuration(TimeSpan.FromSeconds(response.ShieldTimerInSeconds.Value))}";
+                    }
+                    else
+                    {
+                        shieldText = "Shield ready";
+                    }
 
                     string reply =
                         $"Cloak = {response.CloakState ?? "Unknown"}. " +
-                        $"Shield timer = {timerText}. Charge = {chargeText}.";
+                        $"{shieldText}. Charge = {chargeText}.";
 
-                    Logger.Information($"IPC <- Flipper {request.Id}: {reply}");
-                    DevTrace($"FLIPPER OK [{shortId}]: {reply}");
+                    string rawTimerText = response.ShieldTimerInSeconds.HasValue
+                        ? $"{response.ShieldTimerInSeconds.Value}s"
+                        : "unknown";
+
+                    string diagnosticReply =
+                        $"Cloak = {response.CloakState ?? "Unknown"}. " +
+                        $"Raw shield timer = {rawTimerText}. Charge = {chargeText}.";
+
+                    Logger.Information($"IPC <- Flipper {request.Id}: {diagnosticReply}");
+                    DevTrace($"FLIPPER OK [{shortId}]: {diagnosticReply}");
 
                     if (!target.IsDev)
                         Reply(target, reply);
