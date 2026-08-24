@@ -41,7 +41,8 @@ namespace CityManager
                 "cloak",
                 "status",
                 "leave",
-                "raid"
+                "raid",
+                "raidassist"
             };
 
         private static readonly HashSet<string> AdminCommands =
@@ -227,7 +228,7 @@ namespace CityManager
                 if (!string.Equals(msg.ChannelName, OrgChannelName, StringComparison.OrdinalIgnoreCase))
                     return;
 
-                ObserveRaidCityMessage(cityMessage);
+                ObserveRaidCityMessage(cityMessage, msg.ChannelId);
 
                 string text = msg.Message.TrimStart();
                 bool isCommand = text.StartsWith(CommandPrefix, StringComparison.Ordinal);
@@ -358,6 +359,7 @@ namespace CityManager
                   command == "leave" ||
                   command == "join") && parts.Length == 1) ||
                 (command == "raid" && HasTellRaidCommandShape(parts)) ||
+                (command == "raidassist" && parts.Length == 3) ||
                 (command == "cancel" && (parts.Length == 1 || parts.Length == 2)) ||
                 (command == "recoverraid" && parts.Length == 5) ||
                 ((command == "invite" ||
@@ -414,6 +416,12 @@ namespace CityManager
             if (string.Equals(command, "raid", StringComparison.OrdinalIgnoreCase))
             {
                 ProcessRaidCommand(senderName, parts, replyTarget, isAdmin);
+                return;
+            }
+
+            if (string.Equals(command, "raidassist", StringComparison.OrdinalIgnoreCase))
+            {
+                ProcessRaidAssistCommand(senderName, parts, replyTarget, isAdmin);
                 return;
             }
 
@@ -567,6 +575,7 @@ namespace CityManager
             return
                 $"Public everywhere: {prefix}help, {prefix}status, {prefix}leave. " +
                 $"Public in organization chat: #cloak, #raid. " +
+                $"Raid-assist buttons are available to Squad Commanders and higher. " +
                 $"Admins may also use cloak and raid in tells or the guest channel. " +
                 $"Admin: {prefix}join, {prefix}invite [character], {prefix}kick [character], " +
                 $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
@@ -1545,6 +1554,7 @@ namespace CityManager
             public int? Count;
             public bool Cached;
             public DateTime? ObservedUtc;
+            public bool ActionSent;
         }
 
         private class WorkerLinkStatus

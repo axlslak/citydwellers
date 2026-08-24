@@ -324,7 +324,8 @@ public class FlipperLoader
                 ControllerCharge = run.Result.ControllerCharge,
                 Character = _account.Character,
                 Cached = false,
-                ObservedUtc = DateTime.UtcNow
+                ObservedUtc = DateTime.UtcNow,
+                ActionSent = true
             };
         }
 
@@ -395,7 +396,8 @@ public class FlipperLoader
             ControllerCharge = result.ControllerCharge,
             Character = _account.Character,
             Cached = false,
-            ObservedUtc = DateTime.UtcNow
+            ObservedUtc = DateTime.UtcNow,
+            ActionSent = result.ToggleSent
         };
     }
 
@@ -800,5 +802,6 @@ public class FlipperLoader
         public float? ControllerCharge;
         public bool Cached;
         public DateTime? ObservedUtc;
+        public bool ActionSent;
     }
 }

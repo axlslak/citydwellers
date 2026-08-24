@@ -108,7 +108,7 @@ namespace CityManager
             try
             {
                 Logger.Information(
-                    $"Requesting org rank for {senderName} ({senderId}) for #cloak authorization.");
+                    $"Requesting org rank for {senderName} ({senderId}) for command authorization.");
 
                 Client.InfoRequest(
                     new Identity(IdentityType.SimpleChar, unchecked((int)senderId)));
@@ -293,6 +293,8 @@ namespace CityManager
         private static bool _groupSubscribed;
         private static bool _ensureInFlight;
         private static bool _raidRecoveryPending;
+        private static bool _bootAssessmentStarted;
+        private static DateTime _managerStartedUtc = DateTime.MinValue;
         private static DateTime _raidOccurredUtc = DateTime.MinValue;
         private static DateTime _lastRaidEventUtc = DateTime.MinValue;
         private static Timer _retryTimer;
@@ -305,6 +307,8 @@ namespace CityManager
                     return;
 
                 Client.MessageReceived += LifecycleMessageReceived;
+                _managerStartedUtc = DateTime.UtcNow;
+                _bootAssessmentStarted = false;
                 _initialized = true;
             }
         }
@@ -325,6 +329,7 @@ namespace CityManager
                 _initialized = false;
                 _ensureInFlight = false;
                 _raidRecoveryPending = false;
+                _bootAssessmentStarted = false;
 
                 if (_retryTimer != null)
                 {
@@ -350,6 +355,7 @@ namespace CityManager
                     return;
 
                 SubscribeGroupMessages();
+                StartBootCloakAssessment();
             }
             catch (Exception ex)
             {
@@ -368,6 +374,32 @@ namespace CityManager
                 _groupSubscribed = true;
                 Logger.Information("City raid automation is observing organization city events.");
             }
+        }
+
+        private static void StartBootCloakAssessment()
+        {
+            DateTime assessmentUtc;
+
+            lock (Sync)
+            {
+                if (_bootAssessmentStarted)
+                    return;
+
+                _bootAssessmentStarted = true;
+                assessmentUtc = DateTime.UtcNow;
+                _raidOccurredUtc = assessmentUtc;
+                _raidRecoveryPending = true;
+                CancelRetryLocked();
+            }
+
+            SendDev(
+                $"CLOAK BOOT ASSESSMENT: manager-start={_managerStartedUtc:O}; " +
+                "requesting a live enable-only Flipper assessment.");
+
+            // ensure-enabled is safe as an assessment: it can observe or raise,
+            // but it can never lower the cloak. NotBeforeUtc forces this boot to
+            // establish a current observation instead of trusting an old cache.
+            QueueEnsureEnabled(assessmentUtc, "MANAGER_BOOT");
         }
 
         private static void HandleGroupMessage(object sender, GroupMsg msg)

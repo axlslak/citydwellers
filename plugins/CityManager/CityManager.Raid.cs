@@ -19,7 +19,9 @@ namespace CityManager
         private const int RaidTargetTimeoutSeconds = 300;
         private const int RaidWorkerGraceSeconds = 120;
         private const int CityTargetAfterCloakSeconds = 180;
-        private const int GeneralBuddyStartOffsetSeconds = 1005;
+        // Measured from the authoritative city-targeted system event: wave 8
+        // arrives at +945s and the general physically lands at about +1125s.
+        private const int GeneralBuddyStartOffsetSeconds = 945;
         private const int BuddyLogoutOffsetSeconds = 1125;
         private const float MinimumRaidControllerCharge = 0.75f;
 
@@ -598,6 +600,140 @@ namespace CityManager
             Reply(session.Origin, BuildRaidWindow(session));
         }
 
+        private void ProcessRaidAssistCommand(
+            string senderName,
+            string[] parts,
+            ReplyTarget commandTarget,
+            bool isAdmin)
+        {
+            if (parts.Length != 3)
+            {
+                Reply(commandTarget, Usage(commandTarget, "raidassist [count] [raid-token]"));
+                return;
+            }
+
+            int count;
+            if (!int.TryParse(parts[1], out count) || count < 0 || count > 12)
+            {
+                Reply(commandTarget, "Raid assistance must be between 0 and 12 City Dwellers.");
+                return;
+            }
+
+            if (!commandTarget.IsOrg && !isAdmin)
+            {
+                Reply(commandTarget, "Raid-assist selections must be made in organization chat.");
+                return;
+            }
+
+            string token = parts[2];
+
+            if (isAdmin)
+            {
+                ApplyRaidAssistSelection(
+                    senderName,
+                    commandTarget,
+                    count,
+                    token,
+                    "named administrator");
+                return;
+            }
+
+            OrgRankAuthorizer.Authorize(
+                commandTarget.SenderId,
+                senderName,
+                authorization =>
+                {
+                    if (!authorization.Allowed)
+                    {
+                        string detail = !string.IsNullOrWhiteSpace(authorization.Error)
+                            ? authorization.Error
+                            : $"organization rank '{authorization.Rank ?? "unknown"}'";
+
+                        DevTrace(
+                            $"RAID ASSIST DENIED {senderName}: {detail}.");
+                        Reply(
+                            commandTarget,
+                            "Raid-assist controls require Squad Commander rank or higher.");
+                        return;
+                    }
+
+                    ApplyRaidAssistSelection(
+                        senderName,
+                        commandTarget,
+                        count,
+                        token,
+                        authorization.Rank);
+                });
+        }
+
+        private void ApplyRaidAssistSelection(
+            string senderName,
+            ReplyTarget commandTarget,
+            int count,
+            string token,
+            string authority)
+        {
+            RaidSession session;
+            string error = null;
+            bool declined = false;
+
+            lock (_raidSync)
+            {
+                session = _raidSession;
+
+                if (session == null ||
+                    !session.IsExternalAssist ||
+                    session.Stage != RaidStage.AssistSelection)
+                {
+                    error = "That raid-assist offer is no longer active.";
+                }
+                else if (!string.Equals(session.Token, token, StringComparison.Ordinal))
+                {
+                    error = "That raid-assist button belongs to an older raid.";
+                }
+                else if (DateTime.UtcNow >= session.StageDeadlineUtc)
+                {
+                    error = "The raid-assist selection window has closed.";
+                }
+                else if (count == 0)
+                {
+                    _raidSession = null;
+                    declined = true;
+                }
+                else
+                {
+                    session.OwnerName = senderName;
+                    session.OwnerId = commandTarget.SenderId;
+                    session.RaiderCount = count;
+                    session.Stage = RaidStage.Active;
+                }
+            }
+
+            if (error != null)
+            {
+                Reply(commandTarget, error);
+                return;
+            }
+
+            if (declined)
+            {
+                DevTrace(
+                    $"RAID ASSIST declined by {senderName} authority={authority}.");
+                SaveRaidState();
+                Reply(commandTarget, $"{senderName} declined City Dwellers assistance for this raid.");
+                return;
+            }
+
+            Logger.Warning(
+                $"External raid assistance selected by {senderName}: " +
+                $"count={count}, authority={authority}.");
+            DevTrace(
+                $"RAID ASSIST selected by={senderName} count={count} " +
+                $"authority={authority} wave8={session.CityTargetedUtc.AddSeconds(GeneralBuddyStartOffsetSeconds):O}.");
+            SaveRaidState();
+            Reply(session.Origin, BuildRaidWindow(session));
+        }
+
         private void TickRaidCoordinator()
         {
             DateTime now = DateTime.UtcNow;
@@ -619,6 +755,33 @@ namespace CityManager
                 session = _raidSession;
                 stage = session.Stage;
                 deadline = session.StageDeadlineUtc;
+            }
+
+            if (stage == RaidStage.AssistSelection && now >= deadline)
+            {
+                bool closed = false;
+
+                lock (_raidSync)
+                {
+                    if (ReferenceEquals(_raidSession, session) &&
+                        session.Stage == RaidStage.AssistSelection)
+                    {
+                        _raidSession = null;
+                        closed = true;
+                    }
+                }
+
+                if (closed)
+                {
+                    DevTrace(
+                        "RAID ASSIST offer expired at wave 8 without a selection.");
+                    SaveRaidState();
+                    Reply(
+                        session.Origin,
+                        "City Dwellers assistance was not requested before wave 8; the offer is closed.");
+                }
+
+                return;
             }
 
             if (stage == RaidStage.Configuring && now >= deadline)
@@ -965,6 +1128,8 @@ namespace CityManager
                             "Disabled",
                             StringComparison.OrdinalIgnoreCase);
 
+                    bool flipperActionConfirmed = response.ActionSent;
+
                     bool cityEventConfirmed;
                     float? effectiveCharge = response.ControllerCharge;
                     lock (_raidSync)
@@ -980,7 +1145,7 @@ namespace CityManager
                     bool started =
                         effectiveCharge.HasValue &&
                         effectiveCharge.Value >= MinimumRaidControllerCharge &&
-                        (workerConfirmed || cityEventConfirmed);
+                        (flipperActionConfirmed || workerConfirmed || cityEventConfirmed);
 
                     if (!started)
                     {
@@ -1002,7 +1167,9 @@ namespace CityManager
                         }
 
                         session.LastControllerCharge = effectiveCharge;
-                        session.FlipperDetail = cityEventConfirmed && !workerConfirmed
+                        session.FlipperDetail = cityEventConfirmed &&
+                                                !workerConfirmed &&
+                                                !flipperActionConfirmed
                             ? $"Org city event confirmed the cloak was lowered by " +
                               $"{session.CloakLowerConfirmedActor}; worker detail: {response.Message}"
                             : response.Message;
@@ -1015,7 +1182,7 @@ namespace CityManager
                         $"Raid cloak lowered for {session.OwnerName}; charge={FormatCharge(effectiveCharge)}.");
                     DevTrace(
                         $"RAID STARTED owner={session.OwnerName} charge={FormatCharge(effectiveCharge)}; " +
-                        $"confirmation={(workerConfirmed ? "Flipper.CloakInfo" : "OrgChat.CLOAK_DISABLED")}; " +
+                        $"confirmation={(flipperActionConfirmed ? "Flipper.ActionSent" : workerConfirmed ? "Flipper.CloakInfo" : "OrgChat.CLOAK_DISABLED")}; " +
                         $"waiting for CITY_ATTACKED until {session.StageDeadlineUtc:O}.");
                     SaveRaidState();
                     Reply(session.Origin, BuildRaidWindow(session));
@@ -1095,7 +1262,7 @@ namespace CityManager
             SaveRaidState();
         }
 
-        private void ObserveRaidCityMessage(string message)
+        private void ObserveRaidCityMessage(string message, object channelId)
         {
             string location;
             if (!TryGetCityTargetLocation(message, out location))
@@ -1103,17 +1270,61 @@ namespace CityManager
 
             RaidSession session;
             DateTime now = DateTime.UtcNow;
+            bool externalAssistOffer = false;
 
             lock (_raidSync)
             {
                 session = _raidSession;
-                if (session == null || session.Stage != RaidStage.AwaitingCityTarget)
-                    return;
 
-                session.Stage = RaidStage.Active;
-                session.CityTargetedUtc = now;
-                session.CurrentMilestone = -1;
-                session.StageDeadlineUtc = DateTime.MaxValue;
+                if (session == null)
+                {
+                    session = new RaidSession
+                    {
+                        Token = Guid.NewGuid().ToString("N").Substring(0, 10),
+                        OwnerName = "Unmanaged city raid",
+                        OwnerId = 0,
+                        Origin = ReplyTarget.ForOrg(
+                            0,
+                            channelId,
+                            OrgChannelName),
+                        Stage = RaidStage.AssistSelection,
+                        CreatedUtc = now,
+                        StageDeadlineUtc =
+                            now.AddSeconds(GeneralBuddyStartOffsetSeconds),
+                        CityTargetedUtc = now,
+                        RaidType = "general",
+                        Level = 200,
+                        CurrentMilestone = -1,
+                        IsExternalAssist = true
+                    };
+
+                    _raidSession = session;
+                    externalAssistOffer = true;
+                }
+                else if (session.Stage == RaidStage.AwaitingCityTarget)
+                {
+                    session.Stage = RaidStage.Active;
+                    session.CityTargetedUtc = now;
+                    session.CurrentMilestone = -1;
+                    session.StageDeadlineUtc = DateTime.MaxValue;
+                }
+                else
+                {
+                    return;
+                }
+            }
+
+            if (externalAssistOffer)
+            {
+                Logger.Warning(
+                    $"Unmanaged city raid detected at {now:O}; location={location}. " +
+                    "Offering officer-controlled general support in org chat.");
+                DevTrace(
+                    $"RAID ASSIST OFFER location={location} anchor={now:O} " +
+                    $"selection-deadline={session.StageDeadlineUtc:O}.");
+                SaveRaidState();
+                Reply(session.Origin, BuildRaidWindow(session));
+                return;
             }
 
             Logger.Warning(
@@ -1199,7 +1410,7 @@ namespace CityManager
                 elapsed >= GeneralBuddyStartOffsetSeconds &&
                 !session.BuddySpinupRequested)
             {
-                BeginRaidBuddySpinup(session, "one minute after wave 8");
+                BeginRaidBuddySpinup(session, "wave 8 arrival");
                 Reply(session.Origin, BuildRaidWindow(session));
             }
         }
@@ -1656,6 +1867,7 @@ namespace CityManager
                 BuddyDetail = session.BuddyDetail,
                 BuddySpinupRequested = session.BuddySpinupRequested,
                 BuddySpinupFatal = session.BuddySpinupFatal,
+                IsExternalAssist = session.IsExternalAssist,
                 CurrentMilestone = session.CurrentMilestone,
                 StartedBuddyIndexes =
                     new List<int>(session.StartedBuddyIndexes)
@@ -1718,6 +1930,7 @@ namespace CityManager
                 BuddyDetail = saved.BuddyDetail,
                 BuddySpinupRequested = saved.BuddySpinupRequested,
                 BuddySpinupFatal = saved.BuddySpinupFatal,
+                IsExternalAssist = saved.IsExternalAssist,
                 CurrentMilestone = saved.CurrentMilestone
             };
 
@@ -1767,6 +1980,33 @@ namespace CityManager
         private string BuildRaidWindow(RaidSession session)
         {
             var body = new StringBuilder();
+
+            if (session.Stage == RaidStage.AssistSelection)
+            {
+                body.Append("<font color='#89D2E8'>City Dwellers Raid Assistance</font>\n\n");
+                body.Append("<font color='#00DE42'>A city raid is in progress.</font>\n");
+                body.Append(
+                    "Squad Commanders and higher: do you need level-200 " +
+                    "City Dwellers online for the general?\n\n");
+                body.Append("Select number of City Dwellers:\n");
+
+                for (int count = 0; count <= 12; count++)
+                {
+                    if (count > 0)
+                        body.Append("  ");
+
+                    string label = count == 0 ? "No" : count.ToString();
+                    body.Append(RaidAssistButton(session, count, label));
+                }
+
+                body.Append("\n\n");
+                body.Append(
+                    $"Selection closes at wave 8 in: <font color='#FFFF00'>" +
+                    $"{FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow)}</font>\n");
+
+                return
+                    $"<a href=\"text://{body}\">Click here to open window</a>";
+            }
 
             body.Append("<font color='#89D2E8'>City Dwellers Raid</font>\n\n");
             body.Append($"Raider: <font color='#00BFFF'>{SafeRaidText(session.OwnerName)}</font>\n");
@@ -1855,6 +2095,19 @@ namespace CityManager
                 $"<a href=\"text://{body}\">Click here to open window</a>";
         }
 
+        private string RaidAssistButton(
+            RaidSession session,
+            int count,
+            string label)
+        {
+            string command =
+                $"chatcmd:///o #raidassist {count} {session.Token}";
+
+            return
+                $"<a href='{command}'><font color='#00BFFF'>" +
+                $"[{SafeRaidText(label)}]</font></a>";
+        }
+
         private void AppendConfigurationControls(StringBuilder body, RaidSession session)
         {
             body.Append("Select raid type:\n");
@@ -1939,6 +2192,7 @@ namespace CityManager
 
         private enum RaidStage
         {
+            AssistSelection,
             Configuring,
             AdminVeto,
             ControllerFill,
@@ -1979,6 +2233,7 @@ namespace CityManager
             public string BuddyDetail;
             public bool BuddySpinupRequested;
             public bool BuddySpinupFatal;
+            public bool IsExternalAssist;
             public int CurrentMilestone;
             public List<int> StartedBuddyIndexes = new List<int>();
         }
@@ -2011,6 +2266,7 @@ namespace CityManager
             public bool BuddySpinupFatal;
             public bool BuddyCleanupInFlight;
             public bool WorkerWaitAnnounced;
+            public bool IsExternalAssist;
             public int CurrentMilestone;
 
             public readonly List<int> StartedBuddyIndexes = new List<int>();
