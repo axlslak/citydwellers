@@ -130,6 +130,7 @@ public class FlipperLoader
         Console.WriteLine();
         Console.WriteLine("Flipper service idle. Apcflipper is NOT logged in.");
         Console.WriteLine("Recent confirmed city state is served from cache before a new login.");
+        Console.WriteLine("Enable-only requests may raise cloak, but can never lower it.");
         Console.WriteLine("Waiting for Manager requests.");
         Console.WriteLine("Press ENTER to stop Flipper.");
         Console.WriteLine();
@@ -214,6 +215,9 @@ public class FlipperLoader
             case "probe":
                 return Observe(request, false);
 
+            case "ensure-enabled":
+                return EnsureEnabled(request);
+
             case "ping":
                 return Ok(request, "Flipper service is running.");
 
@@ -258,6 +262,97 @@ public class FlipperLoader
         return Fail(
             request,
             "Flipper probe failed and no confirmed cache exists. See Flipper console for details.");
+    }
+
+    private static WorkerResponse EnsureEnabled(WorkerRequest request)
+    {
+        FlipperCacheSnapshot cached;
+
+        if (FlipperCacheStore.TryGetFresh(out cached) &&
+            IsEnabled(cached.CloakState) &&
+            CacheMeetsTrigger(cached, request))
+        {
+            Console.WriteLine(
+                $"Cloak already confirmed enabled at {cached.ObservedUtc:O}; no login needed.");
+
+            return FromCache(
+                request,
+                cached,
+                "Cloak already enabled; no action needed.");
+        }
+
+        ProbeRun run = RunProbe("enable");
+
+        if (!run.Success || run.Result == null)
+        {
+            if (FlipperCacheStore.TryGetAny(out cached) &&
+                IsEnabled(cached.CloakState) &&
+                CacheMeetsTrigger(cached, request))
+            {
+                return FromCache(
+                    request,
+                    cached,
+                    "Enable probe failed, but a confirmed post-trigger cache already shows cloak enabled.");
+            }
+
+            return Fail(
+                request,
+                "Unable to ensure cloak is enabled. See Flipper console for details.");
+        }
+
+        if (run.Result.ToggleSent)
+        {
+            if (FlipperCacheStore.TryGetAny(out cached) &&
+                IsEnabled(cached.CloakState))
+            {
+                return FromCache(
+                    request,
+                    cached,
+                    "Flipper enabled the city cloak.");
+            }
+
+            return new WorkerResponse
+            {
+                Id = request.Id,
+                Ok = true,
+                Message = "Flipper sent the enable action; treating its own action as authoritative.",
+                CloakState = "Enabled",
+                ShieldTimerInSeconds = 0,
+                ControllerCharge = run.Result.ControllerCharge,
+                Character = _account.Character,
+                Cached = false,
+                ObservedUtc = DateTime.UtcNow
+            };
+        }
+
+        WorkerResponse observed = FromFreshResult(request, run.Result);
+
+        if (IsEnabled(observed.CloakState))
+        {
+            observed.Ok = true;
+            observed.Message = "Cloak already enabled; no action needed.";
+            return observed;
+        }
+
+        observed.Ok = false;
+        observed.Message = !string.IsNullOrWhiteSpace(run.Result.ToggleBlockedReason)
+            ? run.Result.ToggleBlockedReason
+            : "Cloak is not enabled and Flipper did not send an enable action.";
+
+        return observed;
+    }
+
+    private static bool CacheMeetsTrigger(
+        FlipperCacheSnapshot cache,
+        WorkerRequest request)
+    {
+        return !request.NotBeforeUtc.HasValue ||
+               cache.ObservedUtc >= request.NotBeforeUtc.Value;
+    }
+
+    private static bool IsEnabled(string state)
+    {
+        return string.Equals(state, "Enabled", StringComparison.OrdinalIgnoreCase);
     }
 
     private static WorkerResponse FromFreshResult(
@@ -337,9 +432,25 @@ public class FlipperLoader
 
     private static ProbeRun RunProbe(bool toggle)
     {
+        return RunProbe(toggle ? "toggle" : null);
+    }
+
+    private static ProbeRun RunProbe(string requestedAction)
+    {
+        bool actionRequested = !string.IsNullOrWhiteSpace(requestedAction);
+        bool ensureEnabled = string.Equals(
+            requestedAction,
+            "enable",
+            StringComparison.OrdinalIgnoreCase);
+
         Console.WriteLine();
         Console.WriteLine("--------------------------------------");
-        Console.WriteLine(toggle ? "TOGGLE PROBE" : "OBSERVE PROBE");
+        Console.WriteLine(
+            ensureEnabled
+                ? "ENSURE ENABLED PROBE"
+                : actionRequested
+                    ? "TOGGLE PROBE"
+                    : "OBSERVE PROBE");
         Console.WriteLine("--------------------------------------");
 
         string resultPath =
@@ -350,8 +461,8 @@ public class FlipperLoader
         DeleteIfExists(tempPath);
         DeleteIfExists(_toggleRequestPath);
 
-        if (toggle)
-            File.WriteAllText(_toggleRequestPath, "toggle");
+        if (actionRequested)
+            File.WriteAllText(_toggleRequestPath, requestedAction);
 
         Logger logger = new LoggerConfiguration()
             .WriteTo.Console()
@@ -618,6 +729,7 @@ public class FlipperLoader
     {
         public string Id;
         public string Command;
+        public DateTime? NotBeforeUtc;
     }
 
     private class WorkerResponse
