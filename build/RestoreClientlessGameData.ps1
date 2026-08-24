@@ -42,12 +42,16 @@ New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 
 foreach ($file in $files) {
     $destinationPath = Join-Path $Destination $file.Name
-    $expectedHash = $file.Sha256.ToUpperInvariant()
+    [string] $expectedHash = $file.Sha256
+    $expectedHash = $expectedHash.Trim()
     $needsDownload = $true
 
     if (Test-Path -LiteralPath $destinationPath -PathType Leaf) {
-        $existingHash = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash
-        $needsDownload = $existingHash -ne $expectedHash
+        [string] $existingHash = (Get-FileHash -LiteralPath $destinationPath -Algorithm SHA256).Hash
+        $needsDownload = -not [string]::Equals(
+            $existingHash.Trim(),
+            $expectedHash,
+            [System.StringComparison]::OrdinalIgnoreCase)
     }
 
     if (-not $needsDownload) {
@@ -64,9 +68,12 @@ foreach ($file in $files) {
             -OutFile $temporaryPath `
             -UseBasicParsing
 
-        $downloadedHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash
+        [string] $downloadedHash = (Get-FileHash -LiteralPath $temporaryPath -Algorithm SHA256).Hash
 
-        if ($downloadedHash -ne $expectedHash) {
+        if (-not [string]::Equals(
+                $downloadedHash.Trim(),
+                $expectedHash,
+                [System.StringComparison]::OrdinalIgnoreCase)) {
             throw (
                 "Hash verification failed for {0}. Expected {1}, received {2}." -f
                 $file.Name,
