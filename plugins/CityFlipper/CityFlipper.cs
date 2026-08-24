@@ -109,9 +109,12 @@ namespace CityFlipper
             Logger.Information(
                 $"Opening City Controller at {distance:F2} m.");
 
-            Use(controller);
-            Use(controller);
-            Use(controller);
+            Client.Send(new LookAtMessage
+            {
+                Target = controller.Identity
+            });
+
+            controller.Use();
 
             Logger.Information(
                 "Requested City Controller open.");
