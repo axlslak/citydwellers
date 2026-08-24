@@ -1598,7 +1598,7 @@ namespace CityManager
         }
 
         private string RaidStatePath =>
-            Path.Combine(_pluginDir, "citymanager-raid-state.json");
+            Path.Combine(_settingsDir, "citymanager-raid-state.json");
 
         private void SaveRaidState()
         {
