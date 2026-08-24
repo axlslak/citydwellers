@@ -98,7 +98,6 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="GuestChannel.cs" />
     <Compile Include="CityManager.cs" />
     <Compile Include="CloakPresentation.cs" />
     <Compile Include="OrgRankAuthorizer.cs" />
