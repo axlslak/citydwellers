@@ -28,6 +28,22 @@ Dependency versions are maintained once for all six projects in
 `Directory.Build.props`. Restored packages live in the developer's global NuGet
 cache rather than in this repository or at a hard-coded filesystem path.
 
+### AOSharp.Clientless GameData
+
+The AOSharp.Clientless 1.0.16 NuGet package omits five runtime data files that
+are present in its source project. They are required to resolve static dynels,
+including the city controller used by Flipper.
+
+When the Flipper project is built, City Dwellers automatically downloads the
+matching files from the pinned AOSharp.Clientless source revision, verifies
+their SHA-256 hashes, caches them under `.dependencies`, and copies them to
+`bin\Release\GameData`. The first build therefore requires access to GitLab.
+Later builds reuse the verified cache, including after `bin\Release` is cleaned.
+
+Both `.dependencies` and `bin\Release` are disposable. Deleting either is safe;
+the next build downloads or copies the files again as needed. No separate
+AOSharp.Clientless checkout or manual `GameData` copy is required.
+
 ## Settings
 
 City Dwellers keeps credentials and persistent runtime state in the ignored

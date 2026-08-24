@@ -1,0 +1,37 @@
+<Project>
+  <PropertyGroup>
+    <ClientlessGameDataCache>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory).dependencies\AOSharp.Clientless\1.0.16\GameData'))</ClientlessGameDataCache>
+    <ClientlessGameDataRestoreScript>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)build\RestoreClientlessGameData.ps1'))</ClientlessGameDataRestoreScript>
+  </PropertyGroup>
+
+  <!--
+    AOSharp.Clientless 1.0.16 does not include its runtime GameData files in
+    the NuGet package. Flipper needs those files to resolve the static City
+    Controller dynel by name. Restore them once into an ignored repository
+    cache, then copy them beside each newly built Flipper executable.
+  -->
+  <Target
+    Name="RestoreClientlessGameData"
+    AfterTargets="Build"
+    Condition="'$(MSBuildProjectName)' == 'Flipper'">
+    <Message
+      Text="Ensuring AOSharp.Clientless runtime GameData is available..."
+      Importance="high" />
+    <Exec
+      Command="powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(ClientlessGameDataRestoreScript)&quot; -Destination &quot;$(ClientlessGameDataCache)&quot;" />
+
+    <ItemGroup>
+      <ClientlessGameDataFile Include="$(ClientlessGameDataCache)\ItemData.bin" />
+      <ClientlessGameDataFile Include="$(ClientlessGameDataCache)\ItemData.idx" />
+      <ClientlessGameDataFile Include="$(ClientlessGameDataCache)\PlayfieldNames.json" />
+      <ClientlessGameDataFile Include="$(ClientlessGameDataCache)\SkillTrickle.json" />
+      <ClientlessGameDataFile Include="$(ClientlessGameDataCache)\StaticDynelData.bin" />
+    </ItemGroup>
+
+    <MakeDir Directories="$(TargetDir)GameData" />
+    <Copy
+      SourceFiles="@(ClientlessGameDataFile)"
+      DestinationFolder="$(TargetDir)GameData"
+      SkipUnchangedFiles="true" />
+  </Target>
+</Project>
