@@ -27,11 +27,32 @@ namespace CityManager
         private const string DeveloperCharacter = "Kavem";
         private const int DevBacklogLimit = 25;
 
-        private static readonly HashSet<string> AllowedCommandSenders =
+        private static readonly HashSet<string> AdminCommandSenders =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "Kavem",
                 "Doczy"
+            };
+
+        private static readonly HashSet<string> PublicCommands =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "help",
+                "cloak",
+                "status",
+                "leave"
+            };
+
+        private static readonly HashSet<string> AdminCommands =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "join",
+                "invite",
+                "kick",
+                "wakeup",
+                "sleep",
+                "spinup",
+                "spindown"
             };
 
         private readonly object _stateSync = new object();
@@ -128,7 +149,7 @@ namespace CityManager
                 return;
 
             _charInPlay = true;
-            Logger.Information("CityManager is in play and observing cloak packets, tells, org chat, and dev private chat.");
+            Logger.Information("CityManager is in play and observing cloak packets, tells, org chat, and guest private chat.");
 
             Client.Chat.PrivateMessageReceived += HandlePrivateMessage;
             Client.Chat.GroupMessageReceived += HandleGroupMessage;
@@ -160,11 +181,18 @@ namespace CityManager
                 if (stringIgnores.Any(i => msg.Message.Contains(i)))
                     return;
 
-                Logger.Information($"TELL {msg.SenderName}: {msg.Message}");
+                string commandText;
+                if (!TryExtractTellCommand(msg.Message, out commandText))
+                {
+                    Logger.Information($"TELL CHAT {msg.SenderName}: {msg.Message}");
+                    return;
+                }
+
+                Logger.Information($"TELL COMMAND {msg.SenderName}: {msg.Message}");
 
                 ProcessCommand(
                     msg.SenderName,
-                    msg.Message,
+                    commandText,
                     ReplyTarget.ForTell(msg.SenderId));
             }
             catch (Exception ex)
@@ -234,51 +262,33 @@ namespace CityManager
                 if (msg.SenderId == Client.Chat.CharId)
                     return;
 
-                string commandText = msg.Message.Trim();
-                if (commandText.StartsWith(CommandPrefix, StringComparison.Ordinal))
-                    commandText = commandText.Substring(CommandPrefix.Length).TrimStart();
+                // Any incoming guest-channel traffic proves the diagnostic channel
+                // is live. Confirm it without treating ordinary chatter as commands.
+                ConfirmDevChannel();
+
+                string text = msg.Message.TrimStart();
+                if (!text.StartsWith(CommandPrefix, StringComparison.Ordinal))
+                {
+                    Logger.Information($"GUEST CHAT {msg.SenderName}: {msg.Message}");
+                    return;
+                }
+
+                string commandText = text.Substring(CommandPrefix.Length).TrimStart();
 
                 if (string.IsNullOrWhiteSpace(commandText))
                     return;
 
-                string[] parts = commandText.Split(
-                    new[] { ' ' },
-                    StringSplitOptions.RemoveEmptyEntries);
-
-                string command = parts.Length > 0
-                    ? parts[0].ToLowerInvariant()
-                    : string.Empty;
-
-                // Every guest may remove themselves from Apcmanager private.
-                if (command == "leave")
-                {
-                    Logger.Information(
-                        $"GUEST LEAVE {msg.SenderName} ({msg.SenderId}) requested private-channel leave.");
-                    SendPrivateGroupKick(msg.SenderId);
-                    return;
-                }
-
-                // Guests may talk in the channel, but only admins get a command surface.
-                if (!AllowedCommandSenders.Contains(msg.SenderName ?? string.Empty))
-                {
-                    Logger.Information(
-                        $"GUEST CHAT {msg.SenderName}: {msg.Message}");
-                    return;
-                }
-
-                ConfirmDevChannel();
-
-                Logger.Information($"DEV COMMAND {msg.SenderName}: {msg.Message}");
+                Logger.Information($"GUEST COMMAND {msg.SenderName}: {msg.Message}");
 
                 ProcessCommand(
                     msg.SenderName,
                     commandText,
-                    ReplyTarget.ForDev(msg.SenderId, msg.ChannelId));
+                    ReplyTarget.ForGuest(msg.SenderId, msg.ChannelId));
             }
             catch (Exception ex)
             {
                 Logger.Error($"Error handling private group message: {ex}");
-                DevTrace($"ERROR dev handler: {ex.Message}");
+                DevTrace($"ERROR guest handler: {ex.Message}");
             }
         }
 
@@ -304,6 +314,54 @@ namespace CityManager
             return false;
         }
 
+        private bool TryExtractTellCommand(string rawText, out string commandText)
+        {
+            commandText = null;
+
+            if (string.IsNullOrWhiteSpace(rawText))
+                return false;
+
+            string text = rawText.Trim();
+            if (text.StartsWith(CommandPrefix, StringComparison.Ordinal))
+            {
+                commandText = text.Substring(CommandPrefix.Length).TrimStart();
+                return !string.IsNullOrWhiteSpace(commandText);
+            }
+
+            string[] parts = text.Split(
+                new[] { ' ' },
+                StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length == 0)
+                return false;
+
+            string command = parts[0].ToLowerInvariant();
+            bool hasCommandShape =
+                ((command == "help" ||
+                  command == "cloak" ||
+                  command == "status" ||
+                  command == "leave" ||
+                  command == "join") && parts.Length == 1) ||
+                ((command == "invite" ||
+                  command == "kick" ||
+                  command == "sleep" ||
+                  command == "spindown") && parts.Length == 2) ||
+                ((command == "wakeup" ||
+                  command == "spinup") && parts.Length == 3);
+
+            if (!hasCommandShape)
+                return false;
+
+            commandText = text;
+            return true;
+        }
+
+        private bool IsKnownCommand(string command)
+        {
+            return PublicCommands.Contains(command ?? string.Empty) ||
+                   AdminCommands.Contains(command ?? string.Empty);
+        }
+
         private void ProcessCommand(string senderName, string rawCommand, ReplyTarget replyTarget)
         {
             if (string.IsNullOrWhiteSpace(rawCommand))
@@ -314,72 +372,23 @@ namespace CityManager
                 return;
 
             string command = parts[0].ToLowerInvariant();
+            DevTrace($"COMMAND {replyTarget.Kind} {senderName}: {rawCommand}");
 
-            if (replyTarget.IsDev)
+            if (!IsKnownCommand(command))
             {
-                if (!AllowedCommandSenders.Contains(senderName ?? string.Empty))
-                    return;
-            }
-            else if (replyTarget.IsOrg)
-            {
-                if (command == "cloak")
-                {
-                    BeginFlipperProbe(replyTarget);
-                    return;
-                }
-
-                if (command == "status")
-                {
-                    Reply(replyTarget, BuildCloakStatus());
-                    return;
-                }
-
-                if (command == "help")
-                {
-                    Reply(replyTarget, BuildHelpMessage(replyTarget));
-                    return;
-                }
-
-                if (command == "probe" || command == "observe")
-                {
-                    Reply(replyTarget, "No such command. Try #help.");
-                    return;
-                }
-
-                if (!AllowedCommandSenders.Contains(senderName ?? string.Empty))
-                {
-                    Logger.Warning($"Ignoring admin command from unauthorized sender {senderName}.");
-                    Reply(replyTarget, "You are not authorized to use that command.");
-                    return;
-                }
-            }
-            else
-            {
-                if (command == "cloak" || command == "status")
-                {
-                    Reply(replyTarget, "No such command. Try help.");
-                    return;
-                }
-
-                if (!AllowedCommandSenders.Contains(senderName ?? string.Empty))
-                {
-                    Logger.Warning($"Ignoring command from unauthorized sender {senderName}.");
-                    Reply(replyTarget, "You are not authorized to use this bot yet.");
-                    return;
-                }
+                DevTrace($"COMMAND UNKNOWN {replyTarget.Kind} {senderName}: {command}");
+                Reply(replyTarget, UnknownCommandMessage(replyTarget));
+                return;
             }
 
-            bool devOnlyCommand =
-                command == "probe" ||
-                command == "observe";
-
-            if (!replyTarget.IsDev && devOnlyCommand)
+            bool isAdmin = AdminCommandSenders.Contains(senderName ?? string.Empty);
+            if (AdminCommands.Contains(command) && !isAdmin)
             {
-                Reply(
-                    replyTarget,
-                    replyTarget.IsOrg
-                        ? "No such command. Try #help."
-                        : "No such command. Try help.");
+                Logger.Warning(
+                    $"Ignoring admin command '{command}' from unauthorized sender {senderName}.");
+                DevTrace(
+                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: {command} is admin-only.");
+                Reply(replyTarget, "You are not authorized to use that command.");
                 return;
             }
 
@@ -394,74 +403,84 @@ namespace CityManager
                     break;
 
                 case "status":
-                    Reply(replyTarget, BuildCloakStatus());
+                    BeginServiceStatus(replyTarget);
                     break;
 
-                case "probe":
-                case "observe":
-                    BeginFlipperProbe(replyTarget);
+                case "leave":
+                    if (parts.Length != 1)
+                    {
+                        Reply(replyTarget, Usage(replyTarget, "leave"));
+                        break;
+                    }
+
+                    LeaveGuestChannel(senderName, replyTarget);
+                    break;
+
+                case "join":
+                    if (parts.Length != 1)
+                    {
+                        Reply(replyTarget, Usage(replyTarget, "join"));
+                        break;
+                    }
+
+                    JoinGuestChannel(senderName, replyTarget);
                     break;
 
                 case "invite":
                 {
-                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
                     if (parts.Length != 2)
                     {
-                        Reply(devTarget, "Usage: invite [character]");
+                        Reply(replyTarget, Usage(replyTarget, "invite [character]"));
                         break;
                     }
 
-                    BeginGuestChannelAction(parts[1], false);
+                    BeginGuestChannelAction(replyTarget, parts[1], false);
                     break;
                 }
 
                 case "kick":
                 {
-                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
                     if (parts.Length != 2)
                     {
-                        Reply(devTarget, "Usage: kick [character]");
+                        Reply(replyTarget, Usage(replyTarget, "kick [character]"));
                         break;
                     }
 
-                    BeginGuestChannelAction(parts[1], true);
+                    BeginGuestChannelAction(replyTarget, parts[1], true);
                     break;
                 }
 
                 case "wakeup":
                 {
-                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
                     int level;
                     int index;
                     if (parts.Length != 3 ||
                         !int.TryParse(parts[1], out level) ||
                         !int.TryParse(parts[2], out index))
                     {
-                        Reply(devTarget, "Usage: wakeup [level] [index]");
+                        Reply(replyTarget, Usage(replyTarget, "wakeup [level] [index]"));
                         break;
                     }
 
-                    BeginBuddiesCommand(devTarget, "wakeup", level, index);
+                    BeginBuddiesCommand(replyTarget, "wakeup", level, index);
                     break;
                 }
 
                 case "sleep":
                 {
-                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
                     int index;
                     if (parts.Length != 2 || !int.TryParse(parts[1], out index))
                     {
-                        Reply(devTarget, "Usage: sleep [index]");
+                        Reply(replyTarget, Usage(replyTarget, "sleep [index]"));
                         break;
                     }
 
-                    BeginBuddiesCommand(devTarget, "sleep", null, index);
+                    BeginBuddiesCommand(replyTarget, "sleep", null, index);
                     break;
                 }
 
                 case "spinup":
                 {
-                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
                     int level;
                     int count;
                     if (parts.Length != 3 ||
@@ -470,61 +489,56 @@ namespace CityManager
                         level <= 0 ||
                         count <= 0)
                     {
-                        Reply(devTarget, "Usage: spinup [level] [count]");
+                        Reply(replyTarget, Usage(replyTarget, "spinup [level] [count]"));
                         break;
                     }
 
-                    BeginBuddiesCommand(devTarget, "spinup", level, count);
+                    BeginBuddiesCommand(replyTarget, "spinup", level, count);
                     break;
                 }
 
                 case "spindown":
                 {
-                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
                     int count;
                     if (parts.Length != 2 ||
                         !int.TryParse(parts[1], out count) ||
                         count <= 0)
                     {
-                        Reply(devTarget, "Usage: spindown [count]");
+                        Reply(replyTarget, Usage(replyTarget, "spindown [count]"));
                         break;
                     }
 
-                    BeginBuddiesCommand(devTarget, "spindown", null, count);
+                    BeginBuddiesCommand(replyTarget, "spindown", null, count);
                     break;
                 }
-
-                default:
-                    Reply(
-                        replyTarget,
-                        replyTarget.IsOrg
-                            ? "No such command. Try #help."
-                            : "No such command. Try help.");
-                    break;
             }
         }
 
         private string BuildHelpMessage(ReplyTarget target)
         {
-            if (target.IsOrg)
-            {
-                return
-                    "Public: #cloak, #status, #help. Admin: #invite [character], #kick [character], " +
-                    "#wakeup [level] [index], #sleep [index], #spinup [level] [count], #spindown [count]. " +
-                    "Admin output goes to Apcmanager private.";
-            }
-
-            if (target.IsDev)
-            {
-                return
-                    "Admin guest commands: help, cloak, status, probe, invite [character], kick [character], " +
-                    "wakeup [level] [index], sleep [index], spinup [level] [count], spindown [count]. " +
-                    "Guests may type leave. # is optional here.";
-            }
+            string prefix = target.RequiresPrefix ? "#" : string.Empty;
+            string suffix = target.RequiresPrefix
+                ? " Commands in this channel must start with #."
+                : " # is optional in tells.";
 
             return
-                "Admin tells: help, invite [character], kick [character], wakeup [level] [index], sleep [index], " +
-                "spinup [level] [count], spindown [count]. cloak/status are organization-chat commands.";
+                $"Public: {prefix}help, {prefix}cloak, {prefix}status, {prefix}leave. " +
+                $"Admin: {prefix}join, {prefix}invite [character], {prefix}kick [character], " +
+                $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
+                $"{prefix}spinup [level] [count], {prefix}spindown [count]." +
+                suffix;
+        }
+
+        private string UnknownCommandMessage(ReplyTarget target)
+        {
+            return target.RequiresPrefix
+                ? "No such command. Try #help."
+                : "No such command. Try help.";
+        }
+
+        private string Usage(ReplyTarget target, string syntax)
+        {
+            return $"Usage: {(target.RequiresPrefix ? CommandPrefix : string.Empty)}{syntax}";
         }
 
         private void BeginFlipperProbe(ReplyTarget target)
@@ -553,10 +567,7 @@ namespace CityManager
                         Logger.Warning($"IPC <- Flipper {request.Id}: FAIL {response.Message}");
                         DevTrace($"FLIPPER FAIL [{shortId}]: {response.Message}");
 
-                        if (target.IsOrg)
-                            Reply(target, CloakPresentation.Unavailable());
-                        else if (!target.IsDev)
-                            Reply(target, $"Cloak check failed: {response.Message}");
+                        Reply(target, CloakPresentation.Unavailable());
 
                         return;
                     }
@@ -587,20 +598,78 @@ namespace CityManager
                     Logger.Information($"IPC <- Flipper {request.Id}: {diagnosticReply}");
                     DevTrace($"FLIPPER OK [{shortId}]: {diagnosticReply}");
 
-                    if (!target.IsDev)
-                        Reply(target, reply);
+                    Reply(target, reply);
                 }
                 catch (Exception ex)
                 {
                     Logger.Warning($"Flipper IPC failed: {ex.Message}");
                     DevTrace($"FLIPPER ERROR: {ex.Message}");
 
-                    if (target.IsOrg)
-                        Reply(target, CloakPresentation.Unavailable());
-                    else if (!target.IsDev)
-                        Reply(target, $"Cloak check unavailable: {ex.Message}");
+                    Reply(target, CloakPresentation.Unavailable());
                 }
             });
+        }
+
+        private void BeginServiceStatus(ReplyTarget target)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                DevTrace("STATUS -> ping Flipper and Buddies.");
+
+                WorkerLinkStatus flipper = PingWorker("Flipper", FlipperPipeName);
+                WorkerLinkStatus buddies = PingWorker("Buddies", BuddiesPipeName);
+
+                string reply =
+                    $"Manager = online/usable. " +
+                    $"Flipper = {flipper.PublicText}. " +
+                    $"Buddies = {buddies.PublicText}.";
+
+                string diagnostic =
+                    $"STATUS Manager=online/usable; " +
+                    $"Flipper={flipper.DiagnosticText}; " +
+                    $"Buddies={buddies.DiagnosticText}.";
+
+                Logger.Information(diagnostic);
+                DevTrace(diagnostic);
+                Reply(target, reply);
+            });
+        }
+
+        private WorkerLinkStatus PingWorker(string workerName, string pipeName)
+        {
+            var request = new WorkerRequest
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Command = "ping"
+            };
+
+            string shortId = ShortId(request.Id);
+
+            try
+            {
+                Logger.Information($"IPC -> {workerName} {request.Id}: ping");
+                DevTrace($"{workerName.ToUpperInvariant()} -> ping [{shortId}]");
+
+                WorkerResponse response = SendWorkerRequest(
+                    pipeName,
+                    request,
+                    WorkerConnectTimeoutMs);
+
+                if (!string.Equals(response.Id, request.Id, StringComparison.Ordinal))
+                {
+                    return WorkerLinkStatus.Unusable(
+                        $"response id mismatch ({response.Id ?? "missing"})");
+                }
+
+                if (!response.Ok)
+                    return WorkerLinkStatus.Unusable(response.Message ?? "ping failed");
+
+                return WorkerLinkStatus.Usable(response.Message ?? "ping succeeded");
+            }
+            catch (Exception ex)
+            {
+                return WorkerLinkStatus.Unusable(ex.Message);
+            }
         }
 
         private void BeginBuddiesCommand(ReplyTarget target, string command, int? level, int index)
@@ -645,20 +714,16 @@ namespace CityManager
                     DevTrace(
                         $"BUDDIES {(response.Ok ? "OK" : "FAIL")} [{shortId}]: {response.Message}");
 
-                    if (!target.IsDev)
-                    {
-                        Reply(target, response.Ok
-                            ? $"Buddies: {response.Message}"
-                            : $"Buddies failed: {response.Message}");
-                    }
+                    Reply(target, response.Ok
+                        ? $"Buddies: {response.Message}"
+                        : $"Buddies failed: {response.Message}");
                 }
                 catch (Exception ex)
                 {
                     Logger.Warning($"Buddies IPC failed: {ex.Message}");
                     DevTrace($"BUDDIES ERROR: {ex.Message}");
 
-                    if (!target.IsDev)
-                        Reply(target, $"Buddies service unavailable: {ex.Message}");
+                    Reply(target, $"Buddies service unavailable: {ex.Message}");
                 }
             });
         }
@@ -690,9 +755,9 @@ namespace CityManager
         {
             try
             {
-                if (target.IsDev)
+                if (target.IsGuest)
                 {
-                    DevTrace(text);
+                    SendGuestMessage(text);
                     return;
                 }
 
@@ -732,12 +797,76 @@ namespace CityManager
             }
         }
 
-        private void BeginGuestChannelAction(string characterName, bool kick)
+        private void JoinGuestChannel(string senderName, ReplyTarget target)
+        {
+            if (Client.Chat == null || target.SenderId == 0)
+            {
+                Reply(target, "Guest channel invite is unavailable right now.");
+                DevTrace($"GUEST join failed for {senderName}: chat or sender id unavailable.");
+                return;
+            }
+
+            try
+            {
+                Client.Chat.InvitePrivateGroup(target.SenderId);
+                Reply(target, "Guest channel invite sent.");
+
+                Logger.Information(
+                    $"Guest private-channel join invite sent to {senderName} ({target.SenderId}).");
+                DevTrace($"GUEST join invite sent to {senderName} ({target.SenderId}).");
+            }
+            catch (Exception ex)
+            {
+                Reply(target, $"Guest channel invite failed: {ex.Message}");
+                Logger.Warning($"Guest private-channel join failed: {ex.Message}");
+                DevTrace($"GUEST join error for {senderName}: {ex.Message}");
+            }
+        }
+
+        private void LeaveGuestChannel(string senderName, ReplyTarget target)
+        {
+            if (Client.Chat == null || target.SenderId == 0)
+            {
+                Reply(target, "Unable to leave the guest channel right now.");
+                DevTrace($"GUEST leave failed for {senderName}: chat or sender id unavailable.");
+                return;
+            }
+
+            try
+            {
+                // A guest-channel reply must be queued before the kick packet or
+                // the departing user will not see it. Tells and org replies can
+                // safely be sent after the kick.
+                if (target.IsGuest)
+                    Reply(target, "You have left Apcmanager's guest channel.");
+
+                SendPrivateGroupKick(target.SenderId);
+
+                if (!target.IsGuest)
+                    Reply(target, "You have left Apcmanager's guest channel.");
+
+                Logger.Information(
+                    $"Guest private-channel leave sent for {senderName} ({target.SenderId}).");
+                DevTrace($"GUEST leave sent for {senderName} ({target.SenderId}).");
+            }
+            catch (Exception ex)
+            {
+                Reply(target, $"Unable to leave the guest channel: {ex.Message}");
+                Logger.Warning($"Guest private-channel leave failed: {ex.Message}");
+                DevTrace($"GUEST leave error for {senderName}: {ex.Message}");
+            }
+        }
+
+        private void BeginGuestChannelAction(
+            ReplyTarget target,
+            string characterName,
+            bool kick)
         {
             string normalizedName = NormalizeCharacterName(characterName);
 
             if (string.IsNullOrWhiteSpace(normalizedName))
             {
+                Reply(target, Usage(target, kick ? "kick [character]" : "invite [character]"));
                 DevTrace(kick ? "GUEST kick failed: missing character name." : "GUEST invite failed: missing character name.");
                 return;
             }
@@ -749,6 +878,9 @@ namespace CityManager
                     uint characterId;
                     if (!TryResolveCharacterId(normalizedName, out characterId))
                     {
+                        Reply(
+                            target,
+                            $"Unable to {(kick ? "kick" : "invite")} {normalizedName}: character lookup failed.");
                         DevTrace(
                             $"GUEST {(kick ? "kick" : "invite")} failed: could not resolve {normalizedName}.");
                         return;
@@ -756,12 +888,14 @@ namespace CityManager
 
                     if (Client.Chat == null)
                     {
+                        Reply(target, "Guest channel action failed: chat is unavailable.");
                         DevTrace($"GUEST {(kick ? "kick" : "invite")} failed: chat is unavailable.");
                         return;
                     }
 
                     if (characterId == Client.Chat.CharId)
                     {
+                        Reply(target, "Apcmanager cannot invite or kick itself.");
                         DevTrace("GUEST action refused: Apcmanager cannot invite or kick itself.");
                         return;
                     }
@@ -769,18 +903,23 @@ namespace CityManager
                     if (kick)
                     {
                         SendPrivateGroupKick(characterId);
+                        Reply(target, $"{normalizedName} was kicked from the guest channel.");
                         Logger.Information($"Guest private-channel kick sent for {normalizedName} ({characterId}).");
                         DevTrace($"GUEST kick sent: {normalizedName}.");
                     }
                     else
                     {
                         Client.Chat.InvitePrivateGroup(characterId);
+                        Reply(target, $"Guest channel invite sent to {normalizedName}.");
                         Logger.Information($"Guest private-channel invite sent to {normalizedName} ({characterId}).");
                         DevTrace($"GUEST invite sent: {normalizedName}.");
                     }
                 }
                 catch (Exception ex)
                 {
+                    Reply(
+                        target,
+                        $"Guest channel {(kick ? "kick" : "invite")} failed: {ex.Message}");
                     Logger.Warning($"Guest private-channel action failed: {ex.Message}");
                     DevTrace($"GUEST {(kick ? "kick" : "invite")} error: {ex.Message}");
                 }
@@ -916,7 +1055,7 @@ namespace CityManager
             if (!shouldFlush)
                 return;
 
-            SendDevMessage("DEV channel confirmed. Flushing buffered telemetry.");
+            SendGuestMessage("GUEST channel confirmed. Flushing buffered telemetry.");
             FlushDevBacklog();
         }
 
@@ -937,7 +1076,7 @@ namespace CityManager
                 }
             }
 
-            SendDevMessage(text);
+            SendGuestMessage(text);
         }
 
         private void FlushDevBacklog()
@@ -954,11 +1093,11 @@ namespace CityManager
                     message = _devBacklog.Dequeue();
                 }
 
-                SendDevMessage(message);
+                SendGuestMessage(message);
             }
         }
 
-        private void SendDevMessage(string text)
+        private void SendGuestMessage(string text)
         {
             try
             {
@@ -1125,31 +1264,6 @@ namespace CityManager
             }
         }
 
-        private string BuildCloakStatus()
-        {
-            lock (_stateSync)
-            {
-                if (_status == CloakStatus.Unknown)
-                    return "Cloak = Unknown. No cloak event or fresh Flipper probe has been observed yet.";
-
-                if (_status == CloakStatus.Disabled && _canRaiseAtUtc.HasValue)
-                {
-                    TimeSpan remaining = _canRaiseAtUtc.Value - DateTime.UtcNow;
-                    string timerKind = _raiseTimeIsProvisional
-                        ? "provisional Flipper check"
-                        : "server-derived raise time";
-
-                    return remaining.TotalSeconds > 0
-                        ? $"Cloak = Disabled. {timerKind} in {FormatDuration(remaining)}. Source = {_observationSource}."
-                        : $"Cloak = Disabled. {timerKind} is due now. Source = {_observationSource}.";
-                }
-
-                return
-                    $"Cloak = {_status}. Source = {_observationSource}. Last observed = " +
-                    $"{(_lastObservedUtc.HasValue ? _lastObservedUtc.Value.ToString("O") : "unknown")}.";
-            }
-        }
-
         private void Tick(object sender, double e)
         {
             TryInviteDeveloper();
@@ -1290,7 +1404,7 @@ namespace CityManager
         {
             Tell,
             Org,
-            Dev
+            Guest
         }
 
         private class ReplyTarget
@@ -1301,7 +1415,8 @@ namespace CityManager
             public string ChannelName;
 
             public bool IsOrg => Kind == ReplyKind.Org;
-            public bool IsDev => Kind == ReplyKind.Dev;
+            public bool IsGuest => Kind == ReplyKind.Guest;
+            public bool RequiresPrefix => Kind != ReplyKind.Tell;
 
             public static ReplyTarget ForTell(uint senderId)
             {
@@ -1323,11 +1438,11 @@ namespace CityManager
                 };
             }
 
-            public static ReplyTarget ForDev(uint senderId, object channelId)
+            public static ReplyTarget ForGuest(uint senderId, object channelId)
             {
                 return new ReplyTarget
                 {
-                    Kind = ReplyKind.Dev,
+                    Kind = ReplyKind.Guest,
                     SenderId = senderId,
                     ChannelId = channelId,
                     ChannelName = "Apcmanager private"
@@ -1382,6 +1497,37 @@ namespace CityManager
             public int? Index;
             public bool Cached;
             public DateTime? ObservedUtc;
+        }
+
+        private class WorkerLinkStatus
+        {
+            public bool IsUsable;
+            public string Detail;
+
+            public string PublicText => IsUsable
+                ? "linked/usable"
+                : "not linked/unusable";
+
+            public string DiagnosticText =>
+                $"{PublicText} ({Detail ?? "no detail"})";
+
+            public static WorkerLinkStatus Usable(string detail)
+            {
+                return new WorkerLinkStatus
+                {
+                    IsUsable = true,
+                    Detail = detail
+                };
+            }
+
+            public static WorkerLinkStatus Unusable(string detail)
+            {
+                return new WorkerLinkStatus
+                {
+                    IsUsable = false,
+                    Detail = detail
+                };
+            }
         }
     }
 }
