@@ -49,6 +49,7 @@ namespace CityFlipper
         private bool _toggleRequested;
         private bool _ensureEnabledOnly;
         private bool _ensureDisabledReadyOnly;
+        private bool _ensureDisabledWatchOnly;
         private bool _toggleSent;
         private bool _gotPostToggleCloakInfo;
         private string _toggleBlockedReason;
@@ -58,6 +59,9 @@ namespace CityFlipper
         private int _initialShieldTimerInSeconds;
         private string _postToggleCloakState;
         private int _postToggleShieldTimerInSeconds;
+        private double _watchDeadlineMs;
+        private double _nextControllerPollMs;
+        private int _chargePollCount;
 
         private bool _resultWritten;
 
@@ -87,20 +91,43 @@ namespace CityFlipper
                 requestedAction,
                 "enable",
                 StringComparison.OrdinalIgnoreCase);
-            _ensureDisabledReadyOnly = string.Equals(
-                requestedAction,
-                "disable-ready",
-                StringComparison.OrdinalIgnoreCase);
+            _ensureDisabledWatchOnly =
+                requestedAction != null &&
+                requestedAction.StartsWith(
+                    "disable-watch:",
+                    StringComparison.OrdinalIgnoreCase);
+
+            int watchSeconds = 60;
+            if (_ensureDisabledWatchOnly)
+            {
+                int parsed;
+                if (int.TryParse(
+                        requestedAction.Substring("disable-watch:".Length),
+                        out parsed))
+                {
+                    watchSeconds = Math.Max(1, Math.Min(60, parsed));
+                }
+            }
+
+            _watchDeadlineMs = watchSeconds * 1000.0;
+            _ensureDisabledReadyOnly =
+                _ensureDisabledWatchOnly ||
+                string.Equals(
+                    requestedAction,
+                    "disable-ready",
+                    StringComparison.OrdinalIgnoreCase);
 
             Logger.Information("CityFlipper diagnostic probe initialized.");
             Logger.Information(
                 _ensureEnabledOnly
                     ? "Mode: ENSURE ENABLED (may raise cloak, never lower it)."
-                    : _ensureDisabledReadyOnly
-                        ? "Mode: RAID START (lower only when CT is at least 75% charged)."
-                    : _toggleRequested
-                        ? "Mode: TOGGLE (one guarded cloak toggle requested)."
-                        : "Mode: OBSERVE (read-only).");
+                    : _ensureDisabledWatchOnly
+                        ? $"Mode: RAID START WATCH (up to {watchSeconds}s for 75% CT charge)."
+                        : _ensureDisabledReadyOnly
+                            ? "Mode: RAID START (lower only when CT is at least 75% charged)."
+                            : _toggleRequested
+                                ? "Mode: TOGGLE (one guarded cloak toggle requested)."
+                                : "Mode: OBSERVE (read-only).");
 
             _timer.Start();
 
@@ -109,8 +136,46 @@ namespace CityFlipper
 
         private void Tick(object sender, double e)
         {
-            if (_controllerOpenRequested)
+            bool writeTimeout = false;
+            double elapsedMs = _timer.Elapsed.TotalMilliseconds;
+
+            lock (_sync)
+            {
+                if (_resultWritten)
+                    return;
+
+                if (_ensureDisabledWatchOnly &&
+                    !_toggleSent &&
+                    elapsedMs >= _watchDeadlineMs)
+                {
+                    _toggleBlockedReason =
+                        $"City Controller charge remained {_controllerCharge * 100:F1}%; " +
+                        $"it did not reach {MinimumRaidControllerCharge * 100:F0}% " +
+                        "within the fill window.";
+                    _resultWritten = true;
+                    writeTimeout = true;
+                }
+            }
+
+            if (writeTimeout)
+            {
+                Client.OnUpdate -= Tick;
+                WriteResult();
                 return;
+            }
+
+            if (_toggleSent)
+                return;
+
+            if (_controllerOpenRequested && !_ensureDisabledWatchOnly)
+                return;
+
+            if (_ensureDisabledWatchOnly &&
+                _controllerOpenRequested &&
+                elapsedMs < _nextControllerPollMs)
+            {
+                return;
+            }
 
             var controller = DynelManager.AllDynels
                 .FirstOrDefault(d => d.Name == "City Controller");
@@ -136,11 +201,28 @@ namespace CityFlipper
             if (distance > 10f)
                 return;
 
+            bool firstOpen = !_controllerOpenRequested;
             _controllerOpenRequested = true;
 
-            Logger.Information($"Opening City Controller at {distance:F2} m.");
-            Logger.Information($"Static controller identity: {controller.Identity}");
-            Logger.Information($"Live controller identity: {_liveControllerIdentity}");
+            if (_ensureDisabledWatchOnly)
+            {
+                lock (_sync)
+                {
+                    _gotChargeInfo = false;
+                    _nextControllerPollMs = elapsedMs + 1000.0;
+                }
+            }
+
+            if (firstOpen)
+            {
+                Logger.Information($"Opening City Controller at {distance:F2} m.");
+                Logger.Information($"Static controller identity: {controller.Identity}");
+                Logger.Information($"Live controller identity: {_liveControllerIdentity}");
+            }
+            else
+            {
+                Logger.Debug("Refreshing City Controller charge.");
+            }
 
             Client.Send(new GenericCmdMessage
             {
@@ -153,9 +235,11 @@ namespace CityFlipper
                 Unknown = 1
             });
 
-            Logger.Information("Requested City Controller open.");
+            if (firstOpen)
+                Logger.Information("Requested City Controller open.");
 
-            Client.OnUpdate -= Tick;
+            if (!_ensureDisabledWatchOnly)
+                Client.OnUpdate -= Tick;
         }
 
         private void MessageReceived(object sender, Message e)
@@ -359,12 +443,21 @@ namespace CityFlipper
                             _chargeInfoMs = now;
                             _controllerCharge = chargeInfo.CityControllerCharge;
                             _gotChargeInfo = true;
+                            _chargePollCount++;
                         }
 
-                        Logger.Information($"ChargeInfo received after {now:F0} ms.");
-                        Logger.Information($"City Controller charge raw = {_controllerCharge}");
-                        Logger.Information(
-                            $"City Controller charge candidate percent = {_controllerCharge * 100:F1}%");
+                        if (!_ensureDisabledWatchOnly || _chargePollCount == 1)
+                        {
+                            Logger.Information($"ChargeInfo received after {now:F0} ms.");
+                            Logger.Information($"City Controller charge raw = {_controllerCharge}");
+                            Logger.Information(
+                                $"City Controller charge candidate percent = {_controllerCharge * 100:F1}%");
+                        }
+                        else
+                        {
+                            Logger.Debug(
+                                $"City Controller watch charge = {_controllerCharge * 100:F1}%.");
+                        }
 
                         TryFinish();
                         break;
@@ -444,6 +537,15 @@ namespace CityFlipper
                     else if (_ensureDisabledReadyOnly &&
                              _controllerCharge < MinimumRaidControllerCharge)
                     {
+                        if (_ensureDisabledWatchOnly &&
+                            _timer.Elapsed.TotalMilliseconds < _watchDeadlineMs)
+                        {
+                            // Keep this client online. Tick reopens the controller
+                            // about once per second and the next ChargeInfo packet
+                            // will re-evaluate readiness.
+                            return;
+                        }
+
                         _toggleBlockedReason =
                             $"City Controller charge is {_controllerCharge * 100:F1}%; " +
                             $"at least {MinimumRaidControllerCharge * 100:F0}% is required.";

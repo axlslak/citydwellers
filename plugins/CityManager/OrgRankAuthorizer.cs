@@ -35,7 +35,6 @@ namespace CityManager
                     return;
 
                 Client.MessageReceived += MessageReceived;
-                CityRaidAutomation.Initialize();
                 _initialized = true;
             }
         }
@@ -47,7 +46,6 @@ namespace CityManager
                 if (_initialized)
                     Client.MessageReceived -= MessageReceived;
 
-                CityRaidAutomation.Shutdown();
                 _initialized = false;
                 RankCache.Clear();
                 PendingLookups.Clear();
@@ -286,6 +284,9 @@ namespace CityManager
         private const int FlipperConnectTimeoutMs = 1000;
         private const int RetryAfterFailureSeconds = 30;
         private const int DuplicateRaidWindowSeconds = 20;
+        private const int PersistedStateTrustSeconds = 3600;
+        private const int CloakDownSeconds = 3600;
+        private const int CityTargetAfterCloakSeconds = 180;
 
         private static readonly object Sync = new object();
 
@@ -294,12 +295,24 @@ namespace CityManager
         private static bool _ensureInFlight;
         private static bool _raidRecoveryPending;
         private static bool _bootAssessmentStarted;
+        private static bool _failureReported;
         private static DateTime _managerStartedUtc = DateTime.MinValue;
         private static DateTime _raidOccurredUtc = DateTime.MinValue;
         private static DateTime _lastRaidEventUtc = DateTime.MinValue;
+        private static DateTime? _lastObservedUtc;
+        private static DateTime? _canRaiseAtUtc;
+        private static CloakStatus _knownStatus = CloakStatus.Unknown;
+        private static string _observationSource = "Unknown";
+        private static Action<CloakStatus, int?, DateTime?, bool, string>
+            _observationCallback;
         private static Timer _retryTimer;
 
-        public static void Initialize()
+        public static void Initialize(
+            CloakStatus status,
+            DateTime? lastObservedUtc,
+            DateTime? canRaiseAtUtc,
+            string observationSource,
+            Action<CloakStatus, int?, DateTime?, bool, string> observationCallback)
         {
             lock (Sync)
             {
@@ -309,6 +322,12 @@ namespace CityManager
                 Client.MessageReceived += LifecycleMessageReceived;
                 _managerStartedUtc = DateTime.UtcNow;
                 _bootAssessmentStarted = false;
+                _failureReported = false;
+                _knownStatus = status;
+                _lastObservedUtc = lastObservedUtc;
+                _canRaiseAtUtc = canRaiseAtUtc;
+                _observationSource = observationSource ?? "Unknown";
+                _observationCallback = observationCallback;
                 _initialized = true;
             }
         }
@@ -330,6 +349,12 @@ namespace CityManager
                 _ensureInFlight = false;
                 _raidRecoveryPending = false;
                 _bootAssessmentStarted = false;
+                _failureReported = false;
+                _knownStatus = CloakStatus.Unknown;
+                _lastObservedUtc = null;
+                _canRaiseAtUtc = null;
+                _observationSource = "Unknown";
+                _observationCallback = null;
 
                 if (_retryTimer != null)
                 {
@@ -378,7 +403,11 @@ namespace CityManager
 
         private static void StartBootCloakAssessment()
         {
-            DateTime assessmentUtc;
+            DateTime now = DateTime.UtcNow;
+            DateTime assessmentUtc = now;
+            DateTime? scheduledUtc = null;
+            bool requestLiveAssessment = false;
+            string decision;
 
             lock (Sync)
             {
@@ -386,20 +415,71 @@ namespace CityManager
                     return;
 
                 _bootAssessmentStarted = true;
-                assessmentUtc = DateTime.UtcNow;
-                _raidOccurredUtc = assessmentUtc;
-                _raidRecoveryPending = true;
                 CancelRetryLocked();
+
+                bool recentPersistedObservation =
+                    _knownStatus != CloakStatus.Unknown &&
+                    _lastObservedUtc.HasValue &&
+                    _lastObservedUtc.Value <= now.AddMinutes(1) &&
+                    (now - _lastObservedUtc.Value).TotalSeconds <=
+                        PersistedStateTrustSeconds;
+
+                if (recentPersistedObservation &&
+                    _knownStatus == CloakStatus.Enabled)
+                {
+                    _raidRecoveryPending = false;
+                    decision =
+                        $"trusted persisted Enabled observation from " +
+                        $"{_lastObservedUtc.Value:O} ({_observationSource})";
+                }
+                else if (recentPersistedObservation &&
+                         _knownStatus == CloakStatus.Disabled)
+                {
+                    _raidOccurredUtc = _lastObservedUtc.Value;
+                    _raidRecoveryPending = true;
+                    scheduledUtc = _canRaiseAtUtc ??
+                        _lastObservedUtc.Value.AddSeconds(CloakDownSeconds);
+
+                    if (scheduledUtc.Value <= now)
+                    {
+                        requestLiveAssessment = true;
+                        assessmentUtc = _raidOccurredUtc;
+                        decision = "persisted cloak deadline is already due";
+                    }
+                    else
+                    {
+                        decision =
+                            $"trusted persisted Disabled observation; recovery due " +
+                            $"{scheduledUtc.Value:O}";
+                    }
+                }
+                else
+                {
+                    _raidOccurredUtc = assessmentUtc;
+                    _raidRecoveryPending = true;
+                    requestLiveAssessment = true;
+                    decision = "persisted state is absent or older than one hour";
+                }
             }
 
-            SendDev(
+            Logger.Information(
                 $"CLOAK BOOT ASSESSMENT: manager-start={_managerStartedUtc:O}; " +
-                "requesting a live enable-only Flipper assessment.");
+                $"{decision}.");
 
-            // ensure-enabled is safe as an assessment: it can observe or raise,
-            // but it can never lower the cloak. NotBeforeUtc forces this boot to
-            // establish a current observation instead of trusting an old cache.
-            QueueEnsureEnabled(assessmentUtc, "MANAGER_BOOT");
+            if (scheduledUtc.HasValue && scheduledUtc.Value > now)
+            {
+                ScheduleRetry(
+                    Math.Max(1, (int)Math.Ceiling((scheduledUtc.Value - now).TotalSeconds)));
+                return;
+            }
+
+            if (requestLiveAssessment)
+            {
+                // ensure-enabled is safe as an assessment: it can observe or raise,
+                // but it can never lower the cloak. NotBeforeUtc prevents a stale
+                // cache from being mistaken for a current boot observation.
+                QueueEnsureEnabled(assessmentUtc, "MANAGER_BOOT");
+            }
         }
 
         private static void HandleGroupMessage(object sender, GroupMsg msg)
@@ -421,16 +501,21 @@ namespace CityManager
                 int offIndex = text.IndexOf(cloakOff, StringComparison.OrdinalIgnoreCase);
                 if (offIndex > 0)
                 {
-                    string actor = text.Substring(0, offIndex).Trim();
-                    SendDev($"CITY EVENT: CLOAK_DISABLED actor={actor}.");
+                    ObserveCloakDisabled();
                     return;
                 }
 
                 int onIndex = text.IndexOf(cloakOn, StringComparison.OrdinalIgnoreCase);
                 if (onIndex > 0)
                 {
-                    string actor = text.Substring(0, onIndex).Trim();
-                    SendDev($"CITY EVENT: CLOAK_ENABLED actor={actor}.");
+                    lock (Sync)
+                    {
+                        _knownStatus = CloakStatus.Enabled;
+                        _lastObservedUtc = DateTime.UtcNow;
+                        _canRaiseAtUtc = null;
+                        _observationSource = "OrgChat.CloakAnnouncement";
+                    }
+
                     CompleteRecoveryIfPending("cloak-enabled city event");
                     return;
                 }
@@ -439,7 +524,6 @@ namespace CityManager
                         "Your radar station is picking up alien activity in the area surrounding your city.",
                         StringComparison.OrdinalIgnoreCase) >= 0)
                 {
-                    SendDev("CITY EVENT: ALIEN_RADAR.");
                     return;
                 }
 
@@ -459,13 +543,34 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Warning($"City raid group handler failed: {ex.Message}");
-                SendDev($"CITY RAID ERROR: {ex.Message}");
             }
+        }
+
+        private static void ObserveCloakDisabled()
+        {
+            DateTime now = DateTime.UtcNow;
+
+            lock (Sync)
+            {
+                _knownStatus = CloakStatus.Disabled;
+                _lastObservedUtc = now;
+                _canRaiseAtUtc = now.AddSeconds(CloakDownSeconds);
+                _observationSource = "OrgChat.CloakAnnouncement";
+                _raidOccurredUtc = now;
+                _raidRecoveryPending = true;
+                _failureReported = false;
+                CancelRetryLocked();
+            }
+
+            // The org announcement is authoritative. Do not log Flipper back in
+            // merely to rediscover the same state; arm the one-hour deadline.
+            ScheduleRetry(CloakDownSeconds);
         }
 
         private static void OnCityAttacked(string location)
         {
             DateTime now = DateTime.UtcNow;
+            DateTime recoveryUtc;
 
             lock (Sync)
             {
@@ -473,17 +578,33 @@ namespace CityManager
                     return;
 
                 _lastRaidEventUtc = now;
-                _raidOccurredUtc = now;
-                _raidRecoveryPending = true;
 
+                if (_knownStatus == CloakStatus.Disabled &&
+                    _canRaiseAtUtc.HasValue)
+                {
+                    // The earlier cloak-off announcement already supplied the
+                    // authoritative timer. CITY_ATTACKED must not cause a probe.
+                    return;
+                }
+
+                // If Manager came online between cloak-off and CITY_ATTACKED,
+                // the targeted event is still enough to reconstruct a safe timer.
+                _knownStatus = CloakStatus.Disabled;
+                _lastObservedUtc = now;
+                _observationSource = "OrgChat.CityTargeted";
+                _raidOccurredUtc = now.AddSeconds(-CityTargetAfterCloakSeconds);
+                _canRaiseAtUtc = _raidOccurredUtc.AddSeconds(CloakDownSeconds);
+                recoveryUtc = _canRaiseAtUtc.Value;
+                _raidRecoveryPending = true;
+                _failureReported = false;
                 CancelRetryLocked();
             }
 
-            SendDev(
-                $"CITY EVENT: CITY_ATTACKED location={location}. " +
-                "Requesting enable-only cloak recovery.");
-
-            QueueEnsureEnabled(now, "CITY_ATTACKED");
+            Logger.Information(
+                $"CITY_ATTACKED at {location}; reconstructed cloak recovery " +
+                $"deadline={recoveryUtc:O} without a Flipper probe.");
+            ScheduleRetry(
+                Math.Max(1, (int)Math.Ceiling((recoveryUtc - now).TotalSeconds)));
         }
 
         private static void QueueEnsureEnabled(DateTime raidOccurredUtc, string reason)
@@ -510,16 +631,26 @@ namespace CityManager
                     };
 
                     shortId = request.Id.Substring(0, 8);
-                    SendDev($"CLOAK RECOVERY -> ensure-enabled [{shortId}] reason={reason}.");
+                    if (!string.Equals(reason, "retry", StringComparison.OrdinalIgnoreCase))
+                    {
+                        SendDev(
+                            $"CLOAK RECOVERY -> ensure-enabled [{shortId}] reason={reason}.");
+                    }
+                    else
+                    {
+                        Logger.Information(
+                            $"CLOAK RECOVERY retry -> ensure-enabled [{shortId}].");
+                    }
 
                     FlipperResponse response = SendFlipperRequest(request);
                     HandleEnsureResponse(shortId, response);
                 }
                 catch (Exception ex)
                 {
-                    SendDev(
+                    ReportRecoveryWait(
                         $"CLOAK RECOVERY ERROR{(shortId == null ? string.Empty : " [" + shortId + "]")}: " +
-                        $"{ex.Message}. Retrying in {RetryAfterFailureSeconds}s.");
+                        ex.Message,
+                        RetryAfterFailureSeconds);
 
                     ScheduleRetry(RetryAfterFailureSeconds);
                 }
@@ -544,7 +675,18 @@ namespace CityManager
                     "Enabled",
                     StringComparison.OrdinalIgnoreCase))
             {
+                lock (Sync)
+                {
+                    _knownStatus = CloakStatus.Enabled;
+                    _lastObservedUtc = response.ObservedUtc ?? DateTime.UtcNow;
+                    _canRaiseAtUtc = null;
+                    _observationSource = response.Cached
+                        ? "Flipper.Cache"
+                        : "Flipper.Probe";
+                }
+
                 SendDev($"CLOAK RECOVERY OK [{shortId}]: {response.Message}");
+                NotifyObservation(response);
                 CompleteRecoveryIfPending("Flipper confirmed Enabled");
                 return;
             }
@@ -562,14 +704,73 @@ namespace CityManager
                 retrySeconds = Math.Max(
                     5,
                     Math.Min(3600, response.ShieldTimerInSeconds.Value + 2));
+
+                lock (Sync)
+                {
+                    _knownStatus = CloakStatus.Disabled;
+                    _lastObservedUtc = response.ObservedUtc ?? DateTime.UtcNow;
+                    _canRaiseAtUtc = DateTime.UtcNow.AddSeconds(retrySeconds);
+                    _observationSource = response.Cached
+                        ? "Flipper.Cache"
+                        : "Flipper.Probe";
+                }
+
+                NotifyObservation(response);
             }
 
             string message = response?.Message ?? "No response from Flipper.";
-            SendDev(
-                $"CLOAK RECOVERY WAIT [{shortId}]: {message} " +
-                $"Retrying in {retrySeconds}s.");
+            ReportRecoveryWait(
+                $"CLOAK RECOVERY WAIT [{shortId}]: {message}",
+                retrySeconds);
 
             ScheduleRetry(retrySeconds);
+        }
+
+        private static void ReportRecoveryWait(string message, int retrySeconds)
+        {
+            bool reportToDev;
+
+            lock (Sync)
+            {
+                reportToDev = !_failureReported;
+                _failureReported = true;
+            }
+
+            string full = $"{message} Retrying in {retrySeconds}s.";
+            if (reportToDev)
+                SendDev(full);
+            else
+                Logger.Warning(full);
+        }
+
+        private static void NotifyObservation(FlipperResponse response)
+        {
+            Action<CloakStatus, int?, DateTime?, bool, string> callback;
+            CloakStatus parsed;
+
+            if (response == null ||
+                !Enum.TryParse(response.CloakState, true, out parsed))
+            {
+                return;
+            }
+
+            lock (Sync)
+                callback = _observationCallback;
+
+            try
+            {
+                callback?.Invoke(
+                    parsed,
+                    response.ShieldTimerInSeconds,
+                    response.ObservedUtc,
+                    response.Cached,
+                    response.Message);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning(
+                    $"Unable to apply cloak recovery observation: {ex.Message}");
+            }
         }
 
         private static void ScheduleRetry(int seconds)
@@ -585,13 +786,26 @@ namespace CityManager
                     _ =>
                     {
                         DateTime raidUtc;
+                        bool trustObservedEnabled;
                         lock (Sync)
                         {
                             if (!_raidRecoveryPending)
                                 return;
 
+                            trustObservedEnabled =
+                                _knownStatus == CloakStatus.Enabled &&
+                                (DateTime.UtcNow - _managerStartedUtc).TotalSeconds >=
+                                    PersistedStateTrustSeconds;
+
                             raidUtc = _raidOccurredUtc;
                             CancelRetryLocked();
+                        }
+
+                        if (trustObservedEnabled)
+                        {
+                            CompleteRecoveryIfPending(
+                                "Manager observed one hour without a contradictory city event");
+                            return;
                         }
 
                         QueueEnsureEnabled(raidUtc, "retry");
@@ -611,6 +825,7 @@ namespace CityManager
                 if (_raidRecoveryPending)
                 {
                     _raidRecoveryPending = false;
+                    _failureReported = false;
                     changed = true;
                 }
 
@@ -618,7 +833,101 @@ namespace CityManager
             }
 
             if (changed)
-                SendDev($"CLOAK RECOVERY COMPLETE: {reason}.");
+                Logger.Information($"CLOAK RECOVERY COMPLETE: {reason}.");
+        }
+
+        public static string GetStatusText()
+        {
+            lock (Sync)
+            {
+                if (!_bootAssessmentStarted)
+                    return "cloak recovery initializing";
+
+                if (_ensureInFlight)
+                    return "cloak recovery checking Flipper";
+
+                if (_raidRecoveryPending)
+                {
+                    if (_canRaiseAtUtc.HasValue && _canRaiseAtUtc.Value > DateTime.UtcNow)
+                    {
+                        TimeSpan remaining = _canRaiseAtUtc.Value - DateTime.UtcNow;
+                        return $"cloak recovery armed in {FormatStatusDuration(remaining)}";
+                    }
+
+                    return _failureReported
+                        ? "cloak recovery waiting to retry"
+                        : "cloak recovery pending";
+                }
+
+                return _knownStatus == CloakStatus.Enabled
+                    ? "cloak recovery settled"
+                    : "cloak recovery idle";
+            }
+        }
+
+        public static bool IsFlipperBusy()
+        {
+            lock (Sync)
+                return _ensureInFlight;
+        }
+
+        public static void ObserveConfirmedState(
+            CloakStatus status,
+            DateTime? observedUtc,
+            DateTime? canRaiseAtUtc,
+            string source)
+        {
+            DateTime now = DateTime.UtcNow;
+            DateTime? scheduleUtc = null;
+            bool complete = false;
+
+            lock (Sync)
+            {
+                if (!_initialized)
+                    return;
+
+                _knownStatus = status;
+                _lastObservedUtc = observedUtc ?? now;
+                _canRaiseAtUtc = canRaiseAtUtc;
+                _observationSource = source ?? "Manager";
+
+                if (status == CloakStatus.Enabled)
+                {
+                    complete = true;
+                }
+                else if (status == CloakStatus.Disabled)
+                {
+                    _raidOccurredUtc = _lastObservedUtc.Value;
+                    _raidRecoveryPending = true;
+                    _failureReported = false;
+                    scheduleUtc = _canRaiseAtUtc ??
+                        _raidOccurredUtc.AddSeconds(CloakDownSeconds);
+                    _canRaiseAtUtc = scheduleUtc;
+                    CancelRetryLocked();
+                }
+            }
+
+            if (complete)
+            {
+                CompleteRecoveryIfPending("Manager confirmed Enabled");
+                return;
+            }
+
+            if (scheduleUtc.HasValue)
+            {
+                ScheduleRetry(
+                    Math.Max(
+                        1,
+                        (int)Math.Ceiling((scheduleUtc.Value - now).TotalSeconds)));
+            }
+        }
+
+        private static string FormatStatusDuration(TimeSpan value)
+        {
+            int totalSeconds = Math.Max(0, (int)Math.Ceiling(value.TotalSeconds));
+            int minutes = totalSeconds / 60;
+            int seconds = totalSeconds % 60;
+            return minutes > 0 ? $"{minutes}m {seconds}s" : $"{seconds}s";
         }
 
         private static void CancelRetryLocked()

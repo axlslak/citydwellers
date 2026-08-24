@@ -17,11 +17,13 @@ namespace CityManager
         private const int RaidControllerFillSeconds = 60;
         private const int RaidCooldownSeconds = 600;
         private const int RaidTargetTimeoutSeconds = 300;
-        private const int RaidWorkerGraceSeconds = 120;
+        private const int RaidWorkerGraceSeconds = 20;
         private const int CityTargetAfterCloakSeconds = 180;
         // Measured from the authoritative city-targeted system event: wave 8
         // arrives at +945s and the general physically lands at about +1125s.
-        private const int GeneralBuddyStartOffsetSeconds = 945;
+        // General-only buddies enter ten seconds after wave 8 arrives.
+        private const int Wave8OffsetSeconds = 945;
+        private const int GeneralBuddyStartOffsetSeconds = 955;
         private const int BuddyLogoutOffsetSeconds = 1125;
         private const float MinimumRaidControllerCharge = 0.75f;
 
@@ -729,7 +731,7 @@ namespace CityManager
                 $"count={count}, authority={authority}.");
             DevTrace(
                 $"RAID ASSIST selected by={senderName} count={count} " +
-                $"authority={authority} wave8={session.CityTargetedUtc.AddSeconds(GeneralBuddyStartOffsetSeconds):O}.");
+                $"authority={authority} wave8={session.CityTargetedUtc.AddSeconds(Wave8OffsetSeconds):O}.");
             SaveRaidState();
             Reply(session.Origin, BuildRaidWindow(session));
         }
@@ -799,9 +801,30 @@ namespace CityManager
                 return;
             }
 
-            if (stage == RaidStage.ControllerFill && now >= deadline)
+            if (stage == RaidStage.ControllerFill)
             {
-                TryBeginRaidLaunch(session, now);
+                bool workerInFlight;
+                lock (_raidSync)
+                {
+                    workerInFlight =
+                        ReferenceEquals(_raidSession, session) &&
+                        (session.ControllerProbeInFlight ||
+                         session.BuddySpinupInFlight);
+                }
+
+                if (now >= deadline)
+                {
+                    if (workerInFlight && now < session.WorkerDeadlineUtc)
+                        return;
+
+                    FailRaidSession(
+                        session,
+                        "The City Controller did not reach 75% within the one-minute fill window.",
+                        true);
+                    return;
+                }
+
+                TryStartControllerWatch(session);
                 return;
             }
 
@@ -833,7 +856,7 @@ namespace CityManager
                     DateTime.UtcNow.AddSeconds(RaidControllerFillSeconds);
                 session.WorkerDeadlineUtc =
                     session.StageDeadlineUtc.AddSeconds(RaidWorkerGraceSeconds);
-                session.ControllerProbeInFlight = true;
+                session.ControllerProbeInFlight = false;
             }
 
             Logger.Warning(
@@ -844,26 +867,71 @@ namespace CityManager
             SaveRaidState();
             Reply(session.Origin, BuildRaidWindow(session));
 
-            BeginFreshControllerProbe(session);
-
             if (string.Equals(session.RaidType, "all", StringComparison.OrdinalIgnoreCase))
                 BeginRaidBuddySpinup(session, "all-mode start");
+
+            TryStartControllerWatch(session);
         }
 
-        private void BeginFreshControllerProbe(RaidSession session)
+        private void TryStartControllerWatch(RaidSession session)
         {
+            bool start = false;
+            bool buddyFailure = false;
+
+            lock (_raidSync)
+            {
+                if (!ReferenceEquals(_raidSession, session) ||
+                    session.Stage != RaidStage.ControllerFill ||
+                    session.ControllerProbeInFlight ||
+                    DateTime.UtcNow >= session.StageDeadlineUtc)
+                {
+                    return;
+                }
+
+                if (session.BuddySpinupInFlight)
+                    return;
+
+                buddyFailure = session.BuddySpinupFatal;
+                if (!buddyFailure)
+                {
+                    session.ControllerProbeInFlight = true;
+                    start = true;
+                }
+            }
+
+            if (buddyFailure)
+            {
+                FailRaidSession(
+                    session,
+                    $"Only {session.StartedBuddyIndexes.Count}/{session.RaiderCount.Value} " +
+                    "requested all-mode City Dwellers could log in.",
+                    true);
+                return;
+            }
+
+            if (!start)
+                return;
+
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
                 {
+                    int secondsRemaining = Math.Max(
+                        1,
+                        (int)Math.Ceiling(
+                            (session.StageDeadlineUtc - DateTime.UtcNow).TotalSeconds));
+
                     var request = new WorkerRequest
                     {
                         Id = Guid.NewGuid().ToString("N"),
-                        Command = "probe"
+                        Command = "ensure-disabled-watch",
+                        TimeoutSeconds = secondsRemaining
                     };
 
                     string shortId = ShortId(request.Id);
-                    DevTrace($"RAID FLIPPER -> fresh CT probe [{shortId}].");
+                    DevTrace(
+                        $"RAID FLIPPER -> watch CT and lower [{shortId}] " +
+                        $"window={secondsRemaining}s minimum={MinimumRaidControllerCharge * 100:F0}%.");
 
                     WorkerResponse response = SendWorkerRequest(
                         FlipperPipeName,
@@ -873,25 +941,93 @@ namespace CityManager
                     if (response.Ok)
                         ApplyFlipperObservation(response);
 
+                    bool workerConfirmed =
+                        response.Ok &&
+                        string.Equals(
+                            response.CloakState,
+                            "Disabled",
+                            StringComparison.OrdinalIgnoreCase);
+                    bool cityEventConfirmed;
+                    float? effectiveCharge = response.ControllerCharge;
+
                     lock (_raidSync)
                     {
                         if (ReferenceEquals(_raidSession, session))
                         {
-                            session.LastControllerCharge = response.ControllerCharge;
+                            cityEventConfirmed = session.CloakLowerConfirmedUtc.HasValue;
+                            if (cityEventConfirmed && !effectiveCharge.HasValue)
+                                effectiveCharge = session.LastControllerCharge;
+
+                            session.LastControllerCharge = effectiveCharge;
                             session.FlipperDetail = response.Message;
                             session.ControllerProbeInFlight = false;
+                        }
+                        else
+                        {
+                            cityEventConfirmed = false;
                         }
                     }
 
                     DevTrace(
                         $"RAID FLIPPER {(response.Ok ? "OK" : "FAIL")} [{shortId}]: " +
-                        $"charge={FormatCharge(response.ControllerCharge)}; {response.Message}");
+                        $"charge={FormatCharge(effectiveCharge)}; {response.Message}");
 
-                    if (IsCurrentRaidSession(session))
+                    bool started =
+                        effectiveCharge.HasValue &&
+                        effectiveCharge.Value >= MinimumRaidControllerCharge &&
+                        (response.ActionSent || workerConfirmed || cityEventConfirmed);
+
+                    if (started)
                     {
+                        lock (_raidSync)
+                        {
+                            if (!ReferenceEquals(_raidSession, session) ||
+                                session.Stage != RaidStage.ControllerFill)
+                            {
+                                return;
+                            }
+
+                            session.Stage = RaidStage.AwaitingCityTarget;
+                            session.StageDeadlineUtc =
+                                DateTime.UtcNow.AddSeconds(RaidTargetTimeoutSeconds);
+                        }
+
+                        Logger.Warning(
+                            $"Raid cloak lowered for {session.OwnerName}; " +
+                            $"charge={FormatCharge(effectiveCharge)}.");
+                        DevTrace(
+                            $"RAID STARTED owner={session.OwnerName} " +
+                            $"charge={FormatCharge(effectiveCharge)}; " +
+                            $"waiting for CITY_ATTACKED until {session.StageDeadlineUtc:O}.");
                         SaveRaidState();
                         Reply(session.Origin, BuildRaidWindow(session));
+                        return;
                     }
+
+                    bool retryableWorkerFailure =
+                        !response.ActionSent &&
+                        !effectiveCharge.HasValue &&
+                        string.IsNullOrWhiteSpace(response.CloakState);
+
+                    if (retryableWorkerFailure &&
+                        IsCurrentRaidSession(session) &&
+                        DateTime.UtcNow < session.StageDeadlineUtc)
+                    {
+                        // A login or packet failure during the fill window is
+                        // retryable. TickRaidCoordinator starts another watch;
+                        // no repeated chat response is emitted.
+                        SaveRaidState();
+                        return;
+                    }
+
+                    string failureReason =
+                        effectiveCharge.HasValue &&
+                        effectiveCharge.Value < MinimumRaidControllerCharge
+                            ? $"The City Controller did not reach 75% within the one-minute fill window. " +
+                              response.Message
+                            : $"Raid start was blocked. {response.Message}";
+
+                    FailRaidSession(session, failureReason, true);
                 }
                 catch (Exception ex)
                 {
@@ -904,12 +1040,22 @@ namespace CityManager
                         }
                     }
 
-                    DevTrace($"RAID FLIPPER probe error: {ex.Message}");
-                    if (IsCurrentRaidSession(session))
+                    Logger.Warning($"Raid CT watch failed: {ex.Message}");
+
+                    if (TryRecoverRaidCloakLowerFromCityEvent(session, ex.Message))
+                        return;
+
+                    if (IsCurrentRaidSession(session) &&
+                        DateTime.UtcNow < session.StageDeadlineUtc)
                     {
                         SaveRaidState();
-                        Reply(session.Origin, BuildRaidWindow(session));
+                        return;
                     }
+
+                    FailRaidSession(
+                        session,
+                        $"The City Controller could not be verified within the one-minute fill window: {ex.Message}",
+                        true);
                 }
             });
         }
@@ -1012,8 +1158,11 @@ namespace CityManager
                         SaveRaidState();
                 }
 
-                if (IsCurrentRaidSession(session))
-                    Reply(session.Origin, BuildRaidWindow(session));
+                if (IsCurrentRaidSession(session) &&
+                    session.Stage == RaidStage.ControllerFill)
+                {
+                    TryStartControllerWatch(session);
+                }
             });
         }
 
@@ -1031,177 +1180,6 @@ namespace CityManager
             }
         }
 
-        private void TryBeginRaidLaunch(RaidSession session, DateTime now)
-        {
-            bool waiting;
-            bool announceWait = false;
-            bool fatal;
-
-            lock (_raidSync)
-            {
-                if (!ReferenceEquals(_raidSession, session) ||
-                    session.Stage != RaidStage.ControllerFill)
-                {
-                    return;
-                }
-
-                waiting = session.ControllerProbeInFlight || session.BuddySpinupInFlight;
-                fatal = session.BuddySpinupFatal;
-
-                if (waiting && !session.WorkerWaitAnnounced)
-                {
-                    session.WorkerWaitAnnounced = true;
-                    announceWait = true;
-                }
-            }
-
-            if (waiting)
-            {
-                if (announceWait)
-                    Reply(session.Origin, BuildRaidWindow(session));
-
-                if (now >= session.WorkerDeadlineUtc)
-                {
-                    FailRaidSession(
-                        session,
-                        "A raid worker did not finish in time.",
-                        true);
-                }
-
-                return;
-            }
-
-            if (fatal)
-            {
-                FailRaidSession(
-                    session,
-                    $"Only {session.StartedBuddyIndexes.Count}/{session.RaiderCount.Value} " +
-                    "requested all-mode City Dwellers could log in.",
-                    true);
-                return;
-            }
-
-            lock (_raidSync)
-            {
-                if (!ReferenceEquals(_raidSession, session) ||
-                    session.Stage != RaidStage.ControllerFill)
-                {
-                    return;
-                }
-
-                session.Stage = RaidStage.LoweringCloak;
-            }
-
-            SaveRaidState();
-            Reply(session.Origin, BuildRaidWindow(session));
-            BeginSafeRaidCloakLower(session);
-        }
-
-        private void BeginSafeRaidCloakLower(RaidSession session)
-        {
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                try
-                {
-                    var request = new WorkerRequest
-                    {
-                        Id = Guid.NewGuid().ToString("N"),
-                        Command = "ensure-disabled-ready"
-                    };
-
-                    string shortId = ShortId(request.Id);
-                    DevTrace(
-                        $"RAID FLIPPER -> lower-if-ready [{shortId}] minimum={MinimumRaidControllerCharge * 100:F0}%.");
-
-                    WorkerResponse response = SendWorkerRequest(
-                        FlipperPipeName,
-                        request,
-                        WorkerConnectTimeoutMs);
-
-                    if (response.Ok)
-                        ApplyFlipperObservation(response);
-
-                    bool workerConfirmed =
-                        response.Ok &&
-                        string.Equals(
-                            response.CloakState,
-                            "Disabled",
-                            StringComparison.OrdinalIgnoreCase);
-
-                    bool flipperActionConfirmed = response.ActionSent;
-
-                    bool cityEventConfirmed;
-                    float? effectiveCharge = response.ControllerCharge;
-                    lock (_raidSync)
-                    {
-                        cityEventConfirmed =
-                            ReferenceEquals(_raidSession, session) &&
-                            session.CloakLowerConfirmedUtc.HasValue;
-
-                        if (cityEventConfirmed && !effectiveCharge.HasValue)
-                            effectiveCharge = session.LastControllerCharge;
-                    }
-
-                    bool started =
-                        effectiveCharge.HasValue &&
-                        effectiveCharge.Value >= MinimumRaidControllerCharge &&
-                        (flipperActionConfirmed || workerConfirmed || cityEventConfirmed);
-
-                    if (!started)
-                    {
-                        string reason =
-                            $"Raid did not start. CT charge was {FormatCharge(effectiveCharge)}; " +
-                            $"75% is required. {response.Message}";
-
-                        DevTrace($"RAID FLIPPER FAIL [{shortId}]: {reason}");
-                        FailRaidSession(session, reason, true);
-                        return;
-                    }
-
-                    lock (_raidSync)
-                    {
-                        if (!ReferenceEquals(_raidSession, session) ||
-                            session.Stage != RaidStage.LoweringCloak)
-                        {
-                            return;
-                        }
-
-                        session.LastControllerCharge = effectiveCharge;
-                        session.FlipperDetail = cityEventConfirmed &&
-                                                !workerConfirmed &&
-                                                !flipperActionConfirmed
-                            ? $"Org city event confirmed the cloak was lowered by " +
-                              $"{session.CloakLowerConfirmedActor}; worker detail: {response.Message}"
-                            : response.Message;
-                        session.Stage = RaidStage.AwaitingCityTarget;
-                        session.StageDeadlineUtc =
-                            DateTime.UtcNow.AddSeconds(RaidTargetTimeoutSeconds);
-                    }
-
-                    Logger.Warning(
-                        $"Raid cloak lowered for {session.OwnerName}; charge={FormatCharge(effectiveCharge)}.");
-                    DevTrace(
-                        $"RAID STARTED owner={session.OwnerName} charge={FormatCharge(effectiveCharge)}; " +
-                        $"confirmation={(flipperActionConfirmed ? "Flipper.ActionSent" : workerConfirmed ? "Flipper.CloakInfo" : "OrgChat.CLOAK_DISABLED")}; " +
-                        $"waiting for CITY_ATTACKED until {session.StageDeadlineUtc:O}.");
-                    SaveRaidState();
-                    Reply(session.Origin, BuildRaidWindow(session));
-                }
-                catch (Exception ex)
-                {
-                    DevTrace($"RAID FLIPPER lower error: {ex.Message}");
-
-                    if (TryRecoverRaidCloakLowerFromCityEvent(session, ex.Message))
-                        return;
-
-                    FailRaidSession(
-                        session,
-                        $"Raid could not verify and lower the cloak: {ex.Message}",
-                        true);
-                }
-            });
-        }
-
         private bool TryRecoverRaidCloakLowerFromCityEvent(
             RaidSession session,
             string workerError)
@@ -1209,10 +1187,15 @@ namespace CityManager
             lock (_raidSync)
             {
                 if (!ReferenceEquals(_raidSession, session) ||
-                    session.Stage != RaidStage.LoweringCloak ||
+                    (session.Stage != RaidStage.ControllerFill &&
+                     session.Stage != RaidStage.LoweringCloak) ||
                     !session.CloakLowerConfirmedUtc.HasValue ||
-                    !session.LastControllerCharge.HasValue ||
-                    session.LastControllerCharge.Value < MinimumRaidControllerCharge)
+                    ((!session.LastControllerCharge.HasValue ||
+                      session.LastControllerCharge.Value < MinimumRaidControllerCharge) &&
+                     !string.Equals(
+                         session.CloakLowerConfirmedActor,
+                         "Apcflipper",
+                         StringComparison.OrdinalIgnoreCase)))
                 {
                     return false;
                 }
@@ -1220,6 +1203,7 @@ namespace CityManager
                 session.FlipperDetail =
                     $"Org city event confirmed the cloak was lowered by " +
                     $"{session.CloakLowerConfirmedActor}; worker error: {workerError}";
+                session.ControllerProbeInFlight = false;
                 session.Stage = RaidStage.AwaitingCityTarget;
                 session.StageDeadlineUtc =
                     DateTime.UtcNow.AddSeconds(RaidTargetTimeoutSeconds);
@@ -1246,7 +1230,8 @@ namespace CityManager
             {
                 session = _raidSession;
                 if (session == null ||
-                    (session.Stage != RaidStage.LoweringCloak &&
+                    (session.Stage != RaidStage.ControllerFill &&
+                     session.Stage != RaidStage.LoweringCloak &&
                      session.Stage != RaidStage.AwaitingCityTarget))
                 {
                     return;
@@ -1290,7 +1275,7 @@ namespace CityManager
                         Stage = RaidStage.AssistSelection,
                         CreatedUtc = now,
                         StageDeadlineUtc =
-                            now.AddSeconds(GeneralBuddyStartOffsetSeconds),
+                            now.AddSeconds(Wave8OffsetSeconds),
                         CityTargetedUtc = now,
                         RaidType = "general",
                         Level = 200,
@@ -1331,7 +1316,7 @@ namespace CityManager
                 $"Raid city-targeted event accepted for {session.OwnerName} at {now:O}; location={location}.");
             DevTrace(
                 $"RAID TIMER START owner={session.OwnerName} location={location} anchor={now:O}; " +
-                $"wave8=+945s general=+1065s cleanup=+1125s.");
+                $"wave8=+945s buddy-spinup=+955s general=+1065s cleanup=+1125s.");
             SaveRaidState();
             Reply(session.Origin, BuildRaidWindow(session));
         }
@@ -1391,10 +1376,9 @@ namespace CityManager
             if (milestoneChanged)
             {
                 string milestoneText = RaidMilestoneText(milestone);
-                DevTrace(
+                Logger.Debug(
                     $"RAID TIMER owner={session.OwnerName} elapsed={elapsed}s milestone={milestoneText}.");
                 SaveRaidState();
-                Reply(session.Origin, BuildRaidWindow(session));
             }
 
             if (elapsed >= BuddyLogoutOffsetSeconds)
@@ -1410,8 +1394,7 @@ namespace CityManager
                 elapsed >= GeneralBuddyStartOffsetSeconds &&
                 !session.BuddySpinupRequested)
             {
-                BeginRaidBuddySpinup(session, "wave 8 arrival");
-                Reply(session.Origin, BuildRaidWindow(session));
+                BeginRaidBuddySpinup(session, "10 seconds after wave 8 arrival");
             }
         }
 
@@ -1721,7 +1704,7 @@ namespace CityManager
 
                         if (restored.Stage == RaidStage.ControllerFill)
                         {
-                            restored.ControllerProbeInFlight = true;
+                            restored.ControllerProbeInFlight = false;
                             restored.BuddySpinupRequested = false;
                             restored.BuddySpinupFatal = false;
                             resumeControllerWorkers = true;
@@ -1822,8 +1805,6 @@ namespace CityManager
             if (!resumeWorkers || session.Stage != RaidStage.ControllerFill)
                 return;
 
-            BeginFreshControllerProbe(session);
-
             if (string.Equals(
                     session.RaidType,
                     "all",
@@ -1831,6 +1812,8 @@ namespace CityManager
             {
                 BeginRaidBuddySpinup(session, "restart recovery");
             }
+
+            TryStartControllerWatch(session);
         }
 
         private PersistedRaidSession ToPersistedRaidSession(RaidSession session)
@@ -1954,6 +1937,108 @@ namespace CityManager
             }
 
             return milestone;
+        }
+
+        private string BuildRaidStatusSummary()
+        {
+            lock (_raidSync)
+            {
+                if (_raidSession == null)
+                    return "Raid = idle";
+
+                RaidSession session = _raidSession;
+                string owner = string.IsNullOrWhiteSpace(session.OwnerName)
+                    ? "unknown"
+                    : session.OwnerName;
+                string selection =
+                    $"{session.RaidType ?? "unset"}, " +
+                    $"{(session.RaiderCount.HasValue ? session.RaiderCount.Value.ToString() : "unset")}x{session.Level}";
+
+                switch (session.Stage)
+                {
+                    case RaidStage.Configuring:
+                        return
+                            $"Raid = setup for {owner} ({selection}), " +
+                            $"{FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow)} left";
+
+                    case RaidStage.AdminVeto:
+                        return
+                            $"Raid = admin veto for {owner} ({selection}), " +
+                            $"{FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow)} left";
+
+                    case RaidStage.ControllerFill:
+                        return
+                            $"Raid = CT fill for {owner} ({selection}), " +
+                            $"charge {FormatCharge(session.LastControllerCharge)}, " +
+                            $"{FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow)} left";
+
+                    case RaidStage.LoweringCloak:
+                        return $"Raid = lowering cloak for {owner} ({selection})";
+
+                    case RaidStage.AwaitingCityTarget:
+                        return $"Raid = cloak lowered for {owner}; waiting for city target";
+
+                    case RaidStage.AssistSelection:
+                        return
+                            $"Raid = unmanaged; assistance selection closes in " +
+                            FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow);
+
+                    case RaidStage.CleaningUp:
+                        return $"Raid = general reached; buddy cleanup for {owner}";
+
+                    case RaidStage.Active:
+                    {
+                        int elapsed = Math.Max(
+                            0,
+                            (int)Math.Floor(
+                                (DateTime.UtcNow - session.CityTargetedUtc).TotalSeconds));
+                        var details = new List<string>
+                        {
+                            RaidMilestoneText(session.CurrentMilestone)
+                        };
+
+                        if (string.Equals(
+                                session.RaidType,
+                                "general",
+                                StringComparison.OrdinalIgnoreCase) &&
+                            !session.BuddySpinupRequested &&
+                            elapsed < GeneralBuddyStartOffsetSeconds)
+                        {
+                            details.Add(
+                                "buddy login in " +
+                                FormatDuration(
+                                    TimeSpan.FromSeconds(
+                                        GeneralBuddyStartOffsetSeconds - elapsed)));
+                        }
+
+                        if (elapsed < BuddyLogoutOffsetSeconds)
+                        {
+                            details.Add(
+                                "buddy logout in " +
+                                FormatDuration(
+                                    TimeSpan.FromSeconds(
+                                        BuddyLogoutOffsetSeconds - elapsed)));
+                        }
+
+                        return
+                            $"Raid = active for {owner} ({selection}); " +
+                            string.Join(", ", details);
+                    }
+
+                    default:
+                        return $"Raid = {session.Stage} for {owner}";
+                }
+            }
+        }
+
+        private bool IsRaidFlipperBusy()
+        {
+            lock (_raidSync)
+            {
+                return _raidSession != null &&
+                       _raidSession.Stage == RaidStage.ControllerFill &&
+                       _raidSession.ControllerProbeInFlight;
+            }
         }
 
         private void DeleteRaidStateFile()

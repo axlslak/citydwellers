@@ -306,6 +306,9 @@ public class FlipperLoader
             case "ensure-disabled-ready":
                 return EnsureDisabledReady(request);
 
+            case "ensure-disabled-watch":
+                return EnsureDisabledWatch(request);
+
             case "ping":
                 return Ok(request, "Flipper service is running.");
 
@@ -445,7 +448,35 @@ public class FlipperLoader
                 "Unable to verify CT charge and lower the cloak. See Flipper console for details.");
         }
 
-        FlipperResult result = run.Result;
+        return BuildEnsureDisabledResponse(request, run.Result);
+    }
+
+    private static WorkerResponse EnsureDisabledWatch(WorkerRequest request)
+    {
+        int watchSeconds = Math.Max(
+            1,
+            Math.Min(60, request.TimeoutSeconds ?? 60));
+
+        // Keep one client online for the remaining fill window. The plugin
+        // refreshes CT charge and lowers immediately when it reaches 75%.
+        ProbeRun run = RunProbe(
+            $"disable-watch:{watchSeconds}",
+            Math.Max(_timeoutMs, (watchSeconds + 15) * 1000));
+
+        if (!run.Success || run.Result == null)
+        {
+            return Fail(
+                request,
+                "Unable to watch CT charge and lower the cloak. See Flipper console for details.");
+        }
+
+        return BuildEnsureDisabledResponse(request, run.Result);
+    }
+
+    private static WorkerResponse BuildEnsureDisabledResponse(
+        WorkerRequest request,
+        FlipperResult result)
+    {
 
         if (!result.ToggleSent)
         {
@@ -581,20 +612,32 @@ public class FlipperLoader
 
     private static ProbeRun RunProbe(string requestedAction)
     {
+        return RunProbe(requestedAction, _timeoutMs);
+    }
+
+    private static ProbeRun RunProbe(string requestedAction, int timeoutMs)
+    {
         bool actionRequested = !string.IsNullOrWhiteSpace(requestedAction);
         bool ensureEnabled = string.Equals(
             requestedAction,
             "enable",
             StringComparison.OrdinalIgnoreCase);
+        bool watchController =
+            requestedAction != null &&
+            requestedAction.StartsWith(
+                "disable-watch:",
+                StringComparison.OrdinalIgnoreCase);
 
         Console.WriteLine();
         Console.WriteLine("--------------------------------------");
         Console.WriteLine(
             ensureEnabled
                 ? "ENSURE ENABLED PROBE"
-                : actionRequested
-                    ? "TOGGLE PROBE"
-                    : "OBSERVE PROBE");
+                : watchController
+                    ? "RAID CT WATCH"
+                    : actionRequested
+                        ? "TOGGLE PROBE"
+                        : "OBSERVE PROBE");
         Console.WriteLine("--------------------------------------");
 
         string resultPath =
@@ -637,7 +680,7 @@ public class FlipperLoader
 
             domain.Start();
 
-            DateTime timeout = DateTime.UtcNow.AddMilliseconds(_timeoutMs);
+            DateTime timeout = DateTime.UtcNow.AddMilliseconds(timeoutMs);
 
             while (!File.Exists(resultPath))
             {
@@ -874,6 +917,7 @@ public class FlipperLoader
         public string Id;
         public string Command;
         public DateTime? NotBeforeUtc;
+        public int? TimeoutSeconds;
     }
 
     private class WorkerResponse

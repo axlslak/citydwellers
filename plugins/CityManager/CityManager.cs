@@ -100,6 +100,12 @@ namespace CityManager
             LoadState();
             InitializeRaidCoordinator();
             OrgRankAuthorizer.Initialize();
+            CityRaidAutomation.Initialize(
+                _status,
+                _lastObservedUtc,
+                _canRaiseAtUtc,
+                _observationSource,
+                ApplyCloakRecoveryObservation);
             Client.MessageReceived += MessageReceived;
         }
 
@@ -108,6 +114,7 @@ namespace CityManager
             try
             {
                 Client.MessageReceived -= MessageReceived;
+                CityRaidAutomation.Shutdown();
                 OrgRankAuthorizer.Shutdown();
                 ShutdownRaidCoordinator();
                 ShutdownMembership();
@@ -722,13 +729,21 @@ namespace CityManager
         {
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                DevTrace("STATUS -> ping Flipper and Buddies.");
-
-                WorkerLinkStatus flipper = PingWorker("Flipper", FlipperPipeName);
+                bool raidFlipperBusy = IsRaidFlipperBusy();
+                bool recoveryFlipperBusy = CityRaidAutomation.IsFlipperBusy();
+                WorkerLinkStatus flipper = raidFlipperBusy
+                    ? WorkerLinkStatus.Usable("watching City Controller charge")
+                    : recoveryFlipperBusy
+                        ? WorkerLinkStatus.Usable("checking cloak state")
+                        : PingWorker("Flipper", FlipperPipeName);
                 WorkerLinkStatus buddies = PingWorker("Buddies", BuddiesPipeName);
+                string cloak = BuildCloakStatusSummary();
+                string recovery = CityRaidAutomation.GetStatusText();
+                string raid = BuildRaidStatusSummary();
 
                 string reply =
                     $"Manager = online/usable. " +
+                    $"{cloak}. {recovery}. {raid}. " +
                     $"Flipper = {flipper.PublicText}. " +
                     $"Buddies = {buddies.PublicText}.";
 
@@ -738,9 +753,32 @@ namespace CityManager
                     $"Buddies={buddies.DiagnosticText}.";
 
                 Logger.Information(diagnostic);
-                DevTrace(diagnostic);
                 Reply(target, reply);
             });
+        }
+
+        private string BuildCloakStatusSummary()
+        {
+            lock (_stateSync)
+            {
+                string source = string.IsNullOrWhiteSpace(_observationSource)
+                    ? "Unknown"
+                    : _observationSource;
+                string observed = _lastObservedUtc.HasValue
+                    ? $", observed {FormatDuration(DateTime.UtcNow - _lastObservedUtc.Value)} ago"
+                    : string.Empty;
+
+                if (_status == CloakStatus.Disabled && _canRaiseAtUtc.HasValue)
+                {
+                    string due = _canRaiseAtUtc.Value > DateTime.UtcNow
+                        ? $", enable due in {FormatDuration(_canRaiseAtUtc.Value - DateTime.UtcNow)}"
+                        : ", enable is due";
+
+                    return $"Cloak = Disabled via {source}{observed}{due}";
+                }
+
+                return $"Cloak = {_status} via {source}{observed}";
+            }
         }
 
         private WorkerLinkStatus PingWorker(string workerName, string pipeName)
@@ -751,12 +789,9 @@ namespace CityManager
                 Command = "ping"
             };
 
-            string shortId = ShortId(request.Id);
-
             try
             {
                 Logger.Information($"IPC -> {workerName} {request.Id}: ping");
-                DevTrace($"{workerName.ToUpperInvariant()} -> ping [{shortId}]");
 
                 WorkerResponse response = SendWorkerRequest(
                     pipeName,
@@ -1368,6 +1403,32 @@ namespace CityManager
 
                 SaveState();
             }
+
+            CityRaidAutomation.ObserveConfirmedState(
+                _status,
+                _lastObservedUtc,
+                _canRaiseAtUtc,
+                _observationSource);
+        }
+
+        private void ApplyCloakRecoveryObservation(
+            CloakStatus status,
+            int? shieldTimerInSeconds,
+            DateTime? observedUtc,
+            bool cached,
+            string message)
+        {
+            ApplyFlipperObservation(
+                new WorkerResponse
+                {
+                    Ok = true,
+                    CloakState = status.ToString(),
+                    ShieldTimerInSeconds = shieldTimerInSeconds,
+                    ObservedUtc = observedUtc,
+                    Cached = cached,
+                    Message = message,
+                    Character = "Apcflipper"
+                });
         }
 
         private void Tick(object sender, double e)
@@ -1388,7 +1449,6 @@ namespace CityManager
                 : $"CLOAK RAISE IS NOW DUE. Server-derived earliest raise time was {_canRaiseAtUtc.Value:O}.";
 
             Logger.Warning(message);
-            DevTrace(message);
             SaveState();
         }
 
@@ -1410,26 +1470,58 @@ namespace CityManager
         {
             try
             {
-                if (!File.Exists(_statePath))
+                PersistedCloakState state = null;
+                if (File.Exists(_statePath))
+                {
+                    try
+                    {
+                        state = JsonConvert.DeserializeObject<PersistedCloakState>(
+                            File.ReadAllText(_statePath));
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning(
+                            $"Persisted cloak snapshot is unreadable; " +
+                            $"falling back to the event log: {ex.Message}");
+                    }
+                }
+
+                if (state != null)
+                {
+                    _status = state.Status;
+                    _shieldTimerInSeconds = state.ShieldTimerInSeconds;
+                    _lastObservedUtc = state.LastObservedUtc;
+                    _lastChangedUtc = state.LastChangedUtc;
+                    _canRaiseAtUtc = state.CanRaiseAtUtc;
+                    _raiseDueLogged = state.RaiseDueLogged;
+                    _raiseTimeIsProvisional = state.RaiseTimeIsProvisional;
+                    _observationSource = state.ObservationSource ?? "Unknown";
+                }
+
+                CloakEventRecord latestEvent = LoadLatestCloakEvent();
+                if (latestEvent != null &&
+                    (!_lastObservedUtc.HasValue ||
+                     latestEvent.OccurredUtc > _lastObservedUtc.Value))
+                {
+                    _status = latestEvent.NewStatus;
+                    _shieldTimerInSeconds = latestEvent.ShieldTimerInSeconds ?? 0;
+                    _lastObservedUtc = latestEvent.OccurredUtc;
+                    _lastChangedUtc = latestEvent.OccurredUtc;
+                    _canRaiseAtUtc = latestEvent.CanRaiseAtUtc;
+                    _raiseDueLogged = false;
+                    _raiseTimeIsProvisional =
+                        string.Equals(
+                            latestEvent.EventType,
+                            "cloak_off_announcement",
+                            StringComparison.OrdinalIgnoreCase);
+                    _observationSource = latestEvent.Source ?? "PersistedEventLog";
+                }
+
+                if (state == null && latestEvent == null)
                 {
                     Logger.Information("No persisted cloak state found; starting Unknown.");
                     return;
                 }
-
-                PersistedCloakState state =
-                    JsonConvert.DeserializeObject<PersistedCloakState>(File.ReadAllText(_statePath));
-
-                if (state == null)
-                    return;
-
-                _status = state.Status;
-                _shieldTimerInSeconds = state.ShieldTimerInSeconds;
-                _lastObservedUtc = state.LastObservedUtc;
-                _lastChangedUtc = state.LastChangedUtc;
-                _canRaiseAtUtc = state.CanRaiseAtUtc;
-                _raiseDueLogged = state.RaiseDueLogged;
-                _raiseTimeIsProvisional = state.RaiseTimeIsProvisional;
-                _observationSource = state.ObservationSource ?? "Unknown";
 
                 Logger.Information(
                     $"Restored cloak state: {_status}, lastObserved={_lastObservedUtc:O}, " +
@@ -1439,6 +1531,39 @@ namespace CityManager
             {
                 Logger.Error($"Failed loading persisted cloak state: {ex}");
             }
+        }
+
+        private CloakEventRecord LoadLatestCloakEvent()
+        {
+            if (!File.Exists(_eventsPath))
+                return null;
+
+            CloakEventRecord latest = null;
+
+            foreach (string line in File.ReadLines(_eventsPath))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                try
+                {
+                    CloakEventRecord candidate =
+                        JsonConvert.DeserializeObject<CloakEventRecord>(line);
+
+                    if (candidate != null &&
+                        (latest == null || candidate.OccurredUtc > latest.OccurredUtc))
+                    {
+                        latest = candidate;
+                    }
+                }
+                catch
+                {
+                    // Keep scanning: a partially written final line must not hide
+                    // earlier authoritative events.
+                }
+            }
+
+            return latest;
         }
 
         private void SaveState()
@@ -1588,6 +1713,7 @@ namespace CityManager
         {
             public string Id;
             public string Command;
+            public int? TimeoutSeconds;
             public int? Level;
             public int? Index;
         }
