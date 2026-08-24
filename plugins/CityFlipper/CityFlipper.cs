@@ -45,6 +45,7 @@ namespace CityFlipper
         private Dictionary<string, string> _postToggleCloakInfo = new Dictionary<string, string>();
 
         private bool _toggleRequested;
+        private bool _ensureEnabledOnly;
         private bool _toggleSent;
         private bool _gotPostToggleCloakInfo;
         private string _toggleBlockedReason;
@@ -65,13 +66,32 @@ namespace CityFlipper
                 _pluginDir,
                 "cityflipper-toggle.request");
 
-            _toggleRequested = File.Exists(toggleRequestPath);
+            string requestedAction = null;
+            if (File.Exists(toggleRequestPath))
+            {
+                try
+                {
+                    requestedAction = File.ReadAllText(toggleRequestPath).Trim();
+                }
+                catch
+                {
+                    requestedAction = "toggle";
+                }
+            }
+
+            _toggleRequested = !string.IsNullOrWhiteSpace(requestedAction);
+            _ensureEnabledOnly = string.Equals(
+                requestedAction,
+                "enable",
+                StringComparison.OrdinalIgnoreCase);
 
             Logger.Information("CityFlipper diagnostic probe initialized.");
             Logger.Information(
-                _toggleRequested
-                    ? "Mode: TOGGLE (one guarded cloak toggle requested)."
-                    : "Mode: OBSERVE (read-only).");
+                _ensureEnabledOnly
+                    ? "Mode: ENSURE ENABLED (may raise cloak, never lower it)."
+                    : _toggleRequested
+                        ? "Mode: TOGGLE (one guarded cloak toggle requested)."
+                        : "Mode: OBSERVE (read-only).");
 
             _timer.Start();
 
@@ -350,7 +370,29 @@ namespace CityFlipper
                 }
                 else if (!_toggleSent)
                 {
-                    if (_initialShieldTimerInSeconds > 0)
+                    if (_ensureEnabledOnly &&
+                        string.Equals(
+                            _initialCloakState,
+                            "Enabled",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        _toggleBlockedReason =
+                            "Cloak is already enabled; no toggle was sent.";
+                        _resultWritten = true;
+                        writeResult = true;
+                    }
+                    else if (_ensureEnabledOnly &&
+                             !string.Equals(
+                                 _initialCloakState,
+                                 "Disabled",
+                                 StringComparison.OrdinalIgnoreCase))
+                    {
+                        _toggleBlockedReason =
+                            $"Cloak state '{_initialCloakState}' is not safely actionable; no toggle was sent.";
+                        _resultWritten = true;
+                        writeResult = true;
+                    }
+                    else if (_initialShieldTimerInSeconds > 0)
                     {
                         _toggleBlockedReason =
                             $"Shield timer is {_initialShieldTimerInSeconds} seconds; " +
@@ -381,7 +423,7 @@ namespace CityFlipper
                 try
                 {
                     Logger.Warning(
-                        $"Sending ONE cloak toggle. " +
+                        $"Sending ONE cloak {(_ensureEnabledOnly ? "ENABLE" : "toggle")}. " +
                         $"Pre-state={_initialCloakState}, " +
                         $"ShieldTimerInSeconds={_initialShieldTimerInSeconds}.");
 
@@ -390,7 +432,10 @@ namespace CityFlipper
                         Unknown1 = 49152
                     });
 
-                    Logger.Warning("Cloak toggle packet sent; waiting for post-toggle CloakInfo.");
+                    Logger.Warning(
+                        _ensureEnabledOnly
+                            ? "Cloak enable packet sent; waiting for post-toggle CloakInfo."
+                            : "Cloak toggle packet sent; waiting for post-toggle CloakInfo.");
                 }
                 catch (Exception ex)
                 {
