@@ -766,9 +766,7 @@ namespace CityManager
                     if (TrySendOrgMessage(text))
                         return;
 
-                    Logger.Warning("Unable to send org reply; falling back to tell.");
-                    if (target.SenderId != 0)
-                        Client.SendPrivateMessage(target.SenderId, "[org reply fallback] " + text);
+                    Logger.Warning("Unable to send command reply in the originating org channel.");
                     return;
                 }
 
