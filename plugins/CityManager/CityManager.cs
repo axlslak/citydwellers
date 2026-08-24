@@ -291,41 +291,61 @@ namespace CityManager
 
             string command = parts[0].ToLowerInvariant();
 
-            if (command == "cloak")
-            {
-                if (replyTarget.IsDev)
-                {
-                    if (!string.Equals(senderName, DeveloperCharacter, StringComparison.OrdinalIgnoreCase))
-                        return;
-
-                    BeginFlipperProbe(replyTarget);
-                    return;
-                }
-
-                if (replyTarget.IsOrg)
-                {
-                    BeginOrgCloakAuthorization(senderName, replyTarget);
-                    return;
-                }
-
-                Reply(replyTarget, "No such command. Try help.");
-                return;
-            }
-
             if (replyTarget.IsDev)
             {
                 if (!string.Equals(senderName, DeveloperCharacter, StringComparison.OrdinalIgnoreCase))
                     return;
             }
-            else if (!AllowedCommandSenders.Contains(senderName ?? string.Empty))
+            else if (replyTarget.IsOrg)
             {
-                Logger.Warning($"Ignoring command from unauthorized sender {senderName}.");
-                Reply(replyTarget, "You are not authorized to use this bot yet.");
-                return;
+                if (command == "cloak")
+                {
+                    BeginFlipperProbe(replyTarget);
+                    return;
+                }
+
+                if (command == "status")
+                {
+                    Reply(replyTarget, BuildCloakStatus());
+                    return;
+                }
+
+                if (command == "help")
+                {
+                    Reply(replyTarget, BuildHelpMessage(replyTarget));
+                    return;
+                }
+
+                if (command == "probe" || command == "observe")
+                {
+                    Reply(replyTarget, "No such command. Try #help.");
+                    return;
+                }
+
+                if (!AllowedCommandSenders.Contains(senderName ?? string.Empty))
+                {
+                    Logger.Warning($"Ignoring admin command from unauthorized sender {senderName}.");
+                    Reply(replyTarget, "You are not authorized to use that command.");
+                    return;
+                }
+            }
+            else
+            {
+                if (command == "cloak" || command == "status")
+                {
+                    Reply(replyTarget, "No such command. Try help.");
+                    return;
+                }
+
+                if (!AllowedCommandSenders.Contains(senderName ?? string.Empty))
+                {
+                    Logger.Warning($"Ignoring command from unauthorized sender {senderName}.");
+                    Reply(replyTarget, "You are not authorized to use this bot yet.");
+                    return;
+                }
             }
 
             bool devOnlyCommand =
-                command == "status" ||
                 command == "probe" ||
                 command == "observe";
 
@@ -343,6 +363,10 @@ namespace CityManager
             {
                 case "help":
                     Reply(replyTarget, BuildHelpMessage(replyTarget));
+                    break;
+
+                case "cloak":
+                    BeginFlipperProbe(replyTarget);
                     break;
 
                 case "status":
@@ -430,44 +454,13 @@ namespace CityManager
             }
         }
 
-        private void BeginOrgCloakAuthorization(string senderName, ReplyTarget target)
-        {
-            OrgRankAuthorizer.Authorize(
-                target.SenderId,
-                senderName,
-                authorization =>
-                {
-                    if (!string.IsNullOrWhiteSpace(authorization.Error))
-                    {
-                        DevTrace(
-                            $"ORG #cloak rank lookup failed for {senderName}: {authorization.Error}");
-                        Reply(target, CloakPresentation.RankLookupFailed());
-                        return;
-                    }
-
-                    if (!authorization.Allowed)
-                    {
-                        DevTrace(
-                            $"ORG #cloak denied for {senderName}; rank={authorization.Rank ?? "unknown"}.");
-                        Reply(target, CloakPresentation.RankDenied(authorization.Rank));
-                        return;
-                    }
-
-                    DevTrace(
-                        $"ORG #cloak authorized for {senderName}; rank={authorization.Rank}" +
-                        (authorization.FromCache ? " (rank cache)." : "."));
-
-                    BeginFlipperProbe(target);
-                });
-        }
-
         private string BuildHelpMessage(ReplyTarget target)
         {
             if (target.IsOrg)
             {
                 return
-                    "Commands: #cloak (Squad Commander+), #help, #wakeup [level] [index], #sleep [index], " +
-                    "#spinup [level] [count], #spindown [count]. Buddy control output goes to Apcmanager private.";
+                    "Public: #cloak, #status, #help. Admin: #wakeup [level] [index], #sleep [index], " +
+                    "#spinup [level] [count], #spindown [count]. Admin output goes to Apcmanager private.";
             }
 
             if (target.IsDev)
@@ -478,8 +471,8 @@ namespace CityManager
             }
 
             return
-                "Commands: help, wakeup [level] [index], sleep [index], " +
-                "spinup [level] [count], spindown [count]. #cloak is organization-chat only.";
+                "Admin tells: help, wakeup [level] [index], sleep [index], " +
+                "spinup [level] [count], spindown [count]. cloak/status are organization-chat commands.";
         }
 
         private void BeginFlipperProbe(ReplyTarget target)
