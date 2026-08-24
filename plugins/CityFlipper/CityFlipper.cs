@@ -152,6 +152,21 @@ namespace CityFlipper
                             break;
                         }
 
+                    case N3MessageType.GenericCmd:
+                        {
+                            var cmd =
+                                (GenericCmdMessage)e.Body;
+
+                            Logger.Information(
+                                "GenericCmd received from server:");
+
+                            LogDictionary(
+                                "GENERIC CMD",
+                                DumpObject(cmd));
+
+                            break;
+                        }
+
                     case N3MessageType.AOTransportSignal:
                         { 
                             var signal =
