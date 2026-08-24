@@ -15,7 +15,7 @@ using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 
 namespace CityManager
 {
-    public class CityManager : ClientlessPluginEntry
+    public partial class CityManager : ClientlessPluginEntry
     {
         private const int ProvisionalCloakDownSeconds = 3600;
         private const string FlipperPipeName = "citydwellers-flipper";
@@ -40,7 +40,8 @@ namespace CityManager
                 "help",
                 "cloak",
                 "status",
-                "leave"
+                "leave",
+                "raid"
             };
 
         private static readonly HashSet<string> AdminCommands =
@@ -52,7 +53,8 @@ namespace CityManager
                 "wakeup",
                 "sleep",
                 "spinup",
-                "spindown"
+                "spindown",
+                "cancel"
             };
 
         private readonly object _stateSync = new object();
@@ -85,6 +87,7 @@ namespace CityManager
 
             Logger.Information("CityManager initialized.");
             LoadState();
+            InitializeRaidCoordinator();
             OrgRankAuthorizer.Initialize();
             Client.MessageReceived += MessageReceived;
         }
@@ -95,6 +98,7 @@ namespace CityManager
             {
                 Client.MessageReceived -= MessageReceived;
                 OrgRankAuthorizer.Shutdown();
+                ShutdownRaidCoordinator();
 
                 if (Client.Chat != null)
                 {
@@ -209,11 +213,19 @@ namespace CityManager
                 if (msg == null || string.IsNullOrWhiteSpace(msg.Message))
                     return;
 
-                if (TryHandleCloakAnnouncement(msg))
+                string cityMessage =
+                    CityExtendedMessageParser.DecodeOrOriginal(msg.Message);
+
+                if (!string.Equals(cityMessage, msg.Message, StringComparison.Ordinal))
+                    DevTrace($"CITY DECODED: {cityMessage}");
+
+                if (TryHandleCloakAnnouncement(msg, cityMessage))
                     return;
 
                 if (!string.Equals(msg.ChannelName, OrgChannelName, StringComparison.OrdinalIgnoreCase))
                     return;
+
+                ObserveRaidCityMessage(cityMessage);
 
                 string text = msg.Message.TrimStart();
                 bool isCommand = text.StartsWith(CommandPrefix, StringComparison.Ordinal);
@@ -225,7 +237,7 @@ namespace CityManager
                     {
                         Logger.Information(
                             $"ORG SYSTEM [{msg.ChannelName}] {msg.SenderName}: {msg.Message}");
-                        DevTrace($"CITY RAW: {msg.Message}");
+                        DevTrace($"CITY RAW: {cityMessage}");
                     }
 
                     return;
@@ -292,21 +304,21 @@ namespace CityManager
             }
         }
 
-        private bool TryHandleCloakAnnouncement(GroupMsg msg)
+        private bool TryHandleCloakAnnouncement(GroupMsg msg, string messageText)
         {
             const string cloakOffSuffix = " turned the cloaking device in your city off.";
             const string cloakOnSuffix = " turned the cloaking device in your city on.";
 
-            if (msg.Message.EndsWith(cloakOffSuffix, StringComparison.OrdinalIgnoreCase))
+            if (messageText.EndsWith(cloakOffSuffix, StringComparison.OrdinalIgnoreCase))
             {
-                string actor = msg.Message.Substring(0, msg.Message.Length - cloakOffSuffix.Length).Trim();
+                string actor = messageText.Substring(0, messageText.Length - cloakOffSuffix.Length).Trim();
                 HandleCloakAnnouncement(CloakStatus.Disabled, actor, msg.ChannelName, msg.Message);
                 return true;
             }
 
-            if (msg.Message.EndsWith(cloakOnSuffix, StringComparison.OrdinalIgnoreCase))
+            if (messageText.EndsWith(cloakOnSuffix, StringComparison.OrdinalIgnoreCase))
             {
-                string actor = msg.Message.Substring(0, msg.Message.Length - cloakOnSuffix.Length).Trim();
+                string actor = messageText.Substring(0, messageText.Length - cloakOnSuffix.Length).Trim();
                 HandleCloakAnnouncement(CloakStatus.Enabled, actor, msg.ChannelName, msg.Message);
                 return true;
             }
@@ -342,6 +354,8 @@ namespace CityManager
                   command == "status" ||
                   command == "leave" ||
                   command == "join") && parts.Length == 1) ||
+                (command == "raid" && HasTellRaidCommandShape(parts)) ||
+                (command == "cancel" && (parts.Length == 1 || parts.Length == 2)) ||
                 ((command == "invite" ||
                   command == "kick" ||
                   command == "sleep" ||
@@ -382,6 +396,23 @@ namespace CityManager
             }
 
             bool isAdmin = AdminCommandSenders.Contains(senderName ?? string.Empty);
+
+            if (string.Equals(command, "cloak", StringComparison.OrdinalIgnoreCase) &&
+                !isAdmin &&
+                !replyTarget.IsOrg)
+            {
+                DevTrace(
+                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: cloak is public-org-only.");
+                Reply(replyTarget, "Use #cloak in organization chat.");
+                return;
+            }
+
+            if (string.Equals(command, "raid", StringComparison.OrdinalIgnoreCase))
+            {
+                ProcessRaidCommand(senderName, parts, replyTarget, isAdmin);
+                return;
+            }
+
             if (AdminCommands.Contains(command) && !isAdmin)
             {
                 Logger.Warning(
@@ -511,6 +542,10 @@ namespace CityManager
                     BeginBuddiesCommand(replyTarget, "spindown", null, count);
                     break;
                 }
+
+                case "cancel":
+                    ProcessRaidCancel(senderName, parts, replyTarget);
+                    break;
             }
         }
 
@@ -522,10 +557,12 @@ namespace CityManager
                 : " # is optional in tells.";
 
             return
-                $"Public: {prefix}help, {prefix}cloak, {prefix}status, {prefix}leave. " +
+                $"Public everywhere: {prefix}help, {prefix}status, {prefix}leave. " +
+                $"Public in organization chat: #cloak, #raid. " +
+                $"Admins may also use cloak and raid in tells or the guest channel. " +
                 $"Admin: {prefix}join, {prefix}invite [character], {prefix}kick [character], " +
                 $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
-                $"{prefix}spinup [level] [count], {prefix}spindown [count]." +
+                $"{prefix}spinup [level] [count], {prefix}spindown [count], {prefix}cancel." +
                 suffix;
         }
 
@@ -1265,6 +1302,7 @@ namespace CityManager
         private void Tick(object sender, double e)
         {
             TryInviteDeveloper();
+            TickRaidCoordinator();
 
             if (_status != CloakStatus.Disabled || !_canRaiseAtUtc.HasValue || _raiseDueLogged)
                 return;
@@ -1493,6 +1531,9 @@ namespace CityManager
             public float? ControllerCharge;
             public int? Level;
             public int? Index;
+            public List<string> Characters;
+            public List<int> Indexes;
+            public int? Count;
             public bool Cached;
             public DateTime? ObservedUtc;
         }

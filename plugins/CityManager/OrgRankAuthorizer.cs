@@ -380,7 +380,8 @@ namespace CityManager
                 if (!string.Equals(msg.ChannelName, OrgChannelName, StringComparison.OrdinalIgnoreCase))
                     return;
 
-                string text = msg.Message.Trim();
+                string text =
+                    CityExtendedMessageParser.DecodeOrOriginal(msg.Message).Trim();
 
                 const string cloakOff = " turned the cloaking device in your city off.";
                 const string cloakOn = " turned the cloaking device in your city on.";

@@ -17,6 +17,8 @@ namespace CityFlipper
 {
     public class CityFlipper : ClientlessPluginEntry
     {
+        private const float MinimumRaidControllerCharge = 0.75f;
+
         private string _pluginDir;
 
         private readonly Stopwatch _timer = new Stopwatch();
@@ -46,6 +48,7 @@ namespace CityFlipper
 
         private bool _toggleRequested;
         private bool _ensureEnabledOnly;
+        private bool _ensureDisabledReadyOnly;
         private bool _toggleSent;
         private bool _gotPostToggleCloakInfo;
         private string _toggleBlockedReason;
@@ -84,11 +87,17 @@ namespace CityFlipper
                 requestedAction,
                 "enable",
                 StringComparison.OrdinalIgnoreCase);
+            _ensureDisabledReadyOnly = string.Equals(
+                requestedAction,
+                "disable-ready",
+                StringComparison.OrdinalIgnoreCase);
 
             Logger.Information("CityFlipper diagnostic probe initialized.");
             Logger.Information(
                 _ensureEnabledOnly
                     ? "Mode: ENSURE ENABLED (may raise cloak, never lower it)."
+                    : _ensureDisabledReadyOnly
+                        ? "Mode: RAID START (lower only when CT is at least 75% charged)."
                     : _toggleRequested
                         ? "Mode: TOGGLE (one guarded cloak toggle requested)."
                         : "Mode: OBSERVE (read-only).");
@@ -392,6 +401,37 @@ namespace CityFlipper
                         _resultWritten = true;
                         writeResult = true;
                     }
+                    else if (_ensureDisabledReadyOnly &&
+                             string.Equals(
+                                 _initialCloakState,
+                                 "Disabled",
+                                 StringComparison.OrdinalIgnoreCase))
+                    {
+                        _toggleBlockedReason =
+                            "Cloak is already disabled; a raid-start lower action was not sent.";
+                        _resultWritten = true;
+                        writeResult = true;
+                    }
+                    else if (_ensureDisabledReadyOnly &&
+                             !string.Equals(
+                                 _initialCloakState,
+                                 "Enabled",
+                                 StringComparison.OrdinalIgnoreCase))
+                    {
+                        _toggleBlockedReason =
+                            $"Cloak state '{_initialCloakState}' is not safely actionable; no lower action was sent.";
+                        _resultWritten = true;
+                        writeResult = true;
+                    }
+                    else if (_ensureDisabledReadyOnly &&
+                             _controllerCharge < MinimumRaidControllerCharge)
+                    {
+                        _toggleBlockedReason =
+                            $"City Controller charge is {_controllerCharge * 100:F1}%; " +
+                            $"at least {MinimumRaidControllerCharge * 100:F0}% is required.";
+                        _resultWritten = true;
+                        writeResult = true;
+                    }
                     else if (_initialShieldTimerInSeconds > 0)
                     {
                         _toggleBlockedReason =
@@ -423,7 +463,7 @@ namespace CityFlipper
                 try
                 {
                     Logger.Warning(
-                        $"Sending ONE cloak {(_ensureEnabledOnly ? "ENABLE" : "toggle")}. " +
+                        $"Sending ONE cloak {(_ensureEnabledOnly ? "ENABLE" : _ensureDisabledReadyOnly ? "RAID LOWER" : "toggle")}. " +
                         $"Pre-state={_initialCloakState}, " +
                         $"ShieldTimerInSeconds={_initialShieldTimerInSeconds}.");
 

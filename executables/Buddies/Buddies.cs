@@ -58,7 +58,7 @@ public class PluginLoader
         Console.WriteLine(
             $"Accounts: {_config.AccountPrefix}0 .. " +
             $"{_config.AccountPrefix}{_config.AccountCount - 1}");
-        Console.WriteLine("Character scheme: Apcr{level}{index:00}");
+        Console.WriteLine("Character scheme: Apcr{level:000}{index:00}");
         Console.WriteLine($"Pipe: {PipeName}");
         Console.WriteLine();
         Console.WriteLine("Buddies service idle. Zero buddy AO sessions are started automatically.");
@@ -419,6 +419,7 @@ public class PluginLoader
         lock (ActiveLock)
         {
             var started = new List<string>();
+            var startedIndexes = new List<int>();
             var failures = new List<string>();
             int activeSkipped = 0;
 
@@ -440,6 +441,8 @@ public class PluginLoader
                     attempt.Message.StartsWith("Started ", StringComparison.OrdinalIgnoreCase))
                 {
                     started.Add(attempt.Character);
+                    if (attempt.Index.HasValue)
+                        startedIndexes.Add(attempt.Index.Value);
                     continue;
                 }
 
@@ -461,9 +464,6 @@ public class PluginLoader
             if (failures.Count > 0)
                 detail += $"; failed [{string.Join(",", failures)}]";
 
-            if (started.Count == requested)
-                return Ok(request, detail, null, level, null);
-
             if (started.Count < requested &&
                 failures.Count == 0 &&
                 ActiveBuddies.Count >= _config.AccountCount)
@@ -471,7 +471,15 @@ public class PluginLoader
                 detail += "; no free accounts remain";
             }
 
-            return Fail(request, detail);
+            WorkerResponse result = started.Count == requested
+                ? Ok(request, detail, null, level, null)
+                : Fail(request, detail);
+
+            result.Characters = started;
+            result.Indexes = startedIndexes;
+            result.Count = started.Count;
+            result.Level = level;
+            return result;
         }
     }
 
@@ -485,6 +493,7 @@ public class PluginLoader
         lock (ActiveLock)
         {
             var slept = new List<string>();
+            var sleptIndexes = new List<int>();
             var failures = new List<string>();
             var attemptedIndexes = new HashSet<int>();
 
@@ -511,6 +520,7 @@ public class PluginLoader
                 {
                     if (!string.IsNullOrWhiteSpace(attempt.Character))
                         slept.Add(attempt.Character);
+                    sleptIndexes.Add(newest.Index);
                 }
                 else
                 {
@@ -533,9 +543,14 @@ public class PluginLoader
             if (slept.Count < requested && ActiveBuddies.Count == 0)
                 detail += "; no City Dwellers-owned buddies remain";
 
-            return slept.Count == requested
+            WorkerResponse result = slept.Count == requested
                 ? Ok(request, detail)
                 : Fail(request, detail);
+
+            result.Characters = slept;
+            result.Indexes = sleptIndexes;
+            result.Count = slept.Count;
+            return result;
         }
     }
 
@@ -575,7 +590,7 @@ public class PluginLoader
 
     private static string BuildCharacterName(int level, int index)
     {
-        return $"Apcr{level}{index:D2}";
+        return $"Apcr{level:D3}{index:D2}";
     }
 
     private static string GetReadyPath(string character)
@@ -706,5 +721,8 @@ public class PluginLoader
         public string Character;
         public int? Level;
         public int? Index;
+        public List<string> Characters;
+        public List<int> Indexes;
+        public int? Count;
     }
 }

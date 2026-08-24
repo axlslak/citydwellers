@@ -218,6 +218,9 @@ public class FlipperLoader
             case "ensure-enabled":
                 return EnsureEnabled(request);
 
+            case "ensure-disabled-ready":
+                return EnsureDisabledReady(request);
+
             case "ping":
                 return Ok(request, "Flipper service is running.");
 
@@ -340,6 +343,60 @@ public class FlipperLoader
             : "Cloak is not enabled and Flipper did not send an enable action.";
 
         return observed;
+    }
+
+    private static WorkerResponse EnsureDisabledReady(WorkerRequest request)
+    {
+        // Starting a raid must never trust cache. The keeper logs in, reads the
+        // live controller, and the plugin lowers only when the cloak is enabled,
+        // toggleable, and the controller is at least 75% charged.
+        ProbeRun run = RunProbe("disable-ready");
+
+        if (!run.Success || run.Result == null)
+        {
+            return Fail(
+                request,
+                "Unable to verify CT charge and lower the cloak. See Flipper console for details.");
+        }
+
+        FlipperResult result = run.Result;
+
+        if (!result.ToggleSent)
+        {
+            WorkerResponse blocked = FromFreshResult(request, result);
+            blocked.Ok = false;
+            blocked.Message = !string.IsNullOrWhiteSpace(result.ToggleBlockedReason)
+                ? result.ToggleBlockedReason
+                : "The live raid-start probe did not send a lower-cloak action.";
+            return blocked;
+        }
+
+        string finalState = result.PostToggleCloakState;
+
+        bool disabled =
+            result.ToggleSucceeded &&
+            string.Equals(
+                finalState,
+                "Disabled",
+                StringComparison.OrdinalIgnoreCase);
+
+        return new WorkerResponse
+        {
+            Id = request.Id,
+            Ok = disabled,
+            Message = disabled
+                ? "Flipper verified CT readiness and lowered the city cloak."
+                : $"Lower action was sent, but the confirmed post-toggle state was " +
+                  $"'{finalState ?? "Unknown"}'.",
+            CloakState = finalState,
+            ShieldTimerInSeconds = disabled
+                ? result.PostToggleShieldTimerInSeconds
+                : (int?)result.InitialShieldTimerInSeconds,
+            ControllerCharge = result.ControllerCharge,
+            Character = _account.Character,
+            Cached = false,
+            ObservedUtc = DateTime.UtcNow
+        };
     }
 
     private static bool CacheMeetsTrigger(

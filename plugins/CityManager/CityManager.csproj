@@ -99,6 +99,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CityManager.cs" />
+    <Compile Include="CityManager.Raid.cs" />
+    <Compile Include="CityExtendedMessageParser.cs" />
     <Compile Include="CloakPresentation.cs" />
     <Compile Include="OrgRankAuthorizer.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
