@@ -29,6 +29,12 @@ public class FlipperLoader
 
     static void Main(string[] args)
     {
+        if (ClientlessGameDataBootstrap.IsRestoreCommand(args))
+        {
+            Environment.ExitCode = ClientlessGameDataBootstrap.Run(args);
+            return;
+        }
+
         _baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
         string settingsError;

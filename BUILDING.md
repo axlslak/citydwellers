@@ -34,11 +34,13 @@ The AOSharp.Clientless 1.0.16 NuGet package omits five runtime data files that
 are present in its source project. They are required to resolve static dynels,
 including the city controller used by Flipper.
 
-When the Flipper project is built, City Dwellers automatically downloads the
-matching files from the pinned AOSharp.Clientless source revision, verifies
-their SHA-256 hashes, caches them under `.dependencies`, and copies them to
-`bin\Release\GameData`. The first build therefore requires access to GitLab.
-Later builds reuse the verified cache, including after `bin\Release` is cleaned.
+When the Flipper project is built, a C# bootstrap command compiled into
+`Flipper.exe` automatically downloads the matching files from the pinned
+AOSharp.Clientless source revision, verifies their SHA-256 hashes, caches them
+under `.dependencies`, and copies them to `bin\Release\GameData`. The first
+build therefore requires access to GitLab. Later builds reuse the verified
+cache, including after `bin\Release` is cleaned. No PowerShell script or other
+external helper is used.
 
 Both `.dependencies` and `bin\Release` are disposable. Deleting either is safe;
 the next build downloads or copies the files again as needed. No separate

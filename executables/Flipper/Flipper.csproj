@@ -33,6 +33,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="ClientlessGameDataBootstrap.cs" />
     <Compile Include="Flipper.cs" />
     <Compile Include="FlipperCacheStore.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
