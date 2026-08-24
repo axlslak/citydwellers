@@ -432,10 +432,22 @@ namespace CityFlipper
                         Unknown1 = 49152
                     });
 
-                    Logger.Warning(
-                        _ensureEnabledOnly
-                            ? "Cloak enable packet sent; waiting for post-toggle CloakInfo."
-                            : "Cloak toggle packet sent; waiting for post-toggle CloakInfo.");
+                    if (_ensureEnabledOnly)
+                    {
+                        lock (_sync)
+                        {
+                            _resultWritten = true;
+                        }
+
+                        Logger.Warning(
+                            "Cloak enable packet sent. Flipper action is authoritative; writing result immediately.");
+                        WriteResult();
+                    }
+                    else
+                    {
+                        Logger.Warning(
+                            "Cloak toggle packet sent; waiting for post-toggle CloakInfo.");
+                    }
                 }
                 catch (Exception ex)
                 {
