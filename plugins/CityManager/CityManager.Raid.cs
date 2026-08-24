@@ -111,11 +111,11 @@ namespace CityManager
                 parts.Length > 1 &&
                 IsCurrentRaidOwnerCommand(senderName, target.SenderId, parts);
 
-            if (!target.IsOrg && !isAdmin && !privateOwnerControl)
+            if (!target.IsOrg && !target.IsGuest && !isAdmin && !privateOwnerControl)
             {
                 DevTrace(
-                    $"RAID DENIED {target.Kind} {senderName}: public raid commands begin in org chat.");
-                Reply(target, "Use #raid in organization chat.");
+                    $"RAID DENIED {target.Kind} {senderName}: raid requires org or guest chat.");
+                Reply(target, "Use #raid in organization or guest chat.");
                 return;
             }
 

@@ -101,6 +101,7 @@
     <Compile Include="AdminListStore.cs" />
     <Compile Include="CityManager.cs" />
     <Compile Include="CityManager.Admins.cs" />
+    <Compile Include="CityManager.Membership.cs" />
     <Compile Include="CityManager.Raid.cs" />
     <Compile Include="CityExtendedMessageParser.cs" />
     <Compile Include="CloakPresentation.cs" />

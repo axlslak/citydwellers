@@ -34,6 +34,7 @@ namespace CityManager
                 "cloak",
                 "status",
                 "leave",
+                "join",
                 "raid",
                 "raidassist"
             };
@@ -41,7 +42,6 @@ namespace CityManager
         private static readonly HashSet<string> AdminCommands =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                "join",
                 "invite",
                 "kick",
                 "wakeup",
@@ -51,7 +51,9 @@ namespace CityManager
                 "cancel",
                 "recoverraid",
                 "adminlist",
-                "admin"
+                "admin",
+                "memberlist",
+                "member"
             };
 
         private readonly object _stateSync = new object();
@@ -87,6 +89,7 @@ namespace CityManager
             DevTrace(
                 $"ADMIN LIST initialized file=adminlist.json " +
                 $"count={AdminListStore.Snapshot().Count}.");
+            InitializeMembership();
             LoadState();
             InitializeRaidCoordinator();
             OrgRankAuthorizer.Initialize();
@@ -100,6 +103,7 @@ namespace CityManager
                 Client.MessageReceived -= MessageReceived;
                 OrgRankAuthorizer.Shutdown();
                 ShutdownRaidCoordinator();
+                ShutdownMembership();
 
                 if (Client.Chat != null)
                 {
@@ -155,6 +159,8 @@ namespace CityManager
 
             _charInPlay = true;
             Logger.Information("CityManager is in play and observing cloak packets, tells, org chat, and guest private chat.");
+
+            BeginMembershipAfterInPlay();
 
             Client.Chat.PrivateMessageReceived += HandlePrivateMessage;
             Client.Chat.GroupMessageReceived += HandleGroupMessage;
@@ -224,9 +230,10 @@ namespace CityManager
                 if (TryHandleCloakAnnouncement(msg, cityMessage))
                     return;
 
-                if (!string.Equals(msg.ChannelName, OrgChannelName, StringComparison.OrdinalIgnoreCase))
+                if (!IsOrganizationChannel(msg.ChannelId, msg.ChannelName))
                     return;
 
+                ObserveOrganizationMembershipMessage(cityMessage);
                 ObserveRaidCityMessage(cityMessage, msg.ChannelId);
 
                 string text = msg.Message.TrimStart();
@@ -357,12 +364,16 @@ namespace CityManager
                   command == "status" ||
                   command == "leave" ||
                   command == "join" ||
-                  command == "adminlist") && parts.Length == 1) ||
+                  command == "adminlist" ||
+                  command == "memberlist") && parts.Length == 1) ||
                 (command == "raid" && HasTellRaidCommandShape(parts)) ||
                 (command == "raidassist" && parts.Length == 3) ||
                 (command == "cancel" && (parts.Length == 1 || parts.Length == 2)) ||
                 (command == "recoverraid" && parts.Length == 5) ||
                 (command == "admin" && parts.Length == 3 &&
+                 (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
+                  string.Equals(parts[1], "del", StringComparison.OrdinalIgnoreCase))) ||
+                (command == "member" && parts.Length == 3 &&
                  (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
                   string.Equals(parts[1], "del", StringComparison.OrdinalIgnoreCase))) ||
                 ((command == "invite" ||
@@ -397,6 +408,21 @@ namespace CityManager
             string command = parts[0].ToLowerInvariant();
             DevTrace($"COMMAND {replyTarget.Kind} {senderName}: {rawCommand}");
 
+            bool isAdmin = AdminListStore.Contains(senderName);
+
+            if (!IsCommandSourceAuthorized(
+                    senderName,
+                    command,
+                    parts,
+                    replyTarget,
+                    isAdmin))
+            {
+                DevTrace(
+                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: not a bot member.");
+                Reply(replyTarget, "You are not a member of this bot.");
+                return;
+            }
+
             if (!IsKnownCommand(command))
             {
                 DevTrace($"COMMAND UNKNOWN {replyTarget.Kind} {senderName}: {command}");
@@ -404,15 +430,14 @@ namespace CityManager
                 return;
             }
 
-            bool isAdmin = AdminListStore.Contains(senderName);
-
             if (string.Equals(command, "cloak", StringComparison.OrdinalIgnoreCase) &&
                 !isAdmin &&
-                !replyTarget.IsOrg)
+                !replyTarget.IsOrg &&
+                !replyTarget.IsGuest)
             {
                 DevTrace(
-                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: cloak is public-org-only.");
-                Reply(replyTarget, "Use #cloak in organization chat.");
+                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: cloak requires org or guest chat.");
+                Reply(replyTarget, "Use #cloak in organization or guest chat.");
                 return;
             }
 
@@ -573,6 +598,14 @@ namespace CityManager
                 case "admin":
                     ProcessAdminCommand(senderName, parts, replyTarget);
                     break;
+
+                case "memberlist":
+                    ProcessMemberListCommand(senderName, parts, replyTarget);
+                    break;
+
+                case "member":
+                    ProcessMemberCommand(senderName, parts, replyTarget);
+                    break;
             }
         }
 
@@ -584,14 +617,15 @@ namespace CityManager
                 : " # is optional in tells.";
 
             return
-                $"Public everywhere: {prefix}help, {prefix}status, {prefix}leave. " +
-                $"Public in organization chat: #cloak, #raid. " +
+                $"Members: {prefix}help, {prefix}status, {prefix}leave, {prefix}join. " +
+                $"In organization or guest chat: #cloak, #raid. " +
                 $"Raid-assist buttons are available to Squad Commanders and higher. " +
-                $"Admins may also use cloak and raid in tells or the guest channel. " +
-                $"Admin: {prefix}join, {prefix}invite [character], {prefix}kick [character], " +
+                $"Admins may also use cloak and raid in tells. " +
+                $"Admin: {prefix}invite [character], {prefix}kick [character], " +
                 $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
                 $"{prefix}spinup [level] [count], {prefix}spindown [count], {prefix}cancel, " +
-                $"{prefix}adminlist, {prefix}admin [add|del] [character]. " +
+                $"{prefix}adminlist, {prefix}admin [add|del] [character], " +
+                $"{prefix}memberlist, {prefix}member [add|del] [character]. " +
                 $"Recovery: {prefix}recoverraid [owner] [all|general] [level] [count]." +
                 suffix;
         }
@@ -1332,6 +1366,7 @@ namespace CityManager
         private void Tick(object sender, double e)
         {
             TryInviteDeveloper();
+            TickMembership();
             TickRaidCoordinator();
 
             if (_status != CloakStatus.Disabled || !_canRaiseAtUtc.HasValue || _raiseDueLogged)
