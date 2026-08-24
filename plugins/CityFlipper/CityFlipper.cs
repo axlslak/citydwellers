@@ -292,6 +292,8 @@ namespace CityFlipper
                         double now = _timer.Elapsed.TotalMilliseconds;
                         var cloakInfo = (CloakInfo)signal.TransportSignalMessage;
                         bool postToggle;
+                        bool acceptedPostToggle = false;
+                        string receivedState = cloakInfo.CloakState.ToString();
 
                         lock (_sync)
                         {
@@ -307,11 +309,21 @@ namespace CityFlipper
                             }
                             else if (!_gotPostToggleCloakInfo)
                             {
-                                _postToggleCloakInfoMs = now;
-                                _postToggleCloakInfo = DumpObject(cloakInfo);
-                                _postToggleCloakState = cloakInfo.CloakState.ToString();
-                                _postToggleShieldTimerInSeconds = cloakInfo.ShieldTimerInSeconds;
-                                _gotPostToggleCloakInfo = true;
+                                // AO can repeat the original CloakInfo packet after
+                                // the toggle is sent but before the changed state is
+                                // delivered. That repeated packet is not a result.
+                                if (!string.Equals(
+                                        receivedState,
+                                        _initialCloakState,
+                                        StringComparison.OrdinalIgnoreCase))
+                                {
+                                    _postToggleCloakInfoMs = now;
+                                    _postToggleCloakInfo = DumpObject(cloakInfo);
+                                    _postToggleCloakState = receivedState;
+                                    _postToggleShieldTimerInSeconds = cloakInfo.ShieldTimerInSeconds;
+                                    _gotPostToggleCloakInfo = true;
+                                    acceptedPostToggle = true;
+                                }
                             }
                         }
 
@@ -320,11 +332,17 @@ namespace CityFlipper
                             Logger.Information($"CloakInfo received after {now:F0} ms.");
                             LogDictionary("CLOAK INFO", _cloakInfo);
                         }
-                        else
+                        else if (acceptedPostToggle)
                         {
                             Logger.Information(
                                 $"Post-toggle CloakInfo received after {now:F0} ms.");
                             LogDictionary("POST-TOGGLE CLOAK INFO", _postToggleCloakInfo);
+                        }
+                        else
+                        {
+                            Logger.Information(
+                                $"Ignoring repeated pre-toggle CloakInfo state '{receivedState}' " +
+                                $"after {now:F0} ms; waiting for the changed state.");
                         }
 
                         TryFinish();

@@ -54,7 +54,8 @@ namespace CityManager
                 "sleep",
                 "spinup",
                 "spindown",
-                "cancel"
+                "cancel",
+                "recoverraid"
             };
 
         private readonly object _stateSync = new object();
@@ -161,6 +162,7 @@ namespace CityManager
             Client.OnUpdate += Tick;
 
             DevTrace("MANAGER online. Dev telemetry initialized.");
+            ResumeRaidCoordinatorAfterInPlay();
             _nextDevLookupUtc = DateTime.UtcNow;
             TryInviteDeveloper();
         }
@@ -312,6 +314,7 @@ namespace CityManager
             if (messageText.EndsWith(cloakOffSuffix, StringComparison.OrdinalIgnoreCase))
             {
                 string actor = messageText.Substring(0, messageText.Length - cloakOffSuffix.Length).Trim();
+                ObserveRaidCloakLowered(actor);
                 HandleCloakAnnouncement(CloakStatus.Disabled, actor, msg.ChannelName, msg.Message);
                 return true;
             }
@@ -356,6 +359,7 @@ namespace CityManager
                   command == "join") && parts.Length == 1) ||
                 (command == "raid" && HasTellRaidCommandShape(parts)) ||
                 (command == "cancel" && (parts.Length == 1 || parts.Length == 2)) ||
+                (command == "recoverraid" && parts.Length == 5) ||
                 ((command == "invite" ||
                   command == "kick" ||
                   command == "sleep" ||
@@ -546,6 +550,10 @@ namespace CityManager
                 case "cancel":
                     ProcessRaidCancel(senderName, parts, replyTarget);
                     break;
+
+                case "recoverraid":
+                    ProcessRaidRecovery(senderName, parts, replyTarget);
+                    break;
             }
         }
 
@@ -562,7 +570,8 @@ namespace CityManager
                 $"Admins may also use cloak and raid in tells or the guest channel. " +
                 $"Admin: {prefix}join, {prefix}invite [character], {prefix}kick [character], " +
                 $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
-                $"{prefix}spinup [level] [count], {prefix}spindown [count], {prefix}cancel." +
+                $"{prefix}spinup [level] [count], {prefix}spindown [count], {prefix}cancel. " +
+                $"Recovery: {prefix}recoverraid [owner] [all|general] [level] [count]." +
                 suffix;
         }
 
