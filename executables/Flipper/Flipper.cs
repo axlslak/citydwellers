@@ -126,7 +126,7 @@ public class FlipperLoader
         Console.WriteLine();
         Console.WriteLine($"Character: {_account.Character}");
         Console.WriteLine($"Pipe:      {PipeName}");
-        Console.WriteLine($"Cache:     {_config.CacheFreshSeconds > 0 ? _config.CacheFreshSeconds : 60}s fresh window");
+        Console.WriteLine($"Cache:     {(_config.CacheFreshSeconds > 0 ? _config.CacheFreshSeconds : 60)}s fresh window");
         Console.WriteLine();
         Console.WriteLine("Flipper service idle. Apcflipper is NOT logged in.");
         Console.WriteLine("Recent confirmed city state is served from cache before a new login.");
