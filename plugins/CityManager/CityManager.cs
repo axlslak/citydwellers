@@ -21,6 +21,7 @@ namespace CityManager
         private const string FlipperPipeName = "citydwellers-flipper";
         private const string BuddiesPipeName = "citydwellers-buddies";
         private const int WorkerConnectTimeoutMs = 1000;
+        private const int GuestLookupTimeoutMs = 5000;
         private const string OrgChannelName = "Athen Paladins";
         private const string CommandPrefix = "#";
         private const string DeveloperCharacter = "Kavem";
@@ -229,13 +230,9 @@ namespace CityManager
                 if (msg.ChannelId != Client.Chat.CharId)
                     return;
 
-                if (!string.Equals(msg.SenderName, DeveloperCharacter, StringComparison.OrdinalIgnoreCase))
-                {
-                    Logger.Warning($"Ignoring private-channel traffic from unauthorized sender {msg.SenderName}.");
+                // AO echoes our own private-channel messages back to us. They are not commands.
+                if (msg.SenderId == Client.Chat.CharId)
                     return;
-                }
-
-                ConfirmDevChannel();
 
                 string commandText = msg.Message.Trim();
                 if (commandText.StartsWith(CommandPrefix, StringComparison.Ordinal))
@@ -243,6 +240,33 @@ namespace CityManager
 
                 if (string.IsNullOrWhiteSpace(commandText))
                     return;
+
+                string[] parts = commandText.Split(
+                    new[] { ' ' },
+                    StringSplitOptions.RemoveEmptyEntries);
+
+                string command = parts.Length > 0
+                    ? parts[0].ToLowerInvariant()
+                    : string.Empty;
+
+                // Every guest may remove themselves from Apcmanager private.
+                if (command == "leave")
+                {
+                    Logger.Information(
+                        $"GUEST LEAVE {msg.SenderName} ({msg.SenderId}) requested private-channel leave.");
+                    SendPrivateGroupKick(msg.SenderId);
+                    return;
+                }
+
+                // Guests may talk in the channel, but only admins get a command surface.
+                if (!AllowedCommandSenders.Contains(msg.SenderName ?? string.Empty))
+                {
+                    Logger.Information(
+                        $"GUEST CHAT {msg.SenderName}: {msg.Message}");
+                    return;
+                }
+
+                ConfirmDevChannel();
 
                 Logger.Information($"DEV COMMAND {msg.SenderName}: {msg.Message}");
 
@@ -293,7 +317,7 @@ namespace CityManager
 
             if (replyTarget.IsDev)
             {
-                if (!string.Equals(senderName, DeveloperCharacter, StringComparison.OrdinalIgnoreCase))
+                if (!AllowedCommandSenders.Contains(senderName ?? string.Empty))
                     return;
             }
             else if (replyTarget.IsOrg)
@@ -378,6 +402,32 @@ namespace CityManager
                     BeginFlipperProbe(replyTarget);
                     break;
 
+                case "invite":
+                {
+                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
+                    if (parts.Length != 2)
+                    {
+                        Reply(devTarget, "Usage: invite [character]");
+                        break;
+                    }
+
+                    BeginGuestChannelAction(parts[1], false);
+                    break;
+                }
+
+                case "kick":
+                {
+                    ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
+                    if (parts.Length != 2)
+                    {
+                        Reply(devTarget, "Usage: kick [character]");
+                        break;
+                    }
+
+                    BeginGuestChannelAction(parts[1], true);
+                    break;
+                }
+
                 case "wakeup":
                 {
                     ReplyTarget devTarget = ReplyTarget.ForDev(0, 0u);
@@ -459,19 +509,21 @@ namespace CityManager
             if (target.IsOrg)
             {
                 return
-                    "Public: #cloak, #status, #help. Admin: #wakeup [level] [index], #sleep [index], " +
-                    "#spinup [level] [count], #spindown [count]. Admin output goes to Apcmanager private.";
+                    "Public: #cloak, #status, #help. Admin: #invite [character], #kick [character], " +
+                    "#wakeup [level] [index], #sleep [index], #spinup [level] [count], #spindown [count]. " +
+                    "Admin output goes to Apcmanager private.";
             }
 
             if (target.IsDev)
             {
                 return
-                    "Dev: help, cloak, status, probe, wakeup [level] [index], sleep [index], " +
-                    "spinup [level] [count], spindown [count]. # is optional here.";
+                    "Admin guest commands: help, cloak, status, probe, invite [character], kick [character], " +
+                    "wakeup [level] [index], sleep [index], spinup [level] [count], spindown [count]. " +
+                    "Guests may type leave. # is optional here.";
             }
 
             return
-                "Admin tells: help, wakeup [level] [index], sleep [index], " +
+                "Admin tells: help, invite [character], kick [character], wakeup [level] [index], sleep [index], " +
                 "spinup [level] [count], spindown [count]. cloak/status are organization-chat commands.";
         }
 
@@ -678,6 +730,134 @@ namespace CityManager
                 DevTrace($"ORG SEND ERROR: {ex.Message}");
                 return false;
             }
+        }
+
+        private void BeginGuestChannelAction(string characterName, bool kick)
+        {
+            string normalizedName = NormalizeCharacterName(characterName);
+
+            if (string.IsNullOrWhiteSpace(normalizedName))
+            {
+                DevTrace(kick ? "GUEST kick failed: missing character name." : "GUEST invite failed: missing character name.");
+                return;
+            }
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    uint characterId;
+                    if (!TryResolveCharacterId(normalizedName, out characterId))
+                    {
+                        DevTrace(
+                            $"GUEST {(kick ? "kick" : "invite")} failed: could not resolve {normalizedName}.");
+                        return;
+                    }
+
+                    if (Client.Chat == null)
+                    {
+                        DevTrace($"GUEST {(kick ? "kick" : "invite")} failed: chat is unavailable.");
+                        return;
+                    }
+
+                    if (characterId == Client.Chat.CharId)
+                    {
+                        DevTrace("GUEST action refused: Apcmanager cannot invite or kick itself.");
+                        return;
+                    }
+
+                    if (kick)
+                    {
+                        SendPrivateGroupKick(characterId);
+                        Logger.Information($"Guest private-channel kick sent for {normalizedName} ({characterId}).");
+                        DevTrace($"GUEST kick sent: {normalizedName}.");
+                    }
+                    else
+                    {
+                        Client.Chat.InvitePrivateGroup(characterId);
+                        Logger.Information($"Guest private-channel invite sent to {normalizedName} ({characterId}).");
+                        DevTrace($"GUEST invite sent: {normalizedName}.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Guest private-channel action failed: {ex.Message}");
+                    DevTrace($"GUEST {(kick ? "kick" : "invite")} error: {ex.Message}");
+                }
+            });
+        }
+
+        private bool TryResolveCharacterId(string characterName, out uint characterId)
+        {
+            characterId = 0;
+
+            if (Client.Chat == null)
+                return false;
+
+            try
+            {
+                if (Client.Chat.NameToIdMap.TryGetValue(characterName, out characterId))
+                    return true;
+
+                Client.Chat.RequestCharacterId(characterName);
+            }
+            catch
+            {
+                return false;
+            }
+
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(GuestLookupTimeoutMs);
+
+            while (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(50);
+
+                try
+                {
+                    if (Client.Chat != null &&
+                        Client.Chat.NameToIdMap.TryGetValue(characterName, out characterId))
+                    {
+                        return true;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
+        }
+
+        private string NormalizeCharacterName(string characterName)
+        {
+            string value = (characterName ?? string.Empty).Trim();
+            if (value.Length == 0)
+                return string.Empty;
+
+            if (value.Length == 1)
+                return value.ToUpperInvariant();
+
+            return char.ToUpperInvariant(value[0]) + value.Substring(1).ToLowerInvariant();
+        }
+
+        private void SendPrivateGroupKick(uint characterId)
+        {
+            if (Client.Chat == null)
+                return;
+
+            // AO chat client packet 51 (0x0033): private-group owner kicks one player.
+            // Header is big-endian packet id + payload length, followed by the uint32 character id.
+            byte[] packet = new byte[8];
+            packet[0] = 0x00;
+            packet[1] = 0x33;
+            packet[2] = 0x00;
+            packet[3] = 0x04;
+            packet[4] = (byte)(characterId >> 24);
+            packet[5] = (byte)(characterId >> 16);
+            packet[6] = (byte)(characterId >> 8);
+            packet[7] = (byte)characterId;
+
+            Client.Chat.Send(packet);
         }
 
         private void TryInviteDeveloper()
