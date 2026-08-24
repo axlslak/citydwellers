@@ -396,7 +396,7 @@ namespace CityManager
         {
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                foreach (string admin in AdminCommandSenders)
+                foreach (string admin in AdminListStore.Snapshot())
                 {
                     try
                     {

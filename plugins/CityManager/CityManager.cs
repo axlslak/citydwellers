@@ -27,13 +27,6 @@ namespace CityManager
         private const string DeveloperCharacter = "Kavem";
         private const int DevBacklogLimit = 25;
 
-        private static readonly HashSet<string> AdminCommandSenders =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "Kavem",
-                "Doczy"
-            };
-
         private static readonly HashSet<string> PublicCommands =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
@@ -56,7 +49,9 @@ namespace CityManager
                 "spinup",
                 "spindown",
                 "cancel",
-                "recoverraid"
+                "recoverraid",
+                "adminlist",
+                "admin"
             };
 
         private readonly object _stateSync = new object();
@@ -88,6 +83,10 @@ namespace CityManager
             _eventsPath = Path.Combine(_pluginDir, "citymanager-cloak-events.jsonl");
 
             Logger.Information("CityManager initialized.");
+            AdminListStore.Initialize(_pluginDir);
+            DevTrace(
+                $"ADMIN LIST initialized file=adminlist.json " +
+                $"count={AdminListStore.Snapshot().Count}.");
             LoadState();
             InitializeRaidCoordinator();
             OrgRankAuthorizer.Initialize();
@@ -357,11 +356,15 @@ namespace CityManager
                   command == "cloak" ||
                   command == "status" ||
                   command == "leave" ||
-                  command == "join") && parts.Length == 1) ||
+                  command == "join" ||
+                  command == "adminlist") && parts.Length == 1) ||
                 (command == "raid" && HasTellRaidCommandShape(parts)) ||
                 (command == "raidassist" && parts.Length == 3) ||
                 (command == "cancel" && (parts.Length == 1 || parts.Length == 2)) ||
                 (command == "recoverraid" && parts.Length == 5) ||
+                (command == "admin" && parts.Length == 3 &&
+                 (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
+                  string.Equals(parts[1], "del", StringComparison.OrdinalIgnoreCase))) ||
                 ((command == "invite" ||
                   command == "kick" ||
                   command == "sleep" ||
@@ -401,7 +404,7 @@ namespace CityManager
                 return;
             }
 
-            bool isAdmin = AdminCommandSenders.Contains(senderName ?? string.Empty);
+            bool isAdmin = AdminListStore.Contains(senderName);
 
             if (string.Equals(command, "cloak", StringComparison.OrdinalIgnoreCase) &&
                 !isAdmin &&
@@ -562,6 +565,14 @@ namespace CityManager
                 case "recoverraid":
                     ProcessRaidRecovery(senderName, parts, replyTarget);
                     break;
+
+                case "adminlist":
+                    ProcessAdminListCommand(senderName, parts, replyTarget);
+                    break;
+
+                case "admin":
+                    ProcessAdminCommand(senderName, parts, replyTarget);
+                    break;
             }
         }
 
@@ -579,7 +590,8 @@ namespace CityManager
                 $"Admins may also use cloak and raid in tells or the guest channel. " +
                 $"Admin: {prefix}join, {prefix}invite [character], {prefix}kick [character], " +
                 $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
-                $"{prefix}spinup [level] [count], {prefix}spindown [count], {prefix}cancel. " +
+                $"{prefix}spinup [level] [count], {prefix}spindown [count], {prefix}cancel, " +
+                $"{prefix}adminlist, {prefix}admin [add|del] [character]. " +
                 $"Recovery: {prefix}recoverraid [owner] [all|general] [level] [count]." +
                 suffix;
         }
