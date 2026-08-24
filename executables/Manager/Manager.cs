@@ -63,7 +63,8 @@ public class PluginLoader
 
             StopForConfiguration(
                 $"Created a Manager configuration template at '{configPath}'.\n" +
-                "Edit Username, Password, and Character, then start Manager again.");
+                "The user1, pass1, and char1 values are examples and cannot log in. " +
+                "Replace them, then start Manager again.");
             return;
         }
 
@@ -140,6 +141,14 @@ public class PluginLoader
                 error = "Every account requires Username, Password, and Character.";
                 return false;
             }
+
+            if (IsDefaultAccount(account))
+            {
+                error =
+                    "The user1/pass1/char1 defaults cannot log in. " +
+                    "Replace them with the Manager account.";
+                return false;
+            }
         }
 
         foreach (string plugin in config.Plugins)
@@ -163,15 +172,22 @@ public class PluginLoader
             {
                 new AccountInfo
                 {
-                    Username = "CHANGE_ME",
-                    Password = "CHANGE_ME",
-                    Character = "CHANGE_ME"
+                    Username = "user1",
+                    Password = "pass1",
+                    Character = "char1"
                 }
             },
             Plugins = new List<string> { "CityManager.dll" }
         };
 
         return JsonConvert.SerializeObject(config, Formatting.Indented);
+    }
+
+    private static bool IsDefaultAccount(AccountInfo account)
+    {
+        return string.Equals(account.Username, "user1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(account.Password, "pass1", StringComparison.Ordinal) ||
+               string.Equals(account.Character, "char1", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void StopForConfiguration(string message)

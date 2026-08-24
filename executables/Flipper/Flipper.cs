@@ -90,7 +90,8 @@ public class FlipperLoader
 
             StopForConfiguration(
                 $"Created a Flipper configuration template at '{configPath}'.\n" +
-                "Edit Username, Password, and Character, then start Flipper again.");
+                "The user1, pass1, and char1 values are examples and cannot log in. " +
+                "Replace them, then start Flipper again.");
             return false;
         }
 
@@ -133,6 +134,14 @@ public class FlipperLoader
             return false;
         }
 
+        if (IsDefaultAccount(_account))
+        {
+            StopForConfiguration(
+                $"'{configPath}' still contains the user1/pass1/char1 defaults. " +
+                "Replace them with the Flipper account before starting the service.");
+            return false;
+        }
+
         _timeoutMs = _config.ProbeTimeoutMs > 0
             ? _config.ProbeTimeoutMs
             : 20000;
@@ -151,7 +160,7 @@ public class FlipperLoader
         DeleteIfExists(_toggleRequestPath);
 
         FlipperCacheStore.Initialize(
-            _settingsDir,
+            _baseDir,
             _config.CacheFreshSeconds > 0 ? _config.CacheFreshSeconds : 60);
 
         return true;
@@ -165,9 +174,9 @@ public class FlipperLoader
             {
                 new AccountInfo
                 {
-                    Username = "CHANGE_ME",
-                    Password = "CHANGE_ME",
-                    Character = "CHANGE_ME"
+                    Username = "user1",
+                    Password = "pass1",
+                    Character = "char1"
                 }
             },
             Plugins = new List<string> { "CityFlipper.dll" },
@@ -177,6 +186,13 @@ public class FlipperLoader
         };
 
         return JsonConvert.SerializeObject(config, Formatting.Indented);
+    }
+
+    private static bool IsDefaultAccount(AccountInfo account)
+    {
+        return string.Equals(account.Username, "user1", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(account.Password, "pass1", StringComparison.Ordinal) ||
+               string.Equals(account.Character, "char1", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void StopForConfiguration(string message)

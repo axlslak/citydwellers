@@ -38,7 +38,14 @@ list, membership cache, cloak history, or raid state.
 On first run, Manager, Flipper, and Buddies create the `settings` directory and
 their respective configuration templates if they do not exist. Each program
 prints the exact file to edit and waits for ENTER before exiting. Fill in the
-placeholder account values, then start the program again.
+`user1`, `pass1`, and `char1` example values, then start the program again. The
+programs reject unchanged examples before attempting to log in.
+
+`cityflipper-cache.json` remains beside the Release executables because it is
+disposable cached observation data. It is safe to delete with `bin\Release` and
+should not be preserved in `settings`. The Flipper result, toggle-request, and
+buddy-ready files are also short-lived process-coordination files and remain in
+the disposable output directory.
 
 Plugin entries may be simple filenames because all Release assemblies share
 `bin\Release`:

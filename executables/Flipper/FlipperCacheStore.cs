@@ -10,9 +10,9 @@ internal static class FlipperCacheStore
     private static string _cachePath;
     private static int _freshSeconds;
 
-    public static void Initialize(string settingsDirectory, int freshSeconds)
+    public static void Initialize(string baseDirectory, int freshSeconds)
     {
-        _cachePath = Path.Combine(settingsDirectory, "cityflipper-cache.json");
+        _cachePath = Path.Combine(baseDirectory, "cityflipper-cache.json");
         _freshSeconds = freshSeconds > 0 ? freshSeconds : 60;
     }
 

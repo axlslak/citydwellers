@@ -58,7 +58,8 @@ public class PluginLoader
 
             StopForConfiguration(
                 $"Created a Buddies configuration template at '{configPath}'.\n" +
-                "Edit AccountPrefix, AccountCount, and Password, then start Buddies again.");
+                "The user account prefix and pass1 password are examples and cannot log in. " +
+                "Replace them, then start Buddies again.");
             return;
         }
 
@@ -118,9 +119,9 @@ public class PluginLoader
     {
         var config = new Config
         {
-            AccountPrefix = "CHANGE_ME",
+            AccountPrefix = "user",
             AccountCount = 12,
-            Password = "CHANGE_ME",
+            Password = "pass1",
             Plugins = new List<string> { "CityBuddies.dll" }
         };
 
@@ -158,6 +159,15 @@ public class PluginLoader
         if (string.IsNullOrWhiteSpace(config.Password))
         {
             Console.WriteLine("buddies.json requires Password.");
+            return false;
+        }
+
+        if (string.Equals(config.AccountPrefix, "user", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(config.Password, "pass1", StringComparison.Ordinal))
+        {
+            Console.WriteLine(
+                "buddies.json still contains the user/pass1 defaults. " +
+                "Replace them with the Buddies account prefix and password.");
             return false;
         }
 
