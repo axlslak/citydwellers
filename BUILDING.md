@@ -54,5 +54,5 @@ Plugin entries may be simple filenames because all Release assemblies share
 "Plugins": ["CityManager.dll"]
 ```
 
-Use `CityFlipper.dll` in `flipper.json` and `CityBuddies.dll` in
-`buddies.json`.
+Use `CityFlipper.dll` in `flipper.json`. The `Plugins` field may be omitted
+from `buddies.json`; Buddies then loads `CityBuddies.dll` automatically.

@@ -121,8 +121,7 @@ public class PluginLoader
         {
             AccountPrefix = "user",
             AccountCount = 12,
-            Password = "pass1",
-            Plugins = new List<string> { "CityBuddies.dll" }
+            Password = "pass1"
         };
 
         return JsonConvert.SerializeObject(config, Formatting.Indented);
