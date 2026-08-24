@@ -29,8 +29,7 @@ public class PluginLoader
     //    }
     //  ],
     //  "Plugins": [
-    //    "C:\\lolis\\repos\\aosharp.clientless\\Test\\bin\\Debug\\TestClientlessPlugin.dll",
-    //    "C:\\lolis\\repos\\someotherrepo\\bin\\Debug\\someotherplugin.dll",
+    //    "CityManager.dll",
     //  ]
     //}
 
