@@ -12,6 +12,7 @@ using Newtonsoft.Json;
 
 using Serilog;
 using Serilog.Core;
+using CityDwellers.Shared;
 
 public class FlipperLoader
 {
@@ -20,6 +21,7 @@ public class FlipperLoader
     private static Config _config;
     private static AccountInfo _account;
     private static string _baseDir;
+    private static string _settingsDir;
     private static string _pluginPath;
     private static string _pluginDir;
     private static string _toggleRequestPath;
@@ -28,6 +30,14 @@ public class FlipperLoader
     static void Main(string[] args)
     {
         _baseDir = AppDomain.CurrentDomain.BaseDirectory;
+
+        string settingsError;
+        if (!SettingsPaths.TryEnsureDirectory(out _settingsDir, out settingsError))
+        {
+            StopForConfiguration(settingsError);
+            Environment.Exit(1);
+            return;
+        }
 
         if (!LoadConfig())
         {
@@ -64,7 +74,25 @@ public class FlipperLoader
 
     private static bool LoadConfig()
     {
-        string configPath = Path.Combine(_baseDir, "flipper.json");
+        string configPath = SettingsPaths.GetFilePath(_settingsDir, "flipper.json");
+
+        if (!File.Exists(configPath))
+        {
+            string templateError;
+            if (!SettingsPaths.TryCreateFile(
+                    configPath,
+                    BuildDefaultConfig(),
+                    out templateError))
+            {
+                StopForConfiguration(templateError);
+                return false;
+            }
+
+            StopForConfiguration(
+                $"Created a Flipper configuration template at '{configPath}'.\n" +
+                "Edit Username, Password, and Character, then start Flipper again.");
+            return false;
+        }
 
         try
         {
@@ -73,8 +101,7 @@ public class FlipperLoader
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Unable to read '{configPath}'.");
-            Console.WriteLine(ex);
+            StopForConfiguration($"Unable to read '{configPath}'.\n{ex}");
             return false;
         }
 
@@ -82,17 +109,29 @@ public class FlipperLoader
             _config.Accounts == null ||
             _config.Accounts.Count != 1)
         {
-            Console.WriteLine("flipper.json must contain exactly one account.");
+            StopForConfiguration(
+                $"'{configPath}' must contain exactly one account.");
             return false;
         }
 
         if (_config.Plugins == null || _config.Plugins.Count != 1)
         {
-            Console.WriteLine("flipper.json must contain exactly one plugin.");
+            StopForConfiguration(
+                $"'{configPath}' must contain exactly one plugin.");
             return false;
         }
 
         _account = _config.Accounts[0];
+
+        if (_account == null ||
+            string.IsNullOrWhiteSpace(_account.Username) ||
+            string.IsNullOrWhiteSpace(_account.Password) ||
+            string.IsNullOrWhiteSpace(_account.Character))
+        {
+            StopForConfiguration(
+                $"The account in '{configPath}' requires Username, Password, and Character.");
+            return false;
+        }
 
         _timeoutMs = _config.ProbeTimeoutMs > 0
             ? _config.ProbeTimeoutMs
@@ -112,10 +151,40 @@ public class FlipperLoader
         DeleteIfExists(_toggleRequestPath);
 
         FlipperCacheStore.Initialize(
-            _baseDir,
+            _settingsDir,
             _config.CacheFreshSeconds > 0 ? _config.CacheFreshSeconds : 60);
 
         return true;
+    }
+
+    private static string BuildDefaultConfig()
+    {
+        var config = new Config
+        {
+            Accounts = new List<AccountInfo>
+            {
+                new AccountInfo
+                {
+                    Username = "CHANGE_ME",
+                    Password = "CHANGE_ME",
+                    Character = "CHANGE_ME"
+                }
+            },
+            Plugins = new List<string> { "CityFlipper.dll" },
+            ProbeTimeoutMs = 20000,
+            DelayBetweenPassesMs = 5000,
+            CacheFreshSeconds = 60
+        };
+
+        return JsonConvert.SerializeObject(config, Formatting.Indented);
+    }
+
+    private static void StopForConfiguration(string message)
+    {
+        Console.WriteLine(message);
+        Console.WriteLine();
+        Console.WriteLine("Press ENTER to exit.");
+        Console.ReadLine();
     }
 
     private static void RunService()

@@ -18,11 +18,11 @@ namespace CityManager
 
         private static string _path;
 
-        public static void Initialize(string pluginDir)
+        public static void Initialize(string settingsDirectory)
         {
             lock (Sync)
             {
-                _path = Path.Combine(pluginDir, FileName);
+                _path = Path.Combine(settingsDirectory, FileName);
                 Administrators.Clear();
 
                 if (File.Exists(_path))

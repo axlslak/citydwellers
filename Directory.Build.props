@@ -17,6 +17,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\SettingsPaths.cs">
+      <Link>SettingsPaths.cs</Link>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AOSharp.Clientless" Version="1.0.16" />
     <!--
       AOSharp.Clientless 1.0.16 is binary-coupled to AOSharpSDK 1.0.84.

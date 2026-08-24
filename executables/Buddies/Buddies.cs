@@ -12,6 +12,7 @@ using Newtonsoft.Json;
 
 using Serilog;
 using Serilog.Core;
+using CityDwellers.Shared;
 
 public class PluginLoader
 {
@@ -30,7 +31,36 @@ public class PluginLoader
     {
         _baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
-        string configPath = Path.Combine(_baseDir, "buddies.json");
+        string settingsDirectory;
+        string settingsError;
+
+        if (!SettingsPaths.TryEnsureDirectory(out settingsDirectory, out settingsError))
+        {
+            StopForConfiguration(settingsError);
+            Environment.Exit(1);
+            return;
+        }
+
+        string configPath = SettingsPaths.GetFilePath(settingsDirectory, "buddies.json");
+
+        if (!File.Exists(configPath))
+        {
+            string templateError;
+            if (!SettingsPaths.TryCreateFile(
+                    configPath,
+                    BuildDefaultConfig(),
+                    out templateError))
+            {
+                StopForConfiguration(templateError);
+                Environment.Exit(1);
+                return;
+            }
+
+            StopForConfiguration(
+                $"Created a Buddies configuration template at '{configPath}'.\n" +
+                "Edit AccountPrefix, AccountCount, and Password, then start Buddies again.");
+            return;
+        }
 
         try
         {
@@ -41,12 +71,14 @@ public class PluginLoader
         {
             Console.WriteLine($"Failed to load '{configPath}'.");
             Console.WriteLine(ex);
+            StopForConfiguration("Correct buddies.json, then start Buddies again.");
             Environment.Exit(1);
             return;
         }
 
         if (!ValidateConfig(_config))
         {
+            StopForConfiguration($"Correct '{configPath}', then start Buddies again.");
             Environment.Exit(1);
             return;
         }
@@ -80,6 +112,27 @@ public class PluginLoader
         Console.WriteLine("Stopping Buddies service...");
         ShutdownAll();
         Console.WriteLine("Buddies service stopped.");
+    }
+
+    private static string BuildDefaultConfig()
+    {
+        var config = new Config
+        {
+            AccountPrefix = "CHANGE_ME",
+            AccountCount = 12,
+            Password = "CHANGE_ME",
+            Plugins = new List<string> { "CityBuddies.dll" }
+        };
+
+        return JsonConvert.SerializeObject(config, Formatting.Indented);
+    }
+
+    private static void StopForConfiguration(string message)
+    {
+        Console.WriteLine(message);
+        Console.WriteLine();
+        Console.WriteLine("Press ENTER to exit.");
+        Console.ReadLine();
     }
 
     private static bool ValidateConfig(Config config)

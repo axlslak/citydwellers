@@ -35,902 +35,132 @@ namespace CityManager
         private int _membershipOrgId;
         private int _membershipDimension = 5;
         private string _membershipOrgName;
-        private DateTime? _membershipLastSuccessfulFetchUtc;
-        private DateTime? _membershipSourceUpdatedUtc;
-        private DateTime _membershipNextAttemptUtc = DateTime.MinValue;
-        private DateTime _nextMembershipTickUtc = DateTime.MinValue;
-        private int _suspiciousRosterShrinkCount;
-        private bool _membershipFetchInFlight;
-        private bool _membershipShuttingDown;
-
-        private void InitializeMembership()
-        {
-            lock (_membershipSync)
-            {
-                _memberListPath = Path.Combine(_pluginDir, "memberlist.json");
-                _membershipStatePath =
-                    Path.Combine(_pluginDir, "citymanager-membership-state.json");
-                _membershipShuttingDown = false;
-                _membershipFetchInFlight = false;
-                _nextMembershipTickUtc = DateTime.MinValue;
-
-                LoadPermanentMembersLocked();
-                LoadMembershipStateLocked();
-
-                _membershipNextAttemptUtc =
-                    _membershipLastSuccessfulFetchUtc.HasValue
-                        ? _membershipLastSuccessfulFetchUtc.Value.AddHours(MembershipRefreshHours)
-                        : DateTime.MinValue;
-
-                Logger.Information(
-                    $"Membership initialized: permanent={_permanentMembers.Count}, " +
-                    $"official={_officialMembers.Count}, orgId={_membershipOrgId}, " +
-                    $"lastFetch={_membershipLastSuccessfulFetchUtc:O}.");
-                DevTrace(
-                    $"MEMBERSHIP initialized permanent={_permanentMembers.Count} " +
-                    $"official={_officialMembers.Count} live-add={_liveAddedMembers.Count} " +
-                    $"live-del={_liveRemovedMembers.Count} cached-org={_membershipOrgId}.");
-            }
-        }
-
-        private void BeginMembershipAfterInPlay()
-        {
-            DetectOrganizationIdentity();
-            TickMembership();
-        }
-
-        private void ShutdownMembership()
-        {
-            lock (_membershipSync)
-            {
-                _membershipShuttingDown = true;
-                TrySaveMembershipStateLocked();
-            }
-        }
-
-        private void TickMembership()
-        {
-            DateTime now = DateTime.UtcNow;
-            if (now < _nextMembershipTickUtc)
-                return;
-
-            _nextMembershipTickUtc = now.AddSeconds(5);
-
-            if (_membershipOrgId <= 0 && Client.OrgId > 0)
-                DetectOrganizationIdentity();
-
-            int orgId;
-            int dimension;
-
-            lock (_membershipSync)
-            {
-                if (_membershipShuttingDown ||
-                    _membershipFetchInFlight ||
-                    _membershipOrgId <= 0 ||
-                    now < _membershipNextAttemptUtc)
-                {
-                    return;
-                }
-
-                _membershipFetchInFlight = true;
-                orgId = _membershipOrgId;
-                dimension = _membershipDimension;
-            }
-
-            DevTrace(
-                $"MEMBERSHIP ROSTER -> fetch org={orgId} dimension={dimension}.");
-
-            ThreadPool.QueueUserWorkItem(_ => FetchOfficialRoster(orgId, dimension));
-        }
-
-        private void DetectOrganizationIdentity()
-        {
-            int orgId = Client.OrgId;
-            if (orgId <= 0)
-            {
-                DevTrace("MEMBERSHIP waiting for Manager's AO organization ID.");
-                return;
-            }
-
-            int dimension = string.Equals(
-                Client.Dimension.ToString(),
-                "RubiKa2019",
-                StringComparison.OrdinalIgnoreCase)
-                    ? 6
-                    : 5;
-
-            SetOrganizationIdentity(orgId, dimension, Client.OrgName);
-        }
-
-        private void SetOrganizationIdentity(int orgId, int dimension, string orgName)
-        {
-            if (orgId <= 0)
-                return;
-
-            bool changed;
-            lock (_membershipSync)
-            {
-                changed = _membershipOrgId != orgId ||
-                          _membershipDimension != dimension;
-
-                if (changed)
-                {
-                    _officialMembers.Clear();
-                    _liveAddedMembers.Clear();
-                    _liveRemovedMembers.Clear();
-                    _membershipLastSuccessfulFetchUtc = null;
-                    _membershipSourceUpdatedUtc = null;
-                    _membershipNextAttemptUtc = DateTime.MinValue;
-                    _suspiciousRosterShrinkCount = 0;
-                }
-
-                _membershipOrgId = orgId;
-                _membershipDimension = dimension;
-                if (!string.IsNullOrWhiteSpace(orgName))
-                    _membershipOrgName = orgName.Trim();
-
-                TrySaveMembershipStateLocked();
-            }
-
-            if (changed)
-            {
-                Logger.Information(
-                    $"Detected Manager organization: id={orgId}, dimension={dimension}, name={orgName}.");
-                DevTrace(
-                    $"MEMBERSHIP ORG detected id={orgId} dimension={dimension} " +
-                    $"name={orgName ?? "unknown"}; roster refresh due now.");
-            }
-        }
-
-        private bool IsOrganizationChannel(int channelId, string channelName)
-        {
-            int orgId;
-            lock (_membershipSync)
-                orgId = _membershipOrgId;
-
-            if (orgId > 0 && channelId == orgId)
-                return true;
-
-            bool nameMatches = string.Equals(
-                channelName,
-                !string.IsNullOrWhiteSpace(_membershipOrgName)
-                    ? _membershipOrgName
-                    : OrgChannelName,
-                StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(
-                    channelName,
-                    OrgChannelName,
-                    StringComparison.OrdinalIgnoreCase);
-
-            if (nameMatches && orgId <= 0 && channelId > 0)
-            {
-                int dimension = string.Equals(
-                    Client.Dimension.ToString(),
-                    "RubiKa2019",
-                    StringComparison.OrdinalIgnoreCase)
-                        ? 6
-                        : 5;
-                SetOrganizationIdentity(channelId, dimension, channelName);
-            }
-
-            return nameMatches;
-        }
-
-        private bool IsTellMember(string characterName)
-        {
-            string normalized;
-            string error;
-            if (!TryNormalizeMemberName(characterName, out normalized, out error))
-                return false;
-
-            lock (_membershipSync)
-            {
-                if (_permanentMembers.Contains(normalized))
-                    return true;
-
-                if (_liveRemovedMembers.Contains(normalized))
-                    return false;
-
-                return _liveAddedMembers.Contains(normalized) ||
-                       _officialMembers.Contains(normalized);
-            }
-        }
-
-        private bool IsCommandSourceAuthorized(
-            string senderName,
-            string command,
-            string[] parts,
-            ReplyTarget target,
-            bool isAdmin)
-        {
-            if (isAdmin || target.IsOrg || target.IsGuest)
-                return true;
-
-            if (IsTellMember(senderName))
-                return true;
-
-            return string.Equals(command, "raid", StringComparison.OrdinalIgnoreCase) &&
-                   parts.Length > 1 &&
-                   IsCurrentRaidOwnerCommand(senderName, target.SenderId, parts);
-        }
-
-        private void ObserveOrganizationMembershipMessage(string message)
-        {
-            if (string.IsNullOrWhiteSpace(message))
-                return;
-
-            string memberName;
-            string actor;
-
-            if (TryExtractOrganizationActorTarget(
-                    message,
-                    " invited ",
-                    " to your organization.",
-                    out actor,
-                    out memberName))
-            {
-                ApplyLiveMembershipChange(memberName, true, "invited", actor);
-                return;
-            }
-
-            if (TryExtractOrganizationActorTarget(
-                    message,
-                    " kicked ",
-                    " from your organization.",
-                    out actor,
-                    out memberName))
-            {
-                ApplyLiveMembershipChange(memberName, false, "kicked", actor);
-                return;
-            }
-
-            if (TryExtractOrganizationActorTarget(
-                    message,
-                    " removed inactive character ",
-                    " from your organization.",
-                    out actor,
-                    out memberName))
-            {
-                ApplyLiveMembershipChange(
-                    memberName,
-                    false,
-                    "removed inactive",
-                    actor);
-                return;
-            }
-
-            const string leftSuffix = " just left your organization.";
-            if (message.EndsWith(leftSuffix, StringComparison.OrdinalIgnoreCase))
-            {
-                memberName = message.Substring(0, message.Length - leftSuffix.Length).Trim();
-                ApplyLiveMembershipChange(memberName, false, "left", null);
-                return;
-            }
-
-            const string alignmentSuffix =
-                " kicked from organization (alignment changed).";
-            if (message.EndsWith(alignmentSuffix, StringComparison.OrdinalIgnoreCase))
-            {
-                memberName =
-                    message.Substring(0, message.Length - alignmentSuffix.Length).Trim();
-                ApplyLiveMembershipChange(
-                    memberName,
-                    false,
-                    "alignment changed",
-                    null);
-            }
-        }
-
-        private bool TryExtractOrganizationActorTarget(
-            string message,
-            string separator,
-            string suffix,
-            out string actor,
-            out string memberName)
-        {
-            actor = null;
-            memberName = null;
-
-            if (!message.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            string withoutSuffix =
-                message.Substring(0, message.Length - suffix.Length);
-            int separatorIndex = withoutSuffix.IndexOf(
-                separator,
-                StringComparison.OrdinalIgnoreCase);
-
-            if (separatorIndex <= 0)
-                return false;
-
-            actor = withoutSuffix.Substring(0, separatorIndex).Trim();
-            memberName = withoutSuffix.Substring(
-                separatorIndex + separator.Length).Trim();
-            return true;
-        }
-
-        private void ApplyLiveMembershipChange(
-            string characterName,
-            bool added,
-            string reason,
-            string actor)
-        {
-            string normalized;
-            string error;
-            if (!TryNormalizeMemberName(characterName, out normalized, out error))
-            {
-                DevTrace(
-                    $"MEMBERSHIP LIVE ignored name={characterName}: {error}");
-                return;
-            }
-
-            lock (_membershipSync)
-            {
-                if (added)
-                {
-                    _liveRemovedMembers.Remove(normalized);
-                    if (!_officialMembers.Contains(normalized))
-                        _liveAddedMembers.Add(normalized);
-                }
-                else
-                {
-                    _liveAddedMembers.Remove(normalized);
-                    // Keep the removal even before the first website fetch.  The
-                    // daily roster may still contain this character until AO's
-                    // public data catches up.
-                    _liveRemovedMembers.Add(normalized);
-                }
-
-                TrySaveMembershipStateLocked();
-            }
-
-            DevTrace(
-                $"MEMBERSHIP LIVE {(added ? "ADD" : "DEL")} name={normalized} " +
-                $"reason={reason} actor={actor ?? "self/system"}.");
-        }
-
-        private void FetchOfficialRoster(int orgId, int dimension)
-        {
-            try
-            {
-                string url =
-                    $"https://people.anarchy-online.com/org/stats/d/{dimension}/" +
-                    $"name/{orgId}/basicstats.xml?data_type=json";
-
-                var request = (HttpWebRequest)WebRequest.Create(url);
-                request.Method = "GET";
-                request.UserAgent = "CityDwellers-Manager/1.0";
-                request.Timeout = 30000;
-                request.ReadWriteTimeout = 30000;
-                request.AutomaticDecompression =
-                    DecompressionMethods.GZip | DecompressionMethods.Deflate;
-
-                string json;
-                using (var response = (HttpWebResponse)request.GetResponse())
-                using (var reader = new StreamReader(response.GetResponseStream()))
-                    json = reader.ReadToEnd();
-
-                RemoteOrganizationRoster roster = ParseOfficialRoster(json);
-                ApplyOfficialRoster(orgId, dimension, roster);
-            }
-            catch (Exception ex)
-            {
-                DateTime retryAt = DateTime.UtcNow.AddMinutes(MembershipRetryMinutes);
-                lock (_membershipSync)
-                {
-                    _membershipFetchInFlight = false;
-                    if (!_membershipShuttingDown)
-                        _membershipNextAttemptUtc = retryAt;
-                    TrySaveMembershipStateLocked();
-                }
-
-                Logger.Warning($"Official organization roster refresh failed: {ex.Message}");
-                DevTrace(
-                    $"MEMBERSHIP ROSTER FAIL org={orgId}: {ex.Message}; " +
-                    $"retry={retryAt:O}.");
-            }
-        }
-
-        private RemoteOrganizationRoster ParseOfficialRoster(string json)
-        {
-            JArray root = JArray.Parse(json);
-            if (root.Count < 2)
-                throw new InvalidDataException("Official roster response is incomplete.");
-
-            var organization = root[0] as JObject;
-            var members = root[1] as JArray;
-            if (organization == null || members == null)
-                throw new InvalidDataException("Official roster response has an unexpected shape.");
-
-            int orgId = organization.Value<int?>("ORG_INSTANCE") ?? 0;
-            string orgName = organization.Value<string>("NAME");
-            int declaredCount = organization.Value<int?>("NUMMEMBERS") ?? 0;
-            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (JToken token in members)
-            {
-                string name = token.Value<string>("NAME");
-                string normalized;
-                string error;
-                if (TryNormalizeMemberName(name, out normalized, out error))
-                    names.Add(normalized);
-            }
-
-            if (orgId <= 0 || string.IsNullOrWhiteSpace(orgName) || names.Count == 0)
-                throw new InvalidDataException("Official roster response contains no usable roster.");
-
-            DateTime? sourceUpdatedUtc = null;
-            if (root.Count > 2)
-            {
-                string sourceTimestamp = root[2].Value<string>();
-                DateTime parsed;
-                if (DateTime.TryParseExact(
-                        sourceTimestamp,
-                        new[]
-                        {
-                            "yyyy/MM/dd HH:mm:ss",
-                            "yyyy/MM/dd HH:mm:ss 'Universal'"
-                        },
-                        CultureInfo.InvariantCulture,
-                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
-                        out parsed))
-                {
-                    sourceUpdatedUtc = parsed;
-                }
-            }
-
-            return new RemoteOrganizationRoster
-            {
-                OrgId = orgId,
-                OrgName = orgName.Trim(),
-                DeclaredCount = declaredCount,
-                SourceUpdatedUtc = sourceUpdatedUtc,
-                Members = names
-            };
-        }
-
-        private void ApplyOfficialRoster(
-            int requestedOrgId,
-            int requestedDimension,
-            RemoteOrganizationRoster roster)
-        {
-            DateTime now = DateTime.UtcNow;
-            string telemetry;
-
-            lock (_membershipSync)
-            {
-                if (_membershipShuttingDown ||
-                    _membershipOrgId != requestedOrgId ||
-                    _membershipDimension != requestedDimension)
-                {
-                    _membershipFetchInFlight = false;
-                    return;
-                }
-
-                if (roster.OrgId != requestedOrgId)
-                    throw new InvalidDataException(
-                        $"Official roster returned organization {roster.OrgId}, expected {requestedOrgId}.");
-
-                bool suspiciousShrink =
-                    _officialMembers.Count > 0 &&
-                    roster.Members.Count * 100 <
-                    _officialMembers.Count * (100 - SuspiciousRosterShrinkPercent);
-
-                if (suspiciousShrink && _suspiciousRosterShrinkCount == 0)
-                {
-                    _suspiciousRosterShrinkCount = 1;
-                    _membershipFetchInFlight = false;
-                    _membershipNextAttemptUtc = now.AddHours(MembershipRefreshHours);
-                    TrySaveMembershipStateLocked();
-
-                    telemetry =
-                        $"MEMBERSHIP ROSTER WARN rejected one-time shrink " +
-                        $"old={_officialMembers.Count} new={roster.Members.Count}; " +
-                        $"confirm-after={_membershipNextAttemptUtc:O}.";
-                }
-                else
-                {
-                    _officialMembers.Clear();
-                    foreach (string name in roster.Members)
-                        _officialMembers.Add(name);
-
-                    _liveAddedMembers.RemoveWhere(
-                        name => _officialMembers.Contains(name));
-                    _liveRemovedMembers.RemoveWhere(
-                        name => !_officialMembers.Contains(name));
-
-                    _membershipOrgName = roster.OrgName;
-                    _membershipLastSuccessfulFetchUtc = now;
-                    _membershipSourceUpdatedUtc = roster.SourceUpdatedUtc;
-                    _membershipNextAttemptUtc = now.AddHours(MembershipRefreshHours);
-                    _suspiciousRosterShrinkCount = 0;
-                    _membershipFetchInFlight = false;
-                    TrySaveMembershipStateLocked();
-
-                    telemetry =
-                        $"MEMBERSHIP ROSTER OK org={requestedOrgId} " +
-                        $"name={roster.OrgName} members={_officialMembers.Count} " +
-                        $"declared={roster.DeclaredCount} " +
-                        $"source-updated={roster.SourceUpdatedUtc:O} " +
-                        $"next={_membershipNextAttemptUtc:O}.";
-                }
-            }
-
-            Logger.Information(telemetry);
-            DevTrace(telemetry);
-        }
-
-        private void ProcessMemberListCommand(
-            string senderName,
-            string[] parts,
-            ReplyTarget target)
-        {
-            if (parts.Length != 1)
-            {
-                Reply(target, Usage(target, "memberlist"));
-                return;
-            }
-
-            List<string> members;
-            lock (_membershipSync)
-                members = SortedNames(_permanentMembers);
-
-            string message = members.Count == 0
-                ? "Permanent members (0): none."
-                : $"Permanent members ({members.Count}): {string.Join(", ", members)}.";
-
-            DevTrace(
-                $"MEMBER LIST viewed by={senderName} count={members.Count}.");
-            Reply(target, message);
-        }
-
-        private void ProcessMemberCommand(
-            string senderName,
-            string[] parts,
-            ReplyTarget target)
-        {
-            bool add =
-                parts.Length == 3 &&
-                string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase);
-            bool del =
-                parts.Length == 3 &&
-                string.Equals(parts[1], "del", StringComparison.OrdinalIgnoreCase);
-
-            if (!add && !del)
-            {
-                Reply(target, Usage(target, "member [add|del] [character]"));
-                return;
-            }
-
-            string normalized;
-            string error;
-            if (!TryNormalizeMemberName(parts[2], out normalized, out error))
-            {
-                Reply(target, error);
-                return;
-            }
-
-            bool changed;
-            string message;
-
-            lock (_membershipSync)
-            {
-                if (add)
-                {
-                    if (_permanentMembers.Contains(normalized))
-                    {
-                        changed = false;
-                        message = $"{normalized} is already a permanent member.";
-                    }
-                    else
-                    {
-                        _permanentMembers.Add(normalized);
-                        try
-                        {
-                            SavePermanentMembersLocked();
-                            changed = true;
-                            message = $"Added {normalized} to the permanent member list.";
-                        }
-                        catch (Exception ex)
-                        {
-                            _permanentMembers.Remove(normalized);
-                            changed = false;
-                            message = $"Permanent member list was not changed: {ex.Message}";
-                        }
-                    }
-                }
-                else
-                {
-                    string existing = _permanentMembers.FirstOrDefault(
-                        name => string.Equals(
-                            name,
-                            normalized,
-                            StringComparison.OrdinalIgnoreCase));
-
-                    if (existing == null)
-                    {
-                        changed = false;
-                        message = $"{normalized} is not a permanent member.";
-                    }
-                    else
-                    {
-                        _permanentMembers.Remove(existing);
-                        try
-                        {
-                            SavePermanentMembersLocked();
-                            changed = true;
-                            message = $"Removed {existing} from the permanent member list.";
-                        }
-                        catch (Exception ex)
-                        {
-                            _permanentMembers.Add(existing);
-                            changed = false;
-                            message = $"Permanent member list was not changed: {ex.Message}";
-                        }
-                    }
-                }
-            }
-
-            DevTrace(
-                $"MEMBER LIST {parts[1].ToUpperInvariant()} actor={senderName} " +
-                $"target={normalized} changed={changed}; {message}");
-            Reply(target, message);
-        }
-
-        private void LoadPermanentMembersLocked()
-        {
-            _permanentMembers.Clear();
-
-            if (!File.Exists(_memberListPath))
-            {
-                TrySavePermanentMembersLocked();
-                return;
-            }
-
-            try
-            {
-                PersistedMemberList state =
-                    JsonConvert.DeserializeObject<PersistedMemberList>(
-                        File.ReadAllText(_memberListPath));
-
-                if (state == null ||
-                    state.Version != MemberListVersion ||
-                    state.Members == null)
-                {
-                    throw new InvalidDataException("Unsupported permanent member-list file.");
-                }
-
-                foreach (string candidate in state.Members)
-                {
-                    string normalized;
-                    string error;
-                    if (!TryNormalizeMemberName(candidate, out normalized, out error))
-                        throw new InvalidDataException(error);
-
-                    _permanentMembers.Add(normalized);
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Unable to load permanent member list: {ex.Message}");
-                PreserveInvalidMembershipFileLocked(_memberListPath);
-                _permanentMembers.Clear();
-                TrySavePermanentMembersLocked();
-            }
-        }
-
-        private void LoadMembershipStateLocked()
-        {
-            _officialMembers.Clear();
-            _liveAddedMembers.Clear();
-            _liveRemovedMembers.Clear();
-
-            if (!File.Exists(_membershipStatePath))
-                return;
-
-            try
-            {
-                PersistedMembershipState state =
-                    JsonConvert.DeserializeObject<PersistedMembershipState>(
-                        File.ReadAllText(_membershipStatePath));
-
-                if (state == null || state.Version != MembershipStateVersion)
-                    throw new InvalidDataException("Unsupported membership-state file.");
-
-                _membershipOrgId = state.OrgId;
-                _membershipDimension = state.Dimension > 0 ? state.Dimension : 5;
-                _membershipOrgName = state.OrgName;
-                _membershipLastSuccessfulFetchUtc = state.LastSuccessfulFetchUtc;
-                _membershipSourceUpdatedUtc = state.SourceUpdatedUtc;
-                _suspiciousRosterShrinkCount = state.SuspiciousRosterShrinkCount;
-
-                AddPersistedNamesLocked(state.OfficialMembers, _officialMembers);
-                AddPersistedNamesLocked(state.LiveAddedMembers, _liveAddedMembers);
-                AddPersistedNamesLocked(state.LiveRemovedMembers, _liveRemovedMembers);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Unable to load membership state: {ex.Message}");
-                PreserveInvalidMembershipFileLocked(_membershipStatePath);
-                _membershipOrgId = 0;
-                _membershipDimension = 5;
-                _membershipOrgName = null;
-                _membershipLastSuccessfulFetchUtc = null;
-                _membershipSourceUpdatedUtc = null;
-                _suspiciousRosterShrinkCount = 0;
-                _officialMembers.Clear();
-                _liveAddedMembers.Clear();
-                _liveRemovedMembers.Clear();
-            }
-        }
-
-        private void AddPersistedNamesLocked(
-            IEnumerable<string> names,
-            HashSet<string> destination)
-        {
-            if (names == null)
-                return;
-
-            foreach (string candidate in names)
-            {
-                string normalized;
-                string error;
-                if (!TryNormalizeMemberName(candidate, out normalized, out error))
-                    throw new InvalidDataException(error);
-
-                destination.Add(normalized);
-            }
-        }
-
-        private void SavePermanentMembersLocked()
-        {
-            var state = new PersistedMemberList
-            {
-                Version = MemberListVersion,
-                Members = SortedNames(_permanentMembers)
-            };
-
-            WriteJsonAtomically(
-                _memberListPath,
-                JsonConvert.SerializeObject(state, Formatting.Indented));
-        }
-
-        private void TrySavePermanentMembersLocked()
-        {
-            try
-            {
-                SavePermanentMembersLocked();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(
-                    $"Unable to save permanent member list {_memberListPath}: {ex.Message}");
-            }
-        }
-
-        private void TrySaveMembershipStateLocked()
-        {
-            if (string.IsNullOrWhiteSpace(_membershipStatePath))
-                return;
-
-            try
-            {
-                var state = new PersistedMembershipState
-                {
-                    Version = MembershipStateVersion,
-                    OrgId = _membershipOrgId,
-                    Dimension = _membershipDimension,
-                    OrgName = _membershipOrgName,
-                    LastSuccessfulFetchUtc = _membershipLastSuccessfulFetchUtc,
-                    SourceUpdatedUtc = _membershipSourceUpdatedUtc,
-                    SuspiciousRosterShrinkCount = _suspiciousRosterShrinkCount,
-                    OfficialMembers = SortedNames(_officialMembers),
-                    LiveAddedMembers = SortedNames(_liveAddedMembers),
-                    LiveRemovedMembers = SortedNames(_liveRemovedMembers)
-                };
-
-                WriteJsonAtomically(
-                    _membershipStatePath,
-                    JsonConvert.SerializeObject(state, Formatting.Indented));
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Unable to save membership state: {ex.Message}");
-            }
-        }
-
-        private void PreserveInvalidMembershipFileLocked(string path)
-        {
-            if (!File.Exists(path))
-                return;
-
-            try
-            {
-                string backupPath =
-                    path + ".invalid-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-                File.Move(path, backupPath);
-                Logger.Warning($"Preserved invalid membership file as {backupPath}.");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Unable to preserve invalid membership file: {ex.Message}");
-            }
-        }
-
-        private void WriteJsonAtomically(string path, string json)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                throw new InvalidOperationException("Membership storage is not initialized.");
-
-            string tempPath = path + ".tmp";
-            File.WriteAllText(tempPath, json);
-
-            if (File.Exists(path))
-                File.Delete(path);
-
-            File.Move(tempPath, path);
-        }
-
-        private static List<string> SortedNames(IEnumerable<string> names)
-        {
-            return names
-                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-
-        private static bool TryNormalizeMemberName(
-            string characterName,
-            out string normalized,
-            out string error)
-        {
-            normalized = (characterName ?? string.Empty).Trim();
-
-            if (normalized.Length == 0 || normalized.Length > 30)
-            {
-                error = "Member name must be between 1 and 30 characters.";
-                return false;
-            }
-
-            foreach (char character in normalized)
-            {
-                if (!char.IsLetterOrDigit(character))
-                {
-                    error = "Member names may contain only letters and digits.";
-                    return false;
-                }
-            }
-
-            error = null;
-            return true;
-        }
-
-        private sealed class PersistedMemberList
-        {
-            public int Version;
-            public List<string> Members;
-        }
-
-        private sealed class PersistedMembershipState
-        {
-            public int Version;
-            public int OrgId;
-            public int Dimension;
-            public string OrgName;
-            public DateTime? LastSuccessfulFetchUtc;
-            public DateTime? SourceUpdatedUtc;
-            public int SuspiciousRosterShrinkCount;
-            public List<string> OfficialMembers;
-            public List<string> LiveAddedMembers;
-            public List<string> LiveRemovedMembers;
-        }
-
-        private sealed class RemoteOrganizationRoster
-        {
-            public int OrgId;
-            public string OrgName;
-            public int DeclaredCount;
-            public DateTime? SourceUpdatedUtc;
-            public HashSet<string> Members;
-        }
-    }
-}
+        private DateTime? _membershipLastSuccess~8ã«h‘éì¶»§q«^vÜ˜ZY\œÚ\İ[˜ÙTŞ[˜ÊBˆÂˆBˆÂˆİš[™È]H˜ZYİ]T]Âˆİš[™È[\]H]
+È‹\Â‚ˆYˆ
+š[K‘^\İÊ]
+JBˆš[K‘[]J]
+NÂˆYˆ
+š[K‘^\İÊ[\]
+JBˆš[K‘[]J[\]
+NÂˆBˆØ]Ú
+^Ù\[Ûˆ^
+BˆÂˆÙÙÙ\‹•Ø\›š[™Ê	•[˜X›HÈ[]HÛÛ\]Y˜ZY\İ]Hš[NˆÙ^“Y\ÜØYÙ_HŠNÂˆBˆBˆB‚ˆš]˜]Hİš[™ÈZ[˜ZYÚ[™İÊ˜ZYÙ\ÜÚ[ÛˆÙ\ÜÚ[ÛŠBˆÂˆ˜\ˆ›ÙHH™]Èİš[™ĞZ[\Š
+NÂ‚ˆYˆ
+Ù\ÜÚ[Û‹”İYÙHOH˜ZYİYÙK\ÜÚ\İÙ[Xİ[ÛŠBˆÂˆ›ÙK\[™
+›ÛÛÛÜIÈÎQ‘N	ÏÚ]HÙ[\œÈ˜ZY\ÜÚ\İ[˜ÙOÙ›Û——ˆŠNÂˆ›ÙK\[™
+›ÛÛÛÜIÈÌM‰ÏHÚ]H˜ZY\È[ˆ›ÙÜ™\ÜËÙ›Û—ˆŠNÂˆ›ÙK\[™
+ˆ”Ü]XYÛÛ[X[™\œÈ[™YÚ\ˆÈ[İH™YY]™[LŒˆ
+ÂˆÚ]HÙ[\œÈÛ›[™H›ÜˆHÙ[™\˜[×—ˆŠNÂˆ›ÙK\[™
+”Ù[Xİ[X™\ˆÙˆÚ]HÙ[\œÎ—ˆŠNÂ‚ˆ›Üˆ
+[Ûİ[HÈÛİ[HLÈÛİ[
+ÊÊBˆÂˆYˆ
+Ûİ[ˆ
+Bˆ›ÙK\[™
+ˆŠNÂ‚ˆİš[™ÈX™[HÛİ[OHÈ“›ÈˆˆÛİ[•Ôİš[™Ê
+NÂˆ›ÙK\[™
+˜ZY\ÜÚ\İ]ÛŠÙ\ÜÚ[Û‹Ûİ[X™[
+JNÂˆB‚ˆ›ÙK\[™
+——ˆŠNÂˆ›ÙK\[™
+ˆ	”Ù[Xİ[ÛˆÛÜÙ\È]Ø]™H[ˆ›ÛÛÛÜIÈÑ‘‘‘Œ	Ïˆˆ
+Âˆ	Ñ›Ü›X]\˜][ÛŠÙ\ÜÚ[Û‹”İYÙQXY[™U]ÈH]U[YK•]Ó›İÊ_OÙ›Û—ˆŠNÂ‚ˆ™]\›‚ˆ	H™YW^‹ËŞØ›Ù_WÛXÚÈ\™HÈÜ[ˆÚ[™İÏØOˆÂˆB‚ˆ›ÙK\[™
+›ÛÛÛÜIÈÎQ‘N	ÏÚ]HÙ[\œÈ˜ZYÙ›Û——ˆŠNÂˆ›ÙK\[™
+	”˜ZY\ˆ›ÛÛÛÜIÈÌ‘‘‘‰ÏÔØY™T˜ZY^
+Ù\ÜÚ[Û‹“İÛ™\“˜[YJ_OÙ›Û—ˆŠNÂˆ›ÙK\[™
+	•\NˆÔ˜ZYÙ[Xİ[Û•^
+Ù\ÜÚ[Û‹”˜ZY\K“›İÙ[XİYŠ_WˆŠNÂˆ›ÙK\[™
+	“]™[ˆ›ÛÛÛÜIÈÑ‘‘‘Œ	ÏÜÙ\ÜÚ[Û‹“]™[OÙ›Û—ˆŠNÂˆ›ÙK\[™
+ˆ	”˜ZY\œÎˆÔ˜ZYÙ[Xİ[Û•^
+Ù\ÜÚ[Û‹”˜ZY\Ûİ[’\Õ˜[YHÈÙ\ÜÚ[Û‹”˜ZY\Ûİ[•˜[YK•Ôİš[™Ê
+Hˆ[“›İÙ[XİYŠ_W—ˆŠNÂ‚ˆİÚ]Ú
+Ù\ÜÚ[Û‹”İYÙJBˆÂˆØ\ÙH˜ZYİYÙKÛÛ™šYİ\š[™Î‚ˆ\[™ÛÛ™šYİ\˜][ÛÛÛ›ÛÊ›ÙKÙ\ÜÚ[ÛŠNÂˆœ™XZÎÂ‚ˆØ\ÙH˜ZYİYÙKYZ[•™]Î‚ˆ›ÙK\[™
+›ÛÛÛÜIÈÑÎML	Ï•ØZ][™È›ÜˆYZ[ˆØ[˜Ù[][ÛˆÚ[™İËÙ›Û—ˆŠNÂˆ›ÙK\[™
+ˆ	•[YH™[XZ[š[™Îˆ›ÛÛÛÜIÈÑ‘‘‘Œ	ÏÑ›Ü›X]\˜][ÛŠÙ\ÜÚ[Û‹”İYÙQXY[™U]ÈH]U[YK•]Ó›İÊ_OÙ›Û—ˆŠNÂˆ›ÙK\[™
+YZ[œÈX^H\ÙHØØ[˜Ù[\š[™È\ÈİYÙK—ˆŠNÂˆœ™XZÎÂ‚ˆØ\ÙH˜ZYİYÙKÛÛ›Û\‘š[‚ˆ›ÙK\[™
+›ÛÛÛÜIÈÑÎML	Ï‘š[HÚ]HÛÛ›Û\ˆ›İËÙ›Û—ˆŠNÂˆ›ÙK\[™
+•H˜ZY™\]Z\™\È]X\İ›ÛÛÛÜIÈÑ‘‘‘Œ	ÏÍIOÙ›ÛˆÚ\™ÙK—ˆŠNÂˆ›ÙK\[™
+ˆ	•[YH™[XZ[š[™Îˆ›ÛÛÛÜIÈÑ‘‘‘Œ	ÏÑ›Ü›X]\˜][ÛŠÙ\ÜÚ[Û‹”İYÙQXY[™U]ÈH]U[YK•]Ó›İÊ_OÙ›Û—ˆŠNÂˆ›ÙK\[™
+	“\İœ™\ÚÚ\™ÙNˆ›ÛÛÛÜIÈÑ‘‘‘Œ	ÏÑ›Ü›X]Ú\™ÙJÙ\ÜÚ[Û‹“\İÛÛ›Û\Ú\™ÙJ_OÙ›Û—ˆŠNÂ‚ˆYˆ
+Ù\ÜÚ[Û‹ÛÛ›Û\”›Ø™R[‘›YÚ
+Bˆ›ÙK\[™
+‘›\\ˆØZ[š[™ÈHœ™\Ú™XY[™Ë‹‹—ˆŠNÂˆYˆ
+Ù\ÜÚ[Û‹YTÜ[\[‘›YÚ
+Bˆ›ÙK\[™
+YY\ÎˆÙÙÚ[™È[ˆ™\]Y\İY[[[ÙH˜ZY\œË‹‹—ˆŠNÂˆYˆ
+Ù\ÜÚ[Û‹•ÛÜšÙ\•ØZ][››İ[˜ÙY
+Bˆ›ÙK\[™
+ÕÚ[™İÈÛÛ\]NÈØZ][™È›Üˆ˜ZYÛÜšÙ\œÈÈš[š\ÚØY™[K—ˆŠNÂˆœ™XZÎÂ‚ˆØ\ÙH˜ZYİYÙK“İÙ\š[™ĞÛØZÎ‚ˆ›ÙK\[™
+›ÛÛÛÜIÈÑÎML	Ï‘›\\ˆ\È™\šYZ[™ÈÕÚ\™ÙH[™İÙ\š[™ÈHÛØZËÙ›Û—ˆŠNÂˆœ™XZÎÂ‚ˆØ\ÙH˜ZYİYÙK]ØZ][™ĞÚ]U\™Ù]‚ˆ›ÙK\[™
+›ÛÛÛÜIÈÌM‰ÏÛØZÈİÙ\™YÙ›ÛˆØZ][™È›ÜˆHÚ]K]\™Ù]Y]™[—ˆŠNÂˆ›ÙK\[™
+	ÕÚ\™ÙH]İ\ˆ›ÛÛÛÜIÈÑ‘‘‘Œ	ÏÑ›Ü›X]Ú\™ÙJÙ\ÜÚ[Û‹“\İÛÛ›Û\Ú\™ÙJ_OÙ›Û—ˆŠNÂˆœ™XZÎÂ‚ˆØ\ÙH˜ZYİYÙKXİ]™N‚ˆ[[\ÙYHX]“X^
+ˆˆ
+[
+SX]‘›ÛÜŠ
+]U[YK•]Ó›İÈHÙ\ÜÚ[Û‹Ú]U\™Ù]Y]ÊK•İ[ÙXÛÛ™ÊJNÂˆ›ÙK\[™
+›ÛÛÛÜIÈÌM‰Ï”˜ZYXİ]™KÙ›Û—ˆŠNÂˆ›ÙK\[™
+ˆ	•[Y\ˆ›ÛÛÛÜIÈÑ‘‘‘Œ	ÏÑ›Ü›X]\˜][ÛŠ[YTÜ[‹‘œ›ÛTÙXÛÛ™Ê[\ÙY
+J_OÙ›Û—ˆŠNÂˆ›ÙK\[™
+ˆ	”İYÙNˆ›ÛÛÛÜIÈÑÎML	ÏÔ˜ZYZ[\İÛ™U^
+Ù\ÜÚ[Û‹İ\œ™[Z[\İÛ™J_OÙ›Û—ˆŠNÂ‚ˆYˆ
+İš[™Ë‘\]X[ÊÙ\ÜÚ[Û‹”˜ZY\K™Ù[™\˜[‹İš[™ĞÛÛ\\š\ÛÛ‹“Ü™[˜[YÛ›Ü™PØ\ÙJJBˆÂˆ[[[Ù[™\˜[YY\ÈHÙ[™\˜[YTİ\Ù™œÙ]ÙXÛÛ™ÈH[\ÙYÂˆYˆ
+\Ù\ÜÚ[Û‹YTÜ[\™\]Y\İY	‰ˆ[[Ù[™\˜[YY\Èˆ
+BˆÂˆ›ÙK\[™
+ˆ	‘Ù[™\˜[[Û›HYY\È[ˆ›ÛÛÛÜIÈÑ‘‘‘Œ	ÏÑ›Ü›X]\˜][ÛŠ[YTÜ[‹‘œ›ÛTÙXÛÛ™Ê[[Ù[™\˜[YY\ÊJ_OÙ›Û—ˆŠNÂˆBˆB‚ˆ[[[ÙÛİ]HYSÙÛİ]Ù™œÙ]ÙXÛÛ™ÈH[\ÙYÂˆYˆ
+[[ÙÛİ]ˆ
+BˆÂˆ›ÙK\[™
+ˆ	YHÙÛİ][ˆ›ÛÛÛÜIÈÑ‘‘‘Œ	ÏÑ›Ü›X]\˜][ÛŠ[YTÜ[‹‘œ›ÛTÙXÛÛ™Ê[[ÙÛİ]
+J_OÙ›Û—ˆŠNÂˆBˆœ™XZÎÂ‚ˆØ\ÙH˜ZYİYÙKÛX[š[™Õ\‚ˆ›ÙK\[™
+›ÛÛÛÜIÈÑÎML	Ï‘Ù[™\˜[\ÙH™XXÚYˆÙÙÚ[™Èİ]˜ZYYY\ËÙ›Û—ˆŠNÂˆœ™XZÎÂˆB‚ˆYˆ
+\İš[™Ë’\Ó[Ü•Ú]TÜXÙJÙ\ÜÚ[Û‹YQ]Z[
+JBˆ›ÙK\[™
+	—YY\ÎˆÔØY™T˜ZY^
+Ù\ÜÚ[Û‹YQ]Z[
+_WˆŠNÂ‚ˆYˆ
+\İš[™Ë’\Ó[Ü•Ú]TÜXÙJÙ\ÜÚ[Û‹‘›\\‘]Z[
+JBˆ›ÙK\[™
+	‘›\\ˆÔØY™T˜ZY^
+Ù\ÜÚ[Û‹‘›\\‘]Z[
+_WˆŠNÂ‚ˆ™]\›‚ˆ	H™YW^‹ËŞØ›Ù_WÛXÚÈ\™HÈÜ[ˆÚ[™İÏØOˆÂˆB‚ˆš]˜]Hİš[™È˜ZY\ÜÚ\İ]ÛŠˆ˜ZYÙ\ÜÚ[ÛˆÙ\ÜÚ[Û‹ˆ[Ûİ[ˆİš[™ÈX™[
+BˆÂˆİš[™ÈÛÛ[X[™Bˆ	˜Ú]ÛY‹ËËÛÈÜ˜ZY\ÜÚ\İØÛİ[HÜÙ\ÜÚ[Û‹•ÚÙ[ŸHÂ‚ˆ™]\›‚ˆ	H™YIŞØÛÛ[X[™IÏ›ÛÛÛÜIÈÌ‘‘‘‰Ïˆˆ
+Âˆ	–ŞÔØY™T˜ZY^
+X™[
+_WOÙ›ÛØOˆÂˆB‚ˆš]˜]H›ÚY\[™ÛÛ™šYİ\˜][ÛÛÛ›ÛÊİš[™ĞZ[\ˆ›ÙK˜ZYÙ\ÜÚ[ÛˆÙ\ÜÚ[ÛŠBˆÂˆ›ÙK\[™
+”Ù[Xİ˜ZY\N—ˆŠNÂˆ›ÙK\[™
+˜ZY]ÛŠÙ\ÜÚ[Û‹\H[‹[Ø]™\È‹Ù\ÜÚ[Û‹”˜ZY\HOH˜[ŠJNÂˆ›ÙK\[™
+ˆŠNÂˆ›ÙK\[™
+˜ZY]ÛŠÙ\ÜÚ[Û‹\HÙ[™\˜[‹‘Ù[™\˜[Û›H‹Ù\ÜÚ[Û‹”˜ZY\HOH™Ù[™\˜[ŠJNÂˆ›ÙK\[™
+——”Ù[Xİ]™[—ˆŠNÂ‚ˆ[×Hœ˜XÚÙ]ÈHÈKLÍKLLKMLMÍHNÂˆ›Ü™XXÚ
+[œ˜XÚÙ][ˆœ˜XÚÙ]ÊBˆ›ÙK\[™
+	›ÛÛÛÜIÈÍÍÍÍÍÍÉÏØœ˜XÚÙ]OÙ›ÛˆŠNÂ‚ˆ›ÙK\[™
+˜ZY]ÛŠÙ\ÜÚ[Û‹›]™[Œ‹ŒŒ‹Ù\ÜÚ[Û‹“]™[OHŒ
+JNÂˆ›ÙK\[™
+——”Ù[XİÚ]HÙ[\œÎ—ˆŠNÂ‚ˆ›Üˆ
+[Ûİ[HÈÛİ[HLÈÛİ[
+ÊÊBˆÂˆYˆ
+Ûİ[ˆ
+Bˆ›ÙK\[™
+ˆŠNÂ‚ˆ›ÙK\[™
+ˆ˜ZY]ÛŠˆÙ\ÜÚ[Û‹ˆ	˜Ûİ[ØÛİ[H‹ˆÛİ[•Ôİš[™Ê
+KˆÙ\ÜÚ[Û‹”˜ZY\Ûİ[OHÛİ[
+JNÂˆB‚ˆ›ÙK\[™
+——ˆŠNÂˆ›ÙK\[™
+ˆ	”Ù]\[YH™[XZ[š[™Îˆ›ÛÛÛÜIÈÑ‘‘‘Œ	ÏÑ›Ü›X]\˜][ÛŠÙ\ÜÚ[Û‹”İYÙQXY[™U]ÈH]U[YK•]Ó›İÊ_OÙ›Û—ˆŠNÂ‚ˆYˆ
+\İš[™Ë’\Ó[Ü•Ú]TÜXÙJÙ\ÜÚ[Û‹”˜ZY\JH	‰ˆÙ\ÜÚ[Û‹”˜ZY\Ûİ[’\Õ˜[YJBˆ›ÙK\[™
+˜ZY]ÛŠÙ\ÜÚ[Û‹œİ\‹”ÕT•RQ‹˜[ÙJJNÂˆ[ÙBˆ›ÙK\[™
+›ÛÛÛÜIÈÍÍÍÍÍÍÉÏ”Ù[Xİ\H[™˜ZY\ˆÛİ[È[˜X›HÕT•RQÙ›ÛˆŠNÂˆB‚ˆš]˜]Hİš[™È˜ZY]ÛŠˆ˜ZYÙ\ÜÚ[ÛˆÙ\ÜÚ[Û‹ˆİš[™ÈXİ[Û‹ˆİš[™ÈX™[ˆ›ÛÛÙ[XİY
+BˆÂˆYˆ
+Ù[XİY
+Bˆ™]\›ˆ	›ÛÛÛÜIÈÌM‰Ï–ŞÔØY™T˜ZY^
+X™[
+_WOÙ›ÛˆÂ‚ˆİš[™ÈÛÛ[X[™Â‚ˆYˆ
+Ù\ÜÚ[Û‹“ÜšYÚ[‹’Ú[™OH™\RÚ[™“Ü™ÊBˆÛÛ[X[™H	˜Ú]ÛY‹ËËÛÈÜ˜ZYØXİ[ÛŸHÜÙ\ÜÚ[Û‹•ÚÙ[ŸHÂˆ[ÙHYˆ
+Ù\ÜÚ[Û‹“ÜšYÚ[‹’Ú[™OH™\RÚ[™‘İY\İ
+BˆÛÛ[X[™H	˜Ú]ÛY‹ËËÙÈ\ÛX[˜YÙ\ˆÜ˜ZYØXİ[ÛŸHÜÙ\ÜÚ[Û‹•ÚÙ[ŸHÂˆ[ÙBˆÛÛ[X[™H	˜Ú]ÛY‹ËËİ[\ÛX[˜YÙ\ˆÜ˜ZYØXİ[ÛŸHÜÙ\ÜÚ[Û‹•ÚÙ[ŸHÂ‚ˆ™]\›‚ˆ	H™YIŞØÛÛ[X[™IÏ›ÛÛÛÜIÈÌ‘‘‘‰Ï–ŞÔØY™T˜ZY^
+X™[
+_WOÙ›ÛØOˆÂˆB‚ˆš]˜]Hİš[™È˜ZYÙ[Xİ[Û•^
+İš[™È˜[YKİš[™È˜[˜XÚÊBˆÂˆ™]\›ˆ\İš[™Ë’\Ó[Ü•Ú]TÜXÙJ˜[YJBˆÈ	›ÛÛÛÜIÈÌM‰ÏÔØY™T˜ZY^
+˜[YJ_OÙ›Ûˆ‚ˆˆ	›ÛÛÛÜIÈÑÎML	ÏÙ˜[˜XÚßOÙ›ÛˆÂˆB‚ˆš]˜]Hİš[™ÈØY™T˜ZY^
+İš[™È˜[YJBˆÂˆ™]\›ˆ
+˜[YHÏÈİš[™Ë‘[\JBˆ”™\XÙJ—ˆ‹‰ÈŠBˆ”™\XÙJ—ˆ‹ˆŠBˆ”™\XÙJ—ˆ‹ˆŠNÂˆB‚ˆš]˜]Hİš[™È›Ü›X]Ú\™ÙJ›Ø]ÈÚ\™ÙJBˆÂˆ™]\›ˆÚ\™ÙK’\Õ˜[YBˆÈ	ØÚ\™ÙK•˜[YH
+ˆL‘Œ_IH‚ˆˆ[šÛ›İÛˆÂˆB‚ˆš]˜]H[[H˜ZYİYÙBˆÂˆ\ÜÚ\İÙ[Xİ[Û‹ˆÛÛ™šYİ\š[™ËˆYZ[•™]ËˆÛÛ›Û\‘š[ˆİÙ\š[™ĞÛØZËˆ]ØZ][™ĞÚ]U\™Ù]ˆXİ]™KˆÛX[š[™Õ\ˆB‚ˆš]˜]HÙX[YÛ\ÜÈ\œÚ\İY˜ZYÛÛÜ™[˜]Ü”İ]BˆÂˆX›XÈ[™\œÚ[ÛÂˆX›XÈ\œÚ\İY˜ZYÙ\ÜÚ[ÛˆÙ\ÜÚ[ÛÂˆX›XÈXİ[Û˜\Oİš[™Ë]U[YOˆÛÛÛİÛœÈBˆ™]ÈXİ[Û˜\Oİš[™Ë]U[YOŠİš[™ĞÛÛ\\™\‹“Ü™[˜[YÛ›Ü™PØ\ÙJNÂˆB‚ˆš]˜]HÙX[YÛ\ÜÈ\œÚ\İY˜ZYÙ\ÜÚ[Û‚ˆÂˆX›XÈİš[™ÈÚÙ[ÂˆX›XÈİš[™ÈİÛ™\“˜[YNÂˆX›XÈZ[İÛ™\’YÂˆX›XÈİš[™ÈÜšYÚ[’Ú[™ÂˆX›XÈZ[ÜšYÚ[”Ù[™\’YÂˆX›XÈİš[™ÈÜšYÚ[Ú[›™[˜[YNÂˆX›XÈİš[™ÈİYÙNÂˆX›XÈ]U[YHÜ™X]Y]ÎÂˆX›XÈ]U[YHİYÙQXY[™U]ÎÂˆX›XÈ]U[YHÛÜšÙ\‘XY[™U]ÎÂˆX›XÈ]U[YHÚ]U\™Ù]Y]ÎÂˆX›XÈ]U[YOÈÛØZÓİÙ\ÛÛ™š\›YY]ÎÂˆX›XÈİš[™ÈÛØZÓİÙ\ÛÛ™š\›YYXİÜÂˆX›XÈİš[™È˜ZY\NÂˆX›XÈ[]™[ÂˆX›XÈ[È˜ZY\Ûİ[ÂˆX›XÈ›Ø]È\İÛÛ›Û\Ú\™ÙNÂˆX›XÈİš[™È›\\‘]Z[ÂˆX›XÈİš[™ÈYQ]Z[ÂˆX›XÈ›ÛÛYTÜ[\™\]Y\İYÂˆX›XÈ›ÛÛYTÜ[\˜][ÂˆX›XÈ›ÛÛ\Ñ^\›˜[\ÜÚ\İÂˆX›XÈ[İ\œ™[Z[\İÛ™NÂˆX›XÈ\İ[ˆİ\YYR[™^\ÈH™]È\İ[Š
+NÂˆB‚ˆš]˜]HÙX[YÛ\ÜÈ˜ZYÙ\ÜÚ[Û‚ˆÂˆX›XÈİš[™ÈÚÙ[ÂˆX›XÈİš[™ÈİÛ™\“˜[YNÂˆX›XÈZ[İÛ™\’YÂˆX›XÈ™\U\™Ù]ÜšYÚ[ÂˆX›XÈ˜ZYİYÙHİYÙNÂˆX›XÈ]U[YHÜ™X]Y]ÎÂˆX›XÈ]U[YHİYÙQXY[™U]ÎÂˆX›XÈ]U[YHÛÜšÙ\‘XY[™U]ÎÂˆX›XÈ]U[YHÚ]U\™Ù]Y]ÎÂˆX›XÈ]U[YOÈÛØZÓİÙ\ÛÛ™š\›YY]ÎÂ‚ˆX›XÈİš[™È˜ZY\NÂˆX›XÈ[]™[ÂˆX›XÈ[È˜ZY\Ûİ[Â‚ˆX›XÈ›Ø]È\İÛÛ›Û\Ú\™ÙNÂˆX›XÈİš[™È›\\‘]Z[ÂˆX›XÈİš[™ÈYQ]Z[ÂˆX›XÈİš[™ÈÛØZÓİÙ\ÛÛ™š\›YYXİÜÂ‚ˆX›XÈ›ÛÛÛÛ›Û\”›Ø™R[‘›YÚÂˆX›XÈ›ÛÛYTÜ[\™\]Y\İYÂˆX›XÈ›ÛÛYTÜ[\[‘›YÚÂˆX›XÈ›ÛÛYTÜ[\˜][ÂˆX›XÈ›ÛÛYPÛX[\[‘›YÚÂˆX›XÈ›ÛÛÛÜšÙ\•ØZ][››İ[˜ÙYÂˆX›XÈ›ÛÛ\Ñ^\›˜[\ÜÚ\İÂˆX›XÈ[İ\œ™[Z[\İÛ™NÂ‚ˆX›XÈ™XYÛ›H\İ[ˆİ\YYR[™^\ÈH™]È\İ[Š
+NÂˆBˆBŸB

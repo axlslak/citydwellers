@@ -12,6 +12,7 @@ using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.GameData;
 using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
+using CityDwellers.Shared;
 
 namespace CityManager
 {
@@ -60,7 +61,7 @@ namespace CityManager
         private readonly object _devSync = new object();
         private readonly Queue<string> _devBacklog = new Queue<string>();
 
-        private string _pluginDir;
+        private string _settingsDir;
         private string _statePath;
         private string _eventsPath;
         private bool _charInPlay;
@@ -80,12 +81,18 @@ namespace CityManager
 
         public override void Init(string pluginDir)
         {
-            _pluginDir = pluginDir;
-            _statePath = Path.Combine(_pluginDir, "citymanager-cloak-state.json");
-            _eventsPath = Path.Combine(_pluginDir, "citymanager-cloak-events.jsonl");
+            string settingsError;
+            if (!SettingsPaths.TryEnsureDirectory(out _settingsDir, out settingsError))
+            {
+                Logger.Error(settingsError);
+                return;
+            }
 
-            Logger.Information("CityManager initialized.");
-            AdminListStore.Initialize(_pluginDir);
+            _statePath = Path.Combine(_settingsDir, "citymanager-cloak-state.json");
+            _eventsPath = Path.Combine(_settingsDir, "citymanager-cloak-events.jsonl");
+
+            Logger.Information($"CityManager initialized. Settings directory: {_settingsDir}");
+            AdminListStore.Initialize(_settingsDir);
             DevTrace(
                 $"ADMIN LIST initialized file=adminlist.json " +
                 $"count={AdminListStore.Snapshot().Count}.");
