@@ -826,7 +826,17 @@ namespace CityManager
                         Id = Guid.NewGuid().ToString("N"),
                         Command = command,
                         Level = level,
-                        Index = index
+                        Index = index,
+                        Purpose =
+                            string.Equals(command, "wakeup", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(command, "spinup", StringComparison.OrdinalIgnoreCase)
+                                ? "demo"
+                                : null,
+                        LeaseSeconds =
+                            string.Equals(command, "wakeup", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(command, "spinup", StringComparison.OrdinalIgnoreCase)
+                                ? 60
+                                : (int?)null
                     };
 
                     bool usesCount =
@@ -843,7 +853,9 @@ namespace CityManager
 
                     DevTrace(
                         level.HasValue
-                            ? $"BUDDIES -> {command} level={level.Value} {quantity} [{shortId}]"
+                            ? $"BUDDIES -> {command} level={level.Value} {quantity} " +
+                              $"purpose={request.Purpose ?? "manual"} " +
+                              $"lease={request.LeaseSeconds?.ToString() ?? "none"}s [{shortId}]"
                             : $"BUDDIES -> {command} {quantity} [{shortId}]");
 
                     WorkerResponse response = SendWorkerRequest(
@@ -1716,6 +1728,8 @@ namespace CityManager
             public int? TimeoutSeconds;
             public int? Level;
             public int? Index;
+            public string Purpose;
+            public int? LeaseSeconds;
         }
 
         private class WorkerResponse

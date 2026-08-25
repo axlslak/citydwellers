@@ -21,10 +21,16 @@ namespace CityManager
         private const int CityTargetAfterCloakSeconds = 180;
         // Measured from the authoritative city-targeted system event: wave 8
         // arrives at +945s and the general physically lands at about +1125s.
-        // General-only buddies enter ten seconds after wave 8 arrives.
+        // General-only buddies enter thirty seconds after wave 8 arrives.
         private const int Wave8OffsetSeconds = 945;
-        private const int GeneralBuddyStartOffsetSeconds = 955;
+        private const int GeneralBuddyStartOffsetSeconds = 975;
         private const int BuddyLogoutOffsetSeconds = 1125;
+        private const int GeneralBuddySafetyLeaseSeconds =
+            BuddyLogoutOffsetSeconds - GeneralBuddyStartOffsetSeconds;
+        private const int AllWavesBuddySafetyLeaseSeconds =
+            RaidControllerFillSeconds +
+            CityTargetAfterCloakSeconds +
+            BuddyLogoutOffsetSeconds;
         private const float MinimumRaidControllerCharge = 0.75f;
 
         // Nadybot's established AP city schedule, verified against the supplied
@@ -1097,12 +1103,20 @@ namespace CityManager
                         Id = Guid.NewGuid().ToString("N"),
                         Command = "spinup",
                         Level = session.Level,
-                        Index = count
+                        Index = count,
+                        Purpose = "raid",
+                        LeaseSeconds = string.Equals(
+                                session.RaidType,
+                                "all",
+                                StringComparison.OrdinalIgnoreCase)
+                            ? AllWavesBuddySafetyLeaseSeconds
+                            : GeneralBuddySafetyLeaseSeconds
                     };
 
                     string shortId = ShortId(request.Id);
                     DevTrace(
-                        $"RAID BUDDIES -> spinup level={session.Level} count={count} [{shortId}] reason={reason}.");
+                        $"RAID BUDDIES -> spinup level={session.Level} count={count} " +
+                        $"safety-lease={request.LeaseSeconds}s [{shortId}] reason={reason}.");
 
                     response = SendWorkerRequest(
                         BuddiesPipeName,
@@ -1316,7 +1330,7 @@ namespace CityManager
                 $"Raid city-targeted event accepted for {session.OwnerName} at {now:O}; location={location}.");
             DevTrace(
                 $"RAID TIMER START owner={session.OwnerName} location={location} anchor={now:O}; " +
-                $"wave8=+945s buddy-spinup=+955s general=+1065s cleanup=+1125s.");
+                $"wave8=+945s buddy-spinup=+975s general=+1065s cleanup=+1125s.");
             SaveRaidState();
             Reply(session.Origin, BuildRaidWindow(session));
         }
@@ -1394,7 +1408,7 @@ namespace CityManager
                 elapsed >= GeneralBuddyStartOffsetSeconds &&
                 !session.BuddySpinupRequested)
             {
-                BeginRaidBuddySpinup(session, "10 seconds after wave 8 arrival");
+                BeginRaidBuddySpinup(session, "30 seconds after wave 8 arrival");
             }
         }
 

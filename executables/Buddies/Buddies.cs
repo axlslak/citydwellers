@@ -18,6 +18,8 @@ public class PluginLoader
 {
     private const string PipeName = "citydwellers-buddies";
     private const int WakeupTimeoutMs = 20000;
+    private const int DefaultDemoLeaseSeconds = 60;
+    private const int DefaultRaidSafetyLeaseSeconds = 1365;
 
     private static readonly object ActiveLock = new object();
     private static readonly Dictionary<int, ActiveBuddy> ActiveBuddies =
@@ -26,6 +28,7 @@ public class PluginLoader
     private static Config _config;
     private static string _baseDir;
     private static long _nextStartSequence;
+    private static Timer _leaseTimer;
 
     static void Main(string[] args)
     {
@@ -107,10 +110,18 @@ public class PluginLoader
 
         pipeThread.Start();
 
+        _leaseTimer = new Timer(
+            ExpireBuddyLeases,
+            null,
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(1));
+
         Console.ReadLine();
 
         Console.WriteLine();
         Console.WriteLine("Stopping Buddies service...");
+        _leaseTimer?.Dispose();
+        _leaseTimer = null;
         ShutdownAll();
         Console.WriteLine("Buddies service stopped.");
     }
@@ -296,6 +307,8 @@ public class PluginLoader
         {
             if (existing.Level == level)
             {
+                ApplyRequestPurpose(existing, request);
+
                 return Ok(
                     request,
                     $"{existing.Character} is already active.",
@@ -365,7 +378,7 @@ public class PluginLoader
                     $"{character} did not reach InPlay within {WakeupTimeoutMs / 1000} seconds.");
             }
 
-            ActiveBuddies[index] = new ActiveBuddy
+            var activeBuddy = new ActiveBuddy
             {
                 Index = index,
                 Level = level,
@@ -374,14 +387,19 @@ public class PluginLoader
                 StartedSequence = ++_nextStartSequence
             };
 
+            ApplyRequestPurpose(activeBuddy, request);
+            ActiveBuddies[index] = activeBuddy;
+
             domain = null;
 
             Console.WriteLine(
                 $"Buddy ready: {character} reached InPlay (index {index}).");
 
+            string leaseText = DescribeLease(activeBuddy);
+
             return Ok(
                 request,
-                $"Started {character} on account index {index}.",
+                $"Started {character} on account index {index}.{leaseText}",
                 character,
                 level,
                 index);
@@ -484,6 +502,27 @@ public class PluginLoader
             var startedIndexes = new List<int>();
             var failures = new List<string>();
             int activeSkipped = 0;
+            int claimedExisting = 0;
+
+            if (IsRaidRequest(request))
+            {
+                for (int index = 0;
+                     index < _config.AccountCount && started.Count < requested;
+                     index++)
+                {
+                    ActiveBuddy active;
+                    if (!ActiveBuddies.TryGetValue(index, out active) ||
+                        active.Level != level)
+                    {
+                        continue;
+                    }
+
+                    ApplyRequestPurpose(active, request);
+                    started.Add(active.Character);
+                    startedIndexes.Add(index);
+                    claimedExisting++;
+                }
+            }
 
             for (int index = 0;
                  index < _config.AccountCount && started.Count < requested;
@@ -491,7 +530,8 @@ public class PluginLoader
             {
                 if (ActiveBuddies.ContainsKey(index))
                 {
-                    activeSkipped++;
+                    if (!startedIndexes.Contains(index))
+                        activeSkipped++;
                     continue;
                 }
 
@@ -511,6 +551,16 @@ public class PluginLoader
                 failures.Add($"{index}:{CompactFailure(attempt.Message)}");
             }
 
+            // Give every member of a group the same full lease starting when
+            // the complete spinup attempt finishes. This prevents the first
+            // character from expiring while later accounts are still loading.
+            foreach (int index in startedIndexes)
+            {
+                ActiveBuddy active;
+                if (ActiveBuddies.TryGetValue(index, out active))
+                    ApplyRequestPurpose(active, request);
+            }
+
             string startedText =
                 started.Count > 0
                     ? string.Join(",", started)
@@ -519,6 +569,14 @@ public class PluginLoader
             string detail =
                 $"Spinup {(started.Count == requested ? "complete" : "partial")}: " +
                 $"started {started.Count}/{requested} level {level} [{startedText}]";
+
+            if (claimedExisting > 0)
+                detail += $"; raid claimed existing={claimedExisting}";
+
+            detail += IsRaidRequest(request)
+                ? $"; raid-owned; safety lease=" +
+                  $"{GetLeaseSeconds(request, DefaultRaidSafetyLeaseSeconds)}s"
+                : $"; demo lease={DefaultDemoLeaseSeconds}s";
 
             if (activeSkipped > 0)
                 detail += $"; active skipped={activeSkipped}";
@@ -542,6 +600,120 @@ public class PluginLoader
             result.Count = started.Count;
             result.Level = level;
             return result;
+        }
+    }
+
+    private static void ApplyRequestPurpose(
+        ActiveBuddy buddy,
+        WorkerRequest request)
+    {
+        if (buddy == null)
+            return;
+
+        if (IsRaidRequest(request))
+        {
+            buddy.Purpose = "raid";
+            buddy.LeaseExpiresUtc = DateTime.UtcNow.AddSeconds(
+                GetLeaseSeconds(request, DefaultRaidSafetyLeaseSeconds));
+            return;
+        }
+
+        // A manual debug command must never demote a buddy that an active raid
+        // already owns.
+        if (string.Equals(
+                buddy.Purpose,
+                "raid",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        int leaseSeconds = Math.Min(
+            GetLeaseSeconds(request, DefaultDemoLeaseSeconds),
+            DefaultDemoLeaseSeconds);
+
+        buddy.Purpose = "demo";
+        buddy.LeaseExpiresUtc = DateTime.UtcNow.AddSeconds(leaseSeconds);
+    }
+
+    private static bool IsRaidRequest(WorkerRequest request)
+    {
+        return string.Equals(
+            request?.Purpose,
+            "raid",
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetLeaseSeconds(WorkerRequest request, int fallback)
+    {
+        int leaseSeconds = request?.LeaseSeconds ?? fallback;
+        return leaseSeconds > 0 ? leaseSeconds : fallback;
+    }
+
+    private static string DescribeLease(ActiveBuddy buddy)
+    {
+        int remainingSeconds = buddy.LeaseExpiresUtc.HasValue
+            ? Math.Max(
+                0,
+                (int)Math.Ceiling(
+                    (buddy.LeaseExpiresUtc.Value - DateTime.UtcNow).TotalSeconds))
+            : 0;
+
+        return string.Equals(
+                buddy.Purpose,
+                "raid",
+                StringComparison.OrdinalIgnoreCase)
+            ? $" Raid-owned; safety lease={remainingSeconds}s."
+            : $" Demo lease={remainingSeconds}s.";
+    }
+
+    private static void ExpireBuddyLeases(object state)
+    {
+        try
+        {
+            lock (ActiveLock)
+            {
+                DateTime now = DateTime.UtcNow;
+                var expiredIndexes = new List<int>();
+
+                foreach (ActiveBuddy buddy in ActiveBuddies.Values)
+                {
+                    if (buddy.LeaseExpiresUtc.HasValue &&
+                        now >= buddy.LeaseExpiresUtc.Value)
+                    {
+                        expiredIndexes.Add(buddy.Index);
+                    }
+                }
+
+                foreach (int index in expiredIndexes)
+                {
+                    ActiveBuddy buddy;
+                    if (!ActiveBuddies.TryGetValue(index, out buddy) ||
+                        !buddy.LeaseExpiresUtc.HasValue ||
+                        now < buddy.LeaseExpiresUtc.Value)
+                    {
+                        continue;
+                    }
+
+                    Console.WriteLine(
+                        $"{buddy.Purpose ?? "Buddy"} lease expired for " +
+                        $"{buddy.Character}; logging it out.");
+
+                    SleepLocked(
+                        new WorkerRequest
+                        {
+                            Id = Guid.NewGuid().ToString("N"),
+                            Command = "sleep",
+                            Index = index,
+                            Purpose = "demo-expiry"
+                        },
+                        index);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Buddy lease cleanup failed: {ex.Message}");
         }
     }
 
@@ -765,6 +937,8 @@ public class PluginLoader
         public string Character;
         public ClientDomain Domain;
         public long StartedSequence;
+        public string Purpose;
+        public DateTime? LeaseExpiresUtc;
     }
 
     private class WorkerRequest
@@ -773,6 +947,8 @@ public class PluginLoader
         public string Command;
         public int? Level;
         public int? Index;
+        public string Purpose;
+        public int? LeaseSeconds;
     }
 
     private class WorkerResponse
