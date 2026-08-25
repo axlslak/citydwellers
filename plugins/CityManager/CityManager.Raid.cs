@@ -18,6 +18,7 @@ namespace CityManager
         private const int RaidCooldownSeconds = 600;
         private const int RaidTargetTimeoutSeconds = 300;
         private const int RaidWorkerGraceSeconds = 20;
+        private const int RaidWorkerRetryDelaySeconds = 5;
         private const int CityTargetAfterCloakSeconds = 180;
         // Measured from the authoritative city-targeted system event: wave 8
         // arrives at +945s and the general physically lands at about +1125s.
@@ -810,12 +811,16 @@ namespace CityManager
             if (stage == RaidStage.ControllerFill)
             {
                 bool workerInFlight;
+                bool retryPending;
                 lock (_raidSync)
                 {
                     workerInFlight =
                         ReferenceEquals(_raidSession, session) &&
                         (session.ControllerProbeInFlight ||
                          session.BuddySpinupInFlight);
+                    retryPending =
+                        ReferenceEquals(_raidSession, session) &&
+                        session.ControllerRetryPending;
                 }
 
                 if (now >= deadline)
@@ -823,9 +828,15 @@ namespace CityManager
                     if (workerInFlight && now < session.WorkerDeadlineUtc)
                         return;
 
+                    if (retryPending && now < session.WorkerDeadlineUtc)
+                    {
+                        TryStartControllerWatch(session);
+                        return;
+                    }
+
                     FailRaidSession(
                         session,
-                        "The City Controller did not reach 75% within the one-minute fill window.",
+                        BuildControllerStartFailure(session),
                         true);
                     return;
                 }
@@ -863,6 +874,8 @@ namespace CityManager
                 session.WorkerDeadlineUtc =
                     session.StageDeadlineUtc.AddSeconds(RaidWorkerGraceSeconds);
                 session.ControllerProbeInFlight = false;
+                session.ControllerRetryPending = false;
+                session.ControllerRetryNotBeforeUtc = DateTime.MinValue;
             }
 
             Logger.Warning(
@@ -883,13 +896,28 @@ namespace CityManager
         {
             bool start = false;
             bool buddyFailure = false;
+            bool retryAttempt = false;
+            DateTime now = DateTime.UtcNow;
 
             lock (_raidSync)
             {
                 if (!ReferenceEquals(_raidSession, session) ||
                     session.Stage != RaidStage.ControllerFill ||
-                    session.ControllerProbeInFlight ||
-                    DateTime.UtcNow >= session.StageDeadlineUtc)
+                    session.ControllerProbeInFlight)
+                {
+                    return;
+                }
+
+                bool normalWindow = now < session.StageDeadlineUtc;
+                bool retryWindow =
+                    session.ControllerRetryPending &&
+                    now < session.WorkerDeadlineUtc;
+
+                if (!normalWindow && !retryWindow)
+                    return;
+
+                if (session.ControllerRetryPending &&
+                    now < session.ControllerRetryNotBeforeUtc)
                 {
                     return;
                 }
@@ -900,6 +928,8 @@ namespace CityManager
                 buddyFailure = session.BuddySpinupFatal;
                 if (!buddyFailure)
                 {
+                    retryAttempt = session.ControllerRetryPending;
+                    session.ControllerRetryPending = false;
                     session.ControllerProbeInFlight = true;
                     start = true;
                 }
@@ -922,21 +952,25 @@ namespace CityManager
             {
                 try
                 {
-                    int secondsRemaining = Math.Max(
-                        1,
-                        (int)Math.Ceiling(
-                            (session.StageDeadlineUtc - DateTime.UtcNow).TotalSeconds));
+                    int secondsRemaining = retryAttempt
+                        ? 1
+                        : Math.Max(
+                            1,
+                            (int)Math.Ceiling(
+                                (session.StageDeadlineUtc - DateTime.UtcNow).TotalSeconds));
 
                     var request = new WorkerRequest
                     {
                         Id = Guid.NewGuid().ToString("N"),
-                        Command = "ensure-disabled-watch",
+                        Command = retryAttempt
+                            ? "ensure-disabled-ready"
+                            : "ensure-disabled-watch",
                         TimeoutSeconds = secondsRemaining
                     };
 
                     string shortId = ShortId(request.Id);
                     DevTrace(
-                        $"RAID FLIPPER -> watch CT and lower [{shortId}] " +
+                        $"RAID FLIPPER -> {(retryAttempt ? "retry ready check" : "watch CT")} and lower [{shortId}] " +
                         $"window={secondsRemaining}s minimum={MinimumRaidControllerCharge * 100:F0}%.");
 
                     WorkerResponse response = SendWorkerRequest(
@@ -1016,13 +1050,8 @@ namespace CityManager
                         string.IsNullOrWhiteSpace(response.CloakState);
 
                     if (retryableWorkerFailure &&
-                        IsCurrentRaidSession(session) &&
-                        DateTime.UtcNow < session.StageDeadlineUtc)
+                        ScheduleControllerWatchRetry(session, response.Message))
                     {
-                        // A login or packet failure during the fill window is
-                        // retryable. TickRaidCoordinator starts another watch;
-                        // no repeated chat response is emitted.
-                        SaveRaidState();
                         return;
                     }
 
@@ -1051,12 +1080,8 @@ namespace CityManager
                     if (TryRecoverRaidCloakLowerFromCityEvent(session, ex.Message))
                         return;
 
-                    if (IsCurrentRaidSession(session) &&
-                        DateTime.UtcNow < session.StageDeadlineUtc)
-                    {
-                        SaveRaidState();
+                    if (ScheduleControllerWatchRetry(session, ex.Message))
                         return;
-                    }
 
                     FailRaidSession(
                         session,
@@ -1064,6 +1089,60 @@ namespace CityManager
                         true);
                 }
             });
+        }
+
+        private bool ScheduleControllerWatchRetry(
+            RaidSession session,
+            string detail)
+        {
+            DateTime retryAt;
+
+            lock (_raidSync)
+            {
+                DateTime now = DateTime.UtcNow;
+
+                if (!ReferenceEquals(_raidSession, session) ||
+                    session.Stage != RaidStage.ControllerFill ||
+                    now >= session.WorkerDeadlineUtc)
+                {
+                    return false;
+                }
+
+                retryAt = now.AddSeconds(RaidWorkerRetryDelaySeconds);
+                if (retryAt > session.WorkerDeadlineUtc)
+                    retryAt = session.WorkerDeadlineUtc;
+
+                session.ControllerProbeInFlight = false;
+                session.ControllerRetryPending = true;
+                session.ControllerRetryNotBeforeUtc = retryAt;
+                session.FlipperDetail = detail;
+            }
+
+            DevTrace(
+                $"RAID FLIPPER transient failure; retry scheduled at {retryAt:O}: {detail}");
+            SaveRaidState();
+            return true;
+        }
+
+        private string BuildControllerStartFailure(RaidSession session)
+        {
+            if (session.LastControllerCharge.HasValue &&
+                session.LastControllerCharge.Value < MinimumRaidControllerCharge)
+            {
+                return
+                    $"The City Controller remained {FormatCharge(session.LastControllerCharge)}; " +
+                    "75% is required to start the raid.";
+            }
+
+            if (!string.IsNullOrWhiteSpace(session.FlipperDetail))
+            {
+                return
+                    "Raid start was blocked while the City Controller was " +
+                    $"{FormatCharge(session.LastControllerCharge)}. {session.FlipperDetail}";
+            }
+
+            return
+                "Raid start was blocked because Flipper could not verify and lower the cloak.";
         }
 
         private void BeginRaidBuddySpinup(RaidSession session, string reason)
@@ -1712,6 +1791,8 @@ namespace CityManager
                                 restored.StageDeadlineUtc = now;
                                 restored.WorkerDeadlineUtc =
                                     now.AddSeconds(RaidWorkerGraceSeconds);
+                                restored.ControllerRetryPending = true;
+                                restored.ControllerRetryNotBeforeUtc = now;
                                 resumeControllerWorkers = true;
                             }
                         }
@@ -1719,6 +1800,12 @@ namespace CityManager
                         if (restored.Stage == RaidStage.ControllerFill)
                         {
                             restored.ControllerProbeInFlight = false;
+                            if (now >= restored.StageDeadlineUtc &&
+                                now < restored.WorkerDeadlineUtc)
+                            {
+                                restored.ControllerRetryPending = true;
+                                restored.ControllerRetryNotBeforeUtc = now;
+                            }
                             restored.BuddySpinupRequested = false;
                             restored.BuddySpinupFatal = false;
                             resumeControllerWorkers = true;
@@ -1866,6 +1953,8 @@ namespace CityManager
                 BuddySpinupFatal = session.BuddySpinupFatal,
                 IsExternalAssist = session.IsExternalAssist,
                 CurrentMilestone = session.CurrentMilestone,
+                ControllerRetryPending = session.ControllerRetryPending,
+                ControllerRetryNotBeforeUtc = session.ControllerRetryNotBeforeUtc,
                 StartedBuddyIndexes =
                     new List<int>(session.StartedBuddyIndexes)
             };
@@ -1928,7 +2017,9 @@ namespace CityManager
                 BuddySpinupRequested = saved.BuddySpinupRequested,
                 BuddySpinupFatal = saved.BuddySpinupFatal,
                 IsExternalAssist = saved.IsExternalAssist,
-                CurrentMilestone = saved.CurrentMilestone
+                CurrentMilestone = saved.CurrentMilestone,
+                ControllerRetryPending = saved.ControllerRetryPending,
+                ControllerRetryNotBeforeUtc = saved.ControllerRetryNotBeforeUtc
             };
 
             if (saved.StartedBuddyIndexes != null)
@@ -2050,9 +2141,57 @@ namespace CityManager
             lock (_raidSync)
             {
                 return _raidSession != null &&
-                       _raidSession.Stage == RaidStage.ControllerFill &&
-                       _raidSession.ControllerProbeInFlight;
+                       (_raidSession.Stage == RaidStage.ControllerFill ||
+                        _raidSession.Stage == RaidStage.LoweringCloak);
             }
+        }
+
+        private bool TryReplyRaidFlipperReservation(ReplyTarget target)
+        {
+            string reply = null;
+
+            lock (_raidSync)
+            {
+                if (_raidSession != null &&
+                    (_raidSession.Stage == RaidStage.ControllerFill ||
+                     _raidSession.Stage == RaidStage.LoweringCloak))
+                {
+                    reply =
+                        "City Cloak: raid start is using Flipper. " +
+                        $"CT charge = {FormatCharge(_raidSession.LastControllerCharge)}.";
+                }
+            }
+
+            if (reply == null)
+                return false;
+
+            Reply(target, reply);
+            return true;
+        }
+
+        private void ApplyRaidControllerObservation(WorkerResponse response)
+        {
+            if (response == null || !response.ControllerCharge.HasValue)
+                return;
+
+            bool changed = false;
+
+            lock (_raidSync)
+            {
+                if (_raidSession == null ||
+                    (_raidSession.Stage != RaidStage.AdminVeto &&
+                     _raidSession.Stage != RaidStage.ControllerFill &&
+                     _raidSession.Stage != RaidStage.LoweringCloak))
+                {
+                    return;
+                }
+
+                _raidSession.LastControllerCharge = response.ControllerCharge;
+                changed = true;
+            }
+
+            if (changed)
+                SaveRaidState();
         }
 
         private void DeleteRaidStateFile()
@@ -2334,6 +2473,8 @@ namespace CityManager
             public bool BuddySpinupFatal;
             public bool IsExternalAssist;
             public int CurrentMilestone;
+            public bool ControllerRetryPending;
+            public DateTime ControllerRetryNotBeforeUtc;
             public List<int> StartedBuddyIndexes = new List<int>();
         }
 
@@ -2360,6 +2501,8 @@ namespace CityManager
             public string CloakLowerConfirmedActor;
 
             public bool ControllerProbeInFlight;
+            public bool ControllerRetryPending;
+            public DateTime ControllerRetryNotBeforeUtc;
             public bool BuddySpinupRequested;
             public bool BuddySpinupInFlight;
             public bool BuddySpinupFatal;

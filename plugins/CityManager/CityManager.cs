@@ -671,10 +671,19 @@ namespace CityManager
 
         private void BeginFlipperProbe(ReplyTarget target)
         {
+            if (TryReplyRaidFlipperReservation(target))
+                return;
+
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
                 {
+                    // A cloak query can be queued just before the admin-veto
+                    // timer expires. Recheck here so that it cannot take the
+                    // one Flipper login away from a raid-start operation.
+                    if (TryReplyRaidFlipperReservation(target))
+                        return;
+
                     var request = new WorkerRequest
                     {
                         Id = Guid.NewGuid().ToString("N"),
@@ -1389,6 +1398,10 @@ namespace CityManager
 
         private void ApplyFlipperObservation(WorkerResponse response)
         {
+            // CT charge belongs to Manager's shared raid state, regardless of
+            // which Manager command requested the Flipper observation.
+            ApplyRaidControllerObservation(response);
+
             CloakStatus parsedStatus;
             if (!Enum.TryParse(response.CloakState, true, out parsedStatus))
             {
