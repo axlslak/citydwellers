@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
+using System.Reflection;
+using System.Runtime.Remoting.Lifetime;
 using System.Threading;
 
 using AOSharp.Clientless;
@@ -20,10 +22,24 @@ public class PluginLoader
     private const int WakeupTimeoutMs = 20000;
     private const int DefaultDemoLeaseSeconds = 60;
     private const int DefaultRaidSafetyLeaseSeconds = 1365;
+    private const int ClientDomainLeaseMinutes = 60;
+    private const int FailedCleanupRetrySeconds = 30;
 
     private static readonly object ActiveLock = new object();
     private static readonly Dictionary<int, ActiveBuddy> ActiveBuddies =
         new Dictionary<int, ActiveBuddy>();
+
+    // AOSharp.Clientless 1.0.16 keeps these private. Its PluginProxy uses the
+    // default .NET Remoting lease, so it expires during a normal city raid and
+    // prevents ClientDomain.Unload() from reaching AppDomain.Unload().
+    private static readonly FieldInfo ClientDomainPluginProxyField =
+        typeof(ClientDomain).GetField(
+            "_pluginProxy",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+    private static readonly FieldInfo ClientDomainAppDomainField =
+        typeof(ClientDomain).GetField(
+            "_appDomain",
+            BindingFlags.Instance | BindingFlags.NonPublic);
 
     private static Config _config;
     private static string _baseDir;
@@ -353,6 +369,7 @@ public class PluginLoader
                 domain.LoadPlugin(pluginPath);
 
             domain.Start();
+            RenewClientDomainLease(domain, character);
 
             Console.WriteLine(
                 $"Buddy domain started; waiting for {character} to reach InPlay...");
@@ -362,13 +379,9 @@ public class PluginLoader
                 Console.WriteLine(
                     $"TIMEOUT waiting for {character} to reach InPlay.");
 
-                try
-                {
-                    domain.Unload();
-                }
-                catch
-                {
-                }
+                string unloadError;
+                if (!TryUnloadClientDomain(domain, character, out unloadError))
+                    Console.WriteLine(unloadError);
 
                 domain = null;
                 DeleteReadyMarker(readyPath);
@@ -408,13 +421,9 @@ public class PluginLoader
         {
             if (domain != null)
             {
-                try
-                {
-                    domain.Unload();
-                }
-                catch
-                {
-                }
+                string unloadError;
+                if (!TryUnloadClientDomain(domain, character, out unloadError))
+                    Console.WriteLine(unloadError);
             }
 
             DeleteReadyMarker(readyPath);
@@ -460,7 +469,15 @@ public class PluginLoader
 
         try
         {
-            buddy.Domain.Unload();
+            string unloadError;
+            if (!TryUnloadClientDomain(
+                    buddy.Domain,
+                    buddy.Character,
+                    out unloadError))
+            {
+                throw new InvalidOperationException(unloadError);
+            }
+
             ActiveBuddies.Remove(index);
             DeleteReadyMarker(GetReadyPath(buddy.Character));
 
@@ -476,8 +493,13 @@ public class PluginLoader
         }
         catch (Exception ex)
         {
+            buddy.CleanupFailures++;
+            buddy.NextCleanupAttemptUtc =
+                DateTime.UtcNow.AddSeconds(FailedCleanupRetrySeconds);
+
             Console.WriteLine(
-                $"Failed unloading {buddy.Character}: {ex}");
+                $"Failed unloading {buddy.Character}; retry {buddy.CleanupFailures} " +
+                $"will be eligible in {FailedCleanupRetrySeconds}s: {ex}");
 
             return Fail(
                 request,
@@ -610,6 +632,9 @@ public class PluginLoader
         if (buddy == null)
             return;
 
+        buddy.CleanupFailures = 0;
+        buddy.NextCleanupAttemptUtc = null;
+
         if (IsRaidRequest(request))
         {
             buddy.Purpose = "raid";
@@ -679,7 +704,9 @@ public class PluginLoader
                 foreach (ActiveBuddy buddy in ActiveBuddies.Values)
                 {
                     if (buddy.LeaseExpiresUtc.HasValue &&
-                        now >= buddy.LeaseExpiresUtc.Value)
+                        now >= buddy.LeaseExpiresUtc.Value &&
+                        (!buddy.NextCleanupAttemptUtc.HasValue ||
+                         now >= buddy.NextCleanupAttemptUtc.Value))
                     {
                         expiredIndexes.Add(buddy.Index);
                     }
@@ -690,7 +717,9 @@ public class PluginLoader
                     ActiveBuddy buddy;
                     if (!ActiveBuddies.TryGetValue(index, out buddy) ||
                         !buddy.LeaseExpiresUtc.HasValue ||
-                        now < buddy.LeaseExpiresUtc.Value)
+                        now < buddy.LeaseExpiresUtc.Value ||
+                        (buddy.NextCleanupAttemptUtc.HasValue &&
+                         now < buddy.NextCleanupAttemptUtc.Value))
                     {
                         continue;
                     }
@@ -871,6 +900,101 @@ public class PluginLoader
         }
     }
 
+    private static void RenewClientDomainLease(
+        ClientDomain domain,
+        string character)
+    {
+        try
+        {
+            if (ClientDomainPluginProxyField == null)
+                throw new MissingFieldException("ClientDomain._pluginProxy");
+
+            var proxy =
+                ClientDomainPluginProxyField.GetValue(domain) as MarshalByRefObject;
+
+            if (proxy == null)
+                throw new InvalidOperationException("ClientDomain plugin proxy is unavailable.");
+
+            var lease = proxy.GetLifetimeService() as ILease;
+            if (lease == null)
+            {
+                Console.WriteLine(
+                    $"Client-domain proxy for {character} already has an infinite lifetime.");
+                return;
+            }
+
+            lease.Renew(TimeSpan.FromMinutes(ClientDomainLeaseMinutes));
+            Console.WriteLine(
+                $"Renewed client-domain proxy for {character} for " +
+                $"{ClientDomainLeaseMinutes} minutes.");
+        }
+        catch (Exception ex)
+        {
+            // Login can continue because TryUnloadClientDomain has a direct
+            // AppDomain fallback that does not depend on the proxy lease.
+            Console.WriteLine(
+                $"Unable to renew client-domain proxy for {character}: {ex.Message}. " +
+                "Direct unload fallback remains available.");
+        }
+    }
+
+    private static bool TryUnloadClientDomain(
+        ClientDomain domain,
+        string character,
+        out string error)
+    {
+        error = null;
+
+        if (domain == null)
+            return true;
+
+        Exception gracefulError;
+
+        try
+        {
+            domain.Unload();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            gracefulError = ex;
+            Console.WriteLine(
+                $"Graceful unload proxy failed for {character}: {ex.Message}. " +
+                "Trying direct AppDomain unload.");
+        }
+
+        try
+        {
+            if (ClientDomainAppDomainField == null)
+                throw new MissingFieldException("ClientDomain._appDomain");
+
+            var childDomain =
+                ClientDomainAppDomainField.GetValue(domain) as AppDomain;
+
+            if (childDomain == null)
+                throw new InvalidOperationException("ClientDomain AppDomain is unavailable.");
+
+            AppDomain.Unload(childDomain);
+            Console.WriteLine(
+                $"Direct AppDomain unload succeeded for {character}.");
+            return true;
+        }
+        catch (AppDomainUnloadedException)
+        {
+            // The child domain is already gone, which is the desired state.
+            Console.WriteLine(
+                $"Client AppDomain for {character} was already unloaded.");
+            return true;
+        }
+        catch (Exception forcedError)
+        {
+            error =
+                $"Graceful unload failed: {gracefulError.Message}; " +
+                $"direct AppDomain unload failed: {forcedError.Message}";
+            return false;
+        }
+    }
+
     private static void ShutdownAll()
     {
         lock (ActiveLock)
@@ -880,7 +1004,15 @@ public class PluginLoader
                 try
                 {
                     Console.WriteLine($"Unloading {buddy.Character}...");
-                    buddy.Domain.Unload();
+                    string unloadError;
+                    if (!TryUnloadClientDomain(
+                            buddy.Domain,
+                            buddy.Character,
+                            out unloadError))
+                    {
+                        throw new InvalidOperationException(unloadError);
+                    }
+
                     DeleteReadyMarker(GetReadyPath(buddy.Character));
                 }
                 catch (Exception ex)
@@ -939,6 +1071,8 @@ public class PluginLoader
         public long StartedSequence;
         public string Purpose;
         public DateTime? LeaseExpiresUtc;
+        public int CleanupFailures;
+        public DateTime? NextCleanupAttemptUtc;
     }
 
     private class WorkerRequest
