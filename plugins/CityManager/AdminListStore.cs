@@ -139,6 +139,59 @@ namespace CityManager
             }
         }
 
+        public static bool TryReplace(
+            IEnumerable<string> characterNames,
+            out bool changed,
+            out string message)
+        {
+            changed = false;
+            var replacement = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string characterName in characterNames ?? Enumerable.Empty<string>())
+            {
+                string normalized;
+                if (!TryNormalizeName(characterName, out normalized, out message))
+                    return false;
+
+                replacement.Add(normalized);
+            }
+
+            if (replacement.Count == 0)
+            {
+                message = "Administrator list cannot be empty.";
+                return false;
+            }
+
+            lock (Sync)
+            {
+                if (Administrators.SetEquals(replacement))
+                {
+                    message = "Administrator list already uses canonical main names.";
+                    return true;
+                }
+
+                List<string> previous = SnapshotLocked();
+                Administrators.Clear();
+                Administrators.UnionWith(replacement);
+
+                try
+                {
+                    SaveLocked();
+                }
+                catch (Exception ex)
+                {
+                    Administrators.Clear();
+                    Administrators.UnionWith(previous);
+                    message = $"Administrator list was not changed: {ex.Message}";
+                    return false;
+                }
+
+                changed = true;
+                message = "Administrator list was reduced to canonical main names.";
+                return true;
+            }
+        }
+
         private static void LoadLocked()
         {
             PersistedAdminList state =

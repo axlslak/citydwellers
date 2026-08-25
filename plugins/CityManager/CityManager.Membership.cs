@@ -223,16 +223,26 @@ namespace CityManager
             if (!TryNormalizeMemberName(characterName, out normalized, out error))
                 return false;
 
+            List<string> identities = GetAltIdentityCandidates(normalized);
+
             lock (_membershipSync)
             {
-                if (_permanentMembers.Contains(normalized))
-                    return true;
+                foreach (string identity in identities)
+                {
+                    if (_permanentMembers.Contains(identity))
+                        return true;
 
-                if (_liveRemovedMembers.Contains(normalized))
-                    return false;
+                    if (_liveRemovedMembers.Contains(identity))
+                        continue;
 
-                return _liveAddedMembers.Contains(normalized) ||
-                       _officialMembers.Contains(normalized);
+                    if (_liveAddedMembers.Contains(identity) ||
+                        _officialMembers.Contains(identity))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
             }
         }
 
@@ -594,17 +604,20 @@ namespace CityManager
                 string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase);
             bool del =
                 parts.Length == 3 &&
-                string.Equals(parts[1], "del", StringComparison.OrdinalIgnoreCase);
+                IsRemoveVerb(parts[1]);
 
             if (!add && !del)
             {
-                Reply(target, Usage(target, "member [add|del] [character]"));
+                Reply(target, Usage(target, "member [add|del|rem|remove|delete] [character]"));
                 return;
             }
 
             string normalized;
             string error;
-            if (!TryNormalizeMemberName(parts[2], out normalized, out error))
+            if (!TryNormalizeMemberName(
+                    ResolveCanonicalAltMain(parts[2]),
+                    out normalized,
+                    out error))
             {
                 Reply(target, error);
                 return;
@@ -675,6 +688,40 @@ namespace CityManager
                 $"MEMBER LIST {parts[1].ToUpperInvariant()} actor={senderName} " +
                 $"target={normalized} changed={changed}; {message}");
             Reply(target, message);
+        }
+
+        private void CanonicalizePermanentMembersFromAlts()
+        {
+            List<string> current;
+            lock (_membershipSync)
+                current = SortedNames(_permanentMembers);
+
+            var canonical = new HashSet<string>(
+                current.Select(ResolveCanonicalAltMain),
+                StringComparer.OrdinalIgnoreCase);
+
+            lock (_membershipSync)
+            {
+                if (_permanentMembers.SetEquals(canonical))
+                    return;
+
+                List<string> previous = SortedNames(_permanentMembers);
+                _permanentMembers.Clear();
+                _permanentMembers.UnionWith(canonical);
+
+                try
+                {
+                    SavePermanentMembersLocked();
+                    DevTrace(
+                        $"MEMBER LIST canonicalized {previous.Count} -> {_permanentMembers.Count} mains.");
+                }
+                catch (Exception ex)
+                {
+                    _permanentMembers.Clear();
+                    _permanentMembers.UnionWith(previous);
+                    Logger.Error($"Unable to canonicalize permanent members: {ex.Message}");
+                }
+            }
         }
 
         private void LoadPermanentMembersLocked()

@@ -36,6 +36,7 @@ namespace CityManager
                 "status",
                 "leave",
                 "join",
+                "alts",
                 "raid",
                 "raidassist"
             };
@@ -97,6 +98,7 @@ namespace CityManager
                 $"ADMIN LIST initialized file=adminlist.json " +
                 $"count={AdminListStore.Snapshot().Count}.");
             InitializeMembership();
+            InitializeAlts();
             LoadState();
             InitializeRaidCoordinator();
             OrgRankAuthorizer.Initialize();
@@ -117,6 +119,7 @@ namespace CityManager
                 CityRaidAutomation.Shutdown();
                 OrgRankAuthorizer.Shutdown();
                 ShutdownRaidCoordinator();
+                ShutdownAlts();
                 ShutdownMembership();
 
                 if (Client.Chat != null)
@@ -175,6 +178,7 @@ namespace CityManager
             Logger.Information("CityManager is in play and observing cloak packets, tells, org chat, and guest private chat.");
 
             BeginMembershipAfterInPlay();
+            BeginAltsAfterInPlay();
 
             Client.Chat.PrivateMessageReceived += HandlePrivateMessage;
             Client.Chat.GroupMessageReceived += HandleGroupMessage;
@@ -192,6 +196,9 @@ namespace CityManager
             try
             {
                 if (msg == null || string.IsNullOrWhiteSpace(msg.Message))
+                    return;
+
+                if (TryHandleAltsBotTell(msg))
                     return;
 
                 var stringIgnores = new List<string>
@@ -380,16 +387,17 @@ namespace CityManager
                   command == "join" ||
                   command == "adminlist" ||
                   command == "memberlist") && parts.Length == 1) ||
+                (command == "alts" && HasTellAltsCommandShape(parts)) ||
                 (command == "raid" && HasTellRaidCommandShape(parts)) ||
                 (command == "raidassist" && parts.Length == 3) ||
                 (command == "cancel" && (parts.Length == 1 || parts.Length == 2)) ||
                 (command == "recoverraid" && parts.Length == 5) ||
                 (command == "admin" && parts.Length == 3 &&
                  (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
-                  string.Equals(parts[1], "del", StringComparison.OrdinalIgnoreCase))) ||
+                  IsRemoveVerb(parts[1]))) ||
                 (command == "member" && parts.Length == 3 &&
                  (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
-                  string.Equals(parts[1], "del", StringComparison.OrdinalIgnoreCase))) ||
+                  IsRemoveVerb(parts[1]))) ||
                 ((command == "invite" ||
                   command == "kick" ||
                   command == "sleep" ||
@@ -422,7 +430,7 @@ namespace CityManager
             string command = parts[0].ToLowerInvariant();
             DevTrace($"COMMAND {replyTarget.Kind} {senderName}: {rawCommand}");
 
-            bool isAdmin = AdminListStore.Contains(senderName);
+            bool isAdmin = IsAdministrator(senderName);
 
             if (!IsCommandSourceAuthorized(
                     senderName,
@@ -489,6 +497,10 @@ namespace CityManager
 
                 case "status":
                     BeginServiceStatus(replyTarget);
+                    break;
+
+                case "alts":
+                    ProcessAltsCommand(senderName, parts, replyTarget, isAdmin);
                     break;
 
                 case "leave":
@@ -631,15 +643,16 @@ namespace CityManager
                 : " # is optional in tells.";
 
             return
-                $"Members: {prefix}help, {prefix}status, {prefix}leave, {prefix}join. " +
+                $"Members: {prefix}help, {prefix}status, {prefix}alts, {prefix}leave, {prefix}join. " +
                 $"In organization or guest chat: #cloak, #raid. " +
                 $"Raid-assist buttons are available to Squad Commanders and higher. " +
                 $"Admins may also use cloak and raid in tells. " +
                 $"Admin: {prefix}invite [character], {prefix}kick [character], " +
                 $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
                 $"{prefix}spinup [level] [count], {prefix}spindown [count], {prefix}cancel, " +
-                $"{prefix}adminlist, {prefix}admin [add|del] [character], " +
-                $"{prefix}memberlist, {prefix}member [add|del] [character]. " +
+                $"{prefix}adminlist, {prefix}admin [add|del/rem/remove/delete] [character], " +
+                $"{prefix}memberlist, {prefix}member [add|del/rem/remove/delete] [character], " +
+                $"{prefix}alts [character|list|add|del/rem/remove/delete]. " +
                 $"Recovery: {prefix}recoverraid [owner] [all|general] [level] [count]." +
                 suffix;
         }
@@ -740,15 +753,18 @@ namespace CityManager
                 string cloak = BuildCloakStatusSummary();
                 string recovery = CityRaidAutomation.GetStatusText();
                 string raid = BuildRaidStatusSummary();
+                string alts = BuildAltStatusSummary();
 
                 string reply =
                     $"Manager = online/usable. " +
                     $"{cloak}. {recovery}. {raid}. " +
+                    $"{alts}. " +
                     $"Flipper = {flipper.PublicText}. " +
                     $"Buddies = {buddies.PublicText}.";
 
                 string diagnostic =
                     $"STATUS Manager=online/usable; " +
+                    $"{alts}; " +
                     $"Flipper={flipper.DiagnosticText}; " +
                     $"Buddies={buddies.DiagnosticText}.";
 
@@ -1447,6 +1463,7 @@ namespace CityManager
         {
             TryInviteDeveloper();
             TickMembership();
+            TickAlts();
             TickRaidCoordinator();
 
             if (_status != CloakStatus.Disabled || !_canRaiseAtUtc.HasValue || _raiseDueLogged)

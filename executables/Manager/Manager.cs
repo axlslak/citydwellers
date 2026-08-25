@@ -9,6 +9,7 @@ using AOSharp.Clientless;
 using System.IO;
 using AOSharp.Clientless.Common;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using CityDwellers.Shared;
 
 public class PluginLoader
@@ -31,7 +32,8 @@ public class PluginLoader
     //  ],
     //  "Plugins": [
     //    "CityManager.dll"
-    //  ]
+    //  ],
+    //  "Bot": "Bobsan"
     //}
 
     private static List<ClientDomain> BotDomains = new List<ClientDomain>();
@@ -72,7 +74,9 @@ public class PluginLoader
 
         try
         {
-            config = JsonConvert.DeserializeObject<Config>(File.ReadAllText(configPath));
+            string configJson = File.ReadAllText(configPath);
+            config = JsonConvert.DeserializeObject<Config>(configJson);
+            TryAddMissingBotSetting(configPath, configJson);
         }
         catch (Exception ex)
         {
@@ -177,10 +181,40 @@ public class PluginLoader
                     Character = "char1"
                 }
             },
-            Plugins = new List<string> { "CityManager.dll" }
+            Plugins = new List<string> { "CityManager.dll" },
+            Bot = null
         };
 
         return JsonConvert.SerializeObject(config, Formatting.Indented);
+    }
+
+    private static void TryAddMissingBotSetting(string configPath, string configJson)
+    {
+        try
+        {
+            JObject configuration = JObject.Parse(configJson);
+            bool hasBotSetting = configuration.Properties().Any(property =>
+                string.Equals(
+                    property.Name,
+                    "Bot",
+                    StringComparison.OrdinalIgnoreCase));
+            if (hasBotSetting)
+                return;
+
+            configuration["Bot"] = JValue.CreateNull();
+            string tempPath = configPath + ".tmp";
+            File.WriteAllText(tempPath, configuration.ToString(Formatting.Indented));
+            File.Delete(configPath);
+            File.Move(tempPath, configPath);
+            Console.WriteLine(
+                $"Added optional Bot setting to '{configPath}'. " +
+                "Leave it null or set it to an alt-service character such as Bobsan.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"Warning: unable to add the optional Bot setting to '{configPath}': {ex.Message}");
+        }
     }
 
     private static bool IsDefaultAccount(AccountInfo account)
@@ -213,6 +247,7 @@ public class PluginLoader
     {
         public List<AccountInfo> Accounts;
         public List<string> Plugins;
+        public string Bot;
     }
 
     public class AccountInfo

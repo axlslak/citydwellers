@@ -34,25 +34,27 @@ namespace CityManager
                 string.Equals(parts[1], "add", System.StringComparison.OrdinalIgnoreCase);
             bool del =
                 parts.Length == 3 &&
-                string.Equals(parts[1], "del", System.StringComparison.OrdinalIgnoreCase);
+                IsRemoveVerb(parts[1]);
 
             if (!add && !del)
             {
-                Reply(target, Usage(target, "admin [add|del] [character]"));
+                Reply(target, Usage(target, "admin [add|del|rem|remove|delete] [character]"));
                 return;
             }
+
+            string canonicalName = ResolveCanonicalAltMain(parts[2]);
 
             bool changed;
             string message;
 
             if (add)
-                changed = AdminListStore.TryAdd(parts[2], out message);
+                changed = AdminListStore.TryAdd(canonicalName, out message);
             else
-                changed = AdminListStore.TryRemove(parts[2], out message);
+                changed = AdminListStore.TryRemove(canonicalName, out message);
 
             DevTrace(
                 $"ADMIN LIST {parts[1].ToUpperInvariant()} actor={senderName} " +
-                $"target={parts[2]} changed={changed}; {message}");
+                $"target={canonicalName} requested={parts[2]} changed={changed}; {message}");
             Reply(target, message);
         }
     }

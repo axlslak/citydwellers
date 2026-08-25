@@ -69,8 +69,16 @@ Plugin entries may be simple filenames because all Release assemblies share
 `bin\Release`:
 
 ```json
-"Plugins": ["CityManager.dll"]
+"Plugins": ["CityManager.dll"],
+"Bot": "Bobsan"
 ```
+
+`Bot` belongs in `manager.json`. Set it to the character name of the bot that
+answers `alts <character>` tells, or leave it `null` to disable external alt
+lookups. Existing Manager configurations receive the missing optional field on
+their next start. Manager stores the last good answers in `settings\alts.json`,
+refreshes administrator identities after 24 hours, and keeps using the cache if
+the alt bot is unavailable.
 
 Use `CityFlipper.dll` in `flipper.json`. The `Plugins` field may be omitted
 from `buddies.json`; Buddies then loads `CityBuddies.dll` automatically.
