@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
+using AOSharp.Clientless;
 using AOSharp.Clientless.Chat;
 using AOSharp.Clientless.Logging;
 using Newtonsoft.Json;
@@ -648,7 +649,10 @@ namespace CityManager
             main = normalizedMain;
             characters = unique
                 .OrderBy(name =>
-                    string.Equals(name, main, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                    string.Equals(
+                        name,
+                        normalizedMain,
+                        StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .ThenBy(name => name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             return true;
