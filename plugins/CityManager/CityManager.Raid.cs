@@ -33,6 +33,8 @@ namespace CityManager
             CityTargetAfterCloakSeconds +
             BuddyLogoutOffsetSeconds;
         private const float MinimumRaidControllerCharge = 0.75f;
+        private const int DefaultRaidLevel = 200;
+        private static readonly int[] AvailableRaidLevels = { 175, 200 };
 
         // Nadybot's established AP city schedule, verified against the supplied
         // raid log. Values are cumulative seconds after CITY_ATTACKED.
@@ -190,9 +192,10 @@ namespace CityManager
             if (action == "level")
             {
                 int level;
-                if (!int.TryParse(parts[2], out level) || level != 200)
+                if (!int.TryParse(parts[2], out level) ||
+                    !IsAvailableRaidLevel(level))
                 {
-                    Reply(target, "Only the level 200 City Dwellers bracket is available right now.");
+                    Reply(target, "Available City Dwellers levels are 175 and 200.");
                     return;
                 }
 
@@ -241,7 +244,7 @@ namespace CityManager
                     Origin = target,
                     Stage = RaidStage.Configuring,
                     StageDeadlineUtc = now.AddSeconds(RaidConfigurationSeconds),
-                    Level = 200,
+                    Level = DefaultRaidLevel,
                     CurrentMilestone = -1,
                     CreatedUtc = now
                 };
@@ -513,14 +516,14 @@ namespace CityManager
             if (string.IsNullOrWhiteSpace(ownerName) ||
                 (raidType != "all" && raidType != "general") ||
                 !int.TryParse(parts[3], out level) ||
-                level != 200 ||
+                !IsAvailableRaidLevel(level) ||
                 !int.TryParse(parts[4], out count) ||
                 count < 0 ||
                 count > 12)
             {
                 Reply(
                     commandTarget,
-                    "Recovery requires an owner, all/general, level 200, and 0-12 raiders.");
+                    "Recovery requires an owner, all/general, level 175 or 200, and 0-12 raiders.");
                 return;
             }
 
@@ -615,16 +618,41 @@ namespace CityManager
             ReplyTarget commandTarget,
             bool isAdmin)
         {
-            if (parts.Length != 3)
-            {
-                Reply(commandTarget, Usage(commandTarget, "raidassist [count] [raid-token]"));
-                return;
-            }
+            bool levelSelection =
+                parts.Length == 4 &&
+                string.Equals(parts[1], "level", StringComparison.OrdinalIgnoreCase);
+            int count = 0;
+            int level = 0;
+            string token;
 
-            int count;
-            if (!int.TryParse(parts[1], out count) || count < 0 || count > 12)
+            if (levelSelection)
             {
-                Reply(commandTarget, "Raid assistance must be between 0 and 12 City Dwellers.");
+                if (!int.TryParse(parts[2], out level) ||
+                    !IsAvailableRaidLevel(level))
+                {
+                    Reply(commandTarget, "Raid-assistance levels are 175 and 200.");
+                    return;
+                }
+
+                token = parts[3];
+            }
+            else if (parts.Length == 3)
+            {
+                if (!int.TryParse(parts[1], out count) || count < 0 || count > 12)
+                {
+                    Reply(commandTarget, "Raid assistance must be between 0 and 12 City Dwellers.");
+                    return;
+                }
+
+                token = parts[2];
+            }
+            else
+            {
+                Reply(
+                    commandTarget,
+                    Usage(
+                        commandTarget,
+                        "raidassist [count] [raid-token] or raidassist level [175|200] [raid-token]"));
                 return;
             }
 
@@ -634,16 +662,30 @@ namespace CityManager
                 return;
             }
 
-            string token = parts[2];
-
-            if (isAdmin)
+            Action<string> applyAuthorized = authority =>
             {
+                if (levelSelection)
+                {
+                    ApplyRaidAssistLevelSelection(
+                        senderName,
+                        commandTarget,
+                        level,
+                        token,
+                        authority);
+                    return;
+                }
+
                 ApplyRaidAssistSelection(
                     senderName,
                     commandTarget,
                     count,
                     token,
-                    "named administrator");
+                    authority);
+            };
+
+            if (isAdmin)
+            {
+                applyAuthorized("named administrator");
                 return;
             }
 
@@ -666,13 +708,55 @@ namespace CityManager
                         return;
                     }
 
-                    ApplyRaidAssistSelection(
-                        senderName,
-                        commandTarget,
-                        count,
-                        token,
-                        authorization.Rank);
+                    applyAuthorized(authorization.Rank);
                 });
+        }
+
+        private void ApplyRaidAssistLevelSelection(
+            string senderName,
+            ReplyTarget commandTarget,
+            int level,
+            string token,
+            string authority)
+        {
+            RaidSession session;
+            string error = null;
+
+            lock (_raidSync)
+            {
+                session = _raidSession;
+
+                if (session == null ||
+                    !session.IsExternalAssist ||
+                    session.Stage != RaidStage.AssistSelection)
+                {
+                    error = "That raid-assist offer is no longer active.";
+                }
+                else if (!string.Equals(session.Token, token, StringComparison.Ordinal))
+                {
+                    error = "That raid-assist button belongs to an older raid.";
+                }
+                else if (DateTime.UtcNow >= session.StageDeadlineUtc)
+                {
+                    error = "The raid-assist selection window has closed.";
+                }
+                else
+                {
+                    session.Level = level;
+                }
+            }
+
+            if (error != null)
+            {
+                Reply(commandTarget, error);
+                return;
+            }
+
+            DevTrace(
+                $"RAID ASSIST level selected by={senderName} level={level} " +
+                $"authority={authority}.");
+            SaveRaidState();
+            Reply(session.Origin, BuildRaidWindow(session));
         }
 
         private void ApplyRaidAssistSelection(
@@ -735,9 +819,9 @@ namespace CityManager
 
             Logger.Warning(
                 $"External raid assistance selected by {senderName}: " +
-                $"count={count}, authority={authority}.");
+                $"level={session.Level}, count={count}, authority={authority}.");
             DevTrace(
-                $"RAID ASSIST selected by={senderName} count={count} " +
+                $"RAID ASSIST selected by={senderName} level={session.Level} count={count} " +
                 $"authority={authority} wave8={session.CityTargetedUtc.AddSeconds(Wave8OffsetSeconds):O}.");
             SaveRaidState();
             Reply(session.Origin, BuildRaidWindow(session));
@@ -1371,7 +1455,7 @@ namespace CityManager
                             now.AddSeconds(Wave8OffsetSeconds),
                         CityTargetedUtc = now,
                         RaidType = "general",
-                        Level = 200,
+                        Level = DefaultRaidLevel,
                         CurrentMilestone = -1,
                         IsExternalAssist = true
                     };
@@ -2224,8 +2308,21 @@ namespace CityManager
                 body.Append("<font color='#89D2E8'>City Dwellers Raid Assistance</font>\n\n");
                 body.Append("<font color='#00DE42'>A city raid is in progress.</font>\n");
                 body.Append(
-                    "Squad Commanders and higher: do you need level-200 " +
+                    "Squad Commanders and higher: do you need " +
                     "City Dwellers online for the general?\n\n");
+                body.Append("Select level:\n");
+
+                foreach (int availableLevel in AvailableRaidLevels)
+                {
+                    body.Append(
+                        RaidAssistLevelButton(
+                            session,
+                            availableLevel,
+                            availableLevel.ToString()));
+                    body.Append("  ");
+                }
+
+                body.Append("\n\n");
                 body.Append("Select number of City Dwellers:\n");
 
                 for (int count = 0; count <= 12; count++)
@@ -2346,6 +2443,20 @@ namespace CityManager
                 $"[{SafeRaidText(label)}]</font></a>";
         }
 
+        private string RaidAssistLevelButton(
+            RaidSession session,
+            int level,
+            string label)
+        {
+            string command =
+                $"chatcmd:///o #raidassist level {level} {session.Token}";
+            string color = session.Level == level ? "#00DE42" : "#00BFFF";
+
+            return
+                $"<a href='{command}'><font color='{color}'>" +
+                $"[{SafeRaidText(label)}]</font></a>";
+        }
+
         private void AppendConfigurationControls(StringBuilder body, RaidSession session)
         {
             body.Append("Select raid type:\n");
@@ -2354,11 +2465,21 @@ namespace CityManager
             body.Append(RaidButton(session, "type general", "General only", session.RaidType == "general"));
             body.Append("\n\nSelect level:\n");
 
-            int[] brackets = { 25, 50, 75, 100, 125, 150, 175 };
+            int[] brackets = { 25, 50, 75, 100, 125, 150 };
             foreach (int bracket in brackets)
                 body.Append($"<font color='#777777'>{bracket}</font>  ");
 
-            body.Append(RaidButton(session, "level 200", "200", session.Level == 200));
+            foreach (int availableLevel in AvailableRaidLevels)
+            {
+                body.Append(
+                    RaidButton(
+                        session,
+                        $"level {availableLevel}",
+                        availableLevel.ToString(),
+                        session.Level == availableLevel));
+                body.Append("  ");
+            }
+
             body.Append("\n\nSelect City Dwellers:\n");
 
             for (int count = 0; count <= 12; count++)
@@ -2426,6 +2547,17 @@ namespace CityManager
             return charge.HasValue
                 ? $"{charge.Value * 100:F1}%"
                 : "unknown";
+        }
+
+        private bool IsAvailableRaidLevel(int level)
+        {
+            foreach (int availableLevel in AvailableRaidLevels)
+            {
+                if (level == availableLevel)
+                    return true;
+            }
+
+            return false;
         }
 
         private enum RaidStage

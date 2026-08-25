@@ -389,7 +389,10 @@ namespace CityManager
                   command == "memberlist") && parts.Length == 1) ||
                 (command == "alts" && HasTellAltsCommandShape(parts)) ||
                 (command == "raid" && HasTellRaidCommandShape(parts)) ||
-                (command == "raidassist" && parts.Length == 3) ||
+                (command == "raidassist" &&
+                 (parts.Length == 3 ||
+                  (parts.Length == 4 &&
+                   string.Equals(parts[1], "level", StringComparison.OrdinalIgnoreCase)))) ||
                 (command == "cancel" && (parts.Length == 1 || parts.Length == 2)) ||
                 (command == "recoverraid" && parts.Length == 5) ||
                 (command == "admin" && parts.Length == 3 &&
