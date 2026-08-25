@@ -20,6 +20,9 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\SettingsPaths.cs">
       <Link>SettingsPaths.cs</Link>
     </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\BuddyPositionSnapshot.cs">
+      <Link>BuddyPositionSnapshot.cs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>

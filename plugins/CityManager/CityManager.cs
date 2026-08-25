@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Chat;
@@ -22,6 +24,7 @@ namespace CityManager
         private const string FlipperPipeName = "citydwellers-flipper";
         private const string BuddiesPipeName = "citydwellers-buddies";
         private const int WorkerConnectTimeoutMs = 1000;
+        private const int BuddySnapshotFreshSeconds = 15;
         private const int GuestLookupTimeoutMs = 5000;
         private const string OrgChannelName = "Athen Paladins";
         private const string CommandPrefix = "#";
@@ -50,6 +53,7 @@ namespace CityManager
                 "sleep",
                 "spinup",
                 "spindown",
+                "positions",
                 "cancel",
                 "recoverraid",
                 "adminlist",
@@ -386,7 +390,8 @@ namespace CityManager
                   command == "leave" ||
                   command == "join" ||
                   command == "adminlist" ||
-                  command == "memberlist") && parts.Length == 1) ||
+                  command == "memberlist" ||
+                  command == "positions") && parts.Length == 1) ||
                 (command == "alts" && HasTellAltsCommandShape(parts)) ||
                 (command == "raid" && HasTellRaidCommandShape(parts)) ||
                 (command == "raidassist" &&
@@ -612,6 +617,16 @@ namespace CityManager
                     break;
                 }
 
+                case "positions":
+                    if (parts.Length != 1)
+                    {
+                        Reply(replyTarget, Usage(replyTarget, "positions"));
+                        break;
+                    }
+
+                    BeginBuddyPositions(replyTarget);
+                    break;
+
                 case "cancel":
                     ProcessRaidCancel(senderName, parts, replyTarget);
                     break;
@@ -652,7 +667,8 @@ namespace CityManager
                 $"Admins may also use cloak and raid in tells. " +
                 $"Admin: {prefix}invite [character], {prefix}kick [character], " +
                 $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
-                $"{prefix}spinup [level] [count], {prefix}spindown [count], {prefix}cancel, " +
+                $"{prefix}spinup [level] [count], {prefix}spindown [count], " +
+                $"{prefix}positions, {prefix}cancel, " +
                 $"{prefix}adminlist, {prefix}admin [add|del/rem/remove/delete] [character], " +
                 $"{prefix}memberlist, {prefix}member [add|del/rem/remove/delete] [character], " +
                 $"{prefix}alts [character|list|add|del/rem/remove/delete]. " +
@@ -909,6 +925,226 @@ namespace CityManager
                     Reply(target, $"Buddies service unavailable: {ex.Message}");
                 }
             });
+        }
+
+        private void BeginBuddyPositions(ReplyTarget target)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                var request = new WorkerRequest
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Command = "positions"
+                };
+
+                string shortId = ShortId(request.Id);
+
+                try
+                {
+                    DevTrace($"BUDDY POSITIONS -> snapshot [{shortId}]");
+
+                    WorkerResponse response = SendWorkerRequest(
+                        BuddiesPipeName,
+                        request,
+                        WorkerConnectTimeoutMs);
+
+                    if (!string.Equals(response.Id, request.Id, StringComparison.Ordinal))
+                    {
+                        throw new IOException(
+                            $"Buddies response id mismatch ({response.Id ?? "missing"}).");
+                    }
+
+                    if (!response.Ok)
+                    {
+                        DevTrace(
+                            $"BUDDY POSITIONS FAIL [{shortId}]: {response.Message}");
+                        Reply(
+                            target,
+                            $"Buddies position check failed: {response.Message ?? "unknown error"}");
+                        return;
+                    }
+
+                    List<BuddyPositionSnapshot> positions =
+                        response.Positions == null
+                            ? new List<BuddyPositionSnapshot>()
+                            : response.Positions
+                                .Where(position => position != null)
+                                .ToList();
+                    DateTime now = DateTime.UtcNow;
+                    int reporting = positions.Count(position => HasPositionReport(position));
+                    int fresh = positions.Count(position => IsFreshPositionReport(position, now));
+                    int inPlay = positions.Count(position => position.InPlay);
+                    int dead = positions.Count(position => position.Dead);
+
+                    DevTrace(
+                        $"BUDDY POSITIONS OK [{shortId}]: active={positions.Count} " +
+                        $"reporting={reporting} fresh={fresh} inplay={inPlay} dead={dead}.");
+                    TraceBuddyPositions(positions, now);
+
+                    string window = BuildBuddyPositionWindow(positions, now);
+                    Reply(
+                        target,
+                        $"Buddy positions: {positions.Count} active, {reporting} reporting, " +
+                        $"{inPlay} in play, {dead} dead. {window} " +
+                        "Detailed telemetry was queued for the guest channel.");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Buddies position IPC failed: {ex.Message}");
+                    DevTrace($"BUDDY POSITIONS ERROR [{shortId}]: {ex.Message}");
+                    Reply(target, $"Buddies position check unavailable: {ex.Message}");
+                }
+            });
+        }
+
+        private string BuildBuddyPositionWindow(
+            IList<BuddyPositionSnapshot> positions,
+            DateTime now)
+        {
+            var body = new StringBuilder();
+            body.Append("<font color='#89D2E8'>City Dwellers Positions</font>\n\n");
+
+            if (positions.Count == 0)
+            {
+                body.Append("No City Dwellers-owned buddies are active.\n");
+            }
+            else
+            {
+                foreach (BuddyPositionSnapshot position in positions)
+                {
+                    bool reported = HasPositionReport(position);
+                    bool fresh = IsFreshPositionReport(position, now);
+                    string color = position.Dead
+                        ? "#FF5050"
+                        : reported && fresh && position.InPlay
+                            ? "#00DE42"
+                            : "#F79410";
+                    string age = reported
+                        ? FormatDuration(SnapshotAge(position, now)) + " ago"
+                        : "never";
+
+                    body.Append(
+                        $"<font color='{color}'>{SafeRaidText(position.Character ?? "unknown")}</font> " +
+                        $"(level {position.Level?.ToString() ?? "?"}, index {position.Index?.ToString() ?? "?"})\n");
+                    body.Append(
+                        $"  state: {(position.InPlay ? "in play" : "not in play")}, " +
+                        $"dead: {(position.Dead ? "yes" : "no")}, observed: {age}\n");
+                    body.Append(
+                        $"  playfield: {position.PlayfieldId?.ToString() ?? "?"} " +
+                        $"{SafeRaidText(position.PlayfieldName ?? "unknown")}\n");
+                    body.Append($"  position: {FormatPosition(position)}\n");
+                    body.Append($"  heading: {FormatHeading(position)}\n");
+                    body.Append(
+                        $"  health: {position.Health?.ToString() ?? "?"}/" +
+                        $"{position.MaxHealth?.ToString() ?? "?"}\n");
+
+                    if (!string.IsNullOrWhiteSpace(position.Error))
+                        body.Append($"  error: {SafeRaidText(position.Error)}\n");
+
+                    body.Append("\n");
+                }
+            }
+
+            body.Append("Observation only: no movement command was sent.");
+            return $"<a href=\"text://{body}\">Click here to open window</a>";
+        }
+
+        private void TraceBuddyPositions(
+            IList<BuddyPositionSnapshot> positions,
+            DateTime now)
+        {
+            const int entriesPerMessage = 3;
+
+            for (int offset = 0; offset < positions.Count; offset += entriesPerMessage)
+            {
+                int count = Math.Min(entriesPerMessage, positions.Count - offset);
+                var entries = new List<string>(count);
+
+                for (int index = 0; index < count; index++)
+                    entries.Add(BuildBuddyPositionTelemetry(positions[offset + index], now));
+
+                int part = (offset / entriesPerMessage) + 1;
+                int totalParts = (positions.Count + entriesPerMessage - 1) / entriesPerMessage;
+                DevTrace(
+                    $"BUDDY POS {part}/{totalParts}: " +
+                    string.Join(" | ", entries));
+            }
+        }
+
+        private string BuildBuddyPositionTelemetry(
+            BuddyPositionSnapshot position,
+            DateTime now)
+        {
+            string age = HasPositionReport(position)
+                ? ((int)Math.Max(0, SnapshotAge(position, now).TotalSeconds)).ToString() + "s"
+                : "unknown";
+            string error = string.IsNullOrWhiteSpace(position.Error)
+                ? "none"
+                : position.Error.Replace("|", "/").Replace("\r", " ").Replace("\n", " ");
+
+            return
+                $"{position.Character ?? "unknown"} level={position.Level?.ToString() ?? "?"} " +
+                $"index={position.Index?.ToString() ?? "?"} inplay={position.InPlay} " +
+                $"dead={position.Dead} pf={position.PlayfieldId?.ToString() ?? "?"} " +
+                $"name='{position.PlayfieldName ?? "unknown"}' pos={FormatPosition(position)} " +
+                $"heading={FormatHeading(position)} hp={position.Health?.ToString() ?? "?"}/" +
+                $"{position.MaxHealth?.ToString() ?? "?"} age={age} error='{error}'";
+        }
+
+        private static bool HasPositionReport(BuddyPositionSnapshot position)
+        {
+            return position != null && position.ObservedUtc != default(DateTime);
+        }
+
+        private static bool IsFreshPositionReport(
+            BuddyPositionSnapshot position,
+            DateTime now)
+        {
+            return HasPositionReport(position) &&
+                   SnapshotAge(position, now) <= TimeSpan.FromSeconds(BuddySnapshotFreshSeconds);
+        }
+
+        private static TimeSpan SnapshotAge(
+            BuddyPositionSnapshot position,
+            DateTime now)
+        {
+            TimeSpan age = now - position.ObservedUtc.ToUniversalTime();
+            return age < TimeSpan.Zero ? TimeSpan.Zero : age;
+        }
+
+        private static string FormatPosition(BuddyPositionSnapshot position)
+        {
+            return position != null &&
+                   position.PositionAvailable &&
+                   position.PositionX.HasValue &&
+                   position.PositionY.HasValue &&
+                   position.PositionZ.HasValue
+                ? $"({FormatCoordinate(position.PositionX)}," +
+                  $"{FormatCoordinate(position.PositionY)}," +
+                  $"{FormatCoordinate(position.PositionZ)})"
+                : "unknown";
+        }
+
+        private static string FormatHeading(BuddyPositionSnapshot position)
+        {
+            return position != null &&
+                   position.HeadingAvailable &&
+                   position.HeadingX.HasValue &&
+                   position.HeadingY.HasValue &&
+                   position.HeadingZ.HasValue &&
+                   position.HeadingW.HasValue
+                ? $"({FormatCoordinate(position.HeadingX)}," +
+                  $"{FormatCoordinate(position.HeadingY)}," +
+                  $"{FormatCoordinate(position.HeadingZ)}," +
+                  $"{FormatCoordinate(position.HeadingW)})"
+                : "unknown";
+        }
+
+        private static string FormatCoordinate(float? value)
+        {
+            return value.HasValue
+                ? value.Value.ToString("0.000", CultureInfo.InvariantCulture)
+                : "?";
         }
 
         private WorkerResponse SendWorkerRequest(string pipeName, WorkerRequest request, int connectTimeoutMs)
@@ -1782,6 +2018,7 @@ namespace CityManager
             public bool Cached;
             public DateTime? ObservedUtc;
             public bool ActionSent;
+            public List<BuddyPositionSnapshot> Positions;
         }
 
         private class WorkerLinkStatus

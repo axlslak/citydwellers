@@ -280,6 +280,9 @@ public class PluginLoader
             case "spindown":
                 return Spindown(request);
 
+            case "positions":
+                return Positions(request);
+
             case "ping":
                 return Ok(request, "Buddies service is running.");
 
@@ -344,6 +347,7 @@ public class PluginLoader
         string readyPath = GetReadyPath(character);
 
         DeleteReadyMarker(readyPath);
+        DeletePositionSnapshot(character);
 
         Logger logger =
             new LoggerConfiguration()
@@ -385,6 +389,7 @@ public class PluginLoader
 
                 domain = null;
                 DeleteReadyMarker(readyPath);
+                DeletePositionSnapshot(character);
 
                 return Fail(
                     request,
@@ -427,6 +432,7 @@ public class PluginLoader
             }
 
             DeleteReadyMarker(readyPath);
+            DeletePositionSnapshot(character);
 
             Console.WriteLine(
                 $"Failed starting buddy {character}: {ex}");
@@ -480,6 +486,7 @@ public class PluginLoader
 
             ActiveBuddies.Remove(index);
             DeleteReadyMarker(GetReadyPath(buddy.Character));
+            DeletePositionSnapshot(buddy.Character);
 
             Console.WriteLine(
                 $"Buddy unloaded: {buddy.Character}.");
@@ -817,6 +824,78 @@ public class PluginLoader
         }
     }
 
+    private static WorkerResponse Positions(WorkerRequest request)
+    {
+        lock (ActiveLock)
+        {
+            var positions = new List<BuddyPositionSnapshot>();
+            int reported = 0;
+
+            foreach (ActiveBuddy buddy in ActiveBuddies.Values)
+            {
+                BuddyPositionSnapshot snapshot = ReadPositionSnapshot(buddy);
+                if (snapshot.ObservedUtc != default(DateTime))
+                    reported++;
+
+                positions.Add(snapshot);
+            }
+
+            positions.Sort((left, right) =>
+            {
+                int levelCompare = Nullable.Compare(left.Level, right.Level);
+                return levelCompare != 0
+                    ? levelCompare
+                    : Nullable.Compare(left.Index, right.Index);
+            });
+
+            WorkerResponse response = Ok(
+                request,
+                $"Position snapshot: {reported}/{positions.Count} active buddies reported.");
+            response.Positions = positions;
+            response.Count = positions.Count;
+            return response;
+        }
+    }
+
+    private static BuddyPositionSnapshot ReadPositionSnapshot(ActiveBuddy buddy)
+    {
+        var fallback = new BuddyPositionSnapshot
+        {
+            Character = buddy.Character,
+            Level = buddy.Level,
+            Index = buddy.Index,
+            Error = "Position snapshot is not available yet."
+        };
+
+        string path = GetPositionPath(buddy.Character);
+
+        try
+        {
+            if (!File.Exists(path))
+                return fallback;
+
+            BuddyPositionSnapshot snapshot =
+                JsonConvert.DeserializeObject<BuddyPositionSnapshot>(
+                    File.ReadAllText(path));
+
+            if (snapshot == null)
+            {
+                fallback.Error = "Position snapshot contains invalid JSON.";
+                return fallback;
+            }
+
+            snapshot.Character = buddy.Character;
+            snapshot.Level = buddy.Level;
+            snapshot.Index = buddy.Index;
+            return snapshot;
+        }
+        catch (Exception ex)
+        {
+            fallback.Error = "Unable to read position snapshot: " + ex.Message;
+            return fallback;
+        }
+    }
+
     private static string CompactFailure(string message)
     {
         if (string.IsNullOrWhiteSpace(message))
@@ -863,6 +942,13 @@ public class PluginLoader
             $"citybuddies-ready-{character}.ready");
     }
 
+    private static string GetPositionPath(string character)
+    {
+        return Path.Combine(
+            _baseDir,
+            $"citybuddies-position-{character}.json");
+    }
+
     private static bool WaitForReady(string character, string readyPath, int timeoutMs)
     {
         var timer = Stopwatch.StartNew();
@@ -894,6 +980,23 @@ public class PluginLoader
         {
             if (File.Exists(readyPath))
                 File.Delete(readyPath);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void DeletePositionSnapshot(string character)
+    {
+        try
+        {
+            string path = GetPositionPath(character);
+            if (File.Exists(path))
+                File.Delete(path);
+
+            string tempPath = path + ".tmp";
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
         }
         catch
         {
@@ -1014,6 +1117,7 @@ public class PluginLoader
                     }
 
                     DeleteReadyMarker(GetReadyPath(buddy.Character));
+                    DeletePositionSnapshot(buddy.Character);
                 }
                 catch (Exception ex)
                 {
@@ -1096,5 +1200,6 @@ public class PluginLoader
         public List<string> Characters;
         public List<int> Indexes;
         public int? Count;
+        public List<BuddyPositionSnapshot> Positions;
     }
 }
