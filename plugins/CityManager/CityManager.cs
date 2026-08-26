@@ -2021,6 +2021,7 @@ namespace CityManager
             public int? TimeoutSeconds;
             public int? Level;
             public int? Index;
+            public List<int> Indexes;
             public string Purpose;
             public int? LeaseSeconds;
         }

@@ -83,14 +83,16 @@ the alt bot is unavailable.
 Use `CityFlipper.dll` in `flipper.json`. The `Plugins` field may be omitted
 from `buddies.json`; Buddies then loads `CityBuddies.dll` automatically.
 
-The Buddies account pool and concurrent login limit are separate. For example,
-this configures indexes `0..12` while allowing at most 12 buddies online:
+The Buddies account pool, raid population limit, and simultaneous AO login
+handshakes are separate. For example, this configures indexes `0..12`, allows
+at most 12 raid-owned buddies online, and starts up to four AO sessions at once:
 
 ```json
 {
   "AccountPrefix": "user",
   "AccountCount": 13,
   "ActiveLimit": 12,
+  "MaxParallelLogins": 4,
   "Password": "pass1",
   "Plugins": null
 }
@@ -102,4 +104,8 @@ spinup remain capped by `ActiveLimit`. Administrator `wakeup` and `spinup`
 commands may use the entire configured account pool, including all 13 at once
 for diagnostics. Existing configurations without `ActiveLimit` receive a value
 no larger than 12 automatically; increase `AccountCount` explicitly when adding
-a spare account.
+a spare account. Existing configurations without `MaxParallelLogins` receive a
+safe default of 4. Every account has its own serialized worker, so different
+buddies can start, stop, report position, and later navigate independently;
+raise `MaxParallelLogins` only if the AO login service and machine handle the
+extra simultaneous handshakes reliably.

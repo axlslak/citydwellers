@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -31,6 +32,8 @@ public class PluginLoader
     private static readonly object ActiveLock = new object();
     private static readonly Dictionary<int, ActiveBuddy> ActiveBuddies =
         new Dictionary<int, ActiveBuddy>();
+    private static BuddySlotWorker[] _slotWorkers;
+    private static SemaphoreSlim _loginGate;
 
     // AOSharp.Clientless 1.0.16 keeps these private. Its PluginProxy uses the
     // default .NET Remoting lease, so it expires during a normal city raid and
@@ -48,6 +51,7 @@ public class PluginLoader
     private static string _baseDir;
     private static long _nextStartSequence;
     private static Timer _leaseTimer;
+    private static volatile bool _stopping;
 
     static void Main(string[] args)
     {
@@ -99,7 +103,7 @@ public class PluginLoader
             return;
         }
 
-        bool addedActiveLimit = false;
+        bool configChanged = false;
         if (_config != null &&
             !_config.ActiveLimit.HasValue &&
             _config.AccountCount > 0)
@@ -107,7 +111,15 @@ public class PluginLoader
             _config.ActiveLimit = Math.Min(
                 AbsoluteMaxRaidBuddies,
                 _config.AccountCount);
-            addedActiveLimit = true;
+            configChanged = true;
+        }
+
+        if (_config != null &&
+            !_config.MaxParallelLogins.HasValue &&
+            _config.AccountCount > 0)
+        {
+            _config.MaxParallelLogins = Math.Min(4, _config.AccountCount);
+            configChanged = true;
         }
 
         if (!ValidateConfig(_config))
@@ -117,7 +129,7 @@ public class PluginLoader
             return;
         }
 
-        if (addedActiveLimit)
+        if (configChanged)
         {
             try
             {
@@ -125,12 +137,12 @@ public class PluginLoader
                     configPath,
                     JsonConvert.SerializeObject(_config, Formatting.Indented));
                 Console.WriteLine(
-                    $"Added ActiveLimit={_config.ActiveLimit.Value} to '{configPath}'.");
+                    $"Updated optional concurrency settings in '{configPath}'.");
             }
             catch (Exception ex)
             {
                 Console.WriteLine(
-                    $"Unable to save the optional ActiveLimit setting to " +
+                    $"Unable to save optional concurrency settings to " +
                     $"'{configPath}': {ex.Message}");
             }
         }
@@ -147,6 +159,9 @@ public class PluginLoader
             $"Raid limit: {_config.ActiveLimit.Value}; " +
             $"admin manual capacity: {_config.AccountCount}; " +
             $"raid spare capacity: {_config.AccountCount - _config.ActiveLimit.Value}");
+        Console.WriteLine(
+            $"Buddy workers: {_config.AccountCount}; " +
+            $"parallel AO logins: {_config.MaxParallelLogins.Value}");
         Console.WriteLine("Character scheme: Apcr{level:000}{index:00}");
         Console.WriteLine($"Pipe: {PipeName}");
         Console.WriteLine();
@@ -154,6 +169,8 @@ public class PluginLoader
         Console.WriteLine("Waiting for Manager requests.");
         Console.WriteLine("Press ENTER to stop Buddies and unload any active buddies.");
         Console.WriteLine();
+
+        InitializeSlotWorkers();
 
         Thread pipeThread = new Thread(RunPipeServer)
         {
@@ -173,9 +190,11 @@ public class PluginLoader
 
         Console.WriteLine();
         Console.WriteLine("Stopping Buddies service...");
+        _stopping = true;
         _leaseTimer?.Dispose();
         _leaseTimer = null;
         ShutdownAll();
+        StopSlotWorkers();
         Console.WriteLine("Buddies service stopped.");
     }
 
@@ -186,6 +205,7 @@ public class PluginLoader
             AccountPrefix = "user",
             AccountCount = 13,
             ActiveLimit = 12,
+            MaxParallelLogins = 4,
             Password = "pass1"
         };
 
@@ -237,6 +257,15 @@ public class PluginLoader
             return false;
         }
 
+        if (!config.MaxParallelLogins.HasValue ||
+            config.MaxParallelLogins.Value <= 0 ||
+            config.MaxParallelLogins.Value > config.AccountCount)
+        {
+            Console.WriteLine(
+                "buddies.json MaxParallelLogins must be between 1 and AccountCount.");
+            return false;
+        }
+
         if (string.IsNullOrWhiteSpace(config.Password))
         {
             Console.WriteLine("buddies.json requires Password.");
@@ -255,57 +284,140 @@ public class PluginLoader
         return true;
     }
 
+    private static void InitializeSlotWorkers()
+    {
+        _loginGate = new SemaphoreSlim(
+            _config.MaxParallelLogins.Value,
+            _config.MaxParallelLogins.Value);
+        _slotWorkers = new BuddySlotWorker[_config.AccountCount];
+
+        for (int index = 0; index < _slotWorkers.Length; index++)
+            _slotWorkers[index] = new BuddySlotWorker(index);
+    }
+
+    private static void StopSlotWorkers()
+    {
+        if (_slotWorkers == null)
+            return;
+
+        foreach (BuddySlotWorker worker in _slotWorkers)
+            worker.StopAccepting();
+
+        foreach (BuddySlotWorker worker in _slotWorkers)
+            worker.Join();
+
+        _slotWorkers = null;
+        _loginGate?.Dispose();
+        _loginGate = null;
+    }
+
+    private static SlotOperation QueueSlotOperation(
+        int index,
+        Func<WorkerResponse> action)
+    {
+        if (_slotWorkers == null || index < 0 || index >= _slotWorkers.Length)
+            throw new InvalidOperationException($"Buddy slot {index} is not available.");
+
+        return _slotWorkers[index].Enqueue(action);
+    }
+
+    private static WorkerResponse AwaitSlotOperation(
+        SlotOperation operation,
+        WorkerRequest request,
+        int index,
+        string command)
+    {
+        operation.Completed.Wait();
+
+        if (operation.Error != null)
+        {
+            return Fail(
+                request,
+                $"Buddy slot {index} failed during {command}: " +
+                operation.Error.Message);
+        }
+
+        return operation.Response ??
+            Fail(request, $"Buddy slot {index} returned no {command} result.");
+    }
+
     private static void RunPipeServer()
     {
-        while (true)
+        while (!_stopping)
         {
+            NamedPipeServerStream pipe = null;
+
             try
             {
-                using (var pipe = new NamedPipeServerStream(
+                pipe = new NamedPipeServerStream(
                     PipeName,
                     PipeDirection.InOut,
-                    1,
+                    NamedPipeServerStream.MaxAllowedServerInstances,
                     PipeTransmissionMode.Byte,
-                    PipeOptions.None))
-                {
-                    pipe.WaitForConnection();
+                    PipeOptions.Asynchronous);
 
-                    var reader = new StreamReader(pipe);
-                    var writer = new StreamWriter(pipe) { AutoFlush = true };
-
-                    string line = reader.ReadLine();
-
-                    WorkerResponse response;
-
-                    try
-                    {
-                        WorkerRequest request =
-                            JsonConvert.DeserializeObject<WorkerRequest>(line ?? string.Empty);
-
-                        response = HandleRequest(request);
-                    }
-                    catch (Exception ex)
-                    {
-                        response = new WorkerResponse
-                        {
-                            Ok = false,
-                            Message = $"Invalid Buddies request: {ex.Message}"
-                        };
-                    }
-
-                    writer.WriteLine(JsonConvert.SerializeObject(response));
-                }
+                pipe.WaitForConnection();
+                ThreadPool.QueueUserWorkItem(HandlePipeConnection, pipe);
+                pipe = null;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Buddies pipe server error: {ex}");
-                Thread.Sleep(500);
+                if (!_stopping)
+                {
+                    Console.WriteLine($"Buddies pipe listener error: {ex}");
+                    Thread.Sleep(500);
+                }
+            }
+            finally
+            {
+                pipe?.Dispose();
+            }
+        }
+    }
+
+    private static void HandlePipeConnection(object state)
+    {
+        using (var pipe = (NamedPipeServerStream)state)
+        {
+            try
+            {
+                var reader = new StreamReader(pipe);
+                var writer = new StreamWriter(pipe) { AutoFlush = true };
+
+                string line = reader.ReadLine();
+                WorkerResponse response;
+
+                try
+                {
+                    WorkerRequest request =
+                        JsonConvert.DeserializeObject<WorkerRequest>(line ?? string.Empty);
+
+                    response = HandleRequest(request);
+                }
+                catch (Exception ex)
+                {
+                    response = new WorkerResponse
+                    {
+                        Ok = false,
+                        Message = $"Invalid Buddies request: {ex.Message}"
+                    };
+                }
+
+                writer.WriteLine(JsonConvert.SerializeObject(response));
+            }
+            catch (Exception ex)
+            {
+                if (!_stopping)
+                    Console.WriteLine($"Buddies pipe request error: {ex}");
             }
         }
     }
 
     private static WorkerResponse HandleRequest(WorkerRequest request)
     {
+        if (_stopping)
+            return Fail(request, "Buddies service is stopping.");
+
         if (request == null || string.IsNullOrWhiteSpace(request.Command))
         {
             return Fail(request, "Missing command.");
@@ -315,6 +427,8 @@ public class PluginLoader
         string quantityLabel =
             command == "spinup" || command == "spindown"
                 ? $"count={request.Index}"
+                : command == "sleepmany"
+                    ? $"indexes={FormatIndexes(request.Indexes)}"
                 : $"index={request.Index}";
 
         Console.WriteLine(
@@ -328,6 +442,9 @@ public class PluginLoader
 
             case "sleep":
                 return Sleep(request);
+
+            case "sleepmany":
+                return SleepMany(request);
 
             case "spinup":
                 return Spinup(request);
@@ -364,51 +481,74 @@ public class PluginLoader
                 $"Account index {index} is outside 0..{_config.AccountCount - 1}.");
         }
 
-        lock (ActiveLock)
-        {
-            return WakeupLocked(request, level, index);
-        }
+        SlotOperation operation = QueueSlotOperation(
+            index,
+            () => WakeupOnSlot(request, level, index));
+
+        return AwaitSlotOperation(operation, request, index, "wakeup");
     }
 
-    private static WorkerResponse WakeupLocked(
+    private static WorkerResponse WakeupOnSlot(
         WorkerRequest request,
         int level,
         int index)
     {
-        ActiveBuddy existing;
+        ActiveBuddy activeBuddy;
 
-        if (ActiveBuddies.TryGetValue(index, out existing))
+        lock (ActiveLock)
         {
-            if (existing.Level == level)
-            {
-                ApplyRequestPurpose(existing, request);
+            if (_stopping)
+                return Fail(request, "Buddies service is stopping.");
 
-                return Ok(
+            ActiveBuddy existing;
+
+            if (ActiveBuddies.TryGetValue(index, out existing))
+            {
+                if (existing.Level == level && !existing.IsStopping)
+                {
+                    ApplyRequestPurpose(existing, request);
+
+                    return Ok(
+                        request,
+                        $"{existing.Character} is already active.",
+                        existing.Character,
+                        level,
+                        index);
+                }
+
+                return Fail(
                     request,
-                    $"{existing.Character} is already active.",
-                    existing.Character,
-                    level,
-                    index);
+                    existing.IsStopping
+                        ? $"Account index {index} is still unloading {existing.Character}."
+                        : $"Account index {index} is already running {existing.Character}. " +
+                          "Sleep it before selecting another level.");
             }
 
-            return Fail(
-                request,
-                $"Account index {index} is already running {existing.Character}. " +
-                "Sleep it before selecting another level.");
-        }
+            int activeLimit = GetRequestActiveLimit(request);
+            if (ActiveBuddies.Count >= activeLimit)
+            {
+                return Fail(
+                    request,
+                    IsRaidRequest(request)
+                        ? $"The configured raid limit of {activeLimit} is already active."
+                        : $"All {activeLimit} configured buddy accounts are already active.");
+            }
 
-        int activeLimit = GetRequestActiveLimit(request);
-        if (ActiveBuddies.Count >= activeLimit)
-        {
-            return Fail(
-                request,
-                IsRaidRequest(request)
-                    ? $"The configured raid limit of {activeLimit} is already active."
-                    : $"All {activeLimit} configured buddy accounts are already active.");
+            activeBuddy = new ActiveBuddy
+            {
+                Index = index,
+                Level = level,
+                Character = BuildCharacterName(level, index),
+                StartedSequence = ++_nextStartSequence,
+                IsStarting = true
+            };
+
+            ApplyRequestPurpose(activeBuddy, request);
+            ActiveBuddies[index] = activeBuddy;
         }
 
         string username = _config.AccountPrefix + index;
-        string character = BuildCharacterName(level, index);
+        string character = activeBuddy.Character;
         string readyPath = GetReadyPath(character);
 
         DeleteReadyMarker(readyPath);
@@ -421,9 +561,13 @@ public class PluginLoader
                 .CreateLogger();
 
         ClientDomain domain = null;
+        bool loginGateEntered = false;
 
         try
         {
+            _loginGate.Wait();
+            loginGateEntered = true;
+
             Console.WriteLine(
                 $"Starting buddy {character} on {username}...");
 
@@ -449,8 +593,20 @@ public class PluginLoader
                     $"TIMEOUT waiting for {character} to reach InPlay.");
 
                 string unloadError;
-                if (!TryUnloadClientDomain(domain, character, out unloadError))
+                bool unloaded = TryUnloadClientDomain(
+                    domain,
+                    character,
+                    out unloadError);
+
+                if (!unloaded)
+                {
                     Console.WriteLine(unloadError);
+                    RetainFailedStartup(activeBuddy, domain);
+                }
+                else
+                {
+                    RemoveStartupReservation(index, activeBuddy);
+                }
 
                 domain = null;
                 DeleteReadyMarker(readyPath);
@@ -458,20 +614,24 @@ public class PluginLoader
 
                 return Fail(
                     request,
-                    $"{character} did not reach InPlay within {WakeupTimeoutMs / 1000} seconds.");
+                    $"{character} did not reach InPlay within " +
+                    $"{WakeupTimeoutMs / 1000} seconds." +
+                    (unloaded ? string.Empty : " Cleanup retry was scheduled."));
             }
 
-            var activeBuddy = new ActiveBuddy
+            lock (ActiveLock)
             {
-                Index = index,
-                Level = level,
-                Character = character,
-                Domain = domain,
-                StartedSequence = ++_nextStartSequence
-            };
+                ActiveBuddy current;
+                if (!ActiveBuddies.TryGetValue(index, out current) ||
+                    !ReferenceEquals(current, activeBuddy))
+                {
+                    throw new InvalidOperationException(
+                        $"Account index {index} lost its startup reservation.");
+                }
 
-            ApplyRequestPurpose(activeBuddy, request);
-            ActiveBuddies[index] = activeBuddy;
+                activeBuddy.Domain = domain;
+                activeBuddy.IsStarting = false;
+            }
 
             domain = null;
 
@@ -489,15 +649,24 @@ public class PluginLoader
         }
         catch (Exception ex)
         {
+            bool startupRetained = false;
+
             if (domain != null)
             {
                 string unloadError;
                 if (!TryUnloadClientDomain(domain, character, out unloadError))
+                {
                     Console.WriteLine(unloadError);
+                    RetainFailedStartup(activeBuddy, domain);
+                    startupRetained = true;
+                }
             }
 
             DeleteReadyMarker(readyPath);
             DeletePositionSnapshot(character);
+
+            if (!startupRetained)
+                RemoveStartupReservation(index, activeBuddy);
 
             Console.WriteLine(
                 $"Failed starting buddy {character}: {ex}");
@@ -505,6 +674,41 @@ public class PluginLoader
             return Fail(
                 request,
                 $"Failed starting {character}: {ex.Message}");
+        }
+        finally
+        {
+            if (loginGateEntered)
+                _loginGate.Release();
+        }
+    }
+
+    private static void RemoveStartupReservation(int index, ActiveBuddy buddy)
+    {
+        lock (ActiveLock)
+        {
+            ActiveBuddy current;
+            if (ActiveBuddies.TryGetValue(index, out current) &&
+                ReferenceEquals(current, buddy))
+            {
+                ActiveBuddies.Remove(index);
+            }
+        }
+    }
+
+    private static void RetainFailedStartup(
+        ActiveBuddy buddy,
+        ClientDomain domain)
+    {
+        lock (ActiveLock)
+        {
+            buddy.Domain = domain;
+            buddy.IsStarting = false;
+            buddy.Purpose = "failed-start";
+            buddy.LeaseExpiresUtc = DateTime.UtcNow;
+            buddy.CleanupFailures++;
+            buddy.NextCleanupAttemptUtc =
+                DateTime.UtcNow.AddSeconds(FailedCleanupRetrySeconds);
+            buddy.CleanupQueued = false;
         }
     }
 
@@ -515,24 +719,54 @@ public class PluginLoader
 
         int index = request.Index.Value;
 
-        lock (ActiveLock)
+        if (index < 0 || index >= _config.AccountCount)
         {
-            return SleepLocked(request, index);
+            return Fail(
+                request,
+                $"Account index {index} is outside 0..{_config.AccountCount - 1}.");
         }
+
+        SlotOperation operation = QueueSlotOperation(
+            index,
+            () => SleepOnSlot(request, index));
+
+        return AwaitSlotOperation(operation, request, index, "sleep");
     }
 
-    private static WorkerResponse SleepLocked(WorkerRequest request, int index)
+    private static WorkerResponse SleepOnSlot(WorkerRequest request, int index)
     {
         ActiveBuddy buddy;
 
-        if (!ActiveBuddies.TryGetValue(index, out buddy))
+        lock (ActiveLock)
         {
-            return Ok(
-                request,
-                $"Account index {index} is already sleeping.",
-                null,
-                null,
-                index);
+            if (!ActiveBuddies.TryGetValue(index, out buddy))
+            {
+                return Ok(
+                    request,
+                    $"Account index {index} is already sleeping.",
+                    null,
+                    null,
+                    index);
+            }
+
+            if (string.Equals(
+                    request?.Purpose,
+                    "demo-expiry",
+                    StringComparison.OrdinalIgnoreCase) &&
+                buddy.LeaseExpiresUtc.HasValue &&
+                DateTime.UtcNow < buddy.LeaseExpiresUtc.Value)
+            {
+                buddy.CleanupQueued = false;
+                return Ok(
+                    request,
+                    $"{buddy.Character} lease was renewed before cleanup.",
+                    null,
+                    buddy.Level,
+                    index);
+            }
+
+            buddy.IsStopping = true;
+            buddy.CleanupQueued = false;
         }
 
         Console.WriteLine(
@@ -549,7 +783,15 @@ public class PluginLoader
                 throw new InvalidOperationException(unloadError);
             }
 
-            ActiveBuddies.Remove(index);
+            lock (ActiveLock)
+            {
+                ActiveBuddy current;
+                if (ActiveBuddies.TryGetValue(index, out current) &&
+                    ReferenceEquals(current, buddy))
+                {
+                    ActiveBuddies.Remove(index);
+                }
+            }
             DeleteReadyMarker(GetReadyPath(buddy.Character));
             DeletePositionSnapshot(buddy.Character);
 
@@ -565,9 +807,14 @@ public class PluginLoader
         }
         catch (Exception ex)
         {
-            buddy.CleanupFailures++;
-            buddy.NextCleanupAttemptUtc =
-                DateTime.UtcNow.AddSeconds(FailedCleanupRetrySeconds);
+            lock (ActiveLock)
+            {
+                buddy.IsStopping = false;
+                buddy.CleanupQueued = false;
+                buddy.CleanupFailures++;
+                buddy.NextCleanupAttemptUtc =
+                    DateTime.UtcNow.AddSeconds(FailedCleanupRetrySeconds);
+            }
 
             Console.WriteLine(
                 $"Failed unloading {buddy.Character}; retry {buddy.CleanupFailures} " +
@@ -577,6 +824,30 @@ public class PluginLoader
                 request,
                 $"Failed sleeping {buddy.Character}: {ex.Message}");
         }
+    }
+
+    private static WorkerResponse SleepMany(WorkerRequest request)
+    {
+        if (request.Indexes == null || request.Indexes.Count == 0)
+            return Fail(request, "sleepmany requires at least one account index.");
+
+        var indexes = new List<int>();
+        var seen = new HashSet<int>();
+
+        foreach (int index in request.Indexes)
+        {
+            if (index < 0 || index >= _config.AccountCount)
+            {
+                return Fail(
+                    request,
+                    $"Account index {index} is outside 0..{_config.AccountCount - 1}.");
+            }
+
+            if (seen.Add(index))
+                indexes.Add(index);
+        }
+
+        return SleepIndexes(request, indexes, "Group sleep");
     }
 
     private static WorkerResponse Spinup(WorkerRequest request)
@@ -602,113 +873,183 @@ public class PluginLoader
                       $"account pool of {requestLimit}.");
         }
 
-        lock (ActiveLock)
-        {
-            var started = new List<string>();
-            var startedIndexes = new List<int>();
-            var failures = new List<string>();
-            int activeSkipped = 0;
-            int claimedExisting = 0;
+        var started = new List<string>();
+        var startedIndexes = new List<int>();
+        var failures = new List<string>();
+        var attemptedIndexes = new HashSet<int>();
+        int claimedExisting = 0;
 
-            if (IsRaidRequest(request))
+        while (started.Count < requested)
+        {
+            var batchIndexes = new List<int>();
+
+            lock (ActiveLock)
             {
+                if (IsRaidRequest(request))
+                {
+                    for (int index = 0;
+                         index < _config.AccountCount &&
+                         started.Count + batchIndexes.Count < requested;
+                         index++)
+                    {
+                        if (attemptedIndexes.Contains(index) ||
+                            startedIndexes.Contains(index))
+                        {
+                            continue;
+                        }
+
+                        ActiveBuddy active;
+                        if (!ActiveBuddies.TryGetValue(index, out active) ||
+                            active.Level != level ||
+                            active.IsStopping)
+                        {
+                            continue;
+                        }
+
+                        if (active.IsStarting)
+                        {
+                            batchIndexes.Add(index);
+                            attemptedIndexes.Add(index);
+                            continue;
+                        }
+
+                        ApplyRequestPurpose(active, request);
+                        started.Add(active.Character);
+                        startedIndexes.Add(index);
+                        claimedExisting++;
+                    }
+                }
+
+                int needed = requested - started.Count - batchIndexes.Count;
+
                 for (int index = 0;
-                     index < _config.AccountCount && started.Count < requested;
+                     index < _config.AccountCount && needed > 0;
                      index++)
                 {
-                    ActiveBuddy active;
-                    if (!ActiveBuddies.TryGetValue(index, out active) ||
-                        active.Level != level)
+                    if (attemptedIndexes.Contains(index) ||
+                        ActiveBuddies.ContainsKey(index))
                     {
                         continue;
                     }
 
-                    ApplyRequestPurpose(active, request);
-                    started.Add(active.Character);
-                    startedIndexes.Add(index);
-                    claimedExisting++;
+                    batchIndexes.Add(index);
+                    attemptedIndexes.Add(index);
+                    needed--;
                 }
             }
 
-            for (int index = 0;
-                 index < _config.AccountCount && started.Count < requested;
-                 index++)
+            if (started.Count >= requested || batchIndexes.Count == 0)
+                break;
+
+            var operations = new List<SlotOperation>();
+            foreach (int index in batchIndexes)
             {
-                if (ActiveBuddies.ContainsKey(index))
-                {
-                    if (!startedIndexes.Contains(index))
-                        activeSkipped++;
-                    continue;
-                }
+                int slotIndex = index;
+                operations.Add(QueueSlotOperation(
+                    slotIndex,
+                    () => WakeupOnSlot(request, level, slotIndex)));
+            }
 
-                WorkerResponse attempt = WakeupLocked(request, level, index);
+            for (int operationIndex = 0;
+                 operationIndex < operations.Count;
+                 operationIndex++)
+            {
+                int index = batchIndexes[operationIndex];
+                WorkerResponse attempt = AwaitSlotOperation(
+                    operations[operationIndex],
+                    request,
+                    index,
+                    "spinup");
 
-                if (attempt.Ok &&
-                    !string.IsNullOrWhiteSpace(attempt.Character) &&
-                    attempt.Message != null &&
-                    attempt.Message.StartsWith("Started ", StringComparison.OrdinalIgnoreCase))
+                if (attempt.Ok && !string.IsNullOrWhiteSpace(attempt.Character))
                 {
                     started.Add(attempt.Character);
-                    if (attempt.Index.HasValue)
-                        startedIndexes.Add(attempt.Index.Value);
-                    continue;
+                    startedIndexes.Add(index);
+
+                    if (attempt.Message != null &&
+                        attempt.Message.IndexOf(
+                            "already active",
+                            StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        claimedExisting++;
+                    }
                 }
-
-                failures.Add($"{index}:{CompactFailure(attempt.Message)}");
+                else
+                {
+                    failures.Add($"{index}:{CompactFailure(attempt.Message)}");
+                }
             }
+        }
 
-            // Give every member of a group the same full lease starting when
-            // the complete spinup attempt finishes. This prevents the first
-            // character from expiring while later accounts are still loading.
+        // Give every member of a group the same full lease starting when the
+        // complete parallel spinup finishes. This prevents early slots from
+        // expiring while slower AO sessions are still loading.
+        lock (ActiveLock)
+        {
             foreach (int index in startedIndexes)
             {
                 ActiveBuddy active;
                 if (ActiveBuddies.TryGetValue(index, out active))
                     ApplyRequestPurpose(active, request);
             }
-
-            string startedText =
-                started.Count > 0
-                    ? string.Join(",", started)
-                    : "none";
-
-            string detail =
-                $"Spinup {(started.Count == requested ? "complete" : "partial")}: " +
-                $"started {started.Count}/{requested} level {level} [{startedText}]";
-
-            if (claimedExisting > 0)
-                detail += $"; raid claimed existing={claimedExisting}";
-
-            detail += IsRaidRequest(request)
-                ? $"; raid-owned; safety lease=" +
-                  $"{GetLeaseSeconds(request, DefaultRaidSafetyLeaseSeconds)}s"
-                : $"; demo lease={DefaultDemoLeaseSeconds}s";
-
-            if (activeSkipped > 0)
-                detail += $"; active skipped={activeSkipped}";
-
-            if (failures.Count > 0)
-                detail += $"; failed [{string.Join(",", failures)}]";
-
-            if (started.Count < requested &&
-                failures.Count == 0 &&
-                ActiveBuddies.Count >= requestLimit)
-            {
-                detail += IsRaidRequest(request)
-                    ? "; raid buddy limit reached"
-                    : "; all configured buddy accounts are active";
-            }
-
-            WorkerResponse result = started.Count == requested
-                ? Ok(request, detail, null, level, null)
-                : Fail(request, detail);
-
-            result.Characters = started;
-            result.Indexes = startedIndexes;
-            result.Count = started.Count;
-            result.Level = level;
-            return result;
         }
+
+        int activeSkipped;
+        lock (ActiveLock)
+        {
+            activeSkipped = 0;
+            foreach (int index in ActiveBuddies.Keys)
+            {
+                if (!startedIndexes.Contains(index))
+                    activeSkipped++;
+            }
+        }
+
+        string startedText =
+            started.Count > 0
+                ? string.Join(",", started)
+                : "none";
+
+        string detail =
+            $"Spinup {(started.Count == requested ? "complete" : "partial")}: " +
+            $"started {started.Count}/{requested} level {level} [{startedText}]";
+
+        if (claimedExisting > 0)
+            detail += $"; raid claimed existing={claimedExisting}";
+
+        detail += IsRaidRequest(request)
+            ? $"; raid-owned; safety lease=" +
+              $"{GetLeaseSeconds(request, DefaultRaidSafetyLeaseSeconds)}s"
+            : $"; demo lease={DefaultDemoLeaseSeconds}s";
+
+        if (activeSkipped > 0)
+            detail += $"; active skipped={activeSkipped}";
+
+        if (failures.Count > 0)
+            detail += $"; failed [{string.Join(",", failures)}]";
+
+        int activeCount;
+        lock (ActiveLock)
+            activeCount = ActiveBuddies.Count;
+
+        if (started.Count < requested &&
+            failures.Count == 0 &&
+            activeCount >= requestLimit)
+        {
+            detail += IsRaidRequest(request)
+                ? "; raid buddy limit reached"
+                : "; all configured buddy accounts are active";
+        }
+
+        WorkerResponse result = started.Count == requested
+            ? Ok(request, detail, null, level, null)
+            : Fail(request, detail);
+
+        result.Characters = started;
+        result.Indexes = startedIndexes;
+        result.Count = started.Count;
+        result.Level = level;
+        return result;
     }
 
     private static void ApplyRequestPurpose(
@@ -720,6 +1061,7 @@ public class PluginLoader
 
         buddy.CleanupFailures = 0;
         buddy.NextCleanupAttemptUtc = null;
+        buddy.CleanupQueued = false;
 
         if (IsRaidRequest(request))
         {
@@ -789,48 +1131,57 @@ public class PluginLoader
     {
         try
         {
+            var expiredIndexes = new List<int>();
+
             lock (ActiveLock)
             {
                 DateTime now = DateTime.UtcNow;
-                var expiredIndexes = new List<int>();
 
                 foreach (ActiveBuddy buddy in ActiveBuddies.Values)
                 {
                     if (buddy.LeaseExpiresUtc.HasValue &&
                         now >= buddy.LeaseExpiresUtc.Value &&
+                        !buddy.IsStarting &&
+                        !buddy.IsStopping &&
+                        !buddy.CleanupQueued &&
                         (!buddy.NextCleanupAttemptUtc.HasValue ||
                          now >= buddy.NextCleanupAttemptUtc.Value))
                     {
+                        buddy.CleanupQueued = true;
                         expiredIndexes.Add(buddy.Index);
                     }
                 }
+            }
 
-                foreach (int index in expiredIndexes)
+            foreach (int index in expiredIndexes)
+            {
+                ActiveBuddy buddy;
+                lock (ActiveLock)
                 {
-                    ActiveBuddy buddy;
                     if (!ActiveBuddies.TryGetValue(index, out buddy) ||
                         !buddy.LeaseExpiresUtc.HasValue ||
-                        now < buddy.LeaseExpiresUtc.Value ||
-                        (buddy.NextCleanupAttemptUtc.HasValue &&
-                         now < buddy.NextCleanupAttemptUtc.Value))
+                        buddy.IsStarting ||
+                        buddy.IsStopping)
                     {
                         continue;
                     }
-
-                    Console.WriteLine(
-                        $"{buddy.Purpose ?? "Buddy"} lease expired for " +
-                        $"{buddy.Character}; logging it out.");
-
-                    SleepLocked(
-                        new WorkerRequest
-                        {
-                            Id = Guid.NewGuid().ToString("N"),
-                            Command = "sleep",
-                            Index = index,
-                            Purpose = "demo-expiry"
-                        },
-                        index);
                 }
+
+                Console.WriteLine(
+                    $"{buddy.Purpose ?? "Buddy"} lease expired for " +
+                    $"{buddy.Character}; queueing logout on slot {index}.");
+
+                WorkerRequest request = new WorkerRequest
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Command = "sleep",
+                    Index = index,
+                    Purpose = "demo-expiry"
+                };
+
+                QueueSlotOperation(
+                    index,
+                    () => SleepOnSlot(request, index));
             }
         }
         catch (Exception ex)
@@ -845,102 +1196,132 @@ public class PluginLoader
             return Fail(request, "spindown requires a positive count.");
 
         int requested = request.Index.Value;
+        var indexes = new List<int>();
 
         lock (ActiveLock)
         {
-            var slept = new List<string>();
-            var sleptIndexes = new List<int>();
-            var failures = new List<string>();
-            var attemptedIndexes = new HashSet<int>();
+            var candidates = new List<ActiveBuddy>(ActiveBuddies.Values);
+            candidates.Sort((left, right) =>
+                right.StartedSequence.CompareTo(left.StartedSequence));
 
-            while (slept.Count < requested)
+            foreach (ActiveBuddy buddy in candidates)
             {
-                ActiveBuddy newest = null;
-
-                foreach (ActiveBuddy buddy in ActiveBuddies.Values)
-                {
-                    if (attemptedIndexes.Contains(buddy.Index))
-                        continue;
-
-                    if (newest == null || buddy.StartedSequence > newest.StartedSequence)
-                        newest = buddy;
-                }
-
-                if (newest == null)
+                if (indexes.Count >= requested)
                     break;
 
-                attemptedIndexes.Add(newest.Index);
-
-                WorkerResponse attempt = SleepLocked(request, newest.Index);
-                if (attempt.Ok)
-                {
-                    if (!string.IsNullOrWhiteSpace(attempt.Character))
-                        slept.Add(attempt.Character);
-                    sleptIndexes.Add(newest.Index);
-                }
-                else
-                {
-                    failures.Add($"{newest.Index}:{CompactFailure(attempt.Message)}");
-                }
+                indexes.Add(buddy.Index);
             }
-
-            string sleptText =
-                slept.Count > 0
-                    ? string.Join(",", slept)
-                    : "none";
-
-            string detail =
-                $"Spindown {(slept.Count == requested ? "complete" : "partial")}: " +
-                $"slept {slept.Count}/{requested} [{sleptText}]";
-
-            if (failures.Count > 0)
-                detail += $"; failed [{string.Join(",", failures)}]";
-
-            if (slept.Count < requested && ActiveBuddies.Count == 0)
-                detail += "; no City Dwellers-owned buddies remain";
-
-            WorkerResponse result = slept.Count == requested
-                ? Ok(request, detail)
-                : Fail(request, detail);
-
-            result.Characters = slept;
-            result.Indexes = sleptIndexes;
-            result.Count = slept.Count;
-            return result;
         }
+
+        return SleepIndexes(request, indexes, "Spindown", requested);
+    }
+
+    private static WorkerResponse SleepIndexes(
+        WorkerRequest request,
+        List<int> indexes,
+        string label,
+        int? requestedCount = null)
+    {
+        int requested = requestedCount ?? indexes.Count;
+        var operations = new List<SlotOperation>();
+
+        foreach (int index in indexes)
+        {
+            int slotIndex = index;
+            operations.Add(QueueSlotOperation(
+                slotIndex,
+                () => SleepOnSlot(request, slotIndex)));
+        }
+
+        var slept = new List<string>();
+        var sleptIndexes = new List<int>();
+        var failures = new List<string>();
+
+        for (int operationIndex = 0;
+             operationIndex < operations.Count;
+             operationIndex++)
+        {
+            int index = indexes[operationIndex];
+            WorkerResponse attempt = AwaitSlotOperation(
+                operations[operationIndex],
+                request,
+                index,
+                label.ToLowerInvariant());
+
+            if (attempt.Ok)
+            {
+                if (!string.IsNullOrWhiteSpace(attempt.Character))
+                    slept.Add(attempt.Character);
+                sleptIndexes.Add(index);
+            }
+            else
+            {
+                failures.Add($"{index}:{CompactFailure(attempt.Message)}");
+            }
+        }
+
+        string sleptText =
+            slept.Count > 0
+                ? string.Join(",", slept)
+                : "none";
+
+        string detail =
+            $"{label} {(sleptIndexes.Count == requested ? "complete" : "partial")}: " +
+            $"slept {sleptIndexes.Count}/{requested} [{sleptText}]";
+
+        if (failures.Count > 0)
+            detail += $"; failed [{string.Join(",", failures)}]";
+
+        int activeCount;
+        lock (ActiveLock)
+            activeCount = ActiveBuddies.Count;
+
+        if (sleptIndexes.Count < requested && activeCount == 0)
+            detail += "; no City Dwellers-owned buddies remain";
+
+        WorkerResponse result = sleptIndexes.Count == requested
+            ? Ok(request, detail)
+            : Fail(request, detail);
+
+        result.Characters = slept;
+        result.Indexes = sleptIndexes;
+        result.Count = sleptIndexes.Count;
+        return result;
     }
 
     private static WorkerResponse Positions(WorkerRequest request)
     {
+        List<ActiveBuddy> buddies;
+
         lock (ActiveLock)
+            buddies = new List<ActiveBuddy>(ActiveBuddies.Values);
+
+        var positions = new List<BuddyPositionSnapshot>();
+        int reported = 0;
+
+        foreach (ActiveBuddy buddy in buddies)
         {
-            var positions = new List<BuddyPositionSnapshot>();
-            int reported = 0;
+            BuddyPositionSnapshot snapshot = ReadPositionSnapshot(buddy);
+            if (snapshot.ObservedUtc != default(DateTime))
+                reported++;
 
-            foreach (ActiveBuddy buddy in ActiveBuddies.Values)
-            {
-                BuddyPositionSnapshot snapshot = ReadPositionSnapshot(buddy);
-                if (snapshot.ObservedUtc != default(DateTime))
-                    reported++;
-
-                positions.Add(snapshot);
-            }
-
-            positions.Sort((left, right) =>
-            {
-                int levelCompare = Nullable.Compare(left.Level, right.Level);
-                return levelCompare != 0
-                    ? levelCompare
-                    : Nullable.Compare(left.Index, right.Index);
-            });
-
-            WorkerResponse response = Ok(
-                request,
-                $"Position snapshot: {reported}/{positions.Count} active buddies reported.");
-            response.Positions = positions;
-            response.Count = positions.Count;
-            return response;
+            positions.Add(snapshot);
         }
+
+        positions.Sort((left, right) =>
+        {
+            int levelCompare = Nullable.Compare(left.Level, right.Level);
+            return levelCompare != 0
+                ? levelCompare
+                : Nullable.Compare(left.Index, right.Index);
+        });
+
+        WorkerResponse response = Ok(
+            request,
+            $"Position snapshot: {reported}/{positions.Count} active buddies reported.");
+        response.Positions = positions;
+        response.Count = positions.Count;
+        return response;
     }
 
     private static BuddyPositionSnapshot ReadPositionSnapshot(ActiveBuddy buddy)
@@ -996,6 +1377,13 @@ public class PluginLoader
         return compact.Length <= maxLength
             ? compact
             : compact.Substring(0, maxLength) + "...";
+    }
+
+    private static string FormatIndexes(List<int> indexes)
+    {
+        return indexes == null || indexes.Count == 0
+            ? "none"
+            : string.Join(",", indexes);
     }
 
     private static IEnumerable<string> GetPluginPaths()
@@ -1186,34 +1574,27 @@ public class PluginLoader
 
     private static void ShutdownAll()
     {
+        var indexes = new List<int>();
+
         lock (ActiveLock)
+            indexes.AddRange(ActiveBuddies.Keys);
+
+        var request = new WorkerRequest
         {
-            foreach (ActiveBuddy buddy in ActiveBuddies.Values)
-            {
-                try
-                {
-                    Console.WriteLine($"Unloading {buddy.Character}...");
-                    string unloadError;
-                    if (!TryUnloadClientDomain(
-                            buddy.Domain,
-                            buddy.Character,
-                            out unloadError))
-                    {
-                        throw new InvalidOperationException(unloadError);
-                    }
+            Id = Guid.NewGuid().ToString("N"),
+            Command = "sleepmany",
+            Indexes = indexes,
+            Purpose = "service-shutdown"
+        };
 
-                    DeleteReadyMarker(GetReadyPath(buddy.Character));
-                    DeletePositionSnapshot(buddy.Character);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(
-                        $"Failed unloading {buddy.Character}: {ex.Message}");
-                }
-            }
-
-            ActiveBuddies.Clear();
+        if (indexes.Count > 0)
+        {
+            WorkerResponse response = SleepIndexes(request, indexes, "Shutdown");
+            Console.WriteLine(response.Message);
         }
+
+        lock (ActiveLock)
+            ActiveBuddies.Clear();
     }
 
     private static WorkerResponse Ok(
@@ -1249,6 +1630,7 @@ public class PluginLoader
         public string AccountPrefix;
         public int AccountCount;
         public int? ActiveLimit;
+        public int? MaxParallelLogins;
         public string Password;
         public List<string> Plugins;
     }
@@ -1264,6 +1646,9 @@ public class PluginLoader
         public DateTime? LeaseExpiresUtc;
         public int CleanupFailures;
         public DateTime? NextCleanupAttemptUtc;
+        public bool IsStarting;
+        public bool IsStopping;
+        public bool CleanupQueued;
     }
 
     private class WorkerRequest
@@ -1272,8 +1657,75 @@ public class PluginLoader
         public string Command;
         public int? Level;
         public int? Index;
+        public List<int> Indexes;
         public string Purpose;
         public int? LeaseSeconds;
+    }
+
+    private sealed class SlotOperation
+    {
+        public Func<WorkerResponse> Action;
+        public readonly ManualResetEventSlim Completed =
+            new ManualResetEventSlim(false);
+        public WorkerResponse Response;
+        public Exception Error;
+    }
+
+    private sealed class BuddySlotWorker
+    {
+        private readonly BlockingCollection<SlotOperation> _queue =
+            new BlockingCollection<SlotOperation>();
+        private readonly Thread _thread;
+
+        public BuddySlotWorker(int index)
+        {
+            _thread = new Thread(Run)
+            {
+                IsBackground = true,
+                Name = $"CityDwellers.Buddy.{index:D2}"
+            };
+            _thread.Start();
+        }
+
+        public SlotOperation Enqueue(Func<WorkerResponse> action)
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            var operation = new SlotOperation { Action = action };
+            _queue.Add(operation);
+            return operation;
+        }
+
+        public void StopAccepting()
+        {
+            _queue.CompleteAdding();
+        }
+
+        public void Join()
+        {
+            _thread.Join();
+            _queue.Dispose();
+        }
+
+        private void Run()
+        {
+            foreach (SlotOperation operation in _queue.GetConsumingEnumerable())
+            {
+                try
+                {
+                    operation.Response = operation.Action();
+                }
+                catch (Exception ex)
+                {
+                    operation.Error = ex;
+                }
+                finally
+                {
+                    operation.Completed.Set();
+                }
+            }
+        }
     }
 
     private class WorkerResponse

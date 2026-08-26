@@ -1813,41 +1813,32 @@ namespace CityManager
             if (indexes.Count == 0)
                 return "No raid buddies needed logout.";
 
-            int slept = 0;
-            var failures = new List<string>();
-
-            foreach (int index in indexes)
+            try
             {
-                try
+                var request = new WorkerRequest
                 {
-                    var request = new WorkerRequest
-                    {
-                        Id = Guid.NewGuid().ToString("N"),
-                        Command = "sleep",
-                        Index = index
-                    };
+                    Id = Guid.NewGuid().ToString("N"),
+                    Command = "sleepmany",
+                    Indexes = indexes,
+                    Purpose = "raid-cleanup"
+                };
 
-                    WorkerResponse response = SendWorkerRequest(
-                        BuddiesPipeName,
-                        request,
-                        WorkerConnectTimeoutMs);
+                WorkerResponse response = SendWorkerRequest(
+                    BuddiesPipeName,
+                    request,
+                    WorkerConnectTimeoutMs);
 
-                    if (response.Ok)
-                        slept++;
-                    else
-                        failures.Add($"{index}:{response.Message}");
-                }
-                catch (Exception ex)
-                {
-                    failures.Add($"{index}:{ex.Message}");
-                }
+                int slept = response.Count ?? 0;
+                string text = $"Logged out {slept}/{indexes.Count} raid buddies.";
+                if (!response.Ok && !string.IsNullOrWhiteSpace(response.Message))
+                    text += $" {response.Message}";
+
+                return text;
             }
-
-            string text = $"Logged out {slept}/{indexes.Count} raid buddies.";
-            if (failures.Count > 0)
-                text += $" Failures: {string.Join("; ", failures)}";
-
-            return text;
+            catch (Exception ex)
+            {
+                return $"Logged out 0/{indexes.Count} raid buddies. Failure: {ex.Message}";
+            }
         }
 
         private bool IsCurrentRaidSession(RaidSession session)
