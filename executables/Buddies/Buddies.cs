@@ -24,6 +24,7 @@ public class PluginLoader
     private const int DefaultRaidSafetyLeaseSeconds = 1365;
     private const int ClientDomainLeaseMinutes = 60;
     private const int FailedCleanupRetrySeconds = 30;
+    private const int AbsoluteMaxActiveBuddies = 12;
 
     private static readonly object ActiveLock = new object();
     private static readonly Dictionary<int, ActiveBuddy> ActiveBuddies =
@@ -96,6 +97,17 @@ public class PluginLoader
             return;
         }
 
+        bool addedActiveLimit = false;
+        if (_config != null &&
+            !_config.ActiveLimit.HasValue &&
+            _config.AccountCount > 0)
+        {
+            _config.ActiveLimit = Math.Min(
+                AbsoluteMaxActiveBuddies,
+                _config.AccountCount);
+            addedActiveLimit = true;
+        }
+
         if (!ValidateConfig(_config))
         {
             StopForConfiguration($"Correct '{configPath}', then start Buddies again.");
@@ -103,13 +115,35 @@ public class PluginLoader
             return;
         }
 
+        if (addedActiveLimit)
+        {
+            try
+            {
+                File.WriteAllText(
+                    configPath,
+                    JsonConvert.SerializeObject(_config, Formatting.Indented));
+                Console.WriteLine(
+                    $"Added ActiveLimit={_config.ActiveLimit.Value} to '{configPath}'.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(
+                    $"Unable to save the optional ActiveLimit setting to " +
+                    $"'{configPath}': {ex.Message}");
+            }
+        }
+
         Console.WriteLine("======================================");
         Console.WriteLine(" City Dwellers - Buddies Service");
         Console.WriteLine("======================================");
         Console.WriteLine();
         Console.WriteLine(
-            $"Accounts: {_config.AccountPrefix}0 .. " +
-            $"{_config.AccountPrefix}{_config.AccountCount - 1}");
+            $"Account pool: {_config.AccountPrefix}0 .. " +
+            $"{_config.AccountPrefix}{_config.AccountCount - 1} " +
+            $"({_config.AccountCount} configured)");
+        Console.WriteLine(
+            $"Concurrent limit: {_config.ActiveLimit.Value}; " +
+            $"spare capacity: {_config.AccountCount - _config.ActiveLimit.Value}");
         Console.WriteLine("Character scheme: Apcr{level:000}{index:00}");
         Console.WriteLine($"Pipe: {PipeName}");
         Console.WriteLine();
@@ -147,7 +181,8 @@ public class PluginLoader
         var config = new Config
         {
             AccountPrefix = "user",
-            AccountCount = 12,
+            AccountCount = 13,
+            ActiveLimit = 12,
             Password = "pass1"
         };
 
@@ -179,6 +214,23 @@ public class PluginLoader
         if (config.AccountCount <= 0)
         {
             Console.WriteLine("buddies.json requires AccountCount > 0.");
+            return false;
+        }
+
+        if (!config.ActiveLimit.HasValue ||
+            config.ActiveLimit.Value <= 0 ||
+            config.ActiveLimit.Value > AbsoluteMaxActiveBuddies)
+        {
+            Console.WriteLine(
+                $"buddies.json requires ActiveLimit between 1 and " +
+                $"{AbsoluteMaxActiveBuddies}.");
+            return false;
+        }
+
+        if (config.ActiveLimit.Value > config.AccountCount)
+        {
+            Console.WriteLine(
+                "buddies.json ActiveLimit cannot exceed AccountCount.");
             return false;
         }
 
@@ -340,6 +392,14 @@ public class PluginLoader
                 request,
                 $"Account index {index} is already running {existing.Character}. " +
                 "Sleep it before selecting another level.");
+        }
+
+        if (ActiveBuddies.Count >= _config.ActiveLimit.Value)
+        {
+            return Fail(
+                request,
+                $"The configured concurrent buddy limit of " +
+                $"{_config.ActiveLimit.Value} is already active.");
         }
 
         string username = _config.AccountPrefix + index;
@@ -525,6 +585,14 @@ public class PluginLoader
         int level = request.Level.Value;
         int requested = request.Index.Value;
 
+        if (requested > _config.ActiveLimit.Value)
+        {
+            return Fail(
+                request,
+                $"spinup count cannot exceed the configured concurrent " +
+                $"limit of {_config.ActiveLimit.Value}.");
+        }
+
         lock (ActiveLock)
         {
             var started = new List<string>();
@@ -615,9 +683,9 @@ public class PluginLoader
 
             if (started.Count < requested &&
                 failures.Count == 0 &&
-                ActiveBuddies.Count >= _config.AccountCount)
+                ActiveBuddies.Count >= _config.ActiveLimit.Value)
             {
-                detail += "; no free accounts remain";
+                detail += "; concurrent buddy limit reached";
             }
 
             WorkerResponse result = started.Count == requested
@@ -1162,6 +1230,7 @@ public class PluginLoader
     {
         public string AccountPrefix;
         public int AccountCount;
+        public int? ActiveLimit;
         public string Password;
         public List<string> Plugins;
     }

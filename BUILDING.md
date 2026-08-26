@@ -82,3 +82,22 @@ the alt bot is unavailable.
 
 Use `CityFlipper.dll` in `flipper.json`. The `Plugins` field may be omitted
 from `buddies.json`; Buddies then loads `CityBuddies.dll` automatically.
+
+The Buddies account pool and concurrent login limit are separate. For example,
+this configures indexes `0..12` while allowing at most 12 buddies online:
+
+```json
+{
+  "AccountPrefix": "user",
+  "AccountCount": 13,
+  "ActiveLimit": 12,
+  "Password": "pass1",
+  "Plugins": null
+}
+```
+
+If one of the first accounts cannot log in, bulk spinup continues through the
+pool and can use index 12 as its spare. Raid selection and manual spinup remain
+capped at 12. Existing configurations without `ActiveLimit` receive a value no
+larger than 12 automatically; increase `AccountCount` explicitly when adding a
+spare account.
