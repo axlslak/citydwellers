@@ -59,7 +59,9 @@ namespace CityManager
                 "adminlist",
                 "admin",
                 "memberlist",
-                "member"
+                "member",
+                "ban",
+                "unban"
             };
 
         private readonly object _stateSync = new object();
@@ -98,6 +100,7 @@ namespace CityManager
 
             Logger.Information($"CityManager initialized. Settings directory: {_settingsDir}");
             AdminListStore.Initialize(_settingsDir);
+            BanListStore.Initialize(_settingsDir);
             DevTrace(
                 $"ADMIN LIST initialized file=adminlist.json " +
                 $"count={AdminListStore.Snapshot().Count}.");
@@ -406,6 +409,7 @@ namespace CityManager
                 (command == "member" && parts.Length == 3 &&
                  (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
                   IsRemoveVerb(parts[1]))) ||
+                ((command == "ban" || command == "unban") && parts.Length == 2) ||
                 ((command == "invite" ||
                   command == "kick" ||
                   command == "sleep" ||
@@ -439,6 +443,16 @@ namespace CityManager
             DevTrace($"COMMAND {replyTarget.Kind} {senderName}: {rawCommand}");
 
             bool isAdmin = IsAdministrator(senderName);
+
+            if (!isAdmin &&
+                !string.Equals(command, "leave", StringComparison.OrdinalIgnoreCase) &&
+                IsBanned(senderName))
+            {
+                DevTrace(
+                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: banned.");
+                Reply(replyTarget, "You are banned from this bot.");
+                return;
+            }
 
             if (!IsCommandSourceAuthorized(
                     senderName,
@@ -650,6 +664,14 @@ namespace CityManager
                 case "member":
                     ProcessMemberCommand(senderName, parts, replyTarget);
                     break;
+
+                case "ban":
+                    ProcessBanCommand(senderName, parts, replyTarget, false);
+                    break;
+
+                case "unban":
+                    ProcessBanCommand(senderName, parts, replyTarget, true);
+                    break;
             }
         }
 
@@ -672,6 +694,7 @@ namespace CityManager
                 $"{prefix}positions, " +
                 $"{prefix}adminlist, {prefix}admin [add|del/rem/remove/delete] [character], " +
                 $"{prefix}memberlist, {prefix}member [add|del/rem/remove/delete] [character], " +
+                $"{prefix}ban [character], {prefix}unban [character], " +
                 $"{prefix}alts [character|list|add|del/rem/remove/delete]. " +
                 $"Recovery: {prefix}recoverraid [owner] [all|general] [level] [count]." +
                 suffix;

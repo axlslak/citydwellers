@@ -834,6 +834,12 @@ namespace CityManager
                 .Any(AdminListStore.Contains);
         }
 
+        private bool IsBanned(string characterName)
+        {
+            return GetAltIdentityCandidates(characterName)
+                .Any(BanListStore.Contains);
+        }
+
         private string ResolveCanonicalAltMain(string characterName)
         {
             string normalized;
@@ -892,6 +898,25 @@ namespace CityManager
                 DevTrace(
                     $"ADMIN LIST canonicalized to mains: " +
                     $"{string.Join(", ", AdminListStore.Snapshot())}.");
+            }
+
+            List<string> canonicalBans = BanListStore.Snapshot()
+                .Select(ResolveCanonicalAltMain)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (!BanListStore.TryReplace(
+                    canonicalBans,
+                    out changed,
+                    out message))
+            {
+                Logger.Warning($"Unable to canonicalize ban list: {message}");
+            }
+            else if (changed)
+            {
+                DevTrace(
+                    $"BAN LIST canonicalized to mains: " +
+                    $"{string.Join(", ", BanListStore.Snapshot())}.");
             }
 
             CanonicalizePermanentMembersFromAlts();

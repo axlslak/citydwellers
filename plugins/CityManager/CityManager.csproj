@@ -32,9 +32,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="AdminListStore.cs" />
+    <Compile Include="BanListStore.cs" />
     <Compile Include="CityManager.cs" />
     <Compile Include="CityManager.Admins.cs" />
     <Compile Include="CityManager.Alts.cs" />
+    <Compile Include="CityManager.Bans.cs" />
     <Compile Include="CityManager.Membership.cs" />
     <Compile Include="CityManager.Raid.cs" />
     <Compile Include="CityExtendedMessageParser.cs" />

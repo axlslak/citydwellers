@@ -131,7 +131,7 @@ namespace CityManager
 
             if (parts.Length == 1)
             {
-                BeginOrReopenRaid(senderName, target);
+                BeginOrReopenRaid(senderName, target, isAdmin);
                 return;
             }
 
@@ -205,7 +205,10 @@ namespace CityManager
             Reply(target, Usage(target, "raid"));
         }
 
-        private void BeginOrReopenRaid(string senderName, ReplyTarget target)
+        private void BeginOrReopenRaid(
+            string senderName,
+            ReplyTarget target,
+            bool isAdmin)
         {
             RaidSession existing;
             DateTime cooldownUntil;
@@ -215,7 +218,11 @@ namespace CityManager
             {
                 RemoveExpiredCooldownsLocked(now);
 
-                if (_raidCooldowns.TryGetValue(senderName ?? string.Empty, out cooldownUntil) &&
+                if (isAdmin)
+                    _raidCooldowns.Remove(senderName ?? string.Empty);
+
+                if (!isAdmin &&
+                    _raidCooldowns.TryGetValue(senderName ?? string.Empty, out cooldownUntil) &&
                     cooldownUntil > now)
                 {
                     Reply(
@@ -459,7 +466,8 @@ namespace CityManager
             RaidStage canceledStage = RaidStage.Configuring;
             bool cancelFlipper = false;
             bool cleanupBuddies = false;
-            bool applyCooldown = true;
+            bool cooldownApplied = false;
+            bool unmanagedAssistCanceled = false;
 
             lock (_raidSync)
             {
@@ -497,12 +505,17 @@ namespace CityManager
                         session.StartedBuddyIndexes.Count > 0 ||
                         session.BuddySpinupInFlight ||
                         session.BuddyCleanupInFlight;
-                    applyCooldown =
+                    bool shouldApplyCooldown =
                         !session.IsExternalAssist ||
                         session.Stage != RaidStage.AssistSelection;
+                    unmanagedAssistCanceled = !shouldApplyCooldown;
                     _raidSession = null;
-                    if (applyCooldown)
-                        ApplyRaidCooldownLocked(session.OwnerName, DateTime.UtcNow);
+                    if (shouldApplyCooldown)
+                    {
+                        cooldownApplied = ApplyRaidCooldownLocked(
+                            session.OwnerName,
+                            DateTime.UtcNow);
+                    }
                 }
             }
 
@@ -520,15 +533,19 @@ namespace CityManager
                 (cleanupBuddies
                     ? "Raid buddy logout is underway. "
                     : string.Empty) +
-                (applyCooldown
+                (cooldownApplied
                     ? $"{session.OwnerName} has a 10-minute raid cooldown."
-                    : "No City Dwellers assistance will be started for this unmanaged raid.");
+                    : unmanagedAssistCanceled
+                        ? "No City Dwellers assistance will be started for this unmanaged raid."
+                        : IsAdministrator(session.OwnerName)
+                            ? "Administrators do not receive raid cooldowns."
+                            : string.Empty);
 
             Logger.Warning(message);
             DevTrace(
                 $"RAID CANCELED actor={senderName} owner={session.OwnerName} " +
                 $"stage={canceledStage} flipper-cancel={cancelFlipper} " +
-                $"buddy-cleanup={cleanupBuddies} cooldown={applyCooldown}.");
+                $"buddy-cleanup={cleanupBuddies} cooldown={cooldownApplied}.");
             SaveRaidState();
             Reply(session.Origin, message);
 
@@ -1734,6 +1751,7 @@ namespace CityManager
             bool applyCooldown)
         {
             bool removed = false;
+            bool cooldownApplied = false;
 
             lock (_raidSync)
             {
@@ -1741,7 +1759,11 @@ namespace CityManager
                 {
                     _raidSession = null;
                     if (applyCooldown)
-                        ApplyRaidCooldownLocked(session.OwnerName, DateTime.UtcNow);
+                    {
+                        cooldownApplied = ApplyRaidCooldownLocked(
+                            session.OwnerName,
+                            DateTime.UtcNow);
+                    }
                     removed = true;
                 }
             }
@@ -1749,7 +1771,7 @@ namespace CityManager
             if (!removed)
                 return;
 
-            string cooldownText = applyCooldown
+            string cooldownText = cooldownApplied
                 ? " A 10-minute raid cooldown now applies."
                 : string.Empty;
 
@@ -1834,10 +1856,16 @@ namespace CityManager
                 return ReferenceEquals(_raidSession, session);
         }
 
-        private void ApplyRaidCooldownLocked(string ownerName, DateTime now)
+        private bool ApplyRaidCooldownLocked(string ownerName, DateTime now)
         {
-            if (!string.IsNullOrWhiteSpace(ownerName))
-                _raidCooldowns[ownerName] = now.AddSeconds(RaidCooldownSeconds);
+            if (string.IsNullOrWhiteSpace(ownerName) ||
+                IsAdministrator(ownerName))
+            {
+                return false;
+            }
+
+            _raidCooldowns[ownerName] = now.AddSeconds(RaidCooldownSeconds);
+            return true;
         }
 
         private void RemoveExpiredCooldownsLocked(DateTime now)
