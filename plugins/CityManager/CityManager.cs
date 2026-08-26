@@ -592,12 +592,9 @@ namespace CityManager
                         !int.TryParse(parts[1], out level) ||
                         !int.TryParse(parts[2], out count) ||
                         level <= 0 ||
-                        count <= 0 ||
-                        count > 12)
+                        count <= 0)
                     {
-                        Reply(
-                            replyTarget,
-                            "Spinup count must be between 1 and 12.");
+                        Reply(replyTarget, Usage(replyTarget, "spinup [level] [count]"));
                         break;
                     }
 
@@ -882,7 +879,7 @@ namespace CityManager
                         LeaseSeconds =
                             string.Equals(command, "wakeup", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(command, "spinup", StringComparison.OrdinalIgnoreCase)
-                                ? 60
+                                ? GeneralBuddySafetyLeaseSeconds
                                 : (int?)null
                     };
 

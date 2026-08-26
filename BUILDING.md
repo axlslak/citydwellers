@@ -96,8 +96,10 @@ this configures indexes `0..12` while allowing at most 12 buddies online:
 }
 ```
 
-If one of the first accounts cannot log in, bulk spinup continues through the
-pool and can use index 12 as its spare. Raid selection and manual spinup remain
-capped at 12. Existing configurations without `ActiveLimit` receive a value no
-larger than 12 automatically; increase `AccountCount` explicitly when adding a
-spare account.
+If one of the first accounts cannot log in, raid spinup continues through the
+pool and can use index 12 as its spare. Public raid selection and automatic raid
+spinup remain capped by `ActiveLimit`. Administrator `wakeup` and `spinup`
+commands may use the entire configured account pool, including all 13 at once
+for diagnostics. Existing configurations without `ActiveLimit` receive a value
+no larger than 12 automatically; increase `AccountCount` explicitly when adding
+a spare account.

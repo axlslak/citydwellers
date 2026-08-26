@@ -20,11 +20,13 @@ public class PluginLoader
 {
     private const string PipeName = "citydwellers-buddies";
     private const int WakeupTimeoutMs = 20000;
-    private const int DefaultDemoLeaseSeconds = 60;
+    // Match Manager's measured general-only presence window: buddies enter at
+    // +975s and leave at +1125s after the city-targeted event.
+    private const int DefaultDemoLeaseSeconds = 150;
     private const int DefaultRaidSafetyLeaseSeconds = 1365;
     private const int ClientDomainLeaseMinutes = 60;
     private const int FailedCleanupRetrySeconds = 30;
-    private const int AbsoluteMaxActiveBuddies = 12;
+    private const int AbsoluteMaxRaidBuddies = 12;
 
     private static readonly object ActiveLock = new object();
     private static readonly Dictionary<int, ActiveBuddy> ActiveBuddies =
@@ -103,7 +105,7 @@ public class PluginLoader
             _config.AccountCount > 0)
         {
             _config.ActiveLimit = Math.Min(
-                AbsoluteMaxActiveBuddies,
+                AbsoluteMaxRaidBuddies,
                 _config.AccountCount);
             addedActiveLimit = true;
         }
@@ -142,8 +144,9 @@ public class PluginLoader
             $"{_config.AccountPrefix}{_config.AccountCount - 1} " +
             $"({_config.AccountCount} configured)");
         Console.WriteLine(
-            $"Concurrent limit: {_config.ActiveLimit.Value}; " +
-            $"spare capacity: {_config.AccountCount - _config.ActiveLimit.Value}");
+            $"Raid limit: {_config.ActiveLimit.Value}; " +
+            $"admin manual capacity: {_config.AccountCount}; " +
+            $"raid spare capacity: {_config.AccountCount - _config.ActiveLimit.Value}");
         Console.WriteLine("Character scheme: Apcr{level:000}{index:00}");
         Console.WriteLine($"Pipe: {PipeName}");
         Console.WriteLine();
@@ -219,11 +222,11 @@ public class PluginLoader
 
         if (!config.ActiveLimit.HasValue ||
             config.ActiveLimit.Value <= 0 ||
-            config.ActiveLimit.Value > AbsoluteMaxActiveBuddies)
+            config.ActiveLimit.Value > AbsoluteMaxRaidBuddies)
         {
             Console.WriteLine(
                 $"buddies.json requires ActiveLimit between 1 and " +
-                $"{AbsoluteMaxActiveBuddies}.");
+                $"{AbsoluteMaxRaidBuddies}.");
             return false;
         }
 
@@ -394,12 +397,14 @@ public class PluginLoader
                 "Sleep it before selecting another level.");
         }
 
-        if (ActiveBuddies.Count >= _config.ActiveLimit.Value)
+        int activeLimit = GetRequestActiveLimit(request);
+        if (ActiveBuddies.Count >= activeLimit)
         {
             return Fail(
                 request,
-                $"The configured concurrent buddy limit of " +
-                $"{_config.ActiveLimit.Value} is already active.");
+                IsRaidRequest(request)
+                    ? $"The configured raid limit of {activeLimit} is already active."
+                    : $"All {activeLimit} configured buddy accounts are already active.");
         }
 
         string username = _config.AccountPrefix + index;
@@ -584,13 +589,17 @@ public class PluginLoader
 
         int level = request.Level.Value;
         int requested = request.Index.Value;
+        int requestLimit = GetRequestActiveLimit(request);
 
-        if (requested > _config.ActiveLimit.Value)
+        if (requested > requestLimit)
         {
             return Fail(
                 request,
-                $"spinup count cannot exceed the configured concurrent " +
-                $"limit of {_config.ActiveLimit.Value}.");
+                IsRaidRequest(request)
+                    ? $"raid spinup count cannot exceed the configured " +
+                      $"raid limit of {requestLimit}."
+                    : $"manual spinup count cannot exceed the configured " +
+                      $"account pool of {requestLimit}.");
         }
 
         lock (ActiveLock)
@@ -683,9 +692,11 @@ public class PluginLoader
 
             if (started.Count < requested &&
                 failures.Count == 0 &&
-                ActiveBuddies.Count >= _config.ActiveLimit.Value)
+                ActiveBuddies.Count >= requestLimit)
             {
-                detail += "; concurrent buddy limit reached";
+                detail += IsRaidRequest(request)
+                    ? "; raid buddy limit reached"
+                    : "; all configured buddy accounts are active";
             }
 
             WorkerResponse result = started.Count == requested
@@ -742,6 +753,13 @@ public class PluginLoader
             request?.Purpose,
             "raid",
             StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int GetRequestActiveLimit(WorkerRequest request)
+    {
+        return IsRaidRequest(request)
+            ? _config.ActiveLimit.Value
+            : _config.AccountCount;
     }
 
     private static int GetLeaseSeconds(WorkerRequest request, int fallback)
