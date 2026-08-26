@@ -13,7 +13,6 @@ namespace CityManager
     public partial class CityManager
     {
         private const int RaidConfigurationSeconds = 180;
-        private const int RaidAdminVetoSeconds = 60;
         private const int RaidControllerFillSeconds = 60;
         private const int RaidCooldownSeconds = 600;
         private const int RaidTargetTimeoutSeconds = 300;
@@ -75,7 +74,7 @@ namespace CityManager
             LoadRaidState();
 
             Logger.Information(
-                "Raid coordinator initialized: 3m setup, 1m admin veto, 1m CT fill, 75% minimum charge.");
+                "Raid coordinator initialized: 3m setup, immediate CT handling, 1m CT fill, 75% minimum charge; owner/admin cancel remains available throughout.");
         }
 
         private void ShutdownRaidCoordinator()
@@ -275,6 +274,30 @@ namespace CityManager
             }
         }
 
+        private bool IsCurrentRaidOwnerCancellation(
+            string senderName,
+            uint senderId,
+            string[] parts)
+        {
+            lock (_raidSync)
+            {
+                if (_raidSession == null ||
+                    !IsRaidOwner(_raidSession, senderName, senderId) ||
+                    parts == null ||
+                    parts.Length == 0 ||
+                    parts.Length > 2)
+                {
+                    return false;
+                }
+
+                return parts.Length == 1 ||
+                       string.Equals(
+                           parts[1],
+                           _raidSession.Token,
+                           StringComparison.Ordinal);
+            }
+        }
+
         private bool TryGetOwnedRaidSession(
             string senderName,
             uint senderId,
@@ -370,12 +393,6 @@ namespace CityManager
                 {
                     error = "Select raid type and number of raiders before pressing Raid.";
                 }
-                else
-                {
-                    session.Stage = RaidStage.AdminVeto;
-                    session.StageDeadlineUtc =
-                        DateTime.UtcNow.AddSeconds(RaidAdminVetoSeconds);
-                }
             }
 
             if (expired)
@@ -393,15 +410,8 @@ namespace CityManager
                 return;
             }
 
-            Logger.Warning(
-                $"Raid requested by {session.OwnerName}: type={session.RaidType}, " +
-                $"level={session.Level}, count={session.RaiderCount.Value}. Admin veto window opened.");
-            DevTrace(
-                $"RAID VETO owner={session.OwnerName} token={session.Token} deadline={session.StageDeadlineUtc:O}.");
-
-            SaveRaidState();
-            Reply(session.Origin, BuildRaidWindow(session));
-            SendRaidAnnouncementToAdmins(session);
+            if (BeginControllerFillStage(session))
+                SendRaidAnnouncementToAdmins(session);
         }
 
         private void SendRaidAnnouncementToAdmins(RaidSession session)
@@ -412,6 +422,9 @@ namespace CityManager
                 {
                     try
                     {
+                        if (!IsCurrentRaidSession(session))
+                            return;
+
                         uint adminId;
                         if (!TryResolveCharacterId(admin, out adminId))
                         {
@@ -420,9 +433,9 @@ namespace CityManager
                         }
 
                         string message =
-                            $"{session.OwnerName} requested a {session.RaidType} city raid: " +
+                            $"{session.OwnerName} started a {session.RaidType} city raid: " +
                             $"{session.RaiderCount.Value} level-{session.Level} raiders. " +
-                            $"One minute to cancel. " +
+                            $"Owner/admin cancellation remains available while the raid is active. " +
                             $"<a href='chatcmd:///tell Apcmanager #cancel {session.Token}'>Cancel raid</a>";
 
                         Client.SendPrivateMessage(adminId, message);
@@ -438,10 +451,15 @@ namespace CityManager
         private void ProcessRaidCancel(
             string senderName,
             string[] parts,
-            ReplyTarget commandTarget)
+            ReplyTarget commandTarget,
+            bool isAdmin)
         {
             RaidSession session;
             string error = null;
+            RaidStage canceledStage = RaidStage.Configuring;
+            bool cancelFlipper = false;
+            bool cleanupBuddies = false;
+            bool applyCooldown = true;
 
             lock (_raidSync)
             {
@@ -451,13 +469,13 @@ namespace CityManager
                 {
                     error = "There is no raid request to cancel.";
                 }
-                else if (session.Stage != RaidStage.AdminVeto)
+                else if (!isAdmin &&
+                         !IsRaidOwner(
+                             session,
+                             senderName,
+                             commandTarget.SenderId))
                 {
-                    error = "The admin cancellation window is not open.";
-                }
-                else if (DateTime.UtcNow >= session.StageDeadlineUtc)
-                {
-                    error = "The admin cancellation window has closed.";
+                    error = "Only the raid owner or an administrator may cancel this raid.";
                 }
                 else if (parts.Length > 2)
                 {
@@ -470,8 +488,21 @@ namespace CityManager
                 }
                 else
                 {
+                    canceledStage = session.Stage;
+                    cancelFlipper =
+                        session.ControllerProbeInFlight &&
+                        !string.IsNullOrWhiteSpace(session.ControllerRequestId) &&
+                        !session.CloakLowerConfirmedUtc.HasValue;
+                    cleanupBuddies =
+                        session.StartedBuddyIndexes.Count > 0 ||
+                        session.BuddySpinupInFlight ||
+                        session.BuddyCleanupInFlight;
+                    applyCooldown =
+                        !session.IsExternalAssist ||
+                        session.Stage != RaidStage.AssistSelection;
                     _raidSession = null;
-                    ApplyRaidCooldownLocked(session.OwnerName, DateTime.UtcNow);
+                    if (applyCooldown)
+                        ApplyRaidCooldownLocked(session.OwnerName, DateTime.UtcNow);
                 }
             }
 
@@ -481,16 +512,74 @@ namespace CityManager
                 return;
             }
 
+            if (cancelFlipper)
+                RequestFlipperRaidCancellation(session);
+
             string message =
-                $"Raid canceled by {senderName}. {session.OwnerName} has a 10-minute raid cooldown.";
+                $"Raid canceled by {senderName}. " +
+                (cleanupBuddies
+                    ? "Raid buddy logout is underway. "
+                    : string.Empty) +
+                (applyCooldown
+                    ? $"{session.OwnerName} has a 10-minute raid cooldown."
+                    : "No City Dwellers assistance will be started for this unmanaged raid.");
 
             Logger.Warning(message);
-            DevTrace($"RAID CANCELED admin={senderName} owner={session.OwnerName}.");
+            DevTrace(
+                $"RAID CANCELED actor={senderName} owner={session.OwnerName} " +
+                $"stage={canceledStage} flipper-cancel={cancelFlipper} " +
+                $"buddy-cleanup={cleanupBuddies} cooldown={applyCooldown}.");
             SaveRaidState();
             Reply(session.Origin, message);
 
-            if (commandTarget.Kind != session.Origin.Kind)
+            if (commandTarget.Kind != session.Origin.Kind ||
+                (commandTarget.Kind == ReplyKind.Tell &&
+                 commandTarget.SenderId != session.Origin.SenderId))
+            {
                 Reply(commandTarget, "Raid canceled.");
+            }
+
+            QueueDetachedBuddyCleanup(session);
+        }
+
+        private void RequestFlipperRaidCancellation(RaidSession session)
+        {
+            string requestId = session?.ControllerRequestId;
+            if (string.IsNullOrWhiteSpace(requestId))
+                return;
+
+            string path = Path.Combine(
+                _settingsDir,
+                "cityflipper-cancel.request");
+            string tempPath = path + "." + requestId + ".tmp";
+
+            try
+            {
+                File.WriteAllText(tempPath, requestId);
+
+                if (File.Exists(path))
+                    File.Delete(path);
+
+                File.Move(tempPath, path);
+                DevTrace(
+                    $"RAID FLIPPER cancel requested [{ShortId(requestId)}] before cloak lower.");
+            }
+            catch (Exception ex)
+            {
+                DevTrace(
+                    $"RAID FLIPPER cancel marker failed [{ShortId(requestId)}]: {ex.Message}");
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+                catch
+                {
+                }
+            }
         }
 
         private void ProcessRaidRecovery(
@@ -886,7 +975,7 @@ namespace CityManager
                 return;
             }
 
-            if (stage == RaidStage.AdminVeto && now >= deadline)
+            if (stage == RaidStage.AdminVeto)
             {
                 BeginControllerFillStage(session);
                 return;
@@ -942,14 +1031,15 @@ namespace CityManager
                 TickActiveRaid(session, now);
         }
 
-        private void BeginControllerFillStage(RaidSession session)
+        private bool BeginControllerFillStage(RaidSession session)
         {
             lock (_raidSync)
             {
                 if (!ReferenceEquals(_raidSession, session) ||
-                    session.Stage != RaidStage.AdminVeto)
+                    (session.Stage != RaidStage.Configuring &&
+                     session.Stage != RaidStage.AdminVeto))
                 {
-                    return;
+                    return false;
                 }
 
                 session.Stage = RaidStage.ControllerFill;
@@ -963,7 +1053,7 @@ namespace CityManager
             }
 
             Logger.Warning(
-                $"Raid for {session.OwnerName} passed admin veto. CT fill window opened.");
+                $"Raid for {session.OwnerName} started. CT fill handling opened immediately.");
             DevTrace(
                 $"RAID CT FILL owner={session.OwnerName} deadline={session.StageDeadlineUtc:O}; " +
                 $"minimum={MinimumRaidControllerCharge * 100:F0}%.");
@@ -974,6 +1064,7 @@ namespace CityManager
                 BeginRaidBuddySpinup(session, "all-mode start");
 
             TryStartControllerWatch(session);
+            return true;
         }
 
         private void TryStartControllerWatch(RaidSession session)
@@ -982,6 +1073,7 @@ namespace CityManager
             bool buddyFailure = false;
             bool retryAttempt = false;
             DateTime now = DateTime.UtcNow;
+            string controllerRequestId = null;
 
             lock (_raidSync)
             {
@@ -1015,6 +1107,8 @@ namespace CityManager
                     retryAttempt = session.ControllerRetryPending;
                     session.ControllerRetryPending = false;
                     session.ControllerProbeInFlight = true;
+                    session.ControllerRequestId = Guid.NewGuid().ToString("N");
+                    controllerRequestId = session.ControllerRequestId;
                     start = true;
                 }
             }
@@ -1045,7 +1139,7 @@ namespace CityManager
 
                     var request = new WorkerRequest
                     {
-                        Id = Guid.NewGuid().ToString("N"),
+                        Id = controllerRequestId,
                         Command = retryAttempt
                             ? "ensure-disabled-ready"
                             : "ensure-disabled-watch",
@@ -1085,6 +1179,7 @@ namespace CityManager
                             session.LastControllerCharge = effectiveCharge;
                             session.FlipperDetail = response.Message;
                             session.ControllerProbeInFlight = false;
+                            session.ControllerRequestId = null;
                         }
                         else
                         {
@@ -1155,6 +1250,7 @@ namespace CityManager
                         if (ReferenceEquals(_raidSession, session))
                         {
                             session.ControllerProbeInFlight = false;
+                            session.ControllerRequestId = null;
                             session.FlipperDetail = ex.Message;
                         }
                     }
@@ -1197,6 +1293,7 @@ namespace CityManager
                     retryAt = session.WorkerDeadlineUtc;
 
                 session.ControllerProbeInFlight = false;
+                session.ControllerRequestId = null;
                 session.ControllerRetryPending = true;
                 session.ControllerRetryNotBeforeUtc = retryAt;
                 session.FlipperDetail = detail;
@@ -1680,7 +1777,7 @@ namespace CityManager
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 string result = SleepRaidBuddies(session);
-                DevTrace($"RAID FAILURE CLEANUP owner={session.OwnerName}: {result}");
+                DevTrace($"RAID DETACHED CLEANUP owner={session.OwnerName}: {result}");
             });
         }
 
@@ -2151,9 +2248,7 @@ namespace CityManager
                             $"{FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow)} left";
 
                     case RaidStage.AdminVeto:
-                        return
-                            $"Raid = admin veto for {owner} ({selection}), " +
-                            $"{FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow)} left";
+                        return $"Raid = resuming CT handling for {owner} ({selection})";
 
                     case RaidStage.ControllerFill:
                         return
@@ -2263,8 +2358,7 @@ namespace CityManager
             lock (_raidSync)
             {
                 if (_raidSession == null ||
-                    (_raidSession.Stage != RaidStage.AdminVeto &&
-                     _raidSession.Stage != RaidStage.ControllerFill &&
+                    (_raidSession.Stage != RaidStage.ControllerFill &&
                      _raidSession.Stage != RaidStage.LoweringCloak))
                 {
                     return;
@@ -2357,10 +2451,7 @@ namespace CityManager
                     break;
 
                 case RaidStage.AdminVeto:
-                    body.Append("<font color='#F79410'>Waiting for admin cancellation window.</font>\n");
-                    body.Append(
-                        $"Time remaining: <font color='#FFFF00'>{FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow)}</font>\n");
-                    body.Append("Admins may use #cancel during this stage.\n");
+                    body.Append("<font color='#F79410'>Resuming CT handling from an older saved raid request.</font>\n");
                     break;
 
                 case RaidStage.ControllerFill:
@@ -2426,6 +2517,10 @@ namespace CityManager
             if (!string.IsNullOrWhiteSpace(session.FlipperDetail))
                 body.Append($"Flipper: {SafeRaidText(session.FlipperDetail)}\n");
 
+            body.Append(
+                $"\n{RaidCancelButton(session)} " +
+                "(raid owner or administrator)\n");
+
             return
                 $"<a href=\"text://{body}\">Click here to open window</a>";
         }
@@ -2441,6 +2536,22 @@ namespace CityManager
             return
                 $"<a href='{command}'><font color='#00BFFF'>" +
                 $"[{SafeRaidText(label)}]</font></a>";
+        }
+
+        private string RaidCancelButton(RaidSession session)
+        {
+            string command;
+
+            if (session.Origin.Kind == ReplyKind.Org)
+                command = $"chatcmd:///o #cancel {session.Token}";
+            else if (session.Origin.Kind == ReplyKind.Guest)
+                command = $"chatcmd:///g Apcmanager #cancel {session.Token}";
+            else
+                command = $"chatcmd:///tell Apcmanager #cancel {session.Token}";
+
+            return
+                $"<a href='{command}'><font color='#F79410'>" +
+                "[CANCEL RAID]</font></a>";
         }
 
         private string RaidAssistLevelButton(
@@ -2633,6 +2744,7 @@ namespace CityManager
             public string CloakLowerConfirmedActor;
 
             public bool ControllerProbeInFlight;
+            public string ControllerRequestId;
             public bool ControllerRetryPending;
             public DateTime ControllerRetryNotBeforeUtc;
             public bool BuddySpinupRequested;

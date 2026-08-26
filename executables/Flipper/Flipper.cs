@@ -25,6 +25,8 @@ public class FlipperLoader
     private static string _pluginPath;
     private static string _pluginDir;
     private static string _toggleRequestPath;
+    private static string _operationIdPath;
+    private static string _cancelRequestPath;
     private static int _timeoutMs;
 
     static void Main(string[] args)
@@ -162,8 +164,13 @@ public class FlipperLoader
         _pluginDir = Path.GetDirectoryName(_pluginPath);
         _toggleRequestPath =
             Path.Combine(_pluginDir, "cityflipper-toggle.request");
+        _operationIdPath =
+            Path.Combine(_pluginDir, "cityflipper-operation.id");
+        _cancelRequestPath =
+            Path.Combine(_settingsDir, "cityflipper-cancel.request");
 
         DeleteIfExists(_toggleRequestPath);
+        DeleteIfExists(_operationIdPath);
 
         FlipperCacheStore.Initialize(
             _baseDir,
@@ -237,6 +244,7 @@ public class FlipperLoader
         Console.ReadLine();
 
         DeleteIfExists(_toggleRequestPath);
+        DeleteIfExists(_operationIdPath);
         Console.WriteLine("Flipper service stopped.");
     }
 
@@ -445,7 +453,14 @@ public class FlipperLoader
         // Starting a raid must never trust cache. The keeper logs in, reads the
         // live controller, and the plugin lowers only when the cloak is enabled,
         // toggleable, and the controller is at least 75% charged.
-        ProbeRun run = RunProbe("disable-ready");
+        ProbeRun run = RunProbe("disable-ready", _timeoutMs, request.Id);
+
+        if (run.Canceled)
+        {
+            return Fail(
+                request,
+                "Raid-start operation canceled before the cloak was lowered.");
+        }
 
         if (!run.Success || run.Result == null)
         {
@@ -467,7 +482,15 @@ public class FlipperLoader
         // refreshes CT charge and lowers immediately when it reaches 75%.
         ProbeRun run = RunProbe(
             $"disable-watch:{watchSeconds}",
-            Math.Max(_timeoutMs, (watchSeconds + 15) * 1000));
+            Math.Max(_timeoutMs, (watchSeconds + 15) * 1000),
+            request.Id);
+
+        if (run.Canceled)
+        {
+            return Fail(
+                request,
+                "Raid-start operation canceled before the cloak was lowered.");
+        }
 
         if (!run.Success || run.Result == null)
         {
@@ -623,6 +646,14 @@ public class FlipperLoader
 
     private static ProbeRun RunProbe(string requestedAction, int timeoutMs)
     {
+        return RunProbe(requestedAction, timeoutMs, null);
+    }
+
+    private static ProbeRun RunProbe(
+        string requestedAction,
+        int timeoutMs,
+        string operationId)
+    {
         bool actionRequested = !string.IsNullOrWhiteSpace(requestedAction);
         bool ensureEnabled = string.Equals(
             requestedAction,
@@ -653,9 +684,12 @@ public class FlipperLoader
         DeleteIfExists(resultPath);
         DeleteIfExists(tempPath);
         DeleteIfExists(_toggleRequestPath);
+        DeleteIfExists(_operationIdPath);
 
         if (actionRequested)
             File.WriteAllText(_toggleRequestPath, requestedAction);
+        if (!string.IsNullOrWhiteSpace(operationId))
+            File.WriteAllText(_operationIdPath, operationId);
 
         Logger logger = new LoggerConfiguration()
             .WriteTo.Console()
@@ -669,6 +703,16 @@ public class FlipperLoader
 
         try
         {
+            if (IsFileValue(_cancelRequestPath, operationId))
+            {
+                Console.WriteLine(
+                    $"[{totalTimer.Elapsed.TotalSeconds:F3}s] " +
+                    "Raid-start operation canceled before client login.");
+                run.Canceled = true;
+                run.Success = false;
+                return run;
+            }
+
             Console.WriteLine(
                 $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Creating client domain.");
 
@@ -690,6 +734,16 @@ public class FlipperLoader
 
             while (!File.Exists(resultPath))
             {
+                if (IsFileValue(_cancelRequestPath, operationId))
+                {
+                    Console.WriteLine(
+                        $"[{totalTimer.Elapsed.TotalSeconds:F3}s] " +
+                        "Raid-start operation canceled; unloading client.");
+                    run.Canceled = true;
+                    run.Success = false;
+                    return run;
+                }
+
                 if (DateTime.UtcNow >= timeout)
                 {
                     Console.WriteLine(
@@ -712,6 +766,7 @@ public class FlipperLoader
             run.Result = JsonConvert.DeserializeObject<FlipperResult>(json);
             run.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds;
             run.Success = run.Result != null;
+            run.Canceled = run.Result != null && run.Result.Canceled;
 
             if (run.Success)
                 FlipperCacheStore.SaveFromResult(run.Result);
@@ -752,6 +807,8 @@ public class FlipperLoader
             DeleteIfExists(resultPath);
             DeleteIfExists(tempPath);
             DeleteIfExists(_toggleRequestPath);
+            DeleteIfExists(_operationIdPath);
+            DeleteIfContains(_cancelRequestPath, operationId);
         }
     }
 
@@ -867,6 +924,43 @@ public class FlipperLoader
         }
     }
 
+    private static void DeleteIfContains(string path, string expectedValue)
+    {
+        if (string.IsNullOrWhiteSpace(expectedValue))
+            return;
+
+        try
+        {
+            if (IsFileValue(path, expectedValue))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
+    }
+
+    private static bool IsFileValue(string path, string expectedValue)
+    {
+        if (string.IsNullOrWhiteSpace(path) ||
+            string.IsNullOrWhiteSpace(expectedValue))
+        {
+            return false;
+        }
+
+        try
+        {
+            return File.Exists(path) &&
+                   string.Equals(
+                       File.ReadAllText(path).Trim(),
+                       expectedValue,
+                       StringComparison.Ordinal);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public class Config
     {
         public List<AccountInfo> Accounts;
@@ -886,6 +980,7 @@ public class FlipperLoader
     public class ProbeRun
     {
         public bool Success;
+        public bool Canceled;
         public double TotalMilliseconds;
         public FlipperResult Result;
     }
@@ -906,6 +1001,7 @@ public class FlipperLoader
         public Dictionary<string, string> CloakInfo;
 
         public bool ToggleRequested;
+        public bool Canceled;
         public bool ToggleSent;
         public bool ToggleSucceeded;
         public string ToggleBlockedReason;

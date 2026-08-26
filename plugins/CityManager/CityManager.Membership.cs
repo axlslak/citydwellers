@@ -259,9 +259,15 @@ namespace CityManager
             if (IsTellMember(senderName))
                 return true;
 
-            return string.Equals(command, "raid", StringComparison.OrdinalIgnoreCase) &&
-                   parts.Length > 1 &&
-                   IsCurrentRaidOwnerCommand(senderName, target.SenderId, parts);
+            if (string.Equals(command, "raid", StringComparison.OrdinalIgnoreCase) &&
+                parts.Length > 1 &&
+                IsCurrentRaidOwnerCommand(senderName, target.SenderId, parts))
+            {
+                return true;
+            }
+
+            return string.Equals(command, "cancel", StringComparison.OrdinalIgnoreCase) &&
+                   IsCurrentRaidOwnerCancellation(senderName, target.SenderId, parts);
         }
 
         private void ObserveOrganizationMembershipMessage(string message)

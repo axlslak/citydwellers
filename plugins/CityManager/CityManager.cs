@@ -41,7 +41,8 @@ namespace CityManager
                 "join",
                 "alts",
                 "raid",
-                "raidassist"
+                "raidassist",
+                "cancel"
             };
 
         private static readonly HashSet<string> AdminCommands =
@@ -54,7 +55,6 @@ namespace CityManager
                 "spinup",
                 "spindown",
                 "positions",
-                "cancel",
                 "recoverraid",
                 "adminlist",
                 "admin",
@@ -628,7 +628,7 @@ namespace CityManager
                     break;
 
                 case "cancel":
-                    ProcessRaidCancel(senderName, parts, replyTarget);
+                    ProcessRaidCancel(senderName, parts, replyTarget, isAdmin);
                     break;
 
                 case "recoverraid":
@@ -663,12 +663,13 @@ namespace CityManager
             return
                 $"Members: {prefix}help, {prefix}status, {prefix}alts, {prefix}leave, {prefix}join. " +
                 $"In organization or guest chat: #cloak, #raid. " +
+                $"Raid owner/admin: {prefix}cancel [raid-token]. " +
                 $"Raid-assist buttons are available to Squad Commanders and higher. " +
                 $"Admins may also use cloak and raid in tells. " +
                 $"Admin: {prefix}invite [character], {prefix}kick [character], " +
                 $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
                 $"{prefix}spinup [level] [count], {prefix}spindown [count], " +
-                $"{prefix}positions, {prefix}cancel, " +
+                $"{prefix}positions, " +
                 $"{prefix}adminlist, {prefix}admin [add|del/rem/remove/delete] [character], " +
                 $"{prefix}memberlist, {prefix}member [add|del/rem/remove/delete] [character], " +
                 $"{prefix}alts [character|list|add|del/rem/remove/delete]. " +
@@ -697,9 +698,9 @@ namespace CityManager
             {
                 try
                 {
-                    // A cloak query can be queued just before the admin-veto
-                    // timer expires. Recheck here so that it cannot take the
-                    // one Flipper login away from a raid-start operation.
+                    // A cloak query can be queued just before raid-start CT
+                    // handling begins. Recheck here so that it cannot take the
+                    // one Flipper login away from the raid-start operation.
                     if (TryReplyRaidFlipperReservation(target))
                         return;
 

@@ -76,7 +76,7 @@ internal static class FlipperCacheStore
 
     public static void SaveFromResult(FlipperLoader.FlipperResult result)
     {
-        if (result == null)
+        if (result == null || result.Canceled)
             return;
 
         string state = GetDictionaryValue(result.CloakInfo, "CloakState");

@@ -6,6 +6,7 @@ using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.GameData;
 using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
+using CityDwellers.Shared;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -20,6 +21,8 @@ namespace CityFlipper
         private const float MinimumRaidControllerCharge = 0.75f;
 
         private string _pluginDir;
+        private string _operationId;
+        private string _cancelRequestPath;
 
         private readonly Stopwatch _timer = new Stopwatch();
         private readonly object _sync = new object();
@@ -47,6 +50,7 @@ namespace CityFlipper
         private Dictionary<string, string> _postToggleCloakInfo = new Dictionary<string, string>();
 
         private bool _toggleRequested;
+        private bool _cancellationRequested;
         private bool _ensureEnabledOnly;
         private bool _ensureDisabledReadyOnly;
         private bool _ensureDisabledWatchOnly;
@@ -68,6 +72,37 @@ namespace CityFlipper
         public override void Init(string pluginDir)
         {
             _pluginDir = pluginDir;
+            string settingsDirectory;
+            string settingsError;
+            if (SettingsPaths.TryEnsureDirectory(
+                    out settingsDirectory,
+                    out settingsError))
+            {
+                _cancelRequestPath = Path.Combine(
+                    settingsDirectory,
+                    "cityflipper-cancel.request");
+            }
+            else
+            {
+                Logger.Warning(
+                    $"Flipper cancellation checks are unavailable: {settingsError}");
+            }
+
+            string operationIdPath = Path.Combine(
+                _pluginDir,
+                "cityflipper-operation.id");
+
+            if (File.Exists(operationIdPath))
+            {
+                try
+                {
+                    _operationId = File.ReadAllText(operationIdPath).Trim();
+                }
+                catch
+                {
+                    _operationId = null;
+                }
+            }
 
             string toggleRequestPath = Path.Combine(
                 _pluginDir,
@@ -137,6 +172,7 @@ namespace CityFlipper
         private void Tick(object sender, double e)
         {
             bool writeTimeout = false;
+            bool writeCancellation = false;
             double elapsedMs = _timer.Elapsed.TotalMilliseconds;
 
             lock (_sync)
@@ -144,7 +180,17 @@ namespace CityFlipper
                 if (_resultWritten)
                     return;
 
-                if (_ensureDisabledWatchOnly &&
+                if (!_toggleSent && IsCancellationRequested())
+                {
+                    _toggleBlockedReason =
+                        "Raid start was canceled before the cloak was lowered.";
+                    _cancellationRequested = true;
+                    _resultWritten = true;
+                    writeCancellation = true;
+                }
+
+                if (!writeCancellation &&
+                    _ensureDisabledWatchOnly &&
                     !_toggleSent &&
                     elapsedMs >= _watchDeadlineMs)
                 {
@@ -157,7 +203,7 @@ namespace CityFlipper
                 }
             }
 
-            if (writeTimeout)
+            if (writeTimeout || writeCancellation)
             {
                 Client.OnUpdate -= Tick;
                 WriteResult();
@@ -480,10 +526,24 @@ namespace CityFlipper
                 if (_resultWritten)
                     return;
 
-                if (!_gotCityInfo || !_gotCloakInfo || !_gotChargeInfo)
+                if (!_toggleSent && IsCancellationRequested())
+                {
+                    _toggleBlockedReason =
+                        "Raid start was canceled before the cloak was lowered.";
+                    _cancellationRequested = true;
+                    _resultWritten = true;
+                    writeResult = true;
+                }
+
+                if (!writeResult &&
+                    (!_gotCityInfo || !_gotCloakInfo || !_gotChargeInfo))
                     return;
 
-                if (!_toggleRequested)
+                if (writeResult)
+                {
+                    // Cancellation already selected the result above.
+                }
+                else if (!_toggleRequested)
                 {
                     _resultWritten = true;
                     writeResult = true;
@@ -628,6 +688,28 @@ namespace CityFlipper
                 WriteResult();
         }
 
+        private bool IsCancellationRequested()
+        {
+            if (string.IsNullOrWhiteSpace(_operationId) ||
+                string.IsNullOrWhiteSpace(_cancelRequestPath))
+            {
+                return false;
+            }
+
+            try
+            {
+                return File.Exists(_cancelRequestPath) &&
+                       string.Equals(
+                           File.ReadAllText(_cancelRequestPath).Trim(),
+                           _operationId,
+                           StringComparison.Ordinal);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private Dictionary<string, string> DumpObject(object value)
         {
             var result = new Dictionary<string, string>();
@@ -710,6 +792,7 @@ namespace CityFlipper
                     CloakInfo = _cloakInfo,
 
                     ToggleRequested = _toggleRequested,
+                    Canceled = _cancellationRequested,
                     ToggleSent = _toggleSent,
                     ToggleSucceeded = toggleSucceeded,
                     ToggleBlockedReason = _toggleBlockedReason,
@@ -760,6 +843,7 @@ namespace CityFlipper
             public Dictionary<string, string> CloakInfo;
 
             public bool ToggleRequested;
+            public bool Canceled;
             public bool ToggleSent;
             public bool ToggleSucceeded;
             public string ToggleBlockedReason;
