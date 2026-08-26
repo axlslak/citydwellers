@@ -642,6 +642,23 @@ namespace CityFlipper
             {
                 try
                 {
+                    if (IsCancellationRequested())
+                    {
+                        lock (_sync)
+                        {
+                            _toggleSent = false;
+                            _cancellationRequested = true;
+                            _toggleBlockedReason =
+                                "Raid start was canceled before the cloak was lowered.";
+                            _resultWritten = true;
+                        }
+
+                        Logger.Warning(
+                            "Raid-start cancellation arrived before the cloak packet was sent.");
+                        WriteResult();
+                        return;
+                    }
+
                     Logger.Warning(
                         $"Sending ONE cloak {(_ensureEnabledOnly ? "ENABLE" : _ensureDisabledReadyOnly ? "RAID LOWER" : "toggle")}. " +
                         $"Pre-state={_initialCloakState}, " +
