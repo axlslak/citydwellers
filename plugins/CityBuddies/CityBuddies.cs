@@ -199,9 +199,9 @@ namespace CityBuddies
             }
 
             object position = localPlayer.Transform.Position;
-            float positionX;
-            float positionY;
-            float positionZ;
+            float positionX = 0;
+            float positionY = 0;
+            float positionZ = 0;
 
             snapshot.PositionAvailable =
                 TryReadComponent(position, "X", out positionX) &&
@@ -220,10 +220,10 @@ namespace CityBuddies
             }
 
             object heading = localPlayer.Transform.Heading;
-            float headingX;
-            float headingY;
-            float headingZ;
-            float headingW;
+            float headingX = 0;
+            float headingY = 0;
+            float headingZ = 0;
+            float headingW = 0;
 
             snapshot.HeadingAvailable =
                 TryReadComponent(heading, "X", out headingX) &&
