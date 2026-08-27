@@ -33,7 +33,7 @@ namespace CityManager
             BuddyLogoutOffsetSeconds;
         private const float MinimumRaidControllerCharge = 0.75f;
         private const int DefaultRaidLevel = 200;
-        private static readonly int[] AvailableRaidLevels = { 150, 175, 200 };
+        private static readonly int[] AvailableRaidLevels = { 125, 150, 175, 200 };
 
         // Nadybot's established AP city schedule, verified against the supplied
         // raid log. Values are cumulative seconds after CITY_ATTACKED.
@@ -194,7 +194,7 @@ namespace CityManager
                 if (!int.TryParse(parts[2], out level) ||
                     !IsAvailableRaidLevel(level))
                 {
-                    Reply(target, "Available City Dwellers levels are 150, 175, and 200.");
+                    Reply(target, "Available City Dwellers levels are 125, 150, 175, and 200.");
                     return;
                 }
 
@@ -629,7 +629,7 @@ namespace CityManager
             {
                 Reply(
                     commandTarget,
-                    "Recovery requires an owner, all/general, level 150, 175, or 200, and 0-12 raiders.");
+                    "Recovery requires an owner, all/general, level 125, 150, 175, or 200, and 0-12 raiders.");
                 return;
             }
 
@@ -736,7 +736,7 @@ namespace CityManager
                 if (!int.TryParse(parts[2], out level) ||
                     !IsAvailableRaidLevel(level))
                 {
-                    Reply(commandTarget, "Raid-assistance levels are 150, 175, and 200.");
+                    Reply(commandTarget, "Raid-assistance levels are 125, 150, 175, and 200.");
                     return;
                 }
 
@@ -758,7 +758,7 @@ namespace CityManager
                     commandTarget,
                     Usage(
                         commandTarget,
-                        "raidassist [count] [raid-token] or raidassist level [150|175|200] [raid-token]"));
+                        "raidassist [count] [raid-token] or raidassist level [125|150|175|200] [raid-token]"));
                 return;
             }
 
@@ -2575,7 +2575,7 @@ namespace CityManager
             body.Append(RaidButton(session, "type general", "General only", session.RaidType == "general"));
             body.Append("\n\nSelect level:\n");
 
-            int[] brackets = { 25, 50, 75, 100, 125 };
+            int[] brackets = { 25, 50, 75, 100 };
             foreach (int bracket in brackets)
                 body.Append($"<font color='#777777'>{bracket}</font>  ");
 
