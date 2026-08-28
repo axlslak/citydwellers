@@ -13,7 +13,7 @@ namespace CityManager
 {
     public partial class CityManager
     {
-        private const int AltStateVersion = 1;
+        private const int AltStateVersion = 2;
         private const int AltRefreshHours = 24;
         private const int AltReplyTimeoutSeconds = 30;
         private const int AltSuccessfulRequestSpacingSeconds = 2;
@@ -26,6 +26,10 @@ namespace CityManager
 
         private static readonly Regex AltCharacterRegex = new Regex(
             @"<font\s+color=['""]#00BFFF['""]>([A-Za-z0-9]+)</font>",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex AltPageRegex = new Regex(
+            @"\(Page\s+(\d+)\s*/\s*(\d+)\)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private readonly object _altsSync = new object();
@@ -357,8 +361,14 @@ namespace CityManager
 
             if (timedOut != null)
             {
+                int accumulated = timedOut.ResponseCharacters == null
+                    ? 0
+                    : timedOut.ResponseCharacters.Count;
+                string progress = accumulated > 0
+                    ? $" after receiving {accumulated}/{timedOut.ResponseDeclaredCount} unique names"
+                    : string.Empty;
                 DevTrace(
-                    $"ALTS {_altsBotName} timeout target={timedOut.Target}; " +
+                    $"ALTS {_altsBotName} timeout target={timedOut.Target}{progress}; " +
                     "cached answer retained, retry spacing=30s.");
                 ReplyToAltWaiters(
                     timedOut,
@@ -614,11 +624,15 @@ namespace CityManager
             string main;
             List<string> characters;
             int declaredCount;
+            int pageNumber;
+            int pageCount;
             if (!TryParseAltReply(
                     message.Message,
                     out main,
                     out characters,
-                    out declaredCount))
+                    out declaredCount,
+                    out pageNumber,
+                    out pageCount))
             {
                 Logger.Information(
                     $"Ignoring non-alt reply from configured bot {botName}.");
@@ -627,40 +641,117 @@ namespace CityManager
             }
 
             AltLookupRequest completed;
-            string afterFingerprint;
+            string afterFingerprint = null;
+            int accumulatedCount = 0;
+            bool partial = false;
+            List<string> completeCharacters = null;
             lock (_altsSync)
             {
                 AltLookupRequest pending = _pendingAltLookup;
                 bool matchesPending = pending != null &&
                     (string.Equals(
-                         pending.Target,
+                         pending.ResponseMain,
                          main,
                          StringComparison.OrdinalIgnoreCase) ||
-                     characters.Contains(
-                         pending.Target,
-                         StringComparer.OrdinalIgnoreCase));
+                     (string.IsNullOrWhiteSpace(pending.ResponseMain) &&
+                      (pageNumber == 1 ||
+                       string.Equals(
+                           pending.Target,
+                           main,
+                           StringComparison.OrdinalIgnoreCase) ||
+                       characters.Contains(
+                           pending.Target,
+                           StringComparer.OrdinalIgnoreCase))));
 
-                UpdateAltGroupFromBotLocked(main, characters, DateTime.UtcNow);
-                TrySaveAltsLocked();
-                PruneAndCanonicalizeAltQueueLocked();
-                completed = matchesPending ? pending : null;
-                if (matchesPending)
+                if (!matchesPending)
                 {
-                    _pendingAltLookup = null;
-                    _nextAltRequestUtc = DateTime.UtcNow.AddSeconds(
-                        AltSuccessfulRequestSpacingSeconds);
+                    completed = null;
                 }
-                afterFingerprint = GetAltFingerprintLocked(main);
+                else
+                {
+                    if (string.IsNullOrWhiteSpace(pending.ResponseMain))
+                    {
+                        pending.ResponseMain = main;
+                        pending.ResponseDeclaredCount = declaredCount;
+                        pending.ResponsePageCount = pageCount;
+                        pending.ResponseCharacters =
+                            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    }
+
+                    if (pending.ResponseDeclaredCount != declaredCount ||
+                        pending.ResponsePageCount != pageCount)
+                    {
+                        pending.ResponseDeclaredCount = declaredCount;
+                        pending.ResponsePageCount = pageCount;
+                        pending.ResponseCharacters.Clear();
+                    }
+
+                    pending.ResponseCharacters.UnionWith(characters);
+                    pending.DeadlineUtc = DateTime.UtcNow.AddSeconds(
+                        AltReplyTimeoutSeconds);
+                    accumulatedCount = pending.ResponseCharacters.Count;
+                    partial = accumulatedCount < declaredCount;
+
+                    if (partial)
+                    {
+                        completed = null;
+                    }
+                    else
+                    {
+                        completeCharacters = pending.ResponseCharacters
+                            .OrderBy(name =>
+                                string.Equals(
+                                    name,
+                                    main,
+                                    StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                            .ThenBy(name => name, StringComparer.OrdinalIgnoreCase)
+                            .ToList();
+
+                        UpdateAltGroupFromBotLocked(
+                            main,
+                            completeCharacters,
+                            DateTime.UtcNow);
+                        TrySaveAltsLocked();
+                        PruneAndCanonicalizeAltQueueLocked();
+                        completed = pending;
+                        _pendingAltLookup = null;
+                        _nextAltRequestUtc = DateTime.UtcNow.AddSeconds(
+                            AltSuccessfulRequestSpacingSeconds);
+                        afterFingerprint = GetAltFingerprintLocked(main);
+                    }
+                }
+            }
+
+            if (partial)
+            {
+                Logger.Information(
+                    $"ALTS <- {botName}: main={main}, page={pageNumber}/{pageCount}, " +
+                    $"accumulated={accumulatedCount}, declared={declaredCount}.");
+                DevTrace(
+                    $"ALTS <- {botName} fragment main={main} page={pageNumber}/{pageCount} " +
+                    $"accumulated={accumulatedCount} declared={declaredCount}; waiting.");
+                return true;
+            }
+
+            if (completed == null)
+            {
+                Logger.Warning(
+                    $"Ignoring unmatched alt-list page from {botName}: " +
+                    $"main={main}, page={pageNumber}/{pageCount}.");
+                DevTrace(
+                    $"ALTS <- {botName} unmatched main={main} " +
+                    $"page={pageNumber}/{pageCount}; cache unchanged.");
+                return true;
             }
 
             CanonicalizeKnownLists();
 
             Logger.Information(
-                $"ALTS <- {botName}: main={main}, parsed={characters.Count}, " +
-                $"declared={declaredCount}.");
+                $"ALTS <- {botName}: main={main}, parsed={completeCharacters.Count}, " +
+                $"declared={declaredCount}, pages={pageCount}.");
             DevTrace(
-                $"ALTS <- {botName} main={main} parsed={characters.Count} " +
-                $"declared={declaredCount}; cache saved.");
+                $"ALTS <- {botName} main={main} parsed={completeCharacters.Count} " +
+                $"declared={declaredCount} pages={pageCount}; cache saved.");
 
             if (completed != null)
             {
@@ -684,15 +775,30 @@ namespace CityManager
             string message,
             out string main,
             out List<string> characters,
-            out int declaredCount)
+            out int declaredCount,
+            out int pageNumber,
+            out int pageCount)
         {
             main = null;
             characters = new List<string>();
             declaredCount = 0;
+            pageNumber = 1;
+            pageCount = 1;
 
             Match heading = AltHeadingRegex.Match(message ?? string.Empty);
             if (!heading.Success ||
                 !int.TryParse(heading.Groups[2].Value, out declaredCount))
+            {
+                return false;
+            }
+
+            Match page = AltPageRegex.Match(message ?? string.Empty);
+            if (page.Success &&
+                (!int.TryParse(page.Groups[1].Value, out pageNumber) ||
+                 !int.TryParse(page.Groups[2].Value, out pageCount) ||
+                 pageNumber < 1 ||
+                 pageCount < 1 ||
+                 pageNumber > pageCount))
             {
                 return false;
             }
@@ -1073,9 +1179,12 @@ namespace CityManager
             PersistedAltState state = JsonConvert.DeserializeObject<PersistedAltState>(
                 File.ReadAllText(_altsPath));
 
-            if (state == null || state.Version != AltStateVersion || state.Groups == null)
+            if (state == null ||
+                (state.Version != 1 && state.Version != AltStateVersion) ||
+                state.Groups == null)
                 throw new InvalidDataException("Unsupported alt-cache file.");
 
+            bool invalidateLegacyFreshness = state.Version < AltStateVersion;
             _altGroups.Clear();
             foreach (AltGroup group in state.Groups)
             {
@@ -1089,10 +1198,20 @@ namespace CityManager
 
                 group.Main = normalized;
                 NormalizeAltGroupLocked(group);
+                if (invalidateLegacyFreshness)
+                    group.LastUpdatedUtc = null;
                 _altGroups[group.Main] = group;
             }
 
             RebuildAltLookupLocked();
+
+            if (invalidateLegacyFreshness)
+            {
+                Logger.Warning(
+                    "Migrating alt cache to multi-page-safe format; " +
+                    "existing names are preserved and bot-read groups will be refreshed.");
+                TrySaveAltsLocked();
+            }
         }
 
         private void SaveAltsLocked()
@@ -1333,6 +1452,10 @@ namespace CityManager
             public DateTime NotBeforeUtc;
             public DateTime SentUtc;
             public DateTime DeadlineUtc;
+            public string ResponseMain;
+            public int ResponseDeclaredCount;
+            public int ResponsePageCount;
+            public HashSet<string> ResponseCharacters;
             public List<AltLookupWaiter> Waiters;
         }
 
