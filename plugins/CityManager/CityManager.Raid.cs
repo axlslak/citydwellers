@@ -728,11 +728,26 @@ namespace CityManager
             bool levelSelection =
                 parts.Length == 4 &&
                 string.Equals(parts[1], "level", StringComparison.OrdinalIgnoreCase);
+            bool typeSelection =
+                parts.Length == 4 &&
+                string.Equals(parts[1], "type", StringComparison.OrdinalIgnoreCase);
             int count = 0;
             int level = 0;
+            string raidType = null;
             string token;
 
-            if (levelSelection)
+            if (typeSelection)
+            {
+                raidType = parts[2].ToLowerInvariant();
+                if (raidType != "all" && raidType != "general")
+                {
+                    Reply(commandTarget, "Raid assistance must be all remaining waves or general only.");
+                    return;
+                }
+
+                token = parts[3];
+            }
+            else if (levelSelection)
             {
                 if (!int.TryParse(parts[2], out level) ||
                     !IsAvailableRaidLevel(level))
@@ -759,7 +774,7 @@ namespace CityManager
                     commandTarget,
                     Usage(
                         commandTarget,
-                        "raidassist [count] [raid-token] or raidassist level [25|50|75|100|125|150|175|200] [raid-token]"));
+                        "raidassist [count] [raid-token], raidassist type [all|general] [raid-token], or raidassist level [25|50|75|100|125|150|175|200] [raid-token]"));
                 return;
             }
 
@@ -771,6 +786,17 @@ namespace CityManager
 
             Action<string> applyAuthorized = authority =>
             {
+                if (typeSelection)
+                {
+                    ApplyRaidAssistTypeSelection(
+                        senderName,
+                        commandTarget,
+                        raidType,
+                        token,
+                        authority);
+                    return;
+                }
+
                 if (levelSelection)
                 {
                     ApplyRaidAssistLevelSelection(
@@ -796,6 +822,37 @@ namespace CityManager
                 return;
             }
 
+            string cachedAuthority;
+            string authorityCharacter;
+            if (TryGetCachedOfficerAuthority(
+                    senderName,
+                    out cachedAuthority,
+                    out authorityCharacter))
+            {
+                DevTrace(
+                    $"RAID ASSIST AUTH cached sender={senderName} " +
+                    $"authority={cachedAuthority} via={authorityCharacter}.");
+                applyAuthorized(
+                    string.Equals(
+                        senderName,
+                        authorityCharacter,
+                        StringComparison.OrdinalIgnoreCase)
+                        ? cachedAuthority
+                        : $"{cachedAuthority} via alt {authorityCharacter}");
+                return;
+            }
+
+            if (HasCachedOfficialRanks())
+            {
+                DevTrace(
+                    $"RAID ASSIST DENIED {senderName}: no cached officer rank " +
+                    "exists in the resolved alt group.");
+                Reply(
+                    commandTarget,
+                    "Raid-assist controls require Squad Commander rank or higher on one character in your cached alt group.");
+                return;
+            }
+
             OrgRankAuthorizer.Authorize(
                 commandTarget.SenderId,
                 senderName,
@@ -817,6 +874,53 @@ namespace CityManager
 
                     applyAuthorized(authorization.Rank);
                 });
+        }
+
+        private void ApplyRaidAssistTypeSelection(
+            string senderName,
+            ReplyTarget commandTarget,
+            string raidType,
+            string token,
+            string authority)
+        {
+            RaidSession session;
+            string error = null;
+
+            lock (_raidSync)
+            {
+                session = _raidSession;
+
+                if (session == null ||
+                    !session.IsExternalAssist ||
+                    session.Stage != RaidStage.AssistSelection)
+                {
+                    error = "That raid-assist offer is no longer active.";
+                }
+                else if (!string.Equals(session.Token, token, StringComparison.Ordinal))
+                {
+                    error = "That raid-assist button belongs to an older raid.";
+                }
+                else if (DateTime.UtcNow >= session.StageDeadlineUtc)
+                {
+                    error = "The raid-assist selection window has closed.";
+                }
+                else
+                {
+                    session.RaidType = raidType;
+                }
+            }
+
+            if (error != null)
+            {
+                Reply(commandTarget, error);
+                return;
+            }
+
+            DevTrace(
+                $"RAID ASSIST type selected by={senderName} type={raidType} " +
+                $"authority={authority}.");
+            SaveRaidState();
+            Reply(session.Origin, BuildRaidWindow(session));
         }
 
         private void ApplyRaidAssistLevelSelection(
@@ -926,12 +1030,22 @@ namespace CityManager
 
             Logger.Warning(
                 $"External raid assistance selected by {senderName}: " +
-                $"level={session.Level}, count={count}, authority={authority}.");
+                $"type={session.RaidType}, level={session.Level}, count={count}, " +
+                $"authority={authority}.");
             DevTrace(
-                $"RAID ASSIST selected by={senderName} level={session.Level} count={count} " +
+                $"RAID ASSIST selected by={senderName} type={session.RaidType} " +
+                $"level={session.Level} count={count} " +
                 $"authority={authority} wave8={session.CityTargetedUtc.AddSeconds(Wave8OffsetSeconds):O}.");
             SaveRaidState();
             Reply(session.Origin, BuildRaidWindow(session));
+
+            if (string.Equals(
+                    session.RaidType,
+                    "all",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                BeginRaidBuddySpinup(session, "external all-remaining-waves selection");
+            }
         }
 
         private void TickRaidCoordinator()
@@ -1575,7 +1689,7 @@ namespace CityManager
             {
                 Logger.Warning(
                     $"Unmanaged city raid detected at {now:O}; location={location}. " +
-                    "Offering officer-controlled general support in org chat.");
+                    "Offering officer-controlled raid assistance in org chat.");
                 DevTrace(
                     $"RAID ASSIST OFFER location={location} anchor={now:O} " +
                     $"selection-deadline={session.StageDeadlineUtc:O}.");
@@ -2403,7 +2517,20 @@ namespace CityManager
                 body.Append("<font color='#00DE42'>A city raid is in progress.</font>\n");
                 body.Append(
                     "Squad Commanders and higher: do you need " +
-                    "City Dwellers online for the general?\n\n");
+                    "City Dwellers for the remaining raid?\n\n");
+                body.Append("Select assistance type:\n");
+                body.Append(
+                    RaidAssistTypeButton(
+                        session,
+                        "all",
+                        "All remaining waves"));
+                body.Append("  ");
+                body.Append(
+                    RaidAssistTypeButton(
+                        session,
+                        "general",
+                        "General only"));
+                body.Append("\n\n");
                 body.Append("Select level:\n");
 
                 foreach (int availableLevel in AvailableRaidLevels)
@@ -2562,6 +2689,25 @@ namespace CityManager
             string command =
                 $"chatcmd:///o #raidassist level {level} {session.Token}";
             string color = session.Level == level ? "#00DE42" : "#00BFFF";
+
+            return
+                $"<a href='{command}'><font color='{color}'>" +
+                $"[{SafeRaidText(label)}]</font></a>";
+        }
+
+        private string RaidAssistTypeButton(
+            RaidSession session,
+            string raidType,
+            string label)
+        {
+            string command =
+                $"chatcmd:///o #raidassist type {raidType} {session.Token}";
+            string color = string.Equals(
+                session.RaidType,
+                raidType,
+                StringComparison.OrdinalIgnoreCase)
+                    ? "#00DE42"
+                    : "#00BFFF";
 
             return
                 $"<a href='{command}'><font color='{color}'>" +

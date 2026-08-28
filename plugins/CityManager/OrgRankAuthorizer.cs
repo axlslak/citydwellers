@@ -192,7 +192,7 @@ namespace CityManager
             };
         }
 
-        private static bool IsSquadCommanderOrHigher(string rank)
+        internal static bool IsSquadCommanderOrHigher(string rank)
         {
             return string.Equals(rank, "President", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(rank, "General", StringComparison.OrdinalIgnoreCase) ||

@@ -14,7 +14,7 @@ namespace CityManager
 {
     public partial class CityManager
     {
-        private const int MembershipStateVersion = 1;
+        private const int MembershipStateVersion = 2;
         private const int MemberListVersion = 1;
         private const int MembershipRefreshHours = 24;
         private const int MembershipRetryMinutes = 60;
@@ -25,6 +25,8 @@ namespace CityManager
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _officialMembers =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, string> _officialMemberRanks =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _liveAddedMembers =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _liveRemovedMembers =
@@ -64,7 +66,8 @@ namespace CityManager
 
                 Logger.Information(
                     $"Membership initialized: permanent={_permanentMembers.Count}, " +
-                    $"official={_officialMembers.Count}, orgId={_membershipOrgId}, " +
+                    $"official={_officialMembers.Count}, ranks={_officialMemberRanks.Count}, " +
+                    $"orgId={_membershipOrgId}, " +
                     $"lastFetch={_membershipLastSuccessfulFetchUtc:O}.");
                 DevTrace(
                     $"MEMBERSHIP initialized permanent={_permanentMembers.Count} " +
@@ -156,6 +159,7 @@ namespace CityManager
                 if (changed)
                 {
                     _officialMembers.Clear();
+                    _officialMemberRanks.Clear();
                     _liveAddedMembers.Clear();
                     _liveRemovedMembers.Clear();
                     _membershipLastSuccessfulFetchUtc = null;
@@ -244,6 +248,75 @@ namespace CityManager
 
                 return false;
             }
+        }
+
+        private bool TryGetCachedOfficerAuthority(
+            string characterName,
+            out string authority,
+            out string authorityCharacter)
+        {
+            authority = null;
+            authorityCharacter = null;
+
+            List<string> identities = GetAltIdentityCandidates(characterName);
+            int bestPriority = int.MaxValue;
+
+            lock (_membershipSync)
+            {
+                foreach (string identity in identities)
+                {
+                    if (_liveRemovedMembers.Contains(identity))
+                        continue;
+
+                    string rank;
+                    if (!_officialMemberRanks.TryGetValue(identity, out rank) ||
+                        !OrgRankAuthorizer.IsSquadCommanderOrHigher(rank))
+                    {
+                        continue;
+                    }
+
+                    int priority = OfficialRankPriority(rank);
+                    if (priority >= bestPriority)
+                        continue;
+
+                    bestPriority = priority;
+                    authority = rank;
+                    authorityCharacter = identity;
+                }
+            }
+
+            return authority != null;
+        }
+
+        private bool HasCachedOfficialRanks()
+        {
+            lock (_membershipSync)
+                return _officialMemberRanks.Count > 0;
+        }
+
+        private List<string> GetCachedOfficerCharacters()
+        {
+            lock (_membershipSync)
+            {
+                return _officialMemberRanks
+                    .Where(pair =>
+                        !_liveRemovedMembers.Contains(pair.Key) &&
+                        OrgRankAuthorizer.IsSquadCommanderOrHigher(pair.Value))
+                    .Select(pair => pair.Key)
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+        }
+
+        private static int OfficialRankPriority(string rank)
+        {
+            if (string.Equals(rank, "President", StringComparison.OrdinalIgnoreCase))
+                return 0;
+            if (string.Equals(rank, "General", StringComparison.OrdinalIgnoreCase))
+                return 1;
+            if (string.Equals(rank, "Squad Commander", StringComparison.OrdinalIgnoreCase))
+                return 2;
+            return int.MaxValue;
         }
 
         private bool IsCommandSourceAuthorized(
@@ -391,6 +464,7 @@ namespace CityManager
                 else
                 {
                     _liveAddedMembers.Remove(normalized);
+                    _officialMemberRanks.Remove(normalized);
                     // Keep the removal even before the first website fetch.  The
                     // daily roster may still contain this character until AO's
                     // public data catches up.
@@ -462,6 +536,7 @@ namespace CityManager
             string orgName = organization.Value<string>("NAME");
             int declaredCount = organization.Value<int?>("NUMMEMBERS") ?? 0;
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var ranks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (JToken token in members)
             {
@@ -469,7 +544,13 @@ namespace CityManager
                 string normalized;
                 string error;
                 if (TryNormalizeMemberName(name, out normalized, out error))
+                {
                     names.Add(normalized);
+
+                    string rank = ParseOfficialMemberRank(token);
+                    if (!string.IsNullOrWhiteSpace(rank))
+                        ranks[normalized] = rank;
+                }
             }
 
             if (orgId <= 0 || string.IsNullOrWhiteSpace(orgName) || names.Count == 0)
@@ -501,8 +582,53 @@ namespace CityManager
                 OrgName = orgName.Trim(),
                 DeclaredCount = declaredCount,
                 SourceUpdatedUtc = sourceUpdatedUtc,
-                Members = names
+                Members = names,
+                MemberRanks = ranks
             };
+        }
+
+        private static string ParseOfficialMemberRank(JToken member)
+        {
+            string[] rankFields =
+            {
+                "RANK_TITLE",
+                "RANK_NAME",
+                "ORG_RANK_TITLE",
+                "ORGANIZATION_RANK"
+            };
+
+            foreach (string field in rankFields)
+            {
+                string value = member.Value<string>(field);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value.Trim();
+            }
+
+            JToken numericToken = member["RANK"];
+            int numericRank;
+            if (numericToken != null &&
+                int.TryParse(numericToken.ToString(), out numericRank))
+            {
+                return OfficialRankName(numericRank);
+            }
+
+            string fallback = member.Value<string>("RANK");
+            return string.IsNullOrWhiteSpace(fallback) ? null : fallback.Trim();
+        }
+
+        private static string OfficialRankName(int numericRank)
+        {
+            switch (numericRank)
+            {
+                case 0: return "President";
+                case 1: return "General";
+                case 2: return "Squad Commander";
+                case 3: return "Unit Commander";
+                case 4: return "Unit Leader";
+                case 5: return "Unit Member";
+                case 6: return "Applicant";
+                default: return null;
+            }
         }
 
         private void ApplyOfficialRoster(
@@ -512,6 +638,7 @@ namespace CityManager
         {
             DateTime now = DateTime.UtcNow;
             string telemetry;
+            List<string> officerCharacters = null;
 
             lock (_membershipSync)
             {
@@ -550,6 +677,10 @@ namespace CityManager
                     foreach (string name in roster.Members)
                         _officialMembers.Add(name);
 
+                    _officialMemberRanks.Clear();
+                    foreach (KeyValuePair<string, string> pair in roster.MemberRanks)
+                        _officialMemberRanks[pair.Key] = pair.Value;
+
                     _liveAddedMembers.RemoveWhere(
                         name => _officialMembers.Contains(name));
                     _liveRemovedMembers.RemoveWhere(
@@ -563,9 +694,17 @@ namespace CityManager
                     _membershipFetchInFlight = false;
                     TrySaveMembershipStateLocked();
 
+                    officerCharacters = _officialMemberRanks
+                        .Where(pair =>
+                            OrgRankAuthorizer.IsSquadCommanderOrHigher(pair.Value))
+                        .Select(pair => pair.Key)
+                        .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
                     telemetry =
                         $"MEMBERSHIP ROSTER OK org={requestedOrgId} " +
                         $"name={roster.OrgName} members={_officialMembers.Count} " +
+                        $"ranks={_officialMemberRanks.Count} officers={officerCharacters.Count} " +
                         $"declared={roster.DeclaredCount} " +
                         $"source-updated={roster.SourceUpdatedUtc:O} " +
                         $"next={_membershipNextAttemptUtc:O}.";
@@ -574,6 +713,9 @@ namespace CityManager
 
             Logger.Information(telemetry);
             DevTrace(telemetry);
+
+            if (officerCharacters != null)
+                QueueRosterOfficerAlts(officerCharacters, "daily-officer-roster");
         }
 
         private void ProcessMemberListCommand(
@@ -775,6 +917,7 @@ namespace CityManager
         private void LoadMembershipStateLocked()
         {
             _officialMembers.Clear();
+            _officialMemberRanks.Clear();
             _liveAddedMembers.Clear();
             _liveRemovedMembers.Clear();
 
@@ -787,7 +930,8 @@ namespace CityManager
                     JsonConvert.DeserializeObject<PersistedMembershipState>(
                         File.ReadAllText(_membershipStatePath));
 
-                if (state == null || state.Version != MembershipStateVersion)
+                if (state == null ||
+                    (state.Version != 1 && state.Version != MembershipStateVersion))
                     throw new InvalidDataException("Unsupported membership-state file.");
 
                 _membershipOrgId = state.OrgId;
@@ -800,6 +944,11 @@ namespace CityManager
                 AddPersistedNamesLocked(state.OfficialMembers, _officialMembers);
                 AddPersistedNamesLocked(state.LiveAddedMembers, _liveAddedMembers);
                 AddPersistedNamesLocked(state.LiveRemovedMembers, _liveRemovedMembers);
+
+                if (state.Version >= 2)
+                    AddPersistedRanksLocked(state.OfficialMemberRanks);
+                else
+                    _membershipLastSuccessfulFetchUtc = null;
             }
             catch (Exception ex)
             {
@@ -812,8 +961,27 @@ namespace CityManager
                 _membershipSourceUpdatedUtc = null;
                 _suspiciousRosterShrinkCount = 0;
                 _officialMembers.Clear();
+                _officialMemberRanks.Clear();
                 _liveAddedMembers.Clear();
                 _liveRemovedMembers.Clear();
+            }
+        }
+
+        private void AddPersistedRanksLocked(
+            IDictionary<string, string> ranks)
+        {
+            if (ranks == null)
+                return;
+
+            foreach (KeyValuePair<string, string> pair in ranks)
+            {
+                string normalized;
+                string error;
+                if (!TryNormalizeMemberName(pair.Key, out normalized, out error))
+                    throw new InvalidDataException(error);
+
+                if (!string.IsNullOrWhiteSpace(pair.Value))
+                    _officialMemberRanks[normalized] = pair.Value.Trim();
             }
         }
 
@@ -878,6 +1046,12 @@ namespace CityManager
                     SourceUpdatedUtc = _membershipSourceUpdatedUtc,
                     SuspiciousRosterShrinkCount = _suspiciousRosterShrinkCount,
                     OfficialMembers = SortedNames(_officialMembers),
+                    OfficialMemberRanks = _officialMemberRanks
+                        .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(
+                            pair => pair.Key,
+                            pair => pair.Value,
+                            StringComparer.OrdinalIgnoreCase),
                     LiveAddedMembers = SortedNames(_liveAddedMembers),
                     LiveRemovedMembers = SortedNames(_liveRemovedMembers)
                 };
@@ -973,6 +1147,7 @@ namespace CityManager
             public DateTime? SourceUpdatedUtc;
             public int SuspiciousRosterShrinkCount;
             public List<string> OfficialMembers;
+            public Dictionary<string, string> OfficialMemberRanks;
             public List<string> LiveAddedMembers;
             public List<string> LiveRemovedMembers;
         }
@@ -984,6 +1159,7 @@ namespace CityManager
             public int DeclaredCount;
             public DateTime? SourceUpdatedUtc;
             public HashSet<string> Members;
+            public Dictionary<string, string> MemberRanks;
         }
     }
 }

@@ -261,6 +261,7 @@ namespace CityManager
                 if (!IsOrganizationChannel(msg.ChannelId, msg.ChannelName))
                     return;
 
+                ObserveAltLoginAnnouncement(msg.SenderName, msg.Message);
                 ObserveOrganizationMembershipMessage(cityMessage);
                 ObserveRaidCityMessage(cityMessage, msg.ChannelId);
 

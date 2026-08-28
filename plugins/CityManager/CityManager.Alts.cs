@@ -17,6 +17,8 @@ namespace CityManager
         private const int AltRefreshHours = 24;
         private const int AltReplyTimeoutSeconds = 30;
         private const int AltSuccessfulRequestSpacingSeconds = 2;
+        private const int AltLoginRefreshDelaySeconds = 30;
+        private const int AltRosterOfficerSpacingSeconds = 10;
 
         private static readonly Regex AltHeadingRegex = new Regex(
             @"Alts\s+of\s+([A-Za-z0-9]+)\s*\((\d+)\)",
@@ -94,6 +96,9 @@ namespace CityManager
         {
             _nextStaleAltScanUtc = DateTime.MinValue;
             QueueStaleAdministratorAlts();
+            QueueRosterOfficerAlts(
+                GetCachedOfficerCharacters(),
+                "cached-officer-roster");
         }
 
         private void ShutdownAlts()
@@ -339,9 +344,14 @@ namespace CityManager
                     now >= _nextAltRequestUtc &&
                     _altQueue.Count > 0)
                 {
-                    toSend = _altQueue[0];
-                    _altQueue.RemoveAt(0);
-                    _altSendInFlight = true;
+                    toSend = _altQueue.FirstOrDefault(request =>
+                        request.NotBeforeUtc <= now);
+
+                    if (toSend != null)
+                    {
+                        _altQueue.Remove(toSend);
+                        _altSendInFlight = true;
+                    }
                 }
             }
 
@@ -369,12 +379,62 @@ namespace CityManager
                 QueueAltLookup(administrator, null, false, true, "daily-admin-refresh");
         }
 
+        private void QueueRosterOfficerAlts(
+            IEnumerable<string> officerCharacters,
+            string reason)
+        {
+            if (string.IsNullOrWhiteSpace(_altsBotName))
+                return;
+
+            int queued = 0;
+            foreach (string officer in officerCharacters ?? Enumerable.Empty<string>())
+            {
+                if (QueueAltLookup(
+                        officer,
+                        null,
+                        false,
+                        false,
+                        reason,
+                        queued * AltRosterOfficerSpacingSeconds))
+                {
+                    queued++;
+                }
+            }
+        }
+
+        private void ObserveAltLoginAnnouncement(
+            string senderName,
+            string message)
+        {
+            if (string.IsNullOrWhiteSpace(_altsBotName) ||
+                !string.Equals(senderName, _altsBotName, StringComparison.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(message) ||
+                message.IndexOf("has logged on", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                return;
+            }
+
+            Match character = AltCharacterRegex.Match(message);
+            if (!character.Success)
+                return;
+
+            string loggedOnCharacter = character.Groups[1].Value;
+            QueueAltLookup(
+                loggedOnCharacter,
+                null,
+                false,
+                false,
+                "org-login",
+                AltLoginRefreshDelaySeconds);
+        }
+
         private bool QueueAltLookup(
             string characterName,
             AltLookupWaiter waiter,
             bool force,
             bool keepRetrying,
-            string reason)
+            string reason,
+            int delaySeconds = 0)
         {
             string normalized;
             string error;
@@ -384,6 +444,8 @@ namespace CityManager
             lock (_altsSync)
             {
                 string target = ResolveCanonicalAltMainLocked(normalized);
+                DateTime notBeforeUtc = DateTime.UtcNow.AddSeconds(
+                    Math.Max(0, delaySeconds));
 
                 if (!force && IsAltGroupFreshLocked(target, DateTime.UtcNow))
                     return false;
@@ -395,6 +457,9 @@ namespace CityManager
                         existing.Waiters.Add(waiter);
                     existing.Force = existing.Force || force;
                     existing.KeepRetrying = existing.KeepRetrying || keepRetrying;
+
+                    if (force || existing.NotBeforeUtc > notBeforeUtc)
+                        existing.NotBeforeUtc = notBeforeUtc;
 
                     if (force && !ReferenceEquals(existing, _pendingAltLookup))
                     {
@@ -411,6 +476,7 @@ namespace CityManager
                     Force = force,
                     KeepRetrying = keepRetrying,
                     Reason = reason,
+                    NotBeforeUtc = notBeforeUtc,
                     Waiters = new List<AltLookupWaiter>()
                 };
                 if (waiter != null)
@@ -422,7 +488,8 @@ namespace CityManager
                     _altQueue.Add(request);
                 DevTrace(
                     $"ALTS queued target={target} reason={reason} " +
-                    $"force={force} retry={keepRetrying}.");
+                    $"force={force} retry={keepRetrying} " +
+                    $"not-before={notBeforeUtc:O}.");
                 return true;
             }
         }
@@ -459,6 +526,7 @@ namespace CityManager
                 Force = false,
                 KeepRetrying = keepRetrying,
                 Reason = reason,
+                NotBeforeUtc = DateTime.UtcNow,
                 Waiters = new List<AltLookupWaiter>()
             });
         }
@@ -1262,6 +1330,7 @@ namespace CityManager
             public string Reason;
             public bool Force;
             public bool KeepRetrying;
+            public DateTime NotBeforeUtc;
             public DateTime SentUtc;
             public DateTime DeadlineUtc;
             public List<AltLookupWaiter> Waiters;
