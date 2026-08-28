@@ -16,9 +16,8 @@ namespace CityManager
         private const int AltStateVersion = 2;
         private const int AltRefreshHours = 24;
         private const int AltReplyTimeoutSeconds = 30;
-        private const int AltSuccessfulRequestSpacingSeconds = 2;
+        private const int AltRequestSpacingSeconds = 5;
         private const int AltLoginRefreshDelaySeconds = 30;
-        private const int AltRosterOfficerSpacingSeconds = 10;
 
         private static readonly Regex AltHeadingRegex = new Regex(
             @"Alts\s+of\s+([A-Za-z0-9]+)\s*\((\d+)\)",
@@ -337,7 +336,7 @@ namespace CityManager
                 {
                     timedOut = _pendingAltLookup;
                     _pendingAltLookup = null;
-                    _nextAltRequestUtc = now.AddSeconds(AltReplyTimeoutSeconds);
+                    _nextAltRequestUtc = now.AddSeconds(AltRequestSpacingSeconds);
 
                     if (timedOut.KeepRetrying)
                         RequeueAltLookupLocked(timedOut.Target, true, "retry");
@@ -372,7 +371,7 @@ namespace CityManager
                     : string.Empty;
                 DevTrace(
                     $"ALTS {_altsBotName} timeout target={timedOut.Target}{progress}; " +
-                    "cached answer retained, retry spacing=30s.");
+                    $"cached answer retained, retry spacing={AltRequestSpacingSeconds}s.");
                 ReplyToAltWaiters(
                     timedOut,
                     $"{_altsBotName} did not answer within 30 seconds. " +
@@ -399,20 +398,8 @@ namespace CityManager
             if (string.IsNullOrWhiteSpace(_altsBotName))
                 return;
 
-            int queued = 0;
             foreach (string officer in officerCharacters ?? Enumerable.Empty<string>())
-            {
-                if (QueueAltLookup(
-                        officer,
-                        null,
-                        false,
-                        false,
-                        reason,
-                        queued * AltRosterOfficerSpacingSeconds))
-                {
-                    queued++;
-                }
-            }
+                QueueAltLookup(officer, null, false, false, reason);
         }
 
         private void ObserveAltLoginAnnouncement(
@@ -593,7 +580,7 @@ namespace CityManager
                     _pendingAltLookup = null;
 
                 _nextAltRequestUtc = DateTime.UtcNow.AddSeconds(
-                    AltReplyTimeoutSeconds);
+                    AltRequestSpacingSeconds);
 
                 if (request.KeepRetrying)
                     RequeueAltLookupLocked(request.Target, true, "retry");
@@ -729,8 +716,11 @@ namespace CityManager
                         PruneAndCanonicalizeAltQueueLocked();
                         completed = pending;
                         _pendingAltLookup = null;
-                        _nextAltRequestUtc = DateTime.UtcNow.AddSeconds(
-                            AltSuccessfulRequestSpacingSeconds);
+                        DateTime pacedRequestUtc = pending.SentUtc.AddSeconds(
+                            AltRequestSpacingSeconds);
+                        _nextAltRequestUtc = pacedRequestUtc > DateTime.UtcNow
+                            ? pacedRequestUtc
+                            : DateTime.UtcNow;
                         afterFingerprint = GetAltFingerprintLocked(main);
                     }
                 }
