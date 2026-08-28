@@ -40,6 +40,7 @@ internal static class FlipperCacheStore
                     File.ReadAllText(_cachePath));
 
                 if (record == null ||
+                    !record.Confirmed ||
                     record.ObservedUtc == default(DateTime) ||
                     string.IsNullOrWhiteSpace(record.CloakState))
                 {
@@ -85,24 +86,15 @@ internal static class FlipperCacheStore
 
         if (result.ToggleRequested && result.ToggleSent)
         {
-            if (string.Equals(
-                result.InitialCloakState,
-                "Enabled",
-                StringComparison.OrdinalIgnoreCase))
+            if (!result.ToggleSucceeded ||
+                string.IsNullOrWhiteSpace(result.PostToggleCloakState))
             {
-                state = "Disabled";
-                timer = 3600;
-                source = "Flipper.Toggle";
+                return;
             }
-            else if (string.Equals(
-                result.InitialCloakState,
-                "Disabled",
-                StringComparison.OrdinalIgnoreCase))
-            {
-                state = "Enabled";
-                timer = 0;
-                source = "Flipper.Toggle";
-            }
+
+            state = result.PostToggleCloakState;
+            timer = result.PostToggleShieldTimerInSeconds;
+            source = "Flipper.ConfirmedToggle";
         }
 
         if (string.IsNullOrWhiteSpace(state))
@@ -115,7 +107,8 @@ internal static class FlipperCacheStore
                 CloakState = state,
                 ShieldTimerInSeconds = timer,
                 ControllerCharge = result.ControllerCharge,
-                Source = source
+                Source = source,
+                Confirmed = true
             });
     }
 
@@ -165,6 +158,7 @@ internal static class FlipperCacheStore
         public int? ShieldTimerInSeconds;
         public float? ControllerCharge;
         public string Source;
+        public bool Confirmed;
     }
 }
 

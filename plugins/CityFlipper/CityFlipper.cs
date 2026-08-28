@@ -19,6 +19,7 @@ namespace CityFlipper
     public class CityFlipper : ClientlessPluginEntry
     {
         private const float MinimumRaidControllerCharge = 0.75f;
+        private const double PostToggleConfirmationTimeoutMs = 8000.0;
 
         private string _pluginDir;
         private string _operationId;
@@ -198,6 +199,19 @@ namespace CityFlipper
                         $"City Controller charge remained {_controllerCharge * 100:F1}%; " +
                         $"it did not reach {MinimumRaidControllerCharge * 100:F0}% " +
                         "within the fill window.";
+                    _resultWritten = true;
+                    writeTimeout = true;
+                }
+
+                if (!writeCancellation &&
+                    !writeTimeout &&
+                    _toggleSent &&
+                    !_gotPostToggleCloakInfo &&
+                    elapsedMs - _toggleSentMs >= PostToggleConfirmationTimeoutMs)
+                {
+                    _toggleBlockedReason =
+                        "Cloak action was sent, but the server did not confirm " +
+                        "a changed cloak state within 8 seconds.";
                     _resultWritten = true;
                     writeTimeout = true;
                 }
@@ -669,27 +683,14 @@ namespace CityFlipper
                         Unknown1 = 49152
                     });
 
-                    if (_ensureEnabledOnly)
-                    {
-                        lock (_sync)
-                        {
-                            _resultWritten = true;
-                        }
-
-                        Logger.Warning(
-                            "Cloak enable packet sent. Flipper action is authoritative; writing result immediately.");
-                        WriteResult();
-                    }
-                    else
-                    {
-                        Logger.Warning(
-                            "Cloak toggle packet sent; waiting for post-toggle CloakInfo.");
-                    }
+                    Logger.Warning(
+                        "Cloak action packet sent; waiting for confirmed post-toggle CloakInfo.");
                 }
                 catch (Exception ex)
                 {
                     lock (_sync)
                     {
+                        _toggleSent = false;
                         _toggleBlockedReason = $"Failed to send toggle packet: {ex.Message}";
                         _resultWritten = true;
                     }

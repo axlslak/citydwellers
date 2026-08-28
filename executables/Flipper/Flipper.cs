@@ -407,28 +407,7 @@ public class FlipperLoader
 
         if (run.Result.ToggleSent)
         {
-            if (FlipperCacheStore.TryGetAny(out cached) &&
-                IsEnabled(cached.CloakState))
-            {
-                return FromCache(
-                    request,
-                    cached,
-                    "Flipper enabled the city cloak.");
-            }
-
-            return new WorkerResponse
-            {
-                Id = request.Id,
-                Ok = true,
-                Message = "Flipper sent the enable action; treating its own action as authoritative.",
-                CloakState = "Enabled",
-                ShieldTimerInSeconds = 0,
-                ControllerCharge = run.Result.ControllerCharge,
-                Character = _account.Character,
-                Cached = false,
-                ObservedUtc = DateTime.UtcNow,
-                ActionSent = true
-            };
+            return BuildEnsureEnabledResponse(request, run.Result);
         }
 
         WorkerResponse observed = FromFreshResult(request, run.Result);
@@ -446,6 +425,40 @@ public class FlipperLoader
             : "Cloak is not enabled and Flipper did not send an enable action.";
 
         return observed;
+    }
+
+    private static WorkerResponse BuildEnsureEnabledResponse(
+        WorkerRequest request,
+        FlipperResult result)
+    {
+        string finalState = result.PostToggleCloakState;
+        bool enabled =
+            result.ToggleSucceeded &&
+            string.Equals(
+                finalState,
+                "Enabled",
+                StringComparison.OrdinalIgnoreCase);
+
+        return new WorkerResponse
+        {
+            Id = request.Id,
+            Ok = enabled,
+            Message = enabled
+                ? "Flipper raised and verified the city cloak."
+                : !string.IsNullOrWhiteSpace(result.ToggleBlockedReason)
+                    ? result.ToggleBlockedReason
+                    : $"Enable action was sent, but the confirmed post-toggle state was " +
+                      $"'{finalState ?? "Unknown"}'.",
+            CloakState = finalState ?? result.InitialCloakState,
+            ShieldTimerInSeconds = enabled
+                ? result.PostToggleShieldTimerInSeconds
+                : (int?)result.InitialShieldTimerInSeconds,
+            ControllerCharge = result.ControllerCharge,
+            Character = _account.Character,
+            Cached = false,
+            ObservedUtc = DateTime.UtcNow,
+            ActionSent = result.ToggleSent
+        };
     }
 
     private static WorkerResponse EnsureDisabledReady(WorkerRequest request)
