@@ -261,7 +261,7 @@ namespace CityManager
                 if (!IsOrganizationChannel(msg.ChannelId, msg.ChannelName))
                     return;
 
-                ObserveAltLoginAnnouncement(msg.SenderName, msg.Message);
+                ObserveAltPresenceAnnouncement(msg.SenderName, msg.Message);
                 ObserveOrganizationMembershipMessage(cityMessage);
                 ObserveRaidCityMessage(cityMessage, msg.ChannelId);
 
@@ -696,7 +696,7 @@ namespace CityManager
                 $"{prefix}adminlist, {prefix}admin [add|del/rem/remove/delete] [character], " +
                 $"{prefix}memberlist, {prefix}member [add|del/rem/remove/delete] [character], " +
                 $"{prefix}ban [character], {prefix}unban [character], " +
-                $"{prefix}alts [character|list|add|del/rem/remove/delete]. " +
+                $"{prefix}alts [character|list|add|del/rem/remove/delete|recover]. " +
                 $"Recovery: {prefix}recoverraid [owner] [all|general] [level] [count]." +
                 suffix;
         }

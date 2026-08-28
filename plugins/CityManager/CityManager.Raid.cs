@@ -824,19 +824,24 @@ namespace CityManager
 
             string cachedAuthority;
             string authorityCharacter;
-            if (TryGetCachedOfficerAuthority(
+            bool hasCachedAuthority = TryGetCachedOfficerAuthority(
                     senderName,
                     out cachedAuthority,
-                    out authorityCharacter))
+                    out authorityCharacter);
+            bool directCachedAuthority = hasCachedAuthority &&
+                string.Equals(
+                    senderName,
+                    authorityCharacter,
+                    StringComparison.OrdinalIgnoreCase);
+            bool reliableAltAuthority = hasCachedAuthority &&
+                IsAltIdentityGroupReliable(senderName);
+            if (directCachedAuthority || reliableAltAuthority)
             {
                 DevTrace(
                     $"RAID ASSIST AUTH cached sender={senderName} " +
                     $"authority={cachedAuthority} via={authorityCharacter}.");
                 applyAuthorized(
-                    string.Equals(
-                        senderName,
-                        authorityCharacter,
-                        StringComparison.OrdinalIgnoreCase)
+                    directCachedAuthority
                         ? cachedAuthority
                         : $"{cachedAuthority} via alt {authorityCharacter}");
                 return;
@@ -844,12 +849,60 @@ namespace CityManager
 
             if (HasCachedOfficialRanks())
             {
-                DevTrace(
-                    $"RAID ASSIST DENIED {senderName}: no cached officer rank " +
-                    "exists in the resolved alt group.");
+                if (IsAltIdentityGroupReliable(senderName))
+                {
+                    DevTrace(
+                        $"RAID ASSIST DENIED {senderName}: fresh alt group " +
+                        "contains no Squad Commander-or-higher XML rank.");
+                    Reply(
+                        commandTarget,
+                        "Raid-assist controls require Squad Commander rank or higher on one character in your current alt group.");
+                    return;
+                }
+
                 Reply(
                     commandTarget,
-                    "Raid-assist controls require Squad Commander rank or higher on one character in your cached alt group.");
+                    $"Checking {_altsBotName ?? "the configured alt bot"} for {senderName}'s current alt group.");
+                DevTrace(
+                    $"RAID ASSIST AUTH lookup sender={senderName}; " +
+                    (hasCachedAuthority
+                        ? $"cached authority via {authorityCharacter} is stale."
+                        : "no reliable cached officer alt exists."));
+
+                ResolveOfficerAltGroup(
+                    senderName,
+                    lookupSucceeded =>
+                    {
+                        string refreshedAuthority;
+                        string refreshedCharacter;
+                        if (lookupSucceeded &&
+                            TryGetCachedOfficerAuthority(
+                                senderName,
+                                out refreshedAuthority,
+                                out refreshedCharacter))
+                        {
+                            DevTrace(
+                                $"RAID ASSIST AUTH refreshed sender={senderName} " +
+                                $"authority={refreshedAuthority} via={refreshedCharacter}.");
+                            applyAuthorized(
+                                string.Equals(
+                                    senderName,
+                                    refreshedCharacter,
+                                    StringComparison.OrdinalIgnoreCase)
+                                    ? refreshedAuthority
+                                    : $"{refreshedAuthority} via alt {refreshedCharacter}");
+                            return;
+                        }
+
+                        DevTrace(
+                            $"RAID ASSIST DENIED {senderName}: targeted alt lookup " +
+                            $"completed={lookupSucceeded} without officer authority.");
+                        Reply(
+                            commandTarget,
+                            lookupSucceeded
+                                ? "Raid-assist controls require Squad Commander rank or higher on one character in your current alt group."
+                                : $"Unable to verify {senderName}'s alt group through {_altsBotName ?? "the configured alt bot"} right now.");
+                    });
                 return;
             }
 

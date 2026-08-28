@@ -713,9 +713,6 @@ namespace CityManager
 
             Logger.Information(telemetry);
             DevTrace(telemetry);
-
-            if (officerCharacters != null)
-                QueueRosterOfficerAlts(officerCharacters, "daily-officer-roster");
         }
 
         private void ProcessMemberListCommand(

@@ -17,7 +17,8 @@ namespace CityManager
         private const int AltRefreshHours = 24;
         private const int AltReplyTimeoutSeconds = 30;
         private const int AltRequestSpacingSeconds = 5;
-        private const int AltLoginRefreshDelaySeconds = 30;
+        private const int AltStartupQuietSeconds = 15;
+        private const int PassiveAltResponseTimeoutSeconds = 45;
 
         private static readonly Regex AltHeadingRegex = new Regex(
             @"Alts\s+of\s+([A-Za-z0-9]+)\s*\((\d+)\)",
@@ -31,6 +32,22 @@ namespace CityManager
             @"\(Page\s+(\d+)\s*/\s*(\d+)\)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+        private static readonly Regex OnlineHeadingRegex = new Regex(
+            @"Online\s*\((\d+)\)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex OnlineMainRegex = new Regex(
+            @"<a\s+href=['""]chatcmd:///tell\s+([A-Za-z0-9]+)\s+alts\s+([A-Za-z0-9]+)['""]>([A-Za-z0-9]+)</a><br>",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex OnlineCharacterRegex = new Regex(
+            @"(?:^|<br>|text://)\s{2}([A-Za-z0-9]+)\s+\(",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex LoggedOffRegex = new Regex(
+            @"<font\s+color=['""]#00BFFF['""]>([A-Za-z0-9]+)</font>\s+has\s+logged\s+off",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         private readonly object _altsSync = new object();
         private readonly Dictionary<string, AltGroup> _altGroups =
             new Dictionary<string, AltGroup>(StringComparer.OrdinalIgnoreCase);
@@ -38,6 +55,10 @@ namespace CityManager
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly List<AltLookupRequest> _altQueue =
             new List<AltLookupRequest>();
+        private readonly Dictionary<string, PassiveAltResponse> _passiveAltResponses =
+            new Dictionary<string, PassiveAltResponse>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _onlineCharacters =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         private string _altsPath;
         private string _altsBotName;
@@ -46,7 +67,8 @@ namespace CityManager
         private bool _altsShuttingDown;
         private DateTime _nextAltRequestUtc = DateTime.MinValue;
         private DateTime _nextAltTickUtc = DateTime.MinValue;
-        private DateTime _nextStaleAltScanUtc = DateTime.MinValue;
+        private OnlineSnapshotResponse _onlineSnapshotResponse;
+        private bool _startupOnlineSnapshotPending;
 
         private void InitializeAlts()
         {
@@ -57,12 +79,15 @@ namespace CityManager
                 _altGroups.Clear();
                 _altToMain.Clear();
                 _altQueue.Clear();
+                _passiveAltResponses.Clear();
+                _onlineCharacters.Clear();
                 _pendingAltLookup = null;
                 _altSendInFlight = false;
                 _altsShuttingDown = false;
                 _nextAltRequestUtc = DateTime.MinValue;
                 _nextAltTickUtc = DateTime.MinValue;
-                _nextStaleAltScanUtc = DateTime.MinValue;
+                _onlineSnapshotResponse = null;
+                _startupOnlineSnapshotPending = false;
 
                 if (File.Exists(_altsPath))
                 {
@@ -97,11 +122,16 @@ namespace CityManager
 
         private void BeginAltsAfterInPlay()
         {
-            _nextStaleAltScanUtc = DateTime.MinValue;
-            QueueStaleAdministratorAlts();
-            QueueRosterOfficerAlts(
-                GetCachedOfficerCharacters(),
-                "cached-officer-roster");
+            lock (_altsSync)
+            {
+                _startupOnlineSnapshotPending = true;
+                _nextAltRequestUtc = DateTime.UtcNow.AddSeconds(
+                    AltStartupQuietSeconds);
+            }
+
+            DevTrace(
+                $"ALTS startup listening for {_altsBotName ?? "configured bot"} " +
+                $"online state; outbound lookups quiet for {AltStartupQuietSeconds}s.");
         }
 
         private void ShutdownAlts()
@@ -110,7 +140,9 @@ namespace CityManager
             {
                 _altsShuttingDown = true;
                 _altQueue.Clear();
+                _passiveAltResponses.Clear();
                 _pendingAltLookup = null;
+                _onlineSnapshotResponse = null;
                 TrySaveAltsLocked();
             }
         }
@@ -174,6 +206,35 @@ namespace CityManager
             if (parts.Length == 1)
             {
                 ShowAndRefreshAlts(senderName, target);
+                return;
+            }
+
+            if (parts.Length == 2 &&
+                string.Equals(parts[1], "recover", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!isAdmin)
+                {
+                    Reply(target, "Only administrators may start a full officer-alt recovery sweep.");
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(_altsBotName))
+                {
+                    Reply(
+                        target,
+                        "External alt lookup is disabled; set Bot in settings/manager.json first.");
+                    return;
+                }
+
+                QueueStaleAdministratorAlts();
+                QueueRosterOfficerAlts(
+                    GetCachedOfficerCharacters(),
+                    "admin-officer-recovery");
+                Reply(
+                    target,
+                    $"Full officer-alt recovery sweep queued through {_altsBotName ?? "the configured alt bot"}. " +
+                    "Fresh groups will be skipped; normal five-second pacing remains active.");
+                DevTrace($"ALTS RECOVERY actor={senderName}; full officer sweep queued.");
                 return;
             }
 
@@ -268,7 +329,7 @@ namespace CityManager
             Reply(
                 target,
                 isAdmin
-                    ? Usage(target, "alts [character|list|add|del]")
+                    ? Usage(target, "alts [character|list|add|del|recover]")
                     : Usage(target, "alts"));
         }
 
@@ -317,11 +378,7 @@ namespace CityManager
 
             _nextAltTickUtc = now.AddSeconds(1);
 
-            if (now >= _nextStaleAltScanUtc)
-            {
-                _nextStaleAltScanUtc = now.AddMinutes(1);
-                QueueStaleAdministratorAlts();
-            }
+            ExpirePassiveAltResponses(now);
 
             AltLookupRequest timedOut = null;
             AltLookupRequest toSend = null;
@@ -388,7 +445,7 @@ namespace CityManager
                 return;
 
             foreach (string administrator in AdminListStore.Snapshot())
-                QueueAltLookup(administrator, null, false, true, "daily-admin-refresh");
+                QueueAltLookup(administrator, null, false, true, "admin-recovery");
         }
 
         private void QueueRosterOfficerAlts(
@@ -402,30 +459,372 @@ namespace CityManager
                 QueueAltLookup(officer, null, false, false, reason);
         }
 
-        private void ObserveAltLoginAnnouncement(
+        private void ObserveAltPresenceAnnouncement(
             string senderName,
             string message)
         {
             if (string.IsNullOrWhiteSpace(_altsBotName) ||
                 !string.Equals(senderName, _altsBotName, StringComparison.OrdinalIgnoreCase) ||
-                string.IsNullOrWhiteSpace(message) ||
-                message.IndexOf("has logged on", StringComparison.OrdinalIgnoreCase) < 0)
+                string.IsNullOrWhiteSpace(message))
             {
                 return;
             }
 
-            Match character = AltCharacterRegex.Match(message);
-            if (!character.Success)
+            if (TryHandleBobsanOnlineMessage(senderName, message))
                 return;
 
-            string loggedOnCharacter = character.Groups[1].Value;
-            QueueAltLookup(
-                loggedOnCharacter,
-                null,
-                false,
-                false,
-                "org-login",
-                AltLoginRefreshDelaySeconds);
+            Match loggedOff = LoggedOffRegex.Match(message);
+            if (loggedOff.Success)
+            {
+                lock (_altsSync)
+                    _onlineCharacters.Remove(loggedOff.Groups[1].Value);
+                return;
+            }
+
+            if (message.IndexOf("has logged on", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Match character = AltCharacterRegex.Match(message);
+                if (character.Success)
+                {
+                    lock (_altsSync)
+                        _onlineCharacters.Add(character.Groups[1].Value);
+                }
+            }
+
+            string main;
+            List<string> characters;
+            int declaredCount;
+            int pageNumber;
+            int pageCount;
+            bool isPaged;
+            if (TryParseAltReply(
+                    message,
+                    out main,
+                    out characters,
+                    out declaredCount,
+                    out pageNumber,
+                    out pageCount,
+                    out isPaged))
+            {
+                ObservePassiveAltResponse(
+                    main,
+                    characters,
+                    declaredCount,
+                    pageNumber,
+                    pageCount,
+                    isPaged);
+            }
+        }
+
+        private bool TryHandleBobsanOnlineMessage(
+            string senderName,
+            string message)
+        {
+            if (string.IsNullOrWhiteSpace(_altsBotName) ||
+                !string.Equals(senderName, _altsBotName, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            Match heading = OnlineHeadingRegex.Match(message ?? string.Empty);
+            if (!heading.Success)
+                return false;
+
+            int declaredCount;
+            if (!int.TryParse(heading.Groups[1].Value, out declaredCount))
+                return true;
+
+            int pageNumber = 1;
+            int pageCount = 1;
+            Match page = AltPageRegex.Match(message ?? string.Empty);
+            bool isPaged = page.Success;
+            if (isPaged &&
+                (!int.TryParse(page.Groups[1].Value, out pageNumber) ||
+                 !int.TryParse(page.Groups[2].Value, out pageCount) ||
+                 pageNumber < 1 ||
+                 pageCount < 1 ||
+                 pageNumber > pageCount))
+            {
+                return true;
+            }
+
+            List<string> startupMains = null;
+            int mainCount;
+            int onlineCount;
+            int receivedPages;
+            bool complete;
+            lock (_altsSync)
+            {
+                if (_onlineSnapshotResponse == null ||
+                    _onlineSnapshotResponse.DeclaredCount != declaredCount ||
+                    _onlineSnapshotResponse.PageCount != pageCount ||
+                    (pageNumber == 1 &&
+                     _onlineSnapshotResponse.Pages.Contains(1)))
+                {
+                    _onlineSnapshotResponse = new OnlineSnapshotResponse
+                    {
+                        DeclaredCount = declaredCount,
+                        PageCount = pageCount,
+                        Pages = new HashSet<int>(),
+                        Groups = new Dictionary<string, HashSet<string>>(
+                            StringComparer.OrdinalIgnoreCase),
+                        UpdatedUtc = DateTime.UtcNow
+                    };
+                }
+
+                ParseOnlinePageLocked(_onlineSnapshotResponse, message);
+                _onlineSnapshotResponse.Pages.Add(pageNumber);
+                _onlineSnapshotResponse.UpdatedUtc = DateTime.UtcNow;
+
+                foreach (KeyValuePair<string, HashSet<string>> group in
+                    _onlineSnapshotResponse.Groups)
+                {
+                    MergeAltGroupObservationLocked(group.Key, group.Value);
+                }
+
+                TrySaveAltsLocked();
+                PruneAndCanonicalizeAltQueueLocked();
+
+                receivedPages = _onlineSnapshotResponse.Pages.Count;
+                complete = !isPaged || receivedPages >= pageCount;
+                mainCount = _onlineSnapshotResponse.Groups.Count;
+                onlineCount = _onlineSnapshotResponse.Groups.Values
+                    .SelectMany(names => names)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count();
+
+                if (complete)
+                {
+                    _onlineCharacters.Clear();
+                    foreach (string name in _onlineSnapshotResponse.Groups.Values
+                        .SelectMany(names => names))
+                    {
+                        _onlineCharacters.Add(name);
+                    }
+
+                    if (_startupOnlineSnapshotPending)
+                    {
+                        startupMains = _onlineSnapshotResponse.Groups.Keys.ToList();
+                        _startupOnlineSnapshotPending = false;
+                    }
+
+                    _onlineSnapshotResponse = null;
+                }
+            }
+
+            CanonicalizeKnownLists();
+
+            if (complete)
+            {
+                Logger.Information(
+                    $"ALTS ONLINE <- {_altsBotName}: mains={mainCount}, " +
+                    $"online-characters={onlineCount}, pages={pageCount}.");
+                DevTrace(
+                    $"ALTS ONLINE <- {_altsBotName} complete mains={mainCount} " +
+                    $"online={onlineCount} pages={pageCount}; partial mappings cached.");
+                QueueStartupOnlineLookups(startupMains);
+            }
+            else
+            {
+                DevTrace(
+                    $"ALTS ONLINE <- {_altsBotName} page={pageNumber}/{pageCount} " +
+                    $"received={receivedPages}/{pageCount}; waiting.");
+            }
+
+            return true;
+        }
+
+        private void ParseOnlinePageLocked(
+            OnlineSnapshotResponse response,
+            string message)
+        {
+            MatchCollection mains = OnlineMainRegex.Matches(message ?? string.Empty);
+            MatchCollection characters = OnlineCharacterRegex.Matches(message ?? string.Empty);
+            int mainIndex = 0;
+            int characterIndex = 0;
+
+            while (mainIndex < mains.Count || characterIndex < characters.Count)
+            {
+                bool takeMain = characterIndex >= characters.Count ||
+                    (mainIndex < mains.Count &&
+                     mains[mainIndex].Index < characters[characterIndex].Index);
+
+                if (takeMain)
+                {
+                    Match match = mains[mainIndex++];
+                    string linkedBot = match.Groups[1].Value;
+                    string candidateMain;
+                    string label;
+                    string error;
+                    if (!string.Equals(
+                            linkedBot,
+                            _altsBotName,
+                            StringComparison.OrdinalIgnoreCase) ||
+                        !TryNormalizeAltName(match.Groups[2].Value, out candidateMain, out error) ||
+                        !TryNormalizeAltName(match.Groups[3].Value, out label, out error) ||
+                        !string.Equals(candidateMain, label, StringComparison.OrdinalIgnoreCase))
+                    {
+                        response.CurrentMain = null;
+                        continue;
+                    }
+
+                    response.CurrentMain = candidateMain;
+                    if (!response.Groups.ContainsKey(candidateMain))
+                    {
+                        response.Groups[candidateMain] =
+                            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    }
+                    continue;
+                }
+
+                Match character = characters[characterIndex++];
+                if (string.IsNullOrWhiteSpace(response.CurrentMain))
+                    continue;
+
+                string normalized;
+                string normalizeError;
+                if (TryNormalizeAltName(
+                        character.Groups[1].Value,
+                        out normalized,
+                        out normalizeError))
+                {
+                    response.Groups[response.CurrentMain].Add(normalized);
+                }
+            }
+        }
+
+        private void QueueStartupOnlineLookups(IEnumerable<string> mains)
+        {
+            if (mains == null)
+                return;
+
+            int queued = 0;
+            foreach (string main in mains
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase))
+            {
+                if (QueueAltLookup(
+                        main,
+                        null,
+                        false,
+                        false,
+                        "startup-online"))
+                {
+                    queued++;
+                }
+            }
+
+            DevTrace(
+                $"ALTS startup online refresh queued={queued}; " +
+                "fresh cached groups were skipped.");
+        }
+
+        private void ObservePassiveAltResponse(
+            string main,
+            List<string> characters,
+            int declaredCount,
+            int pageNumber,
+            int pageCount,
+            bool isPaged)
+        {
+            bool complete;
+            int accumulated;
+            int receivedPages;
+            lock (_altsSync)
+            {
+                PassiveAltResponse response;
+                if (!isPaged)
+                {
+                    UpdateAltGroupFromBotLocked(main, characters, DateTime.UtcNow);
+                    _passiveAltResponses.Remove(main);
+                    complete = true;
+                    accumulated = characters.Count;
+                    receivedPages = 1;
+                }
+                else
+                {
+                    if (!_passiveAltResponses.TryGetValue(main, out response) ||
+                        response.DeclaredCount != declaredCount ||
+                        response.PageCount != pageCount)
+                    {
+                        response = new PassiveAltResponse
+                        {
+                            Main = main,
+                            DeclaredCount = declaredCount,
+                            PageCount = pageCount,
+                            Characters = new HashSet<string>(
+                                StringComparer.OrdinalIgnoreCase),
+                            Pages = new HashSet<int>()
+                        };
+                        _passiveAltResponses[main] = response;
+                    }
+
+                    response.Characters.UnionWith(characters);
+                    response.Pages.Add(pageNumber);
+                    response.UpdatedUtc = DateTime.UtcNow;
+                    MergeAltGroupObservationLocked(main, response.Characters);
+                    complete = response.Pages.Count >= response.PageCount;
+                    accumulated = response.Characters.Count;
+                    receivedPages = response.Pages.Count;
+
+                    if (complete)
+                    {
+                        UpdateAltGroupFromBotLocked(
+                            main,
+                            response.Characters.ToList(),
+                            DateTime.UtcNow);
+                        _passiveAltResponses.Remove(main);
+                    }
+                }
+
+                TrySaveAltsLocked();
+                PruneAndCanonicalizeAltQueueLocked();
+            }
+
+            CanonicalizeKnownLists();
+            DevTrace(
+                $"ALTS PASSIVE <- {_altsBotName} main={main} " +
+                $"pages={receivedPages}/{pageCount} unique={accumulated} " +
+                $"complete={complete}; cache saved.");
+        }
+
+        private void ExpirePassiveAltResponses(DateTime now)
+        {
+            List<string> startupMains = null;
+            lock (_altsSync)
+            {
+                foreach (string main in _passiveAltResponses
+                    .Where(pair =>
+                        now >= pair.Value.UpdatedUtc.AddSeconds(
+                            PassiveAltResponseTimeoutSeconds))
+                    .Select(pair => pair.Key)
+                    .ToList())
+                {
+                    _passiveAltResponses.Remove(main);
+                    DevTrace(
+                        $"ALTS PASSIVE {_altsBotName} response for {main} expired; " +
+                        "received names remain merged without replacing the prior full group.");
+                }
+
+                if (_onlineSnapshotResponse != null &&
+                    now >= _onlineSnapshotResponse.UpdatedUtc.AddSeconds(
+                        PassiveAltResponseTimeoutSeconds))
+                {
+                    if (_startupOnlineSnapshotPending)
+                    {
+                        startupMains = _onlineSnapshotResponse.Groups.Keys.ToList();
+                        _startupOnlineSnapshotPending = false;
+                    }
+
+                    DevTrace(
+                        $"ALTS ONLINE {_altsBotName} snapshot expired after " +
+                        $"{_onlineSnapshotResponse.Pages.Count}/" +
+                        $"{_onlineSnapshotResponse.PageCount} pages; visible mains retained.");
+                    _onlineSnapshotResponse = null;
+                }
+            }
+
+            QueueStartupOnlineLookups(startupMains);
         }
 
         private bool QueueAltLookup(
@@ -611,6 +1010,21 @@ namespace CityManager
                 return false;
             }
 
+            if ((message.Message ?? string.Empty).IndexOf(
+                    "Unread News (",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                DevTrace($"ALTS <- {botName}: startup news ignored.");
+                return true;
+            }
+
+            if (TryHandleBobsanOnlineMessage(
+                    message.SenderName,
+                    message.Message))
+            {
+                return true;
+            }
+
             string main;
             List<string> characters;
             int declaredCount;
@@ -766,10 +1180,14 @@ namespace CityManager
                         waiter.BeforeFingerprint,
                         afterFingerprint,
                         StringComparison.Ordinal);
-                    Reply(
-                        waiter.Target,
-                        $"{botName}: {BuildCachedAltSummary(main)} " +
-                        (changed ? "The cache was updated." : "This matches the cache."));
+                    if (waiter.Target != null)
+                    {
+                        Reply(
+                            waiter.Target,
+                            $"{botName}: {BuildCachedAltSummary(main)} " +
+                            (changed ? "The cache was updated." : "This matches the cache."));
+                    }
+                    CompleteAltWaiter(waiter, true);
                 }
             }
 
@@ -891,6 +1309,70 @@ namespace CityManager
             target.AddedCharacters = SortedAltNames(carriedAdds);
             target.RemovedCharacters = SortedAltNames(carriedRemovals);
             target.LastUpdatedUtc = observedUtc;
+            _altGroups[main] = target;
+            RebuildAltLookupLocked();
+        }
+
+        private void MergeAltGroupObservationLocked(
+            string main,
+            IEnumerable<string> characters)
+        {
+            var observed = new HashSet<string>(
+                characters ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase)
+            {
+                main
+            };
+
+            string resolvedMain = ResolveCanonicalAltMainLocked(main);
+            var matching = _altGroups.Values
+                .Where(group =>
+                    string.Equals(
+                        group.Main,
+                        resolvedMain,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    GetEffectiveAltCharactersLocked(group).Any(observed.Contains))
+                .ToList();
+
+            var carriedObserved = new HashSet<string>(
+                observed,
+                StringComparer.OrdinalIgnoreCase);
+            var carriedAdds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var carriedRemovals = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            DateTime? lastUpdatedUtc = null;
+
+            foreach (AltGroup group in matching)
+            {
+                carriedObserved.UnionWith(
+                    group.ObservedCharacters ?? new List<string>());
+                carriedAdds.UnionWith(group.AddedCharacters ?? new List<string>());
+                carriedRemovals.UnionWith(
+                    group.RemovedCharacters ?? new List<string>());
+                if (group.LastUpdatedUtc.HasValue &&
+                    (!lastUpdatedUtc.HasValue ||
+                     group.LastUpdatedUtc.Value > lastUpdatedUtc.Value))
+                {
+                    lastUpdatedUtc = group.LastUpdatedUtc;
+                }
+                _altGroups.Remove(group.Main);
+            }
+
+            foreach (AltGroup group in _altGroups.Values)
+            {
+                RemoveNames(group.ObservedCharacters, observed);
+                RemoveNames(group.AddedCharacters, observed);
+                RemoveNames(group.RemovedCharacters, observed);
+            }
+
+            var target = new AltGroup
+            {
+                Main = main,
+                ObservedCharacters = SortedAltNames(carriedObserved),
+                AddedCharacters = SortedAltNames(carriedAdds),
+                RemovedCharacters = SortedAltNames(carriedRemovals),
+                LastUpdatedUtc = lastUpdatedUtc
+            };
+            NormalizeAltGroupLocked(target);
             _altGroups[main] = target;
             RebuildAltLookupLocked();
         }
@@ -1166,7 +1648,66 @@ namespace CityManager
                 return;
 
             foreach (AltLookupWaiter waiter in request.Waiters)
-                Reply(waiter.Target, message);
+            {
+                if (waiter.Target != null)
+                    Reply(waiter.Target, message);
+                CompleteAltWaiter(waiter, false);
+            }
+        }
+
+        private void CompleteAltWaiter(AltLookupWaiter waiter, bool success)
+        {
+            if (waiter?.Completed == null)
+                return;
+
+            try
+            {
+                waiter.Completed(success);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"Alt lookup completion failed: {ex}");
+                DevTrace($"ERROR alt lookup completion: {ex.Message}");
+            }
+        }
+
+        private bool IsAltIdentityGroupReliable(string characterName)
+        {
+            string normalized;
+            string error;
+            if (!TryNormalizeAltName(characterName, out normalized, out error))
+                return false;
+
+            lock (_altsSync)
+                return IsAltGroupFreshLocked(normalized, DateTime.UtcNow);
+        }
+
+        private void ResolveOfficerAltGroup(
+            string characterName,
+            Action<bool> completed)
+        {
+            if (completed == null)
+                return;
+
+            if (string.IsNullOrWhiteSpace(_altsBotName))
+            {
+                completed(false);
+                return;
+            }
+
+            bool queued = QueueAltLookup(
+                characterName,
+                new AltLookupWaiter
+                {
+                    BeforeFingerprint = GetAltFingerprint(characterName),
+                    Completed = completed
+                },
+                true,
+                false,
+                "raid-assist-authorization");
+
+            if (!queued)
+                completed(false);
         }
 
         private bool IsAltGroupFreshLocked(string target, DateTime now)
@@ -1475,6 +2016,27 @@ namespace CityManager
         {
             public ReplyTarget Target;
             public string BeforeFingerprint;
+            public Action<bool> Completed;
+        }
+
+        private sealed class PassiveAltResponse
+        {
+            public string Main;
+            public int DeclaredCount;
+            public int PageCount;
+            public DateTime UpdatedUtc;
+            public HashSet<string> Characters;
+            public HashSet<int> Pages;
+        }
+
+        private sealed class OnlineSnapshotResponse
+        {
+            public int DeclaredCount;
+            public int PageCount;
+            public DateTime UpdatedUtc;
+            public string CurrentMain;
+            public HashSet<int> Pages;
+            public Dictionary<string, HashSet<string>> Groups;
         }
     }
 }
