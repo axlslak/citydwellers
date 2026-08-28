@@ -365,7 +365,10 @@ namespace CityManager
                     ? 0
                     : timedOut.ResponseCharacters.Count;
                 string progress = accumulated > 0
-                    ? $" after receiving {accumulated}/{timedOut.ResponseDeclaredCount} unique names"
+                    ? timedOut.ResponseIsPaged
+                        ? $" after receiving {timedOut.ResponsePages.Count}/" +
+                          $"{timedOut.ResponsePageCount} pages and {accumulated} unique names"
+                        : $" after receiving {accumulated} unique names"
                     : string.Empty;
                 DevTrace(
                     $"ALTS {_altsBotName} timeout target={timedOut.Target}{progress}; " +
@@ -626,13 +629,15 @@ namespace CityManager
             int declaredCount;
             int pageNumber;
             int pageCount;
+            bool isPaged;
             if (!TryParseAltReply(
                     message.Message,
                     out main,
                     out characters,
                     out declaredCount,
                     out pageNumber,
-                    out pageCount))
+                    out pageCount,
+                    out isPaged))
             {
                 Logger.Information(
                     $"Ignoring non-alt reply from configured bot {botName}.");
@@ -643,6 +648,7 @@ namespace CityManager
             AltLookupRequest completed;
             string afterFingerprint = null;
             int accumulatedCount = 0;
+            int receivedPageCount = 0;
             bool partial = false;
             List<string> completeCharacters = null;
             lock (_altsSync)
@@ -674,23 +680,31 @@ namespace CityManager
                         pending.ResponseMain = main;
                         pending.ResponseDeclaredCount = declaredCount;
                         pending.ResponsePageCount = pageCount;
+                        pending.ResponseIsPaged = isPaged;
                         pending.ResponseCharacters =
                             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        pending.ResponsePages = new HashSet<int>();
                     }
 
                     if (pending.ResponseDeclaredCount != declaredCount ||
-                        pending.ResponsePageCount != pageCount)
+                        pending.ResponsePageCount != pageCount ||
+                        pending.ResponseIsPaged != isPaged)
                     {
                         pending.ResponseDeclaredCount = declaredCount;
                         pending.ResponsePageCount = pageCount;
+                        pending.ResponseIsPaged = isPaged;
                         pending.ResponseCharacters.Clear();
+                        pending.ResponsePages.Clear();
                     }
 
                     pending.ResponseCharacters.UnionWith(characters);
+                    pending.ResponsePages.Add(pageNumber);
+                    receivedPageCount = pending.ResponsePages.Count;
                     pending.DeadlineUtc = DateTime.UtcNow.AddSeconds(
                         AltReplyTimeoutSeconds);
                     accumulatedCount = pending.ResponseCharacters.Count;
-                    partial = accumulatedCount < declaredCount;
+                    partial = pending.ResponseIsPaged &&
+                        pending.ResponsePages.Count < pending.ResponsePageCount;
 
                     if (partial)
                     {
@@ -726,10 +740,11 @@ namespace CityManager
             {
                 Logger.Information(
                     $"ALTS <- {botName}: main={main}, page={pageNumber}/{pageCount}, " +
-                    $"accumulated={accumulatedCount}, declared={declaredCount}.");
+                    $"received-pages={receivedPageCount}/{pageCount}, " +
+                    $"unique={accumulatedCount}, declared-rows={declaredCount}.");
                 DevTrace(
                     $"ALTS <- {botName} fragment main={main} page={pageNumber}/{pageCount} " +
-                    $"accumulated={accumulatedCount} declared={declaredCount}; waiting.");
+                    $"unique={accumulatedCount} declared-rows={declaredCount}; waiting.");
                 return true;
             }
 
@@ -747,11 +762,11 @@ namespace CityManager
             CanonicalizeKnownLists();
 
             Logger.Information(
-                $"ALTS <- {botName}: main={main}, parsed={completeCharacters.Count}, " +
-                $"declared={declaredCount}, pages={pageCount}.");
+                $"ALTS <- {botName}: main={main}, unique={completeCharacters.Count}, " +
+                $"declared-rows={declaredCount}, pages={pageCount}.");
             DevTrace(
-                $"ALTS <- {botName} main={main} parsed={completeCharacters.Count} " +
-                $"declared={declaredCount} pages={pageCount}; cache saved.");
+                $"ALTS <- {botName} main={main} unique={completeCharacters.Count} " +
+                $"declared-rows={declaredCount} pages={pageCount}; cache saved.");
 
             if (completed != null)
             {
@@ -777,13 +792,15 @@ namespace CityManager
             out List<string> characters,
             out int declaredCount,
             out int pageNumber,
-            out int pageCount)
+            out int pageCount,
+            out bool isPaged)
         {
             main = null;
             characters = new List<string>();
             declaredCount = 0;
             pageNumber = 1;
             pageCount = 1;
+            isPaged = false;
 
             Match heading = AltHeadingRegex.Match(message ?? string.Empty);
             if (!heading.Success ||
@@ -793,14 +810,17 @@ namespace CityManager
             }
 
             Match page = AltPageRegex.Match(message ?? string.Empty);
-            if (page.Success &&
-                (!int.TryParse(page.Groups[1].Value, out pageNumber) ||
-                 !int.TryParse(page.Groups[2].Value, out pageCount) ||
-                 pageNumber < 1 ||
-                 pageCount < 1 ||
-                 pageNumber > pageCount))
+            if (page.Success)
             {
-                return false;
+                isPaged = true;
+                if (!int.TryParse(page.Groups[1].Value, out pageNumber) ||
+                    !int.TryParse(page.Groups[2].Value, out pageCount) ||
+                    pageNumber < 1 ||
+                    pageCount < 1 ||
+                    pageNumber > pageCount)
+                {
+                    return false;
+                }
             }
 
             string normalizedMain;
@@ -1455,7 +1475,9 @@ namespace CityManager
             public string ResponseMain;
             public int ResponseDeclaredCount;
             public int ResponsePageCount;
+            public bool ResponseIsPaged;
             public HashSet<string> ResponseCharacters;
+            public HashSet<int> ResponsePages;
             public List<AltLookupWaiter> Waiters;
         }
 
