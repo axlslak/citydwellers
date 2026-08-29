@@ -11,6 +11,12 @@ Before making a non-trivial change:
 5. After a meaningful implementation, test, discovery, or design decision, update `docs/PROJECT_STATE.md` and/or `docs/PROJECT_HISTORY.md` in the same work session.
 6. Mark uncertain recovered information explicitly. Do not convert old-chat recollection into a verified fact without checking code, Git, or logs.
 
+## Conversation-specific memory
+
+If the user refers to an old development conversation by number, title, or id (for example `conversation #1: AOLite Config JSON Format`), do not rely only on model memory. Read `memory/MANIFEST.json`, locate the matching encrypted recovery record, follow `memory/README.md`, and decrypt it using the password supplied by the user. Use that recovered text as historical discussion context; Git/code/test evidence still wins for current implementation truth.
+
+Passwords for encrypted conversation memories are deliberately not stored in this public repository.
+
 ## Durable status vocabulary
 
 Use these labels where useful:
@@ -30,4 +36,4 @@ Use these labels where useful:
 - `InfoHelper` is explicitly excluded from this public repository.
 - Prefer reproducible dependency restore over hard-coded developer-machine paths.
 
-These files are a restart checkpoint, not a verbatim conversation archive. Keep them dense, factual, and useful to the next session.
+The state/history files are compact restart checkpoints. The encrypted `memory/` records preserve conversation-specific historical context. Keep both useful to future sessions.
