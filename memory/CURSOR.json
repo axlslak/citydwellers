@@ -1,0 +1,12 @@
+{
+  "format": "citydwellers-recovery-cursor-v1",
+  "recovery_key": "CITYDWELLERS-RECOVER-V1",
+  "current_session": 4,
+  "last_completed_session": 3,
+  "status": "in_progress",
+  "active_transaction": "session-4-continuity-hardening",
+  "started_utc": "2026-08-29T21:45:52Z",
+  "base_commit": "23da70e6566fb5b6ce3303b3a04efa338ab8c91e",
+  "active_task": "Harden the Git-backed continuity and recovery system before resuming City Dwellers development.",
+  "resume_instruction": "Read AGENTS.md, this cursor, and memory/JOURNAL.jsonl. This transaction began but has not yet committed. Inspect Git before continuing."
+}
