@@ -2,11 +2,11 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
-  "last_completed_session": 4,
-  "status": "in_progress",
-  "active_transaction": "session-5-recovery-proof-and-navmesh-resume",
-  "started_utc": "2026-08-29T23:52:18Z",
-  "base_commit": "6978afc9fb20f1f1c2b4467fb7621e7a5b42ef40",
-  "active_task": "Record the Session 5 recovery proof and lean operating rules, then resume navmesh-based Serenity homing without changing Grid behavior.",
-  "resume_instruction": "Read RECOVERY.md and find journal seq 4. Session 5 recovery reconciliation began but may be incomplete. Preserve the user-builds-and-tests rule, inspect Git, and either finish this transaction or record ABORT/SUPERSEDE before other substantive work."
+  "last_completed_session": 5,
+  "status": "idle",
+  "last_completed_transaction": "session-5-recovery-proof-and-navmesh-resume",
+  "completed_utc": "2026-08-29T23:56:56Z",
+  "checkpoint_commit": "2e444d12d4ef16951c02cf2c3f556e20f4cda435",
+  "next_task": "Obtain and verify the exact 6010.Navmesh, then implement navmesh-based Serenity homing without changing Grid behavior. Kavey builds and live-tests.",
+  "resume_instruction": "Start at RECOVERY.md. Confirm the Session 5 recovery commits are on origin/master. Before navmesh code, obtain 6010.Navmesh and verify its recorded size and SHA-256, then begin a new journal transaction."
 }
