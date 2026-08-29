@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 4,
+  "current_session": 5,
   "last_completed_session": 4,
-  "status": "idle",
-  "last_completed_transaction": "session-4-continuity-hardening",
-  "completed_utc": "2026-08-29T21:55:43Z",
-  "checkpoint_commit": "929b531f224d1bf8cf45a60285e58e875e94afe0",
-  "next_task": "Implement and live-test navmesh-based Serenity homing without changing Grid behavior.",
-  "resume_instruction": "Start at RECOVERY.md. Confirm the recovery commits are present on origin/master, then begin a new journal transaction before substantive navmesh work."
+  "status": "in_progress",
+  "active_transaction": "session-5-recovery-proof-and-navmesh-resume",
+  "started_utc": "2026-08-29T23:52:18Z",
+  "base_commit": "6978afc9fb20f1f1c2b4467fb7621e7a5b42ef40",
+  "active_task": "Record the Session 5 recovery proof and lean operating rules, then resume navmesh-based Serenity homing without changing Grid behavior.",
+  "resume_instruction": "Read RECOVERY.md and find journal seq 4. Session 5 recovery reconciliation began but may be incomplete. Preserve the user-builds-and-tests rule, inspect Git, and either finish this transaction or record ABORT/SUPERSEDE before other substantive work."
 }
