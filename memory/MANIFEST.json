@@ -24,6 +24,18 @@
       "plaintext_bytes": 20167,
       "source_quality": "distilled recovery from surviving ChatGPT conversation continuity/personal-context recovery plus later Git verification; not a verbatim transcript",
       "password_stored_in_repo": false
+    },
+    {
+      "alias": "conversation #3",
+      "title": "Recovery / persistent memory bootstrap",
+      "approximate_date": "2026-08-30",
+      "path": "memory/conversations/003-session-3-recovery-bootstrap/envelope.json",
+      "encryption": "AES-256-GCM + scrypt; gzip-compressed plaintext; hex ciphertext chunks",
+      "plaintext_sha256": "281b68ccba9140fab149adbf4fb4622b81f6f987cee25bd5bb6e72ce157f399b",
+      "plaintext_bytes": 17817,
+      "source_quality": "directly distilled from the live third session plus Git operations; explains why memories #1/#2 exist and how they were recovered",
+      "role": "third City Dwellers session; continuity recovery/bootstrap after the first two sessions became unusable",
+      "password_stored_in_repo": false
     }
   ]
 }
