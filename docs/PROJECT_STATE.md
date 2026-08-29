@@ -194,8 +194,8 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-Continuity hardening is the active Session #4 transaction. Once its journal is
-sealed, substantive development resumes here:
+Session #4 continuity hardening is complete in implementation commit
+`929b531`. Substantive development resumes here:
 
 1. Finish publishing the recovered navmesh-based Serenity homing change.
 2. Commit exact `6010.Navmesh` without committing CritterAI DLLs or InfoHelper.
