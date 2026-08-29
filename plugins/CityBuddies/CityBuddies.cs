@@ -407,8 +407,10 @@ namespace CityBuddies
             _pulseTarget = target;
             _pulseEndpoint = new Vector3(
                 position.X + (direction.X * pulseDistance),
-                position.Y + ((target.Y - position.Y) *
-                    (pulseDistance / targetDistance)),
+                // Navigation owns the horizontal direction only. Preserve the
+                // current elevation in the outbound endpoint and accept the
+                // server's returned Y after water, beach, and terrain handling.
+                position.Y,
                 position.Z + (direction.Z * pulseDistance));
             _pulseHeading = Quaternion.FromTo(flatPosition, flatTarget);
             _pulseStartTargetDistance = targetDistance;
