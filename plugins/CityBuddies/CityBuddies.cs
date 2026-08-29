@@ -16,9 +16,10 @@ namespace CityBuddies
         private static readonly TimeSpan SnapshotInterval = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan NavigatingSnapshotInterval = TimeSpan.FromSeconds(1);
         private static readonly TimeSpan DirectivePollInterval = TimeSpan.FromMilliseconds(500);
-        private static readonly TimeSpan MovementUpdateInterval = TimeSpan.FromMilliseconds(200);
         private static readonly TimeSpan StandDelay = TimeSpan.FromSeconds(1);
-        private static readonly TimeSpan StuckCheckInterval = TimeSpan.FromSeconds(8);
+        private static readonly TimeSpan HeadingSettleDelay = TimeSpan.FromMilliseconds(250);
+        private static readonly TimeSpan MovementPulseDuration = TimeSpan.FromMilliseconds(400);
+        private static readonly TimeSpan SettledPositionTimeout = TimeSpan.FromMilliseconds(900);
 
         private const int SerenityIslandsPlayfieldId = 6010;
         private const float HomeX = 996.004f;
@@ -31,16 +32,22 @@ namespace CityBuddies
         private const float JunctionX = 994.0f;
         private const float JunctionY = 5.0f;
         private const float JunctionZ = 1403.2f;
-        private const float HomeReachedDistance = 0.75f;
-        private const float WaypointReachedDistance = 1.25f;
-        private const float MeaningfulProgressDistance = 0.75f;
+        private const float HomeReachedDistance = 0.25f;
+        private const float WaypointReachedDistance = 0.50f;
+        private const float MovementPulseDistance = 0.75f;
+        private const float MinimumPulseProgress = 0.10f;
+        private const float WrongWayTolerance = 0.15f;
+        private const float MaximumPulseDisplacement = 1.50f;
+        private const float MaximumCrossTrackDrift = 0.75f;
         private const int MaximumStuckRecoveries = 3;
 
         // These are the two unobstructed Serenity Islands street segments
-        // supplied from the live city. Anything outside them is deliberately
-        // reported as unmapped instead of attempting speculative movement.
+        // supplied from the live city, plus the narrow northbound recovery line
+        // covering the lake position reached by the first movement experiment.
+        // Anything outside them is reported as unmapped.
 
         private readonly object _snapshotSync = new object();
+        private readonly object _movementObservationSync = new object();
         private string _readyPath;
         private string _snapshotPath;
         private string _homeDirectivePath;
@@ -57,14 +64,27 @@ namespace CityBuddies
         private float? _homeDistance;
         private DateTime? _homeUpdatedUtc;
         private DateTime _nextDirectivePollUtc = DateTime.MinValue;
-        private DateTime _nextMovementUpdateUtc = DateTime.MinValue;
         private DateTime _standReadyUtc = DateTime.MinValue;
-        private DateTime _lastProgressUtc = DateTime.MinValue;
-        private float _bestTargetDistance = float.MaxValue;
+        private DateTime _pulseDeadlineUtc = DateTime.MinValue;
+        private Vector3 _pulseStart;
+        private Vector3 _pulseTarget;
+        private Vector3 _pulseEndpoint;
+        private Quaternion _pulseHeading;
+        private float _pulseStartTargetDistance;
+        private long _settledObservationSerial;
+        private long _settledObservationSerialAtStop;
+        private Vector3 _lastSettledPosition;
+        private MovementPulsePhase _pulsePhase;
         private int _stuckRecoveries;
         private bool _standRequested;
-        private bool _moving;
-        private bool _junctionReached;
+
+        private enum MovementPulsePhase
+        {
+            Idle,
+            Orienting,
+            Moving,
+            Settling
+        }
 
         public override void Init(string pluginDir)
         {
@@ -111,6 +131,12 @@ namespace CityBuddies
                     return;
 
                 var n3Message = (N3Message)e.Body;
+                if (n3Message.N3MessageType == N3MessageType.CharDCMove)
+                {
+                    ObserveSettledMovement((CharDCMoveMessage)e.Body);
+                    return;
+                }
+
                 if (n3Message.N3MessageType != N3MessageType.CharInPlay)
                     return;
 
@@ -224,8 +250,7 @@ namespace CityBuddies
                 _homeDirective = directive;
                 _standRequested = false;
                 _standReadyUtc = DateTime.MinValue;
-                _junctionReached = false;
-                ResetProgress(DateTime.UtcNow);
+                ResetPulseState(true);
 
                 if (directive.Cancel)
                 {
@@ -307,6 +332,12 @@ namespace CityBuddies
             if (now < _standReadyUtc)
                 return;
 
+            if (_pulsePhase != MovementPulsePhase.Idle)
+            {
+                ProcessMovementPulse(localPlayer, now);
+                return;
+            }
+
             if (_homeDistance.Value <= HomeReachedDistance)
             {
                 FaceHome(localPlayer);
@@ -341,62 +372,229 @@ namespace CityBuddies
                 targetDistance <= WaypointReachedDistance)
             {
                 StopMovement();
-                _junctionReached = true;
-                ResetProgress(now);
+                ResetPulseState(true);
                 SetHomeState(
                     "junction",
                     "Reached the T-junction; turning south toward the City Controller.");
                 return;
             }
 
-            if (_bestTargetDistance == float.MaxValue ||
-                _bestTargetDistance - targetDistance >= MeaningfulProgressDistance)
+            BeginMovementPulse(
+                localPlayer,
+                position,
+                target,
+                targetDistance,
+                now);
+            SetHomeState(
+                routeState,
+                routeDetail +
+                $" Bounded pulse toward target; distance={targetDistance:F1}m.");
+        }
+
+        private void BeginMovementPulse(
+            LocalPlayer localPlayer,
+            Vector3 position,
+            Vector3 target,
+            float targetDistance,
+            DateTime now)
+        {
+            Vector3 flatPosition = new Vector3(position.X, 0, position.Z);
+            Vector3 flatTarget = new Vector3(target.X, 0, target.Z);
+            Vector3 direction = (flatTarget - flatPosition).Normalize();
+            float pulseDistance = Math.Min(MovementPulseDistance, targetDistance);
+
+            _pulseStart = position;
+            _pulseTarget = target;
+            _pulseEndpoint = new Vector3(
+                position.X + (direction.X * pulseDistance),
+                position.Y + ((target.Y - position.Y) *
+                    (pulseDistance / targetDistance)),
+                position.Z + (direction.Z * pulseDistance));
+            _pulseHeading = Quaternion.FromTo(flatPosition, flatTarget);
+            _pulseStartTargetDistance = targetDistance;
+
+            // First publish the new heading while explicitly stopped. Forward
+            // motion is never left open-ended: every start below has a matching
+            // endpoint packet after one short pulse.
+            PrepareMovementComponent(localPlayer, position, _pulseHeading);
+            localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+            _pulsePhase = MovementPulsePhase.Orienting;
+            _pulseDeadlineUtc = now.Add(HeadingSettleDelay);
+        }
+
+        private void ProcessMovementPulse(LocalPlayer localPlayer, DateTime now)
+        {
+            if (_pulsePhase == MovementPulsePhase.Settling)
             {
-                _bestTargetDistance = targetDistance;
-                _lastProgressUtc = now;
+                ProcessSettledPulse(localPlayer, now);
+                return;
             }
-            else if (now - _lastProgressUtc >= StuckCheckInterval)
+
+            if (now < _pulseDeadlineUtc)
+                return;
+
+            if (_pulsePhase == MovementPulsePhase.Orienting)
+            {
+                PrepareMovementComponent(localPlayer, _pulseStart, _pulseHeading);
+                localPlayer.MovementComponent.ChangeMovement(MovementAction.ForwardStart);
+                _pulsePhase = MovementPulsePhase.Moving;
+                _pulseDeadlineUtc = now.Add(MovementPulseDuration);
+                return;
+            }
+
+            if (_pulsePhase == MovementPulsePhase.Moving)
+            {
+                lock (_movementObservationSync)
+                    _settledObservationSerialAtStop = _settledObservationSerial;
+
+                PrepareMovementComponent(localPlayer, _pulseEndpoint, _pulseHeading);
+                localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+                _pulsePhase = MovementPulsePhase.Settling;
+                _pulseDeadlineUtc = now.Add(SettledPositionTimeout);
+                return;
+            }
+
+        }
+
+        private void ProcessSettledPulse(LocalPlayer localPlayer, DateTime now)
+        {
+            Vector3 settledPosition;
+            bool hasSettledPosition = TryGetSettledPositionAfterStop(out settledPosition);
+
+            if (hasSettledPosition)
+            {
+                float observedDisplacement =
+                    settledPosition.Distance2DFrom(_pulseStart);
+
+                // A delayed copy of the pre-pulse stop can arrive first. Ignore
+                // that zero-distance copy; evaluate real movement immediately.
+                if (observedDisplacement > 0.05f)
+                {
+                    EvaluateSettledPulse(localPlayer, settledPosition, now);
+                    return;
+                }
+            }
+
+            if (now < _pulseDeadlineUtc)
+                return;
+
+            if (hasSettledPosition &&
+                settledPosition.Distance2DFrom(_pulseStart) > 0.05f)
+            {
+                EvaluateSettledPulse(localPlayer, settledPosition, now);
+            }
+            else
+            {
+                StopMovement();
+                ResetPulseState(false);
+                SetHomeState(
+                    "movement-unverified",
+                    "Stopped after one bounded pulse because the server did not " +
+                    "confirm a changed settled position. No further movement was attempted.");
+            }
+        }
+
+        private void EvaluateSettledPulse(
+            LocalPlayer localPlayer,
+            Vector3 settledPosition,
+            DateTime now)
+        {
+            float displacement = settledPosition.Distance2DFrom(_pulseStart);
+            float settledTargetDistance = settledPosition.Distance2DFrom(_pulseTarget);
+            float progress = _pulseStartTargetDistance - settledTargetDistance;
+            float crossTrack = DistanceFromSegment2D(
+                settledPosition,
+                _pulseStart,
+                _pulseTarget);
+
+            if (displacement > MaximumPulseDisplacement ||
+                progress < -WrongWayTolerance ||
+                crossTrack > MaximumCrossTrackDrift)
+            {
+                PrepareMovementComponent(
+                    localPlayer,
+                    settledPosition,
+                    localPlayer.Transform.Heading);
+                localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+                ResetPulseState(false);
+                SetHomeState(
+                    "movement-diverged",
+                    $"Emergency stop after one pulse: moved={displacement:F2}m, " +
+                    $"target progress={progress:F2}m, lateral drift={crossTrack:F2}m.");
+                return;
+            }
+
+            if (progress < MinimumPulseProgress)
             {
                 if (_stuckRecoveries >= MaximumStuckRecoveries)
                 {
                     StopMovement();
+                    ResetPulseState(false);
                     SetHomeState(
                         "stuck",
-                        $"Stopped after {MaximumStuckRecoveries} movement recoveries; " +
-                        $"target remained {targetDistance:F1}m away.");
+                        $"Stopped after {MaximumStuckRecoveries} bounded pulses " +
+                        "made no measurable progress.");
                     return;
                 }
 
                 _stuckRecoveries++;
-                StopMovement();
-                PrepareMovementComponent(localPlayer, localPlayer.Transform.Heading);
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
-                _standReadyUtc = now.Add(StandDelay);
-                ResetProgress(now, false);
+                ResetPulseState(false);
+                _standReadyUtc = now.Add(HeadingSettleDelay);
                 SetHomeState(
                     "recovering",
-                    $"Movement made no progress; recovery " +
+                    $"Pulse made no progress; reorienting " +
                     $"{_stuckRecoveries}/{MaximumStuckRecoveries}.");
                 return;
             }
 
-            Quaternion heading = Quaternion.FromTo(position, target);
-            PrepareMovementComponent(localPlayer, heading);
+            _stuckRecoveries = 0;
+            ResetPulseState(false);
+        }
 
-            if (!_moving)
+        private void ObserveSettledMovement(CharDCMoveMessage movement)
+        {
+            if (movement.Identity.Instance != Client.LocalDynelId ||
+                movement.MoveType != MovementAction.FullStop)
             {
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.ForwardStart);
-                _moving = true;
-            }
-            else if (now >= _nextMovementUpdateUtc)
-            {
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.Update);
+                return;
             }
 
-            _nextMovementUpdateUtc = now.Add(MovementUpdateInterval);
-            SetHomeState(
-                routeState,
-                routeDetail + $" Target distance={targetDistance:F1}m.");
+            lock (_movementObservationSync)
+            {
+                _lastSettledPosition = movement.Position;
+                _settledObservationSerial++;
+            }
+        }
+
+        private bool TryGetSettledPositionAfterStop(out Vector3 position)
+        {
+            lock (_movementObservationSync)
+            {
+                position = _lastSettledPosition;
+                return _settledObservationSerial > _settledObservationSerialAtStop;
+            }
+        }
+
+        private static float DistanceFromSegment2D(
+            Vector3 point,
+            Vector3 start,
+            Vector3 end)
+        {
+            float dx = end.X - start.X;
+            float dz = end.Z - start.Z;
+            float lengthSquared = (dx * dx) + (dz * dz);
+            if (lengthSquared <= 0.0001f)
+                return point.Distance2DFrom(start);
+
+            float projection =
+                (((point.X - start.X) * dx) + ((point.Z - start.Z) * dz)) /
+                lengthSquared;
+            projection = Math.Max(0.0f, Math.Min(1.0f, projection));
+            var closest = new Vector3(
+                start.X + (projection * dx),
+                point.Y,
+                start.Z + (projection * dz));
+            return point.Distance2DFrom(closest);
         }
 
         private bool TrySelectCityTarget(
@@ -409,6 +607,10 @@ namespace CityBuddies
             var junction = new Vector3(JunctionX, JunctionY, JunctionZ);
 
             bool nearHome = position.Distance2DFrom(home) <= 8.0f;
+            bool onSouthRecovery =
+                Math.Abs(position.X - HomeX) <= 10.0f &&
+                position.Z >= 1080.0f &&
+                position.Z < HomeZ - 8.0f;
             bool onSouthStreet =
                 Math.Abs(position.X - JunctionX) <= 8.0f &&
                 position.Z >= HomeZ - 8.0f &&
@@ -419,11 +621,13 @@ namespace CityBuddies
                 position.Z >= JunctionZ - 18.0f &&
                 position.Z <= JunctionZ + 20.0f;
 
-            if (nearHome || onSouthStreet || _junctionReached)
+            if (nearHome || onSouthRecovery || onSouthStreet)
             {
                 target = home;
                 state = "moving-to-home";
-                detail = "Following the mapped south street to the City Controller.";
+                detail = onSouthRecovery
+                    ? "Recovering north from the mapped lake line to the City Controller."
+                    : "Following the mapped south street to the City Controller.";
                 return true;
             }
 
@@ -447,7 +651,18 @@ namespace CityBuddies
             LocalPlayer localPlayer,
             Quaternion heading)
         {
-            localPlayer.MovementComponent.Position = localPlayer.Transform.Position;
+            PrepareMovementComponent(
+                localPlayer,
+                localPlayer.Transform.Position,
+                heading);
+        }
+
+        private static void PrepareMovementComponent(
+            LocalPlayer localPlayer,
+            Vector3 position,
+            Quaternion heading)
+        {
+            localPlayer.MovementComponent.Position = position;
             localPlayer.MovementComponent.Heading = heading;
         }
 
@@ -460,7 +675,7 @@ namespace CityBuddies
                 HomeHeadingW);
             PrepareMovementComponent(localPlayer, heading);
             localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
-            _moving = false;
+            ResetPulseState(false);
         }
 
         private void StopMovement()
@@ -479,15 +694,14 @@ namespace CityBuddies
             }
             finally
             {
-                _moving = false;
+                ResetPulseState(false);
             }
         }
 
-        private void ResetProgress(DateTime now, bool resetRecoveries = true)
+        private void ResetPulseState(bool resetRecoveries)
         {
-            _bestTargetDistance = float.MaxValue;
-            _lastProgressUtc = now;
-            _nextMovementUpdateUtc = DateTime.MinValue;
+            _pulsePhase = MovementPulsePhase.Idle;
+            _pulseDeadlineUtc = DateTime.MinValue;
             if (resetRecoveries)
                 _stuckRecoveries = 0;
         }
@@ -509,6 +723,8 @@ namespace CityBuddies
         {
             return string.Equals(state, "home", StringComparison.Ordinal) ||
                    string.Equals(state, "route-unavailable", StringComparison.Ordinal) ||
+                   string.Equals(state, "movement-unverified", StringComparison.Ordinal) ||
+                   string.Equals(state, "movement-diverged", StringComparison.Ordinal) ||
                    string.Equals(state, "stuck", StringComparison.Ordinal) ||
                    string.Equals(state, "failed", StringComparison.Ordinal) ||
                    string.Equals(state, "canceled", StringComparison.Ordinal);

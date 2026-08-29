@@ -2067,6 +2067,8 @@ public class PluginLoader
     {
         return string.Equals(state, "home", StringComparison.Ordinal) ||
                string.Equals(state, "route-unavailable", StringComparison.Ordinal) ||
+               string.Equals(state, "movement-unverified", StringComparison.Ordinal) ||
+               string.Equals(state, "movement-diverged", StringComparison.Ordinal) ||
                string.Equals(state, "stuck", StringComparison.Ordinal) ||
                string.Equals(state, "failed", StringComparison.Ordinal) ||
                string.Equals(state, "canceled", StringComparison.Ordinal);
