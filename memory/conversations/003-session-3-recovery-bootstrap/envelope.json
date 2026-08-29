@@ -1,0 +1,32 @@
+{
+  "format": "citydwellers-session-memory-v2",
+  "conversation_alias": "conversation #3",
+  "conversation_title": "Recovery / persistent memory bootstrap",
+  "approximate_date": "2026-08-30",
+  "role": "third City Dwellers session; recovery/bootstrap session after conversations #1 and #2 became unusable",
+  "cipher": "AES-256-GCM",
+  "compression": "gzip",
+  "ciphertext_encoding": "hex",
+  "kdf": {
+    "name": "scrypt",
+    "n": 32768,
+    "r": 8,
+    "p": 1,
+    "salt_b64": "lOGZ05B+KGQ9BoWg3X9pCw=="
+  },
+  "nonce_b64": "ZdIJG1f2wu3pwYBE",
+  "aad_utf8": "citydwellers-session-memory-v2|conversation-003|Recovery persistent memory bootstrap|gzip",
+  "plaintext_sha256": "281b68ccba9140fab149adbf4fb4622b81f6f987cee25bd5bb6e72ce157f399b",
+  "plaintext_bytes": 17817,
+  "compressed_bytes": 7168,
+  "ciphertext_bytes": 7184,
+  "ciphertext_parts": [
+    "ciphertext.hex.part-000.txt",
+    "ciphertext.hex.part-001.txt",
+    "ciphertext.hex.part-002.txt",
+    "ciphertext.hex.part-003.txt",
+    "ciphertext.hex.part-004.txt"
+  ],
+  "ciphertext_encoded_chars": 14368,
+  "password_stored_in_repo": false
+}
