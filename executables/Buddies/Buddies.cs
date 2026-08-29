@@ -41,7 +41,7 @@ public class PluginLoader
         new Dictionary<int, ActiveBuddy>();
     private static BuddySlotWorker[] _slotWorkers;
     private static SemaphoreSlim _loginGate;
-    private static DateTime[] _slotLingeringUntilUtc;
+    private static long[] _slotLingeringUntilTimestamp;
     private static readonly object HomeMaintenanceLock = new object();
     private static HomeMaintenanceState _homeMaintenance;
 
@@ -300,7 +300,7 @@ public class PluginLoader
             _config.MaxParallelLogins.Value,
             _config.MaxParallelLogins.Value);
         _slotWorkers = new BuddySlotWorker[_config.AccountCount];
-        _slotLingeringUntilUtc = new DateTime[_config.AccountCount];
+        _slotLingeringUntilTimestamp = new long[_config.AccountCount];
 
         for (int index = 0; index < _slotWorkers.Length; index++)
             _slotWorkers[index] = new BuddySlotWorker(index);
@@ -517,13 +517,10 @@ public class PluginLoader
             if (_stopping)
                 return Fail(request, "Buddies service is stopping.");
 
-            DateTime lingeringUntil = _slotLingeringUntilUtc[index];
-            if (DateTime.UtcNow < lingeringUntil)
+            int remaining = GetLogoutQuarantineRemainingSeconds(
+                _slotLingeringUntilTimestamp[index]);
+            if (remaining > 0)
             {
-                int remaining = Math.Max(
-                    1,
-                    (int)Math.Ceiling(
-                        (lingeringUntil - DateTime.UtcNow).TotalSeconds));
                 return Fail(
                     request,
                     $"Account index {index} is quarantined for {remaining}s while " +
@@ -860,8 +857,8 @@ public class PluginLoader
                     ReferenceEquals(current, buddy))
                 {
                     ActiveBuddies.Remove(index);
-                    _slotLingeringUntilUtc[index] =
-                        DateTime.UtcNow.AddSeconds(ServerLogoutLingerSeconds);
+                    _slotLingeringUntilTimestamp[index] =
+                        GetLogoutQuarantineDeadline();
                 }
             }
             DeleteReadyMarker(GetReadyPath(buddy.Character));
@@ -1688,22 +1685,22 @@ public class PluginLoader
 
         while (!_stopping)
         {
-            DateTime latest = DateTime.MinValue;
+            long latest = 0;
 
             lock (ActiveLock)
             {
                 foreach (int index in indexes)
                 {
                     if (index >= 0 &&
-                        index < _slotLingeringUntilUtc.Length &&
-                        _slotLingeringUntilUtc[index] > latest)
+                        index < _slotLingeringUntilTimestamp.Length &&
+                        _slotLingeringUntilTimestamp[index] > latest)
                     {
-                        latest = _slotLingeringUntilUtc[index];
+                        latest = _slotLingeringUntilTimestamp[index];
                     }
                 }
             }
 
-            if (latest <= DateTime.UtcNow)
+            if (GetLogoutQuarantineRemainingSeconds(latest) <= 0)
                 return;
 
             Thread.Sleep(1000);
@@ -1998,18 +1995,40 @@ public class PluginLoader
     {
         lock (ActiveLock)
         {
-            if (_slotLingeringUntilUtc != null &&
+            if (_slotLingeringUntilTimestamp != null &&
                 index >= 0 &&
-                index < _slotLingeringUntilUtc.Length)
+                index < _slotLingeringUntilTimestamp.Length)
             {
-                _slotLingeringUntilUtc[index] =
-                    DateTime.UtcNow.AddSeconds(ServerLogoutLingerSeconds);
+                _slotLingeringUntilTimestamp[index] =
+                    GetLogoutQuarantineDeadline();
             }
         }
 
         Console.WriteLine(
             $"Account index {index} is quarantined for " +
             $"{ServerLogoutLingerSeconds}s after unloading {character}.");
+    }
+
+    private static long GetLogoutQuarantineDeadline()
+    {
+        long duration = (long)Math.Ceiling(
+            ServerLogoutLingerSeconds * (double)Stopwatch.Frequency);
+        return Stopwatch.GetTimestamp() + duration;
+    }
+
+    private static int GetLogoutQuarantineRemainingSeconds(long deadline)
+    {
+        if (deadline <= 0)
+            return 0;
+
+        long remainingTicks = deadline - Stopwatch.GetTimestamp();
+        if (remainingTicks <= 0)
+            return 0;
+
+        return Math.Max(
+            1,
+            (int)Math.Ceiling(
+                remainingTicks / (double)Stopwatch.Frequency));
     }
 
     private static void ReconcileHomeNavigation()
