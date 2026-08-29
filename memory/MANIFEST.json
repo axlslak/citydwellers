@@ -12,6 +12,18 @@
       "plaintext_bytes": 17814,
       "source_quality": "distilled recovery from surviving ChatGPT continuity plus later Git verification; not a verbatim transcript",
       "password_stored_in_repo": false
+    },
+    {
+      "alias": "conversation #2",
+      "title": "Continue City Dwellers",
+      "approximate_start_date": "2026-08-23",
+      "approximate_end_date": "2026-08-29",
+      "path": "memory/conversations/002-continue-city-dwellers/envelope.json",
+      "encryption": "AES-256-GCM + scrypt",
+      "plaintext_sha256": "5210239870d90c025ceb0dd7082bef432fd6bca44e2f656e01eaa463f58b0706",
+      "plaintext_bytes": 20167,
+      "source_quality": "distilled recovery from surviving ChatGPT conversation continuity/personal-context recovery plus later Git verification; not a verbatim transcript",
+      "password_stored_in_repo": false
     }
   ]
 }
