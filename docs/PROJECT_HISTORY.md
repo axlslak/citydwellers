@@ -105,3 +105,41 @@ Added:
 `[VERIFIED]` Session #3 also wrote its own encrypted recovery/bootstrap memory as Conversation #3. That record explicitly explains why the memory system exists, how #1 and #2 were reconstructed, why old chat-only commit IDs cannot be trusted without Git verification, and what work remains open.
 
 `[OPEN]` After continuity recovery, the next substantive implementation task remains the clean navmesh-based Serenity homing change, including publication of `6010.Navmesh`, pinned external CritterAI/Grid-navmesh restore, required x86 project settings, and live testing from positions that the old manual T-junction route rejected.
+
+## 2026-08-30 — fourth-session recovery proof and continuity hardening
+
+`[VERIFIED]` Session #4 started from a clean clone, followed the repository
+instructions, decrypted all three memories in manifest order, verified every
+plaintext byte count and SHA-256, and reconstructed the project without asking
+the user to retell Sessions #1 or #2.
+
+`[VERIFIED]` Session #4 rechecked current Git: `master` was clean at
+`23da70e6566fb5b6ce3303b3a04efa338ab8c91e`; verified replacement commit
+`71f36fb` existed; chat-only commits `6585617` and `91aeae6` did not.
+
+`[HISTORICAL]` After this successful recovery test, the user deleted the old
+ChatGPT conversations. Git and the encrypted memories became the sole durable
+session lineage apart from the current live conversation.
+
+`[DECISION]` Continuity is treated like checkpoint plus write-ahead recovery.
+The canonical key is `CITYDWELLERS-RECOVER-V1`; `RECOVERY.md` is the front
+door; `memory/CURSOR.json` exposes interrupted work; and
+`memory/JOURNAL.jsonl` records append-only semantic transactions.
+
+`[DECISION]` The project follows the “Heaven Sent” rule: every session is
+mortal, so it must leave a small durable clue before undertaking work that
+would be costly for the owner to reconstruct.
+
+`[DECISION]` Journal growth must remain useful rather than indiscriminate.
+Git records file operations; the journal records intent, boundaries, evidence,
+outcomes, and recovery positions. Periodic compact checkpoints allow older
+encrypted session memories to remain available without making normal startup
+unbounded.
+
+`[SECURITY]` No mechanism can honestly make a public recovery record readable
+only by future ChatGPT sessions because ChatGPT has no persistent private key.
+Encrypted session memories plus the owner-held password are the confidentiality
+boundary. The recovery card deliberately contains no password.
+
+`[OPEN]` After this continuity transaction is sealed, the next substantive
+City Dwellers task remains navmesh-based Serenity homing.

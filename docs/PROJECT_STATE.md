@@ -1,8 +1,24 @@
 # City Dwellers — Persistent Project State
 
-Last continuity reconstruction: 2026-08-29
+Last continuity reconstruction: 2026-08-30
 
 This file is the compact restart image for a new development session. It is intentionally not a transcript. Some early project knowledge was recovered from ChatGPT continuity after long conversations became unusable; anything not independently confirmed is labelled accordingly.
+
+## Durable recovery entry point
+
+- Recovery key: `CITYDWELLERS-RECOVER-V1`.
+- Canonical entry file: `RECOVERY.md`.
+- `[INVARIANT]` Long/non-trivial work begins with a committed journal `BEGIN`
+  and `in_progress` cursor, then ends with `COMMIT`, `ABORT`, or `SUPERSEDE`.
+- `[INVARIANT]` `memory/JOURNAL.jsonl` is append-only and sanitized.
+- `[DECISION]` The journal records semantic transactions rather than every
+  command; Git records file-level operations.
+- `[DECISION]` Recovery uses compact checkpoints plus journal replay. Older
+  encrypted memories remain available without requiring every future session
+  to decrypt an indefinitely growing archive.
+- `[SECURITY]` ChatGPT has no stable cross-session private key. Confidentiality
+  comes from encrypted memories and the separately held password; the recovery
+  card is an address, not a secret.
 
 ## Repository
 
@@ -177,6 +193,9 @@ Two chat-only local commit IDs were mentioned by an earlier session:
 The first long conversation was titled `AOLite Config JSON Format`. A complete raw transcript was not accessible to the current session by title or conversation ID, so this file records only information that survived continuity/recovery and later verification.
 
 ## Current task / next work
+
+Continuity hardening is the active Session #4 transaction. Once its journal is
+sealed, substantive development resumes here:
 
 1. Finish publishing the recovered navmesh-based Serenity homing change.
 2. Commit exact `6010.Navmesh` without committing CritterAI DLLs or InfoHelper.

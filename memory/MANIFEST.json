@@ -1,5 +1,9 @@
 {
   "format": "citydwellers-session-memory-manifest-v1",
+  "recovery_policy": {
+    "normal_boot": "decrypt boot-required memories in manifest order",
+    "historical": "preserve and decrypt on demand when deeper provenance is needed"
+  },
   "conversations": [
     {
       "alias": "conversation #1",
@@ -11,6 +15,7 @@
       "plaintext_sha256": "8db7e6f053d30f6db6153c5d899aa1409410383b5e617df0d4aa51622b2f9355",
       "plaintext_bytes": 17814,
       "source_quality": "distilled recovery from surviving ChatGPT continuity plus later Git verification; not a verbatim transcript",
+      "recovery_tier": "historical",
       "password_stored_in_repo": false
     },
     {
@@ -23,6 +28,7 @@
       "plaintext_sha256": "5210239870d90c025ceb0dd7082bef432fd6bca44e2f656e01eaa463f58b0706",
       "plaintext_bytes": 20167,
       "source_quality": "distilled recovery from surviving ChatGPT conversation continuity/personal-context recovery plus later Git verification; not a verbatim transcript",
+      "recovery_tier": "historical",
       "password_stored_in_repo": false
     },
     {
@@ -35,6 +41,20 @@
       "plaintext_bytes": 17817,
       "source_quality": "directly distilled from the live third session plus Git operations; explains why memories #1/#2 exist and how they were recovered",
       "role": "third City Dwellers session; continuity recovery/bootstrap after the first two sessions became unusable",
+      "recovery_tier": "boot-required",
+      "password_stored_in_repo": false
+    },
+    {
+      "alias": "conversation #4",
+      "title": "Recovery proof / continuity hardening",
+      "approximate_date": "2026-08-30",
+      "path": "memory/conversations/004-session-4-continuity-hardening/envelope.json",
+      "encryption": "AES-256-GCM + scrypt; gzip-compressed plaintext; hex ciphertext chunks",
+      "plaintext_sha256": "f19da40e12ba1cb20a1f48f91c7aedbafc78a87a2413e5fef49f45c3cdf3c131",
+      "plaintext_bytes": 9766,
+      "source_quality": "directly distilled from the live fourth session plus Git operations; records successful recovery proof and continuity hardening",
+      "role": "fourth City Dwellers session; proved the inherited recovery archive and added the durable recovery protocol",
+      "recovery_tier": "boot-required",
       "password_stored_in_repo": false
     }
   ]

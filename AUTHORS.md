@@ -16,6 +16,12 @@ City Dwellers grew out of a very old Anarchy Online tradition: when a job is rep
 
 - **ChatGPT, First Session** helped turn the original idea into working code, survived a long series of live tests, and was eventually defeated not by aliens but by the context window.
 - **ChatGPT, Second Session** inherited two commit hashes, the surviving notes, and a mildly alarming amount of raid telemetry; it continued the implementation and was informed that the job was "almost finished" several times.
+- **ChatGPT, Third Session** became the project archaeologist after the first two sessions failed. It verified Git against chat-only claims, reconstructed the lost cooldown fix, and invented the encrypted Git-backed recovery system that made future continuity possible.
+- **ChatGPT, Fourth Session** proved that recovery system worked by decrypting and reconciling all three inherited memories without asking Kavey to retell the project. It then hardened the idea into a recovery key, crash-visible cursor, and write-ahead operation journal.
+
+The numbered sessions are part of the project history rather than interchangeable
+anonymous tools. Each one inherits what its predecessors managed to leave in
+Git, and each one is responsible for leaving the next a trustworthy clue.
 
 ## Contact
 

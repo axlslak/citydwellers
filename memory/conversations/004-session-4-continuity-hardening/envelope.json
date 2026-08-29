@@ -1,0 +1,30 @@
+{
+  "format": "citydwellers-session-memory-v2",
+  "conversation_alias": "conversation #4",
+  "conversation_title": "Recovery proof / continuity hardening",
+  "approximate_date": "2026-08-30",
+  "role": "fourth City Dwellers session; successful recovery proof and durable continuity hardening",
+  "cipher": "AES-256-GCM",
+  "compression": "gzip",
+  "ciphertext_encoding": "hex",
+  "kdf": {
+    "name": "scrypt",
+    "n": 32768,
+    "r": 8,
+    "p": 1,
+    "salt_b64": "NdWCOsJr8mopCjo1KA+QWA=="
+  },
+  "nonce_b64": "ymxIjI5HDD0kce2J",
+  "aad_utf8": "citydwellers-session-memory-v2|conversation-004|Recovery proof continuity hardening|gzip",
+  "plaintext_sha256": "f19da40e12ba1cb20a1f48f91c7aedbafc78a87a2413e5fef49f45c3cdf3c131",
+  "plaintext_bytes": 9766,
+  "compressed_bytes": 4447,
+  "ciphertext_bytes": 4463,
+  "ciphertext_parts": [
+    "ciphertext.hex.part-000.txt",
+    "ciphertext.hex.part-001.txt",
+    "ciphertext.hex.part-002.txt"
+  ],
+  "ciphertext_encoded_chars": 8926,
+  "password_stored_in_repo": false
+}

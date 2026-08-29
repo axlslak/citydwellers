@@ -4,9 +4,15 @@ This directory stores durable, conversation-specific development memory so a fut
 
 The repository is public. Conversation memories are therefore encrypted; passwords are intentionally NOT committed.
 
+For a complete fresh-session restart, begin with the repository-root
+`RECOVERY.md`. Transaction and compaction rules are defined in
+`memory/PROTOCOL.md`; the current crash-recovery pointer is
+`memory/CURSOR.json`; and `memory/JOURNAL.jsonl` is append-only.
+
 ## Recovery procedure
 
-When the user refers to an old conversation by number/title:
+When the user refers to an old conversation by number/title, or when
+`RECOVERY.md` marks encrypted memories as part of boot recovery:
 
 1. Read `memory/MANIFEST.json` and locate the entry.
 2. Read its `envelope.json`.
@@ -57,8 +63,15 @@ print(payload.decode("utf-8"))
 ## Formats currently present
 
 - `citydwellers-session-memory-v1`: AES-256-GCM + scrypt, Base64 ciphertext chunks, no compression. Used by Conversations #1 and #2.
-- `citydwellers-session-memory-v2`: optional gzip before AES-256-GCM + scrypt; encoding declared by the envelope. Conversation #3 uses gzip + hex ciphertext chunks.
+- `citydwellers-session-memory-v2`: optional gzip before AES-256-GCM + scrypt; encoding declared by the envelope. Conversations #3 and #4 use gzip + hex ciphertext chunks.
 
 ## Important
 
 These are distilled recovery memories, not verbatim transcripts unless explicitly stated. Respect provenance/confidence markers. A local commit mentioned in an old chat is not real repository history until Git confirms it.
+
+Conversation memories are the rich historical layer, not the only recovery
+layer. Normal restarts should use the compact state/history checkpoint and
+append-only journal first. As the archive grows, the manifest may distinguish
+boot-required checkpoint memories from older historical records so recovery
+does not require decrypting an unbounded number of sessions. Historical
+records remain preserved and decryptable on demand.
