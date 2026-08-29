@@ -1099,6 +1099,10 @@ namespace CityManager
             {
                 BeginRaidBuddySpinup(session, "external all-remaining-waves selection");
             }
+            else
+            {
+                BeginRaidBuddyPreparation(session, "external general-only selection");
+            }
         }
 
         private void TickRaidCoordinator()
@@ -1246,6 +1250,11 @@ namespace CityManager
 
             if (string.Equals(session.RaidType, "all", StringComparison.OrdinalIgnoreCase))
                 BeginRaidBuddySpinup(session, "all-mode start");
+            else if (string.Equals(
+                         session.RaidType,
+                         "general",
+                         StringComparison.OrdinalIgnoreCase))
+                BeginRaidBuddyPreparation(session, "general-mode start");
 
             TryStartControllerWatch(session);
             return true;
@@ -1531,6 +1540,8 @@ namespace CityManager
                         Level = session.Level,
                         Index = count,
                         Purpose = "raid",
+                        Home = true,
+                        LogoutAfterHome = false,
                         LeaseSeconds = string.Equals(
                                 session.RaidType,
                                 "all",
@@ -1601,6 +1612,73 @@ namespace CityManager
                     session.Stage == RaidStage.ControllerFill)
                 {
                     TryStartControllerWatch(session);
+                }
+            });
+        }
+
+        private void BeginRaidBuddyPreparation(RaidSession session, string reason)
+        {
+            int count = session.RaiderCount ?? 0;
+            if (count == 0)
+                return;
+
+            lock (_raidSync)
+            {
+                if (!ReferenceEquals(_raidSession, session) ||
+                    session.BuddyPreparationInFlight)
+                {
+                    return;
+                }
+
+                session.BuddyPreparationInFlight = true;
+            }
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    var request = new WorkerRequest
+                    {
+                        Id = Guid.NewGuid().ToString("N"),
+                        Command = "spinup",
+                        Level = session.Level,
+                        Index = count,
+                        Purpose = "raid-preflight",
+                        Home = true,
+                        LogoutAfterHome = true
+                    };
+
+                    string shortId = ShortId(request.Id);
+                    DevTrace(
+                        $"RAID BUDDIES -> preflight level={session.Level} " +
+                        $"count={count} [{shortId}] reason={reason}.");
+
+                    WorkerResponse response = SendWorkerRequest(
+                        BuddiesPipeName,
+                        request,
+                        WorkerConnectTimeoutMs);
+
+                    lock (_raidSync)
+                    {
+                        session.BuddyPreparationInFlight = false;
+                        session.BuddyPreparationDetail = response.Message;
+                    }
+
+                    DevTrace(
+                        $"RAID BUDDIES PREFLIGHT " +
+                        $"{(response.Ok ? "OK" : "PARTIAL")} [{shortId}]: " +
+                        response.Message);
+                    SaveRaidState();
+                }
+                catch (Exception ex)
+                {
+                    lock (_raidSync)
+                    {
+                        session.BuddyPreparationInFlight = false;
+                        session.BuddyPreparationDetail = ex.Message;
+                    }
+
+                    DevTrace($"RAID BUDDIES preflight error: {ex.Message}");
                 }
             });
         }
@@ -2645,6 +2723,10 @@ namespace CityManager
                         body.Append("Flipper: obtaining a fresh reading...\n");
                     if (session.BuddySpinupInFlight)
                         body.Append("Buddies: logging in requested all-mode raiders...\n");
+                    if (session.BuddyPreparationInFlight)
+                        body.Append(
+                            "Buddies: checking general-only raiders and returning " +
+                            "misplaced toons home...\n");
                     if (session.WorkerWaitAnnounced)
                         body.Append("CT window complete; waiting for raid workers to finish safely.\n");
                     break;
@@ -2693,6 +2775,13 @@ namespace CityManager
 
             if (!string.IsNullOrWhiteSpace(session.BuddyDetail))
                 body.Append($"\nBuddies: {SafeRaidText(session.BuddyDetail)}\n");
+
+            if (!string.IsNullOrWhiteSpace(session.BuddyPreparationDetail))
+            {
+                body.Append(
+                    $"Preparation: " +
+                    $"{SafeRaidText(session.BuddyPreparationDetail)}\n");
+            }
 
             if (!string.IsNullOrWhiteSpace(session.FlipperDetail))
                 body.Append($"Flipper: {SafeRaidText(session.FlipperDetail)}\n");
@@ -2946,6 +3035,8 @@ namespace CityManager
             public bool BuddySpinupInFlight;
             public bool BuddySpinupFatal;
             public bool BuddyCleanupInFlight;
+            public bool BuddyPreparationInFlight;
+            public string BuddyPreparationDetail;
             public bool WorkerWaitAnnounced;
             public bool IsExternalAssist;
             public int CurrentMilestone;

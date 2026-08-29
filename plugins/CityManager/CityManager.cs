@@ -55,6 +55,7 @@ namespace CityManager
                 "spinup",
                 "spindown",
                 "positions",
+                "home",
                 "recoverraid",
                 "adminlist",
                 "admin",
@@ -396,6 +397,8 @@ namespace CityManager
                   command == "adminlist" ||
                   command == "memberlist" ||
                   command == "positions") && parts.Length == 1) ||
+                (command == "home" &&
+                 (parts.Length == 1 || parts.Length == 2)) ||
                 (command == "alts" && HasTellAltsCommandShape(parts)) ||
                 (command == "raid" && HasTellRaidCommandShape(parts)) ||
                 (command == "raidassist" &&
@@ -642,6 +645,39 @@ namespace CityManager
                     BeginBuddyPositions(replyTarget);
                     break;
 
+                case "home":
+                {
+                    if (parts.Length > 2)
+                    {
+                        Reply(replyTarget, Usage(replyTarget, "home [level|all|status]"));
+                        break;
+                    }
+
+                    if (parts.Length == 2 &&
+                        string.Equals(parts[1], "status", StringComparison.OrdinalIgnoreCase))
+                    {
+                        BeginHomeCommand(replyTarget, null, true);
+                        break;
+                    }
+
+                    int? homeLevel = null;
+                    if (parts.Length == 2 &&
+                        !string.Equals(parts[1], "all", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int parsedLevel;
+                        if (!int.TryParse(parts[1], out parsedLevel))
+                        {
+                            Reply(replyTarget, Usage(replyTarget, "home [level|all|status]"));
+                            break;
+                        }
+
+                        homeLevel = parsedLevel;
+                    }
+
+                    BeginHomeCommand(replyTarget, homeLevel, false);
+                    break;
+                }
+
                 case "cancel":
                     ProcessRaidCancel(senderName, parts, replyTarget, isAdmin);
                     break;
@@ -692,7 +728,7 @@ namespace CityManager
                 $"Admin: {prefix}invite [character], {prefix}kick [character], " +
                 $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
                 $"{prefix}spinup [level] [count], {prefix}spindown [count], " +
-                $"{prefix}positions, " +
+                $"{prefix}positions, {prefix}home [level|all|status], " +
                 $"{prefix}adminlist, {prefix}admin [add|del/rem/remove/delete] [character], " +
                 $"{prefix}memberlist, {prefix}member [add|del/rem/remove/delete] [character], " +
                 $"{prefix}ban [character], {prefix}unban [character], " +
@@ -1022,6 +1058,54 @@ namespace CityManager
             });
         }
 
+        private void BeginHomeCommand(
+            ReplyTarget target,
+            int? level,
+            bool statusOnly)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                var request = new WorkerRequest
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Command = statusOnly ? "homestatus" : "home",
+                    Level = level
+                };
+
+                string shortId = ShortId(request.Id);
+
+                try
+                {
+                    DevTrace(
+                        statusOnly
+                            ? $"BUDDY HOME -> status [{shortId}]"
+                            : $"BUDDY HOME -> level=" +
+                              $"{(level.HasValue ? level.Value.ToString() : "all")} " +
+                              $"[{shortId}]");
+
+                    WorkerResponse response = SendWorkerRequest(
+                        BuddiesPipeName,
+                        request,
+                        WorkerConnectTimeoutMs);
+
+                    DevTrace(
+                        $"BUDDY HOME {(response.Ok ? "OK" : "FAIL")} " +
+                        $"[{shortId}]: {response.Message}");
+                    Reply(
+                        target,
+                        response.Ok
+                            ? $"Buddies: {response.Message}"
+                            : $"Buddies failed: {response.Message}");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning($"Buddies home IPC failed: {ex.Message}");
+                    DevTrace($"BUDDY HOME ERROR [{shortId}]: {ex.Message}");
+                    Reply(target, $"Buddies home service unavailable: {ex.Message}");
+                }
+            });
+        }
+
         private string BuildBuddyPositionWindow(
             IList<BuddyPositionSnapshot> positions,
             DateTime now)
@@ -1063,6 +1147,20 @@ namespace CityManager
                         $"  health: {position.Health?.ToString() ?? "?"}/" +
                         $"{position.MaxHealth?.ToString() ?? "?"}\n");
 
+                    if (!string.IsNullOrWhiteSpace(position.HomeState))
+                    {
+                        body.Append(
+                            $"  home: {SafeRaidText(position.HomeState)}" +
+                            (position.HomeDistance.HasValue
+                                ? $", distance: {position.HomeDistance.Value:F2}m"
+                                : string.Empty) +
+                            "\n");
+
+                        if (!string.IsNullOrWhiteSpace(position.HomeDetail))
+                            body.Append(
+                                $"  home detail: {SafeRaidText(position.HomeDetail)}\n");
+                    }
+
                     if (!string.IsNullOrWhiteSpace(position.Error))
                         body.Append($"  error: {SafeRaidText(position.Error)}\n");
 
@@ -1070,7 +1168,9 @@ namespace CityManager
                 }
             }
 
-            body.Append("Observation only: no movement command was sent.");
+            body.Append(
+                "Position reports are observational unless an administrator or " +
+                "raid preparation started a home job.");
             return $"<a href=\"text://{body}\">Click here to open window</a>";
         }
 
@@ -1106,6 +1206,9 @@ namespace CityManager
             string error = string.IsNullOrWhiteSpace(position.Error)
                 ? "none"
                 : position.Error.Replace("|", "/").Replace("\r", " ").Replace("\n", " ");
+            string homeDetail = string.IsNullOrWhiteSpace(position.HomeDetail)
+                ? "none"
+                : position.HomeDetail.Replace("|", "/").Replace("\r", " ").Replace("\n", " ");
 
             return
                 $"{position.Character ?? "unknown"} level={position.Level?.ToString() ?? "?"} " +
@@ -1113,7 +1216,10 @@ namespace CityManager
                 $"dead={position.Dead} pf={position.PlayfieldId?.ToString() ?? "?"} " +
                 $"name='{position.PlayfieldName ?? "unknown"}' pos={FormatPosition(position)} " +
                 $"heading={FormatHeading(position)} hp={position.Health?.ToString() ?? "?"}/" +
-                $"{position.MaxHealth?.ToString() ?? "?"} age={age} error='{error}'";
+                $"{position.MaxHealth?.ToString() ?? "?"} age={age} " +
+                $"home={position.HomeState ?? "none"} " +
+                $"homeDistance={(position.HomeDistance.HasValue ? position.HomeDistance.Value.ToString("0.00", CultureInfo.InvariantCulture) : "?")} " +
+                $"homeDetail='{homeDetail}' error='{error}'";
         }
 
         private static bool HasPositionReport(BuddyPositionSnapshot position)
@@ -2025,6 +2131,8 @@ namespace CityManager
             public List<int> Indexes;
             public string Purpose;
             public int? LeaseSeconds;
+            public bool Home;
+            public bool LogoutAfterHome;
         }
 
         private class WorkerResponse

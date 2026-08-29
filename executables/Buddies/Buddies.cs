@@ -27,13 +27,23 @@ public class PluginLoader
     private const int DefaultRaidSafetyLeaseSeconds = 1365;
     private const int ClientDomainLeaseMinutes = 60;
     private const int FailedCleanupRetrySeconds = 30;
+    // ClientDomain unload is immediate locally, but AO can leave the avatar
+    // visible and attackable for roughly 30 seconds. Keep the account slot
+    // reserved beyond that blind server-side interval.
+    private const int ServerLogoutLingerSeconds = 35;
+    private const int HomeNavigationTimeoutSeconds = 600;
     private const int AbsoluteMaxRaidBuddies = 12;
+    private static readonly int[] SupportedHomeLevels =
+        { 25, 50, 75, 100, 125, 150, 175, 200 };
 
     private static readonly object ActiveLock = new object();
     private static readonly Dictionary<int, ActiveBuddy> ActiveBuddies =
         new Dictionary<int, ActiveBuddy>();
     private static BuddySlotWorker[] _slotWorkers;
     private static SemaphoreSlim _loginGate;
+    private static DateTime[] _slotLingeringUntilUtc;
+    private static readonly object HomeMaintenanceLock = new object();
+    private static HomeMaintenanceState _homeMaintenance;
 
     // AOSharp.Clientless 1.0.16 keeps these private. Its PluginProxy uses the
     // default .NET Remoting lease, so it expires during a normal city raid and
@@ -290,6 +300,7 @@ public class PluginLoader
             _config.MaxParallelLogins.Value,
             _config.MaxParallelLogins.Value);
         _slotWorkers = new BuddySlotWorker[_config.AccountCount];
+        _slotLingeringUntilUtc = new DateTime[_config.AccountCount];
 
         for (int index = 0; index < _slotWorkers.Length; index++)
             _slotWorkers[index] = new BuddySlotWorker(index);
@@ -455,6 +466,12 @@ public class PluginLoader
             case "positions":
                 return Positions(request);
 
+            case "home":
+                return Home(request);
+
+            case "homestatus":
+                return HomeStatus(request);
+
             case "ping":
                 return Ok(request, "Buddies service is running.");
 
@@ -500,6 +517,19 @@ public class PluginLoader
             if (_stopping)
                 return Fail(request, "Buddies service is stopping.");
 
+            DateTime lingeringUntil = _slotLingeringUntilUtc[index];
+            if (DateTime.UtcNow < lingeringUntil)
+            {
+                int remaining = Math.Max(
+                    1,
+                    (int)Math.Ceiling(
+                        (lingeringUntil - DateTime.UtcNow).TotalSeconds));
+                return Fail(
+                    request,
+                    $"Account index {index} is quarantined for {remaining}s while " +
+                    "its previous AO avatar finishes leaving the server.");
+            }
+
             ActiveBuddy existing;
 
             if (ActiveBuddies.TryGetValue(index, out existing))
@@ -507,6 +537,8 @@ public class PluginLoader
                 if (existing.Level == level && !existing.IsStopping)
                 {
                     ApplyRequestPurpose(existing, request);
+                    if (request.Home)
+                        WriteHomeDirective(existing);
 
                     return Ok(
                         request,
@@ -529,7 +561,7 @@ public class PluginLoader
             {
                 return Fail(
                     request,
-                    IsRaidRequest(request)
+                    UsesRaidCapacity(request)
                         ? $"The configured raid limit of {activeLimit} is already active."
                         : $"All {activeLimit} configured buddy accounts are already active.");
             }
@@ -553,6 +585,7 @@ public class PluginLoader
 
         DeleteReadyMarker(readyPath);
         DeletePositionSnapshot(character);
+        DeleteHomeDirective(character);
 
         Logger logger =
             new LoggerConfiguration()
@@ -606,11 +639,13 @@ public class PluginLoader
                 else
                 {
                     RemoveStartupReservation(index, activeBuddy);
+                    MarkSlotLingering(index, character);
                 }
 
                 domain = null;
                 DeleteReadyMarker(readyPath);
                 DeletePositionSnapshot(character);
+                DeleteHomeDirective(character);
 
                 return Fail(
                     request,
@@ -632,6 +667,9 @@ public class PluginLoader
                 activeBuddy.Domain = domain;
                 activeBuddy.IsStarting = false;
             }
+
+            if (request.Home)
+                WriteHomeDirective(activeBuddy);
 
             domain = null;
 
@@ -664,9 +702,14 @@ public class PluginLoader
 
             DeleteReadyMarker(readyPath);
             DeletePositionSnapshot(character);
+            DeleteHomeDirective(character);
 
             if (!startupRetained)
+            {
                 RemoveStartupReservation(index, activeBuddy);
+                if (domain != null)
+                    MarkSlotLingering(index, character);
+            }
 
             Console.WriteLine(
                 $"Failed starting buddy {character}: {ex}");
@@ -705,6 +748,9 @@ public class PluginLoader
             buddy.IsStarting = false;
             buddy.Purpose = "failed-start";
             buddy.LeaseExpiresUtc = DateTime.UtcNow;
+            buddy.NavigationHold = false;
+            buddy.NavigationState = "failed";
+            buddy.NavigationDetail = "Login failed before navigation could start.";
             buddy.CleanupFailures++;
             buddy.NextCleanupAttemptUtc =
                 DateTime.UtcNow.AddSeconds(FailedCleanupRetrySeconds);
@@ -753,13 +799,35 @@ public class PluginLoader
                     request?.Purpose,
                     "demo-expiry",
                     StringComparison.OrdinalIgnoreCase) &&
-                buddy.LeaseExpiresUtc.HasValue &&
-                DateTime.UtcNow < buddy.LeaseExpiresUtc.Value)
+                ((buddy.LeaseExpiresUtc.HasValue &&
+                  DateTime.UtcNow < buddy.LeaseExpiresUtc.Value) ||
+                 buddy.NavigationHold))
             {
                 buddy.CleanupQueued = false;
                 return Ok(
                     request,
-                    $"{buddy.Character} lease was renewed before cleanup.",
+                    buddy.NavigationHold
+                        ? $"{buddy.Character} is still completing home navigation."
+                        : $"{buddy.Character} lease was renewed before cleanup.",
+                    null,
+                    buddy.Level,
+                    index);
+            }
+
+            if (string.Equals(
+                    request?.Purpose,
+                    "home-complete",
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(
+                    request.HomeJobId,
+                    buddy.NavigationJobId,
+                    StringComparison.Ordinal))
+            {
+                buddy.CleanupQueued = false;
+                return Ok(
+                    request,
+                    $"{buddy.Character} received a newer ownership/navigation request " +
+                    "before home cleanup.",
                     null,
                     buddy.Level,
                     index);
@@ -774,6 +842,8 @@ public class PluginLoader
 
         try
         {
+            CancelHomeDirective(buddy);
+
             string unloadError;
             if (!TryUnloadClientDomain(
                     buddy.Domain,
@@ -790,13 +860,18 @@ public class PluginLoader
                     ReferenceEquals(current, buddy))
                 {
                     ActiveBuddies.Remove(index);
+                    _slotLingeringUntilUtc[index] =
+                        DateTime.UtcNow.AddSeconds(ServerLogoutLingerSeconds);
                 }
             }
             DeleteReadyMarker(GetReadyPath(buddy.Character));
             DeletePositionSnapshot(buddy.Character);
+            DeleteHomeDirective(buddy.Character);
 
             Console.WriteLine(
-                $"Buddy unloaded: {buddy.Character}.");
+                $"Buddy unloaded: {buddy.Character}. Account index {index} is " +
+                $"quarantined for {ServerLogoutLingerSeconds}s while AO removes " +
+                "the server-side avatar.");
 
             return Ok(
                 request,
@@ -866,7 +941,7 @@ public class PluginLoader
         {
             return Fail(
                 request,
-                IsRaidRequest(request)
+                UsesRaidCapacity(request)
                     ? $"raid spinup count cannot exceed the configured " +
                       $"raid limit of {requestLimit}."
                     : $"manual spinup count cannot exceed the configured " +
@@ -885,7 +960,7 @@ public class PluginLoader
 
             lock (ActiveLock)
             {
-                if (IsRaidRequest(request))
+                if (IsRaidRequest(request) || request.Home)
                 {
                     for (int index = 0;
                          index < _config.AccountCount &&
@@ -914,6 +989,8 @@ public class PluginLoader
                         }
 
                         ApplyRequestPurpose(active, request);
+                        if (request.Home)
+                            WriteHomeDirective(active);
                         started.Add(active.Character);
                         startedIndexes.Add(index);
                         claimedExisting++;
@@ -990,7 +1067,11 @@ public class PluginLoader
             {
                 ActiveBuddy active;
                 if (ActiveBuddies.TryGetValue(index, out active))
+                {
                     ApplyRequestPurpose(active, request);
+                    if (request.Home)
+                        WriteHomeDirective(active);
+                }
             }
         }
 
@@ -1015,12 +1096,28 @@ public class PluginLoader
             $"started {started.Count}/{requested} level {level} [{startedText}]";
 
         if (claimedExisting > 0)
-            detail += $"; raid claimed existing={claimedExisting}";
+            detail += $"; claimed existing={claimedExisting}";
 
-        detail += IsRaidRequest(request)
-            ? $"; raid-owned; safety lease=" +
-              $"{GetLeaseSeconds(request, DefaultRaidSafetyLeaseSeconds)}s"
-            : $"; demo lease={DefaultDemoLeaseSeconds}s";
+        if (IsRaidRequest(request))
+        {
+            detail += $"; raid-owned; safety lease=" +
+                      $"{GetLeaseSeconds(request, DefaultRaidSafetyLeaseSeconds)}s";
+        }
+        else if (string.Equals(
+                     request.Purpose,
+                     "raid-preflight",
+                     StringComparison.OrdinalIgnoreCase))
+        {
+            detail += "; raid preflight; logout follows terminal home result";
+        }
+        else if (request.Home)
+        {
+            detail += "; home maintenance owns navigation time";
+        }
+        else
+        {
+            detail += $"; demo lease={DefaultDemoLeaseSeconds}s";
+        }
 
         if (activeSkipped > 0)
             detail += $"; active skipped={activeSkipped}";
@@ -1036,7 +1133,7 @@ public class PluginLoader
             failures.Count == 0 &&
             activeCount >= requestLimit)
         {
-            detail += IsRaidRequest(request)
+            detail += UsesRaidCapacity(request)
                 ? "; raid buddy limit reached"
                 : "; all configured buddy accounts are active";
         }
@@ -1062,6 +1159,53 @@ public class PluginLoader
         buddy.CleanupFailures = 0;
         buddy.NextCleanupAttemptUtc = null;
         buddy.CleanupQueued = false;
+
+        if (request != null && request.Home)
+        {
+            bool hasDifferentPreflightOwner =
+                string.Equals(
+                    buddy.Purpose,
+                    "raid-preflight",
+                    StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(
+                    buddy.NavigationJobId,
+                    request.Id,
+                    StringComparison.Ordinal);
+            bool hasIndependentOwner =
+                (string.Equals(
+                     buddy.Purpose,
+                     "raid",
+                     StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(
+                     buddy.Purpose,
+                     "demo",
+                     StringComparison.OrdinalIgnoreCase) ||
+                 hasDifferentPreflightOwner) &&
+                (!buddy.LeaseExpiresUtc.HasValue ||
+                 DateTime.UtcNow < buddy.LeaseExpiresUtc.Value);
+
+            buddy.NavigationHold = true;
+            buddy.NavigationJobId = request.Id;
+            buddy.NavigationStartedUtc = DateTime.UtcNow;
+            buddy.NavigationLogoutWhenComplete =
+                request.LogoutAfterHome &&
+                (!hasIndependentOwner || hasDifferentPreflightOwner);
+            buddy.NavigationState = "requested";
+            buddy.NavigationDetail = "Waiting for CityBuddies navigation telemetry.";
+
+            if (!hasIndependentOwner &&
+                !string.Equals(
+                    request.Purpose,
+                    "raid",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                buddy.Purpose = request.Purpose ?? "home";
+                buddy.LeaseExpiresUtc = null;
+            }
+
+            if (!IsRaidRequest(request))
+                return;
+        }
 
         if (IsRaidRequest(request))
         {
@@ -1097,9 +1241,18 @@ public class PluginLoader
             StringComparison.OrdinalIgnoreCase);
     }
 
+    private static bool UsesRaidCapacity(WorkerRequest request)
+    {
+        return IsRaidRequest(request) ||
+               string.Equals(
+                   request?.Purpose,
+                   "raid-preflight",
+                   StringComparison.OrdinalIgnoreCase);
+    }
+
     private static int GetRequestActiveLimit(WorkerRequest request)
     {
-        return IsRaidRequest(request)
+        return UsesRaidCapacity(request)
             ? _config.ActiveLimit.Value
             : _config.AccountCount;
     }
@@ -1124,13 +1277,17 @@ public class PluginLoader
                 "raid",
                 StringComparison.OrdinalIgnoreCase)
             ? $" Raid-owned; safety lease={remainingSeconds}s."
-            : $" Demo lease={remainingSeconds}s.";
+            : buddy.NavigationHold
+                ? " Home navigation owns this session until it finishes."
+                : $" Demo lease={remainingSeconds}s.";
     }
 
     private static void ExpireBuddyLeases(object state)
     {
         try
         {
+            ReconcileHomeNavigation();
+
             var expiredIndexes = new List<int>();
 
             lock (ActiveLock)
@@ -1143,6 +1300,7 @@ public class PluginLoader
                         now >= buddy.LeaseExpiresUtc.Value &&
                         !buddy.IsStarting &&
                         !buddy.IsStopping &&
+                        !buddy.NavigationHold &&
                         !buddy.CleanupQueued &&
                         (!buddy.NextCleanupAttemptUtc.HasValue ||
                          now >= buddy.NextCleanupAttemptUtc.Value))
@@ -1289,6 +1447,237 @@ public class PluginLoader
         return result;
     }
 
+    private static WorkerResponse Home(WorkerRequest request)
+    {
+        var levels = new List<int>();
+
+        if (request.Level.HasValue)
+        {
+            if (!IsSupportedHomeLevel(request.Level.Value))
+            {
+                return Fail(
+                    request,
+                    "home level must be 25, 50, 75, 100, 125, 150, 175, or 200.");
+            }
+
+            levels.Add(request.Level.Value);
+        }
+        else
+        {
+            levels.AddRange(SupportedHomeLevels);
+        }
+
+        HomeMaintenanceState state;
+
+        lock (HomeMaintenanceLock)
+        {
+            if (_homeMaintenance != null && _homeMaintenance.Running)
+            {
+                return Fail(
+                    request,
+                    $"Home maintenance {_homeMaintenance.JobId} is already running: " +
+                    _homeMaintenance.Detail);
+            }
+
+            state = new HomeMaintenanceState
+            {
+                JobId = request.Id ?? Guid.NewGuid().ToString("N"),
+                Running = true,
+                StartedUtc = DateTime.UtcNow,
+                Detail = request.Level.HasValue
+                    ? $"level {request.Level.Value} queued"
+                    : "all configured levels queued"
+            };
+            state.Levels.AddRange(levels);
+            _homeMaintenance = state;
+        }
+
+        ThreadPool.QueueUserWorkItem(_ => RunHomeMaintenance(state));
+
+        return Ok(
+            request,
+            request.Level.HasValue
+                ? $"Home verification started for all configured level-" +
+                  $"{request.Level.Value} characters. It owns navigation time " +
+                  "independently of demo leases."
+                : "Home verification started for every configured level. " +
+                  "Levels will rotate in the background, respecting AO's " +
+                  $"{ServerLogoutLingerSeconds}s logout quarantine.");
+    }
+
+    private static WorkerResponse HomeStatus(WorkerRequest request)
+    {
+        lock (HomeMaintenanceLock)
+        {
+            if (_homeMaintenance == null)
+                return Ok(request, "No home maintenance job has run in this process.");
+
+            string state = _homeMaintenance.Running ? "running" : "finished";
+            return Ok(
+                request,
+                $"Home maintenance {_homeMaintenance.JobId} is {state}: " +
+                _homeMaintenance.Detail);
+        }
+    }
+
+    private static void RunHomeMaintenance(HomeMaintenanceState state)
+    {
+        var summaries = new List<string>();
+
+        try
+        {
+            foreach (int level in state.Levels)
+            {
+                if (_stopping)
+                    break;
+
+                lock (HomeMaintenanceLock)
+                    state.Detail = $"checking level {level}";
+
+                string levelJobId =
+                    state.JobId + "-" + level.ToString("D3");
+                var levelRequest = new WorkerRequest
+                {
+                    Id = levelJobId,
+                    Command = "spinup",
+                    Level = level,
+                    Index = _config.AccountCount,
+                    Purpose = "home",
+                    Home = true,
+                    LogoutAfterHome = true
+                };
+
+                WorkerResponse response = Spinup(levelRequest);
+                int reached = response.Count ?? 0;
+                state.Attempted += _config.AccountCount;
+                state.Started += reached;
+
+                lock (HomeMaintenanceLock)
+                {
+                    state.Detail =
+                        $"level {level}: {reached}/{_config.AccountCount} sessions " +
+                        "accepted; waiting for navigation";
+                }
+
+                WaitForHomeLevel(levelJobId);
+                summaries.Add($"{level}:{reached}/{_config.AccountCount}");
+
+                if (response.Indexes != null &&
+                    state.Levels[state.Levels.Count - 1] != level)
+                {
+                    WaitForLogoutQuarantine(response.Indexes);
+                }
+            }
+
+            lock (HomeMaintenanceLock)
+            {
+                state.Running = false;
+                state.FinishedUtc = DateTime.UtcNow;
+                state.Detail =
+                    (_stopping ? "stopped; " : "complete; ") +
+                    (summaries.Count == 0
+                        ? "no levels processed"
+                        : string.Join(", ", summaries));
+            }
+
+            Console.WriteLine(
+                $"Home maintenance {state.JobId} {state.Detail}.");
+        }
+        catch (Exception ex)
+        {
+            lock (HomeMaintenanceLock)
+            {
+                state.Running = false;
+                state.FinishedUtc = DateTime.UtcNow;
+                state.Detail = "failed: " + ex.Message;
+            }
+
+            Console.WriteLine(
+                $"Home maintenance {state.JobId} failed: {ex}");
+        }
+    }
+
+    private static void WaitForHomeLevel(string levelJobId)
+    {
+        DateTime deadline = DateTime.UtcNow.AddSeconds(
+            HomeNavigationTimeoutSeconds + FailedCleanupRetrySeconds + 30);
+
+        while (!_stopping && DateTime.UtcNow < deadline)
+        {
+            bool pending = false;
+
+            lock (ActiveLock)
+            {
+                foreach (ActiveBuddy buddy in ActiveBuddies.Values)
+                {
+                    if (!string.Equals(
+                            buddy.NavigationJobId,
+                            levelJobId,
+                            StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (buddy.NavigationHold ||
+                        (buddy.NavigationLogoutWhenComplete &&
+                         string.Equals(
+                             buddy.Purpose,
+                             "home",
+                             StringComparison.OrdinalIgnoreCase)))
+                    {
+                        pending = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!pending)
+                return;
+
+            Thread.Sleep(1000);
+        }
+    }
+
+    private static void WaitForLogoutQuarantine(List<int> indexes)
+    {
+        if (indexes == null || indexes.Count == 0)
+            return;
+
+        while (!_stopping)
+        {
+            DateTime latest = DateTime.MinValue;
+
+            lock (ActiveLock)
+            {
+                foreach (int index in indexes)
+                {
+                    if (index >= 0 &&
+                        index < _slotLingeringUntilUtc.Length &&
+                        _slotLingeringUntilUtc[index] > latest)
+                    {
+                        latest = _slotLingeringUntilUtc[index];
+                    }
+                }
+            }
+
+            if (latest <= DateTime.UtcNow)
+                return;
+
+            Thread.Sleep(1000);
+        }
+    }
+
+    private static bool IsSupportedHomeLevel(int level)
+    {
+        foreach (int supported in SupportedHomeLevels)
+        {
+            if (level == supported)
+                return true;
+        }
+
+        return false;
+    }
+
     private static WorkerResponse Positions(WorkerRequest request)
     {
         List<ActiveBuddy> buddies;
@@ -1331,6 +1720,9 @@ public class PluginLoader
             Character = buddy.Character,
             Level = buddy.Level,
             Index = buddy.Index,
+            HomeJobId = buddy.NavigationJobId,
+            HomeState = buddy.NavigationState,
+            HomeDetail = buddy.NavigationDetail,
             Error = "Position snapshot is not available yet."
         };
 
@@ -1354,6 +1746,12 @@ public class PluginLoader
             snapshot.Character = buddy.Character;
             snapshot.Level = buddy.Level;
             snapshot.Index = buddy.Index;
+            if (string.IsNullOrWhiteSpace(snapshot.HomeJobId))
+                snapshot.HomeJobId = buddy.NavigationJobId;
+            if (string.IsNullOrWhiteSpace(snapshot.HomeState))
+                snapshot.HomeState = buddy.NavigationState;
+            if (string.IsNullOrWhiteSpace(snapshot.HomeDetail))
+                snapshot.HomeDetail = buddy.NavigationDetail;
             return snapshot;
         }
         catch (Exception ex)
@@ -1475,6 +1873,203 @@ public class PluginLoader
         catch
         {
         }
+    }
+
+    private static string GetHomeDirectivePath(string character)
+    {
+        return Path.Combine(
+            _baseDir,
+            $"citybuddies-home-{character}.json");
+    }
+
+    private static void WriteHomeDirective(ActiveBuddy buddy)
+    {
+        if (buddy == null || string.IsNullOrWhiteSpace(buddy.NavigationJobId))
+            return;
+
+        WriteHomeDirective(
+            buddy.Character,
+            new BuddyHomeDirective
+            {
+                JobId = buddy.NavigationJobId,
+                RequestedUtc = buddy.NavigationStartedUtc,
+                Cancel = false
+            });
+    }
+
+    private static void CancelHomeDirective(ActiveBuddy buddy)
+    {
+        if (buddy == null || string.IsNullOrWhiteSpace(buddy.NavigationJobId))
+            return;
+
+        WriteHomeDirective(
+            buddy.Character,
+            new BuddyHomeDirective
+            {
+                JobId = buddy.NavigationJobId,
+                RequestedUtc = buddy.NavigationStartedUtc,
+                Cancel = true
+            });
+    }
+
+    private static void WriteHomeDirective(
+        string character,
+        BuddyHomeDirective directive)
+    {
+        try
+        {
+            string path = GetHomeDirectivePath(character);
+            string tempPath = path + ".tmp";
+            File.WriteAllText(tempPath, JsonConvert.SerializeObject(directive));
+
+            if (File.Exists(path))
+                File.Replace(tempPath, path, null);
+            else
+                File.Move(tempPath, path);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"Unable to write home directive for {character}: {ex.Message}");
+        }
+    }
+
+    private static void DeleteHomeDirective(string character)
+    {
+        try
+        {
+            string path = GetHomeDirectivePath(character);
+            if (File.Exists(path))
+                File.Delete(path);
+
+            string tempPath = path + ".tmp";
+            if (File.Exists(tempPath))
+                File.Delete(tempPath);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void MarkSlotLingering(int index, string character)
+    {
+        lock (ActiveLock)
+        {
+            if (_slotLingeringUntilUtc != null &&
+                index >= 0 &&
+                index < _slotLingeringUntilUtc.Length)
+            {
+                _slotLingeringUntilUtc[index] =
+                    DateTime.UtcNow.AddSeconds(ServerLogoutLingerSeconds);
+            }
+        }
+
+        Console.WriteLine(
+            $"Account index {index} is quarantined for " +
+            $"{ServerLogoutLingerSeconds}s after unloading {character}.");
+    }
+
+    private static void ReconcileHomeNavigation()
+    {
+        List<ActiveBuddy> candidates;
+
+        lock (ActiveLock)
+        {
+            candidates = new List<ActiveBuddy>();
+            foreach (ActiveBuddy buddy in ActiveBuddies.Values)
+            {
+                if (buddy.NavigationHold &&
+                    !buddy.IsStarting &&
+                    !buddy.IsStopping)
+                {
+                    candidates.Add(buddy);
+                }
+            }
+        }
+
+        foreach (ActiveBuddy candidate in candidates)
+        {
+            BuddyPositionSnapshot snapshot = ReadPositionSnapshot(candidate);
+            string terminalState = null;
+            string detail = null;
+
+            if (string.Equals(
+                    snapshot.HomeJobId,
+                    candidate.NavigationJobId,
+                    StringComparison.Ordinal) &&
+                IsTerminalHomeState(snapshot.HomeState))
+            {
+                terminalState = snapshot.HomeState;
+                detail = snapshot.HomeDetail;
+            }
+            else if (
+                DateTime.UtcNow - candidate.NavigationStartedUtc >=
+                TimeSpan.FromSeconds(HomeNavigationTimeoutSeconds))
+            {
+                terminalState = "timeout";
+                detail =
+                    $"No terminal navigation result within " +
+                    $"{HomeNavigationTimeoutSeconds}s.";
+                CancelHomeDirective(candidate);
+            }
+
+            if (terminalState == null)
+                continue;
+
+            bool queueLogout = false;
+
+            lock (ActiveLock)
+            {
+                ActiveBuddy current;
+                if (!ActiveBuddies.TryGetValue(candidate.Index, out current) ||
+                    !ReferenceEquals(current, candidate) ||
+                    !candidate.NavigationHold ||
+                    candidate.IsStopping)
+                {
+                    continue;
+                }
+
+                candidate.NavigationHold = false;
+                candidate.NavigationState = terminalState;
+                candidate.NavigationDetail = detail;
+                queueLogout = candidate.NavigationLogoutWhenComplete;
+
+                if (queueLogout)
+                {
+                    candidate.CleanupQueued = true;
+                    candidate.LeaseExpiresUtc = DateTime.UtcNow;
+                }
+            }
+
+            Console.WriteLine(
+                $"Home navigation {terminalState} for {candidate.Character}: " +
+                $"{detail ?? "no detail"}");
+
+            if (queueLogout)
+            {
+                var request = new WorkerRequest
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Command = "sleep",
+                    Index = candidate.Index,
+                    Purpose = "home-complete",
+                    HomeJobId = candidate.NavigationJobId
+                };
+
+                QueueSlotOperation(
+                    candidate.Index,
+                    () => SleepOnSlot(request, candidate.Index));
+            }
+        }
+    }
+
+    private static bool IsTerminalHomeState(string state)
+    {
+        return string.Equals(state, "home", StringComparison.Ordinal) ||
+               string.Equals(state, "route-unavailable", StringComparison.Ordinal) ||
+               string.Equals(state, "stuck", StringComparison.Ordinal) ||
+               string.Equals(state, "failed", StringComparison.Ordinal) ||
+               string.Equals(state, "canceled", StringComparison.Ordinal);
     }
 
     private static void RenewClientDomainLease(
@@ -1649,6 +2244,12 @@ public class PluginLoader
         public bool IsStarting;
         public bool IsStopping;
         public bool CleanupQueued;
+        public bool NavigationHold;
+        public string NavigationJobId;
+        public DateTime NavigationStartedUtc;
+        public bool NavigationLogoutWhenComplete;
+        public string NavigationState;
+        public string NavigationDetail;
     }
 
     private class WorkerRequest
@@ -1660,6 +2261,21 @@ public class PluginLoader
         public List<int> Indexes;
         public string Purpose;
         public int? LeaseSeconds;
+        public bool Home;
+        public bool LogoutAfterHome;
+        public string HomeJobId;
+    }
+
+    private sealed class HomeMaintenanceState
+    {
+        public string JobId;
+        public bool Running;
+        public DateTime StartedUtc;
+        public DateTime? FinishedUtc;
+        public string Detail;
+        public int Attempted;
+        public int Started;
+        public readonly List<int> Levels = new List<int>();
     }
 
     private sealed class SlotOperation

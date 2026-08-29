@@ -14,15 +14,57 @@ namespace CityBuddies
     public class CityBuddies : ClientlessPluginEntry
     {
         private static readonly TimeSpan SnapshotInterval = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan NavigatingSnapshotInterval = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan DirectivePollInterval = TimeSpan.FromMilliseconds(500);
+        private static readonly TimeSpan MovementUpdateInterval = TimeSpan.FromMilliseconds(200);
+        private static readonly TimeSpan StandDelay = TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan StuckCheckInterval = TimeSpan.FromSeconds(8);
+
+        private const int SerenityIslandsPlayfieldId = 6010;
+        private const float HomeX = 996.004f;
+        private const float HomeY = 5.010f;
+        private const float HomeZ = 1248.512f;
+        private const float HomeHeadingX = 0.000f;
+        private const float HomeHeadingY = -0.997f;
+        private const float HomeHeadingZ = 0.000f;
+        private const float HomeHeadingW = 0.079f;
+        private const float JunctionX = 994.0f;
+        private const float JunctionY = 5.0f;
+        private const float JunctionZ = 1403.2f;
+        private const float HomeReachedDistance = 0.75f;
+        private const float WaypointReachedDistance = 1.25f;
+        private const float MeaningfulProgressDistance = 0.75f;
+        private const int MaximumStuckRecoveries = 3;
+
+        // These are the two unobstructed Serenity Islands street segments
+        // supplied from the live city. Anything outside them is deliberately
+        // reported as unmapped instead of attempting speculative movement.
 
         private readonly object _snapshotSync = new object();
         private string _readyPath;
         private string _snapshotPath;
+        private string _homeDirectivePath;
         private bool _readyWritten;
         private bool _inPlay;
         private bool _dead;
         private DateTime _lastSnapshotUtc = DateTime.MinValue;
         private string _lastSnapshotError;
+        private string _lastDirectiveError;
+
+        private BuddyHomeDirective _homeDirective;
+        private string _homeState;
+        private string _homeDetail;
+        private float? _homeDistance;
+        private DateTime? _homeUpdatedUtc;
+        private DateTime _nextDirectivePollUtc = DateTime.MinValue;
+        private DateTime _nextMovementUpdateUtc = DateTime.MinValue;
+        private DateTime _standReadyUtc = DateTime.MinValue;
+        private DateTime _lastProgressUtc = DateTime.MinValue;
+        private float _bestTargetDistance = float.MaxValue;
+        private int _stuckRecoveries;
+        private bool _standRequested;
+        private bool _moving;
+        private bool _junctionReached;
 
         public override void Init(string pluginDir)
         {
@@ -32,6 +74,9 @@ namespace CityBuddies
             _snapshotPath = Path.Combine(
                 pluginDir,
                 $"citybuddies-position-{Client.CharacterName}.json");
+            _homeDirectivePath = Path.Combine(
+                pluginDir,
+                $"citybuddies-home-{Client.CharacterName}.json");
 
             DeleteSnapshot();
 
@@ -49,6 +94,7 @@ namespace CityBuddies
 
         public override void Teardown()
         {
+            StopMovement();
             Client.MessageReceived -= MessageReceived;
             Client.OnUpdate -= Tick;
             Client.Died -= Died;
@@ -97,24 +143,375 @@ namespace CityBuddies
         private void Tick(object sender, double deltaTime)
         {
             DateTime now = DateTime.UtcNow;
-            if (now - _lastSnapshotUtc < SnapshotInterval)
+            _inPlay = Client.InPlay;
+
+            if (now >= _nextDirectivePollUtc)
+            {
+                _nextDirectivePollUtc = now.Add(DirectivePollInterval);
+                ReadHomeDirective();
+            }
+
+            if (_homeDirective != null && _inPlay)
+                ProcessHomeNavigation(now);
+
+            TimeSpan interval = _homeDirective == null
+                ? SnapshotInterval
+                : NavigatingSnapshotInterval;
+
+            if (now - _lastSnapshotUtc < interval)
                 return;
 
-            _inPlay = Client.InPlay;
             WriteSnapshot(_inPlay);
         }
 
         private void Died()
         {
             _dead = true;
+            if (_homeDirective != null)
+            {
+                StopMovement();
+                SetHomeState(
+                    "route-unavailable",
+                    "Character is dead; the ICC/grid recovery route is not mapped yet.");
+            }
             WriteSnapshot(_inPlay);
             Logger.Information($"CityBuddies observed {Client.CharacterName} die.");
         }
 
         private void Disconnected()
         {
+            StopMovement();
             _inPlay = false;
             WriteSnapshot(false);
+        }
+
+        private void ReadHomeDirective()
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(_homeDirectivePath) ||
+                    !File.Exists(_homeDirectivePath))
+                {
+                    return;
+                }
+
+                BuddyHomeDirective directive =
+                    JsonConvert.DeserializeObject<BuddyHomeDirective>(
+                        File.ReadAllText(_homeDirectivePath));
+
+                if (!string.IsNullOrWhiteSpace(_lastDirectiveError))
+                {
+                    Logger.Information(
+                        $"CityBuddies home directive reading recovered for " +
+                        $"{Client.CharacterName}.");
+                    _lastDirectiveError = null;
+                }
+
+                if (directive == null || string.IsNullOrWhiteSpace(directive.JobId))
+                    return;
+
+                if (_homeDirective != null &&
+                    string.Equals(
+                        _homeDirective.JobId,
+                        directive.JobId,
+                        StringComparison.Ordinal) &&
+                    _homeDirective.Cancel == directive.Cancel)
+                {
+                    return;
+                }
+
+                StopMovement();
+                _homeDirective = directive;
+                _standRequested = false;
+                _standReadyUtc = DateTime.MinValue;
+                _junctionReached = false;
+                ResetProgress(DateTime.UtcNow);
+
+                if (directive.Cancel)
+                {
+                    SetHomeState("canceled", "Home navigation was canceled by Buddies.");
+                    return;
+                }
+
+                SetHomeState("starting", "Home navigation directive received.");
+                Logger.Information(
+                    $"CityBuddies home job {directive.JobId} started for " +
+                    $"{Client.CharacterName}.");
+            }
+            catch (Exception ex)
+            {
+                string error = ex.GetType().Name + ": " + ex.Message;
+                if (!string.Equals(error, _lastDirectiveError, StringComparison.Ordinal))
+                {
+                    Logger.Warning(
+                        $"CityBuddies home directive read failed for " +
+                        $"{Client.CharacterName}; it will retry: {error}");
+                    _lastDirectiveError = error;
+                }
+
+                SetHomeState(
+                    "waiting",
+                    "Home directive read was temporarily unavailable; retrying.");
+            }
+        }
+
+        private void ProcessHomeNavigation(DateTime now)
+        {
+            if (_homeDirective == null || _homeDirective.Cancel)
+                return;
+
+            if (IsTerminalHomeState(_homeState))
+                return;
+
+            LocalPlayer localPlayer = DynelManager.LocalPlayer;
+            if (localPlayer == null || localPlayer.Transform == null)
+            {
+                SetHomeState("waiting", "Waiting for the local player transform.");
+                return;
+            }
+
+            if (_dead)
+            {
+                StopMovement();
+                SetHomeState(
+                    "route-unavailable",
+                    "Character is dead; the ICC/grid recovery route is not mapped yet.");
+                return;
+            }
+
+            int playfieldId = (int)Playfield.ModelId;
+            if (playfieldId != SerenityIslandsPlayfieldId)
+            {
+                StopMovement();
+                SetHomeState(
+                    "route-unavailable",
+                    $"Playfield {playfieldId} is not mapped; expected Serenity Islands " +
+                    $"({SerenityIslandsPlayfieldId}).");
+                return;
+            }
+
+            Vector3 position = localPlayer.Transform.Position;
+            Vector3 home = new Vector3(HomeX, HomeY, HomeZ);
+            _homeDistance = position.Distance2DFrom(home);
+
+            if (!_standRequested)
+            {
+                PrepareMovementComponent(localPlayer, localPlayer.Transform.Heading);
+                localPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
+                _standRequested = true;
+                _standReadyUtc = now.Add(StandDelay);
+                SetHomeState("standing", "Standing before movement.");
+                return;
+            }
+
+            if (now < _standReadyUtc)
+                return;
+
+            if (_homeDistance.Value <= HomeReachedDistance)
+            {
+                FaceHome(localPlayer);
+                SetHomeState(
+                    "home",
+                    $"Home at ({HomeX:F3},{HomeY:F3},{HomeZ:F3}); " +
+                    $"distance={_homeDistance.Value:F2}m.");
+                Logger.Information(
+                    $"CityBuddies home job {_homeDirective.JobId} completed for " +
+                    $"{Client.CharacterName}; distance={_homeDistance.Value:F2}m.");
+                return;
+            }
+
+            Vector3 target;
+            string routeState;
+            string routeDetail;
+
+            if (!TrySelectCityTarget(
+                    position,
+                    out target,
+                    out routeState,
+                    out routeDetail))
+            {
+                StopMovement();
+                SetHomeState("route-unavailable", routeDetail);
+                return;
+            }
+
+            float targetDistance = position.Distance2DFrom(target);
+
+            if (string.Equals(routeState, "moving-to-junction", StringComparison.Ordinal) &&
+                targetDistance <= WaypointReachedDistance)
+            {
+                StopMovement();
+                _junctionReached = true;
+                ResetProgress(now);
+                SetHomeState(
+                    "junction",
+                    "Reached the T-junction; turning south toward the City Controller.");
+                return;
+            }
+
+            if (_bestTargetDistance == float.MaxValue ||
+                _bestTargetDistance - targetDistance >= MeaningfulProgressDistance)
+            {
+                _bestTargetDistance = targetDistance;
+                _lastProgressUtc = now;
+            }
+            else if (now - _lastProgressUtc >= StuckCheckInterval)
+            {
+                if (_stuckRecoveries >= MaximumStuckRecoveries)
+                {
+                    StopMovement();
+                    SetHomeState(
+                        "stuck",
+                        $"Stopped after {MaximumStuckRecoveries} movement recoveries; " +
+                        $"target remained {targetDistance:F1}m away.");
+                    return;
+                }
+
+                _stuckRecoveries++;
+                StopMovement();
+                PrepareMovementComponent(localPlayer, localPlayer.Transform.Heading);
+                localPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
+                _standReadyUtc = now.Add(StandDelay);
+                ResetProgress(now, false);
+                SetHomeState(
+                    "recovering",
+                    $"Movement made no progress; recovery " +
+                    $"{_stuckRecoveries}/{MaximumStuckRecoveries}.");
+                return;
+            }
+
+            Quaternion heading = Quaternion.FromTo(position, target);
+            PrepareMovementComponent(localPlayer, heading);
+
+            if (!_moving)
+            {
+                localPlayer.MovementComponent.ChangeMovement(MovementAction.ForwardStart);
+                _moving = true;
+            }
+            else if (now >= _nextMovementUpdateUtc)
+            {
+                localPlayer.MovementComponent.ChangeMovement(MovementAction.Update);
+            }
+
+            _nextMovementUpdateUtc = now.Add(MovementUpdateInterval);
+            SetHomeState(
+                routeState,
+                routeDetail + $" Target distance={targetDistance:F1}m.");
+        }
+
+        private bool TrySelectCityTarget(
+            Vector3 position,
+            out Vector3 target,
+            out string state,
+            out string detail)
+        {
+            var home = new Vector3(HomeX, HomeY, HomeZ);
+            var junction = new Vector3(JunctionX, JunctionY, JunctionZ);
+
+            bool nearHome = position.Distance2DFrom(home) <= 8.0f;
+            bool onSouthStreet =
+                Math.Abs(position.X - JunctionX) <= 8.0f &&
+                position.Z >= HomeZ - 8.0f &&
+                position.Z <= JunctionZ + 8.0f;
+            bool onEastStreet =
+                position.X >= JunctionX - 8.0f &&
+                position.X <= 1090.0f &&
+                position.Z >= JunctionZ - 18.0f &&
+                position.Z <= JunctionZ + 20.0f;
+
+            if (nearHome || onSouthStreet || _junctionReached)
+            {
+                target = home;
+                state = "moving-to-home";
+                detail = "Following the mapped south street to the City Controller.";
+                return true;
+            }
+
+            if (onEastStreet)
+            {
+                target = junction;
+                state = "moving-to-junction";
+                detail = "Following the mapped west street to the T-junction.";
+                return true;
+            }
+
+            target = new Vector3();
+            state = null;
+            detail =
+                $"Serenity Islands position ({position.X:F1},{position.Y:F1}," +
+                $"{position.Z:F1}) is outside the two mapped safe corridors.";
+            return false;
+        }
+
+        private static void PrepareMovementComponent(
+            LocalPlayer localPlayer,
+            Quaternion heading)
+        {
+            localPlayer.MovementComponent.Position = localPlayer.Transform.Position;
+            localPlayer.MovementComponent.Heading = heading;
+        }
+
+        private void FaceHome(LocalPlayer localPlayer)
+        {
+            Quaternion heading = new Quaternion(
+                HomeHeadingX,
+                HomeHeadingY,
+                HomeHeadingZ,
+                HomeHeadingW);
+            PrepareMovementComponent(localPlayer, heading);
+            localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+            _moving = false;
+        }
+
+        private void StopMovement()
+        {
+            try
+            {
+                LocalPlayer localPlayer = DynelManager.LocalPlayer;
+                if (localPlayer == null || localPlayer.Transform == null)
+                    return;
+
+                PrepareMovementComponent(localPlayer, localPlayer.Transform.Heading);
+                localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+            }
+            catch
+            {
+            }
+            finally
+            {
+                _moving = false;
+            }
+        }
+
+        private void ResetProgress(DateTime now, bool resetRecoveries = true)
+        {
+            _bestTargetDistance = float.MaxValue;
+            _lastProgressUtc = now;
+            _nextMovementUpdateUtc = DateTime.MinValue;
+            if (resetRecoveries)
+                _stuckRecoveries = 0;
+        }
+
+        private void SetHomeState(string state, string detail)
+        {
+            if (string.Equals(_homeState, state, StringComparison.Ordinal) &&
+                string.Equals(_homeDetail, detail, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _homeState = state;
+            _homeDetail = detail;
+            _homeUpdatedUtc = DateTime.UtcNow;
+        }
+
+        private static bool IsTerminalHomeState(string state)
+        {
+            return string.Equals(state, "home", StringComparison.Ordinal) ||
+                   string.Equals(state, "route-unavailable", StringComparison.Ordinal) ||
+                   string.Equals(state, "stuck", StringComparison.Ordinal) ||
+                   string.Equals(state, "failed", StringComparison.Ordinal) ||
+                   string.Equals(state, "canceled", StringComparison.Ordinal);
         }
 
         private void WriteSnapshot(bool inPlay)
@@ -131,7 +528,12 @@ namespace CityBuddies
                         Character = Client.CharacterName,
                         ObservedUtc = now,
                         InPlay = inPlay,
-                        Dead = _dead
+                        Dead = _dead,
+                        HomeJobId = _homeDirective?.JobId,
+                        HomeState = _homeState,
+                        HomeDetail = _homeDetail,
+                        HomeDistance = _homeDistance,
+                        HomeUpdatedUtc = _homeUpdatedUtc
                     };
 
                     if (inPlay)

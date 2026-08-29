@@ -23,6 +23,18 @@ namespace CityDwellers.Shared
         public float? HeadingW { get; set; }
         public int? Health { get; set; }
         public int? MaxHealth { get; set; }
+        public string HomeJobId { get; set; }
+        public string HomeState { get; set; }
+        public string HomeDetail { get; set; }
+        public float? HomeDistance { get; set; }
+        public DateTime? HomeUpdatedUtc { get; set; }
         public string Error { get; set; }
+    }
+
+    public class BuddyHomeDirective
+    {
+        public string JobId { get; set; }
+        public DateTime RequestedUtc { get; set; }
+        public bool Cancel { get; set; }
     }
 }
