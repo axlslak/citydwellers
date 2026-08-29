@@ -1492,9 +1492,7 @@ public class PluginLoader
             _homeMaintenance = state;
         }
 
-        ThreadPool.QueueUserWorkItem(_ => RunHomeMaintenance(state));
-
-        return Ok(
+        WorkerResponse result = Ok(
             request,
             request.Level.HasValue
                 ? $"Home verification started for all configured level-" +
@@ -1503,6 +1501,9 @@ public class PluginLoader
                 : "Home verification started for every configured level. " +
                   "Levels will rotate in the background, respecting AO's " +
                   $"{ServerLogoutLingerSeconds}s logout quarantine.");
+        PopulateHomeResponse(result, state);
+        ThreadPool.QueueUserWorkItem(_ => RunHomeMaintenance(state));
+        return result;
     }
 
     private static WorkerResponse HomeStatus(WorkerRequest request)
@@ -1512,12 +1513,54 @@ public class PluginLoader
             if (_homeMaintenance == null)
                 return Ok(request, "No home maintenance job has run in this process.");
 
-            string state = _homeMaintenance.Running ? "running" : "finished";
-            return Ok(
+            WorkerResponse result = Ok(
                 request,
-                $"Home maintenance {_homeMaintenance.JobId} is {state}: " +
-                _homeMaintenance.Detail);
+                BuildHomeStatusMessage(_homeMaintenance));
+            PopulateHomeResponse(result, _homeMaintenance);
+            return result;
         }
+    }
+
+    private static string BuildHomeStatusMessage(HomeMaintenanceState state)
+    {
+        int pending = Math.Max(0, state.Started - state.Terminal);
+        int unavailable = Math.Max(0, state.Attempted - state.Started);
+        string displayJobId = state.JobId != null && state.JobId.Length > 8
+            ? state.JobId.Substring(0, 8)
+            : state.JobId;
+        string message = state.Running
+            ? $"Home maintenance {displayJobId} is running: {state.Detail}; " +
+              $"reached={state.Reached}, stopped={state.Stopped}, " +
+              $"pending={pending}, unavailable={unavailable}."
+            : $"Home maintenance {displayJobId} finished: " +
+              $"{state.Reached}/{state.Started} reached the CT; " +
+              $"{state.Stopped} stopped/gave up; " +
+              $"{pending} unresolved; " +
+              $"{unavailable} unavailable.";
+
+        if (state.Failures.Count == 0)
+            return message;
+
+        int shown = Math.Min(8, state.Failures.Count);
+        List<string> failures = state.Failures.GetRange(0, shown);
+        string suffix = state.Failures.Count > shown
+            ? $", +{state.Failures.Count - shown} more"
+            : string.Empty;
+        return message + " Failures: " + string.Join(", ", failures) + suffix + ".";
+    }
+
+    private static void PopulateHomeResponse(
+        WorkerResponse response,
+        HomeMaintenanceState state)
+    {
+        response.HomeJobId = state.JobId;
+        response.HomeRunning = state.Running;
+        response.HomeAttempted = state.Attempted;
+        response.HomeStarted = state.Started;
+        response.HomeTerminal = state.Terminal;
+        response.HomeReached = state.Reached;
+        response.HomeStopped = state.Stopped;
+        response.HomeFailures = new List<string>(state.Failures);
     }
 
     private static void RunHomeMaintenance(HomeMaintenanceState state)
@@ -1549,11 +1592,11 @@ public class PluginLoader
 
                 WorkerResponse response = Spinup(levelRequest);
                 int reached = response.Count ?? 0;
-                state.Attempted += _config.AccountCount;
-                state.Started += reached;
 
                 lock (HomeMaintenanceLock)
                 {
+                    state.Attempted += _config.AccountCount;
+                    state.Started += reached;
                     state.Detail =
                         $"level {level}: {reached}/{_config.AccountCount} sessions " +
                         "accepted; waiting for navigation";
@@ -2044,6 +2087,10 @@ public class PluginLoader
             Console.WriteLine(
                 $"Home navigation {terminalState} for {candidate.Character}: " +
                 $"{detail ?? "no detail"}");
+            RecordHomeNavigationResult(
+                candidate.NavigationJobId,
+                candidate.Character,
+                terminalState);
 
             if (queueLogout)
             {
@@ -2059,6 +2106,40 @@ public class PluginLoader
                 QueueSlotOperation(
                     candidate.Index,
                     () => SleepOnSlot(request, candidate.Index));
+            }
+        }
+    }
+
+    private static void RecordHomeNavigationResult(
+        string navigationJobId,
+        string character,
+        string terminalState)
+    {
+        lock (HomeMaintenanceLock)
+        {
+            HomeMaintenanceState state = _homeMaintenance;
+            if (state == null ||
+                string.IsNullOrWhiteSpace(navigationJobId) ||
+                !navigationJobId.StartsWith(
+                    state.JobId + "-",
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            string resultKey = navigationJobId + "|" + character;
+            if (!state.ResultKeys.Add(resultKey))
+                return;
+
+            state.Terminal++;
+            if (string.Equals(terminalState, "home", StringComparison.Ordinal))
+            {
+                state.Reached++;
+            }
+            else
+            {
+                state.Stopped++;
+                state.Failures.Add(character + ":" + terminalState);
             }
         }
     }
@@ -2277,7 +2358,13 @@ public class PluginLoader
         public string Detail;
         public int Attempted;
         public int Started;
+        public int Terminal;
+        public int Reached;
+        public int Stopped;
         public readonly List<int> Levels = new List<int>();
+        public readonly HashSet<string> ResultKeys =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public readonly List<string> Failures = new List<string>();
     }
 
     private sealed class SlotOperation
@@ -2358,5 +2445,13 @@ public class PluginLoader
         public List<int> Indexes;
         public int? Count;
         public List<BuddyPositionSnapshot> Positions;
+        public string HomeJobId;
+        public bool HomeRunning;
+        public int HomeAttempted;
+        public int HomeStarted;
+        public int HomeTerminal;
+        public int HomeReached;
+        public int HomeStopped;
+        public List<string> HomeFailures;
     }
 }

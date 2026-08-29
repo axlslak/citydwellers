@@ -1096,6 +1096,15 @@ namespace CityManager
                         response.Ok
                             ? $"Buddies: {response.Message}"
                             : $"Buddies failed: {response.Message}");
+
+                    if (!statusOnly &&
+                        response.Ok &&
+                        !string.IsNullOrWhiteSpace(response.HomeJobId))
+                    {
+                        string homeJobId = response.HomeJobId;
+                        ThreadPool.QueueUserWorkItem(
+                            __ => MonitorHomeCompletion(target, homeJobId));
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1104,6 +1113,76 @@ namespace CityManager
                     Reply(target, $"Buddies home service unavailable: {ex.Message}");
                 }
             });
+        }
+
+        private void MonitorHomeCompletion(ReplyTarget target, string homeJobId)
+        {
+            DateTime deadline = DateTime.UtcNow.AddHours(2);
+            int consecutiveFailures = 0;
+
+            while (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(5000);
+
+                var request = new WorkerRequest
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Command = "homestatus"
+                };
+
+                try
+                {
+                    WorkerResponse response = SendWorkerRequest(
+                        BuddiesPipeName,
+                        request,
+                        WorkerConnectTimeoutMs);
+                    consecutiveFailures = 0;
+
+                    if (!response.Ok)
+                        continue;
+
+                    if (!string.Equals(
+                            response.HomeJobId,
+                            homeJobId,
+                            StringComparison.Ordinal))
+                    {
+                        Reply(
+                            target,
+                            "Buddies home reporting changed to another job; " +
+                            "use #home status for the current result.");
+                        return;
+                    }
+
+                    if (response.HomeRunning)
+                        continue;
+
+                    DevTrace(
+                        $"BUDDY HOME COMPLETE [{ShortId(homeJobId)}]: " +
+                        response.Message);
+                    Reply(target, "Buddies: " + response.Message);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    consecutiveFailures++;
+                    if (consecutiveFailures < 3)
+                        continue;
+
+                    DevTrace(
+                        $"BUDDY HOME MONITOR ERROR [{ShortId(homeJobId)}]: " +
+                        ex.Message);
+                    Reply(
+                        target,
+                        "Buddies home completion reporting became unavailable; " +
+                        "use #home status to check it later.");
+                    return;
+                }
+            }
+
+            Reply(
+                target,
+                "Buddies home completion reporting timed out; " +
+                "use #home status for the retained result.");
         }
 
         private string BuildBuddyPositionWindow(
@@ -2153,6 +2232,14 @@ namespace CityManager
             public DateTime? ObservedUtc;
             public bool ActionSent;
             public List<BuddyPositionSnapshot> Positions;
+            public string HomeJobId;
+            public bool HomeRunning;
+            public int HomeAttempted;
+            public int HomeStarted;
+            public int HomeTerminal;
+            public int HomeReached;
+            public int HomeStopped;
+            public List<string> HomeFailures;
         }
 
         private class WorkerLinkStatus
