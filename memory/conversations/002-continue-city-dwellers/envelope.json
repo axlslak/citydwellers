@@ -1,0 +1,26 @@
+{
+  "format": "citydwellers-session-memory-v1",
+  "conversation_alias": "conversation #2",
+  "conversation_title": "Continue City Dwellers",
+  "created_utc": "2026-08-29T20:55:00Z",
+  "cipher": "AES-256-GCM",
+  "kdf": {
+    "name": "scrypt",
+    "n": 32768,
+    "r": 8,
+    "p": 1,
+    "salt_b64": "tnVt5P3sTdIzIesdCvT4mg=="
+  },
+  "nonce_b64": "YnbfBc7XzvHpsqb0",
+  "aad_utf8": "citydwellers-session-memory-v1|conversation-002|Continue City Dwellers",
+  "plaintext_sha256": "5210239870d90c025ceb0dd7082bef432fd6bca44e2f656e01eaa463f58b0706",
+  "plaintext_bytes": 20167,
+  "ciphertext_parts": [
+    "ciphertext.part-000.b64",
+    "ciphertext.part-001.b64",
+    "ciphertext.part-002.b64",
+    "ciphertext.part-003.b64",
+    "ciphertext.part-004.b64"
+  ],
+  "ciphertext_b64_chars": 26912
+}
