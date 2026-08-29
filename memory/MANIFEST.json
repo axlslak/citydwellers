@@ -6,7 +6,7 @@
       "title": "AOLite Config JSON Format",
       "conversation_id": "6a86ee3c-7a90-83eb-b3c6-a5a49b21ee3e",
       "approximate_start_date": "2026-08-20",
-      "path": "memory/conversations/001-aolite-config-json-format.memory.enc.json",
+      "path": "memory/conversations/001-aolite-config-json-format/envelope.json",
       "encryption": "AES-256-GCM + scrypt",
       "plaintext_sha256": "8db7e6f053d30f6db6153c5d899aa1409410383b5e617df0d4aa51622b2f9355",
       "plaintext_bytes": 17814,
