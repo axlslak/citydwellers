@@ -1,0 +1,26 @@
+{
+  "format": "citydwellers-session-memory-v1",
+  "conversation_alias": "conversation #1",
+  "conversation_title": "AOLite Config JSON Format",
+  "conversation_id": "6a86ee3c-7a90-83eb-b3c6-a5a49b21ee3e",
+  "created_utc": "2026-08-29T20:38:35.250927+00:00",
+  "cipher": "AES-256-GCM",
+  "kdf": {
+    "name": "scrypt",
+    "n": 32768,
+    "r": 8,
+    "p": 1,
+    "salt_b64": "YLYanmEGMddpLC/W/L581A=="
+  },
+  "nonce_b64": "GusfLj31/ponlvuH",
+  "aad_utf8": "citydwellers-session-memory-v1|conversation-001|AOLite Config JSON Format",
+  "plaintext_sha256": "8db7e6f053d30f6db6153c5d899aa1409410383b5e617df0d4aa51622b2f9355",
+  "plaintext_bytes": 17814,
+  "ciphertext_parts": [
+    "ciphertext.part-000.b64",
+    "ciphertext.part-001.b64",
+    "ciphertext.part-002.b64",
+    "ciphertext.part-003.b64"
+  ],
+  "ciphertext_b64_chars": 23776
+}
