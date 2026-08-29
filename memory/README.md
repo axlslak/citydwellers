@@ -2,76 +2,63 @@
 
 This directory stores durable, conversation-specific development memory so a future AI/coding session can recover historical discussion after the original chat is unavailable.
 
-The repository is public. Therefore recovered conversation memories are stored encrypted; passwords are intentionally NOT committed.
+The repository is public. Conversation memories are therefore encrypted; passwords are intentionally NOT committed.
 
-## Recovery procedure for a future agent
+## Recovery procedure
 
-When the user says something like:
+When the user refers to an old conversation by number/title:
 
-`Remember conversation #1: AOLite Config JSON Format`
+1. Read `memory/MANIFEST.json` and locate the entry.
+2. Read its `envelope.json`.
+3. Read `ciphertext_parts` in order and concatenate their text exactly.
+4. Use the password supplied by the user.
+5. Derive a 32-byte key using the scrypt parameters in the envelope.
+6. Decode the concatenated ciphertext according to `ciphertext_encoding`:
+   - missing / `base64`: Base64-decode it (v1 memories #1/#2).
+   - `hex`: `bytes.fromhex(...)` (v2 memory #3 and later when used).
+7. AES-256-GCM decrypt with the stored nonce and AAD.
+8. If `compression` is `gzip`, gzip-decompress the decrypted bytes.
+9. Verify `plaintext_bytes` and `plaintext_sha256`.
+10. Use the result as historical context. Current Git/code/test evidence remains authoritative.
 
-1. Read `memory/MANIFEST.json` and locate the matching conversation entry.
-2. Read the referenced `envelope.json`.
-3. Read the ciphertext chunk files listed in `ciphertext_parts`, in order, and concatenate their text exactly.
-4. Ask for/use the password supplied by the user for that memory file.
-5. Derive the AES key using the scrypt parameters stored in the envelope.
-6. Base64-decode the concatenated ciphertext and decrypt it using AES-256-GCM, the stored nonce, and the stored AAD.
-7. Verify the recovered plaintext SHA-256 against `plaintext_sha256` in the envelope.
-8. Treat the recovered material as historical conversation context. Current Git/code/test evidence remains authoritative for implementation state.
-
-## File format: citydwellers-session-memory-v1
-
-The envelope contains:
-
-- `cipher`: AES-256-GCM
-- `kdf`: scrypt parameters and salt
-- `nonce_b64`
-- `aad_utf8`
-- `plaintext_sha256`
-- `plaintext_bytes`
-- ordered `ciphertext_parts`
-- `ciphertext_b64_chars`
-
-The AES-GCM ciphertext includes the authentication tag as produced by common AESGCM APIs.
-
-### Python reference decryption
+## Python reference decryption
 
 ```python
-import json, base64, hashlib
+import json, base64, hashlib, gzip
 from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
-folder = Path("memory/conversations/001-aolite-config-json-format")
+folder = Path("memory/conversations/003-session-3-recovery-bootstrap")
 password = "PASSWORD-SUPPLIED-BY-USER"
-
 env = json.loads((folder / "envelope.json").read_text(encoding="utf-8"))
-
-ciphertext_b64 = "".join(
-    (folder / part).read_text(encoding="utf-8").strip()
-    for part in env["ciphertext_parts"]
-)
-assert len(ciphertext_b64) == env["ciphertext_b64_chars"]
+encoded = "".join((folder / p).read_text(encoding="utf-8").strip() for p in env["ciphertext_parts"])
 
 salt = base64.b64decode(env["kdf"]["salt_b64"])
-kdf = Scrypt(
-    salt=salt,
-    length=32,
-    n=env["kdf"]["n"],
-    r=env["kdf"]["r"],
-    p=env["kdf"]["p"],
-)
+kdf = Scrypt(salt=salt, length=32, n=env["kdf"]["n"], r=env["kdf"]["r"], p=env["kdf"]["p"])
 key = kdf.derive(password.encode("utf-8"))
 nonce = base64.b64decode(env["nonce_b64"])
-ciphertext = base64.b64decode(ciphertext_b64)
 aad = env["aad_utf8"].encode("utf-8")
-plaintext = AESGCM(key).decrypt(nonce, ciphertext, aad)
 
-assert len(plaintext) == env["plaintext_bytes"]
-assert hashlib.sha256(plaintext).hexdigest() == env["plaintext_sha256"]
-print(plaintext.decode("utf-8"))
+if env.get("ciphertext_encoding", "base64") == "hex":
+    ciphertext = bytes.fromhex(encoded)
+else:
+    ciphertext = base64.b64decode(encoded)
+
+payload = AESGCM(key).decrypt(nonce, ciphertext, aad)
+if env.get("compression") == "gzip":
+    payload = gzip.decompress(payload)
+
+assert len(payload) == env["plaintext_bytes"]
+assert hashlib.sha256(payload).hexdigest() == env["plaintext_sha256"]
+print(payload.decode("utf-8"))
 ```
+
+## Formats currently present
+
+- `citydwellers-session-memory-v1`: AES-256-GCM + scrypt, Base64 ciphertext chunks, no compression. Used by Conversations #1 and #2.
+- `citydwellers-session-memory-v2`: optional gzip before AES-256-GCM + scrypt; encoding declared by the envelope. Conversation #3 uses gzip + hex ciphertext chunks.
 
 ## Important
 
-These files are distilled recovery memories, not verbatim transcripts unless an entry explicitly says otherwise. Their provenance/confidence markers should be respected. Do not infer that an old chat's claim of a local commit means the commit exists in Git.
+These are distilled recovery memories, not verbatim transcripts unless explicitly stated. Respect provenance/confidence markers. A local commit mentioned in an old chat is not real repository history until Git confirms it.
