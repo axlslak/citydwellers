@@ -143,3 +143,35 @@ boundary. The recovery card deliberately contains no password.
 
 `[OPEN]` After this continuity transaction is sealed, the next substantive
 City Dwellers task remains navmesh-based Serenity homing.
+
+## 2026-08-30 — fifth-session recovery and return to development
+
+`[VERIFIED]` Session #5 cloned `master` at the Session #4 seal, followed
+`RECOVERY.md`, found an idle cursor, decrypted the two boot-required memories
+with matching byte counts and SHA-256 hashes, and decrypted historical Memories
+#1 and #2 only when the owner tested older identity/project context.
+
+`[VERIFIED]` The recovered state was sufficient to identify Kavey, Athen
+Paladins, the in-game City Dwellers Raid/Apcmanager distinction, the last live
+Serenity `#home 75` outcome, the published monotonic cooldown replacement, and
+the still-unpublished navmesh implementation without asking the owner to
+reconstruct Sessions #1 or #2.
+
+`[DECISION]` Session #3 was the rescue/continuity-construction session, Session
+#4 was the first clean recovery proof, and Session #5 is the first intended
+return to ordinary development through that recovery system. Continuity is
+designed so Session #6 succeeds if needed, not because Session #5 is expected
+to fail.
+
+`[DECISION]` Future session memories remain compact engineering records rather
+than transcripts. Preserve decisions, invariants, verified evidence, hazards,
+and the exact resume point; omit nonessential conversation and command noise.
+
+`[INVARIANT]` Kavey builds and live-tests. Unless explicitly requested, the
+assistant writes/reviews code and warns before potentially expensive
+investigation instead of spending the limited Work-session usage window on
+assistant-side builds or runtime tests.
+
+`[OPEN]` Substantive work returns to navmesh-based Serenity homing. The exact
+approved `6010.Navmesh` binary is still absent from Git and must be supplied;
+its recorded hash cannot reconstruct it.

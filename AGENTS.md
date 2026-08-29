@@ -52,3 +52,16 @@ Use these labels where useful:
 - Prefer reproducible dependency restore over hard-coded developer-machine paths.
 
 The state/history files are compact restart checkpoints. The encrypted `memory/` records preserve conversation-specific historical context. Keep both useful to future sessions.
+
+## Owner build/test boundary
+
+- Unless Kavey explicitly asks otherwise, write and review the code but do not
+  spend the Work-session usage window compiling, running test suites, or
+  attempting live AO tests. Kavey owns builds and live testing and will return
+  the resulting logs.
+- Warn Kavey before a tool-heavy or potentially long investigation. Prefer
+  focused repository inspection and coherent code changes over speculative
+  environment work.
+- Distill session memory to decisions, invariants, evidence, hazards, and the
+  exact resume point. Do not preserve small talk or repetitive command history
+  merely because it occurred.

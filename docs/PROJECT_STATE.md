@@ -19,6 +19,24 @@ This file is the compact restart image for a new development session. It is inte
 - `[SECURITY]` ChatGPT has no stable cross-session private key. Confidentiality
   comes from encrypted memories and the separately held password; the recovery
   card is an address, not a secret.
+- `[VERIFIED]` Session #5 recovered from a fresh clone using this protocol. It
+  verified both boot-required memories and recovered older memories on demand,
+  then identified the owner, org, in-game project, verified Git state, and the
+  unfinished navmesh task without requiring the owner to retell the project.
+- `[DECISION]` The goal is not to predict that the current session will fail;
+  it is to guarantee that its successor can continue if it does.
+- `[INVARIANT]` Persistent memory stays distilled: retain decisions,
+  invariants, evidence, hazards, and the exact resume point; omit nonessential
+  conversation and repetitive command history.
+
+## Working-session boundary
+
+- `[INVARIANT]` Unless Kavey explicitly requests otherwise, the assistant
+  writes/reviews code while Kavey performs builds and live AO testing.
+- `[INVARIANT]` Warn Kavey before tool-heavy or potentially long work that may
+  consume a substantial part of the five-hour Work-session usage window.
+- Owner-supplied build output and live-test logs become evidence after they are
+  reconciled with the code and recorded in state/history.
 
 ## Repository
 
