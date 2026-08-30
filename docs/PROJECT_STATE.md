@@ -74,6 +74,14 @@ This file is the compact restart image for a new development session. It is inte
     `6010`, including live/static ICC terminal identity reconciliation.
   - This source is published but intentionally not assistant-built or
     live-tested; Kavey owns both verification steps.
+- `[IMPLEMENTED]` Commit `abe19cbf8ce6b6b2cc256348eb3650afeb28e2a1`
+  — `Fix ICC static terminal entry`.
+  - Supersedes the failed live-only ICC terminal guard and uses AOSharp's
+    `StaticDynel.Use()` path for `Enter The Grid`.
+  - Serializes AOSharp.Clientless 1.0.16's per-AppDomain static-data preload
+    under a named mutex so parallel buddy logins cannot race its exclusive
+    `StaticDynelData.bin` open.
+  - Does not alter movement, navmesh paths, Grid exit, or Serenity routing.
 
 ## Main components
 
@@ -106,6 +114,12 @@ and uses server echoes to detect command lead, lateral drift, and stalls.
 The previous `bounded-pulse` implementation remains intact and selectable via
 the home directive. `DefaultHomeMovementMode` in Buddies is the one-line global
 rollback switch. Home telemetry now records the selected movement mode.
+
+Before a buddy domain starts its network session, CityBuddies now warms that
+AppDomain's private AOSharp static-dynel cache under a named cross-process
+mutex. AOSharp 1.0.16 opens the shared data file exclusively; serializing these
+small one-time reads prevents parallel logins from colliding without changing
+AOSharp or disabling static dynels.
 
 ## Chat / authorization model
 
@@ -159,6 +173,13 @@ Known dependency state from recovery:
   - `OutOfMemoryException` in `SmokeLounge.AOtomation ArraySerializer.Deserialize`.
   - `MissingMethodException` for `ChatHeader.get_Size()`, indicating AOSharp binary/version coupling.
 - `[DECISION]` Do not solve reproducibility by introducing hard-coded developer-machine AOSharp references.
+- `[VERIFIED-CODE]` AOSharp.Clientless 1.0.16 lazily reads
+  `GameData\StaticDynelData.bin` with `File.Open(path, FileMode.Open)`, which
+  defaults to an exclusive file share. Its cache is private to each client
+  AppDomain, so concurrent first reads can fail even inside one Buddies host.
+- `[DECISION]` Do not maintain an AOSharp fork or attempt to marshal its private,
+  internal static-dynel dictionary between AppDomains for this issue. Warm each
+  domain's cache under one named mutex before its network session starts.
 - CityBuddies and Buddies now target x86 for CritterAI compatibility.
 - `build/Restore-NavmeshDependencies.ps1` restores and SHA-256-verifies the
   three CritterAI DLLs and Grid `152.Navmesh` from pinned revision
@@ -219,16 +240,21 @@ default with the retained bounded-pulse fallback over several days.
 - Owner-supplied ICC position near the terminal: approximately
   `(3181.3, 35.9, 880.6)` in code `Vector3` order.
 - `[VERIFIED-DATA]` The pinned clientless static-dynel data places terminal
-  template `95350` approximately 2.6 m from that position. Its synthetic
-  static identity must not be assumed to equal the live interaction identity.
-- `[IMPLEMENTED]` On the ICC playfield packet, CityBuddies captures live dynel
-  type/instance/metadata records. At runtime it lists nearby named static
-  dynels, finds `Enter The Grid` by name (with template `95350` as a data-backed
-  fallback), and resolves the live terminal by unique metadata, unique live
-  type, or the static type ordinal. If no unambiguous candidate exists, it
-  refuses to guess.
-- `[IMPLEMENTED]` A buddy parked within 12 m uses the resolved live identity up
-  to three times at five-second intervals while waiting for stable model `152`.
+  template `95350` approximately 2.6 m from that position, with identity
+  `Terminal:C002028F`.
+- `[LIVE-OBSERVATION]` An ICC buddy saw that named static terminal at 1.7 m,
+  while its playfield packet exposed no live `Terminal` record. The former
+  live-only resolver therefore waited 15 seconds and returned
+  `route-unavailable` without attempting the terminal.
+- `[VERIFIED-CODE]` AOSharp.Clientless models world objects such as this as
+  `StaticDynel`; its built-in `StaticDynel.Use()` sends the stored static
+  identity directly.
+- `[SUPERSEDED BY abe19cb]` Packet live/static ICC terminal reconciliation was
+  an unverified restriction and is removed.
+- `[IMPLEMENTED]` CityBuddies still locates `Enter The Grid` by exact name with
+  template `95350` as fallback and retains the 12 m guard. It now calls the
+  standard static-dynel `Use()` up to three times at five-second intervals
+  while waiting for stable model `152`.
 
 ### Serenity navmesh
 
@@ -296,13 +322,13 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-Continuous ICC-to-CT homing is published in `23069f0`. Next:
+The focused ICC terminal fix is published in `abe19cb`. Next:
 
-1. Kavey rebuilds and confirms the native navmesh lifetime fix remains stable.
-2. Kavey parks a small monitored sample near `Enter The Grid` in ICC, starts
-   `#home`, and returns the CityBuddies log/snapshot outcome for ICC live-dynel
-   resolution, Grid zoning, and final CT arrival.
-3. Kavey compares walking quality for several days with `continuous` as the
-   default. If it is unsatisfactory, change `DefaultHomeMovementMode` to
-   `bounded-pulse`; the old controller remains present.
+1. Kavey rebuilds, starts parallel buddies, and confirms there is no
+   `StaticDynelData.bin` sharing violation.
+2. Kavey parks one monitored buddy near `Enter The Grid` in ICC, starts
+   `#home`, and reports whether static identity `Terminal:C002028F` enters
+   Grid model `152`.
+3. Walking quality, city main-street routing, Grid exit behavior, and guest
+   channel diagnostics are explicitly deferred to later one-problem passes.
 4. The assistant does not build or run AO unless Kavey explicitly delegates it.

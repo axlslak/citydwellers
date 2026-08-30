@@ -303,3 +303,37 @@ final heading.
 `[OPEN]` No assistant-side build or AO runtime test was run, by owner policy.
 Kavey will build, monitor a small ICC sample through the complete route, and
 compare continuous walking with bounded pulses over several days.
+
+## 2026-08-30 — ICC static terminal activation corrected
+
+`[LIVE-OBSERVATION]` The first complete Buddies run disproved the ICC live-only
+assumption. The ICC character saw named static `Enter The Grid`
+`(Terminal:C002028F)` at 1.7 m, but its playfield packet contained no live
+`Terminal` entry. CityBuddies consequently waited for an identity that never
+arrived and returned `route-unavailable` without sending `Use`.
+
+The same parallel login exposed a separate AOSharp.Clientless 1.0.16 defect:
+each client AppDomain lazily opens the shared `StaticDynelData.bin` using the
+exclusive defaults of `File.Open(path, FileMode.Open)`. Concurrent initial
+playfield loads can therefore throw a sharing-violation `IOException`.
+
+`[DESIGN]` AOSharp's own `StaticDynel.Use()` sends the stored static identity.
+The live-only reconciliation layer was an untested restriction, not a library
+requirement. Sharing AOSharp's private nested dictionary from the parent would
+require a maintained library fork or brittle cross-AppDomain marshalling.
+Instead, each domain retains its own normal cache, while one named mutex
+serializes the small one-time preload before `domain.Start()`.
+
+`[IMPLEMENTED]` Published commit:
+
+`abe19cbf8ce6b6b2cc256348eb3650afeb28e2a1` — `Fix ICC static terminal entry`
+
+CityBuddies now uses the named static terminal through AOSharp's standard
+`Use()` method and retains the existing distance guard, bounded retry count,
+and stable Grid-model wait. The raw live-dynel capture and the live-only guard
+were removed. Movement controllers, path selection, Grid exit, Serenity
+routing, and chat reporting were deliberately untouched.
+
+`[OPEN]` Kavey owns the build and two focused live checks: parallel buddy login
+without static-data sharing violations, and one ICC terminal activation into
+Grid model `152`.
