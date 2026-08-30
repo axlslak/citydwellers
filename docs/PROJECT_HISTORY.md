@@ -337,3 +337,19 @@ routing, and chat reporting were deliberately untouched.
 `[OPEN]` Kavey owns the build and two focused live checks: parallel buddy login
 without static-data sharing violations, and one ICC terminal activation into
 Grid model `152`.
+
+## 2026-08-30 — Failed navigation results preserved for later passes
+
+After narrowing the active work to ICC entry, Kavey supplied additional live
+results that must survive without expanding the current code change. The
+continuous walker visibly rubber-bands backward several times per second while
+running. Clientless movement can ignore ordinary building collision, but still
+activates teleporter volumes, making diagonal shortcuts dangerous. In Serenity
+the route went directly toward CT rather than first aligning with the broad
+north/south street, whose east/west coordinate appears to be approximately
+`X=994` pending confirmation. In Grid the buddy reached the intended exit point
+but did not zone into Serenity.
+
+`[DECISION]` These findings are a deferred backlog only. The next live check is
+the sealed ICC static-terminal/login fix; walking control, Serenity street
+routing, and the Grid trigger will each be handled in separate later passes.

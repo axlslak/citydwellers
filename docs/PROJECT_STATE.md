@@ -187,6 +187,34 @@ Known dependency state from recovery:
 
 ## Navigation / home
 
+### Deferred live navigation observations (2026-08-30)
+
+These are owner-observed runtime results and proposed directions, not yet
+implemented or independently verified:
+
+- `[LIVE-OBSERVATION]` The default continuous clientless walker looks like
+  rapid rubber-banding: the character keeps running forward but snaps backward
+  several times per second, as if each command advances from a position echo
+  roughly 100 ms out of date. The new walking method is not acceptable in its
+  current form.
+- `[LIVE-OBSERVATION]` Clientless movement can pass through ordinary building
+  collision that stops a full client. Trigger volumes still take effect: a
+  diagonal route crossed a teleporter, zoned unexpectedly, and the character
+  died. Collision bypass therefore makes direct diagonals unsafe rather than
+  obstacle-free.
+- `[LIVE-OBSERVATION]` In Serenity, the current route went directly toward CT
+  instead of first reaching the safe north/south main street. The relevant
+  street coordinate appears to be near `X=994` (axis/value still requires a
+  live coordinate confirmation). The proposed later strategy is to move
+  east/west toward that street coordinate first, then travel north/south along
+  the broad unobstructed corridor to CT.
+- `[LIVE-OBSERVATION]` In Grid, navigation reached the intended city-exit point
+  but did not zone into Serenity. The captured trigger coordinate or the
+  crossing behavior therefore still needs correction.
+- `[INVARIANT]` Do not combine these movement and routing investigations with
+  the ICC terminal test. Address them one problem at a time after the focused
+  static terminal/login checks.
+
 ### Serenity Islands
 
 - Playfield ID: `6010`.
