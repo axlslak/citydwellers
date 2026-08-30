@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "idle",
-  "last_completed_transaction": "session-5-serenity-navmesh-homing",
-  "completed_utc": "2026-08-30T00:18:39Z",
-  "checkpoint_commit": "8349f9243f066ebfa2ee295b29895ad22fc3891e",
-  "next_task": "Kavey builds the published Serenity navmesh implementation and returns compile/dependency output, then live-tests #home from the old west-of-T-junction failure area.",
-  "resume_instruction": "Start at RECOVERY.md and confirm commits 6d03574 and 8349f92 are on origin/master. The implementation transaction is complete; do not rewrite it. Reconcile Kavey's build or live-test output in a new journal transaction. Keep Grid explicitly route-unavailable."
+  "status": "in_progress",
+  "active_transaction": "session-5-navmesh-lifetime-fix",
+  "started_utc": "2026-08-30T12:02:45Z",
+  "base_commit": "5486d2c701ace7ea980afb73a01d3af86edd3c16",
+  "active_task": "Retain Navmesh ownership for the lifetime of NavmeshQuery to stop intermittent native access violations. Kavey builds and live-tests.",
+  "resume_instruction": "Read RECOVERY.md and journal seq 8. Verify origin/master, then inspect NavmeshPathfinder: it must strongly retain the Navmesh used to create its query. Finish and seal this focused fix before unrelated work."
 }
