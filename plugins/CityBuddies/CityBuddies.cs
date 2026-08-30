@@ -12,7 +12,7 @@ using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 
 namespace CityBuddies
 {
-    public class CityBuddies : ClientlessPluginEntry
+    public partial class CityBuddies : ClientlessPluginEntry
     {
         private static readonly TimeSpan SnapshotInterval = TimeSpan.FromSeconds(5);
         private static readonly TimeSpan NavigatingSnapshotInterval = TimeSpan.FromSeconds(1);
@@ -145,6 +145,12 @@ namespace CityBuddies
                     return;
                 }
 
+                if (n3Message.N3MessageType == N3MessageType.PlayfieldAnarchyF)
+                {
+                    ObservePlayfield((PlayfieldAnarchyFMessage)e.Body);
+                    return;
+                }
+
                 if (n3Message.N3MessageType != N3MessageType.CharInPlay)
                     return;
 
@@ -206,7 +212,7 @@ namespace CityBuddies
                 StopMovement();
                 SetHomeState(
                     "route-unavailable",
-                    "Character is dead; the ICC/grid recovery route is not mapped yet.");
+                    "Character is dead; movement stopped.");
             }
             WriteSnapshot(_inPlay);
             Logger.Information($"CityBuddies observed {Client.CharacterName} die.");
@@ -249,6 +255,10 @@ namespace CityBuddies
                         _homeDirective.JobId,
                         directive.JobId,
                         StringComparison.Ordinal) &&
+                    string.Equals(
+                        _homeDirective.MovementMode,
+                        directive.MovementMode,
+                        StringComparison.OrdinalIgnoreCase) &&
                     _homeDirective.Cancel == directive.Cancel)
                 {
                     return;
@@ -259,6 +269,7 @@ namespace CityBuddies
                 _standRequested = false;
                 _standReadyUtc = DateTime.MinValue;
                 ResetPulseState(true);
+                ResetContinuousState(true);
 
                 if (directive.Cancel)
                 {
@@ -266,7 +277,9 @@ namespace CityBuddies
                     return;
                 }
 
-                SetHomeState("starting", "Home navigation directive received.");
+                SetHomeState(
+                    "starting",
+                    $"Home navigation directive received; mode={GetMovementModeName()}.");
                 Logger.Information(
                     $"CityBuddies home job {directive.JobId} started for " +
                     $"{Client.CharacterName}.");
@@ -290,104 +303,7 @@ namespace CityBuddies
 
         private void ProcessHomeNavigation(DateTime now)
         {
-            if (_homeDirective == null || _homeDirective.Cancel)
-                return;
-
-            if (IsTerminalHomeState(_homeState))
-                return;
-
-            LocalPlayer localPlayer = DynelManager.LocalPlayer;
-            if (localPlayer == null || localPlayer.Transform == null)
-            {
-                SetHomeState("waiting", "Waiting for the local player transform.");
-                return;
-            }
-
-            if (_dead)
-            {
-                StopMovement();
-                SetHomeState(
-                    "route-unavailable",
-                    "Character is dead; the ICC/grid recovery route is not mapped yet.");
-                return;
-            }
-
-            int playfieldId = (int)Playfield.ModelId;
-            if (playfieldId != SerenityIslandsPlayfieldId)
-            {
-                StopMovement();
-                SetHomeState(
-                    "route-unavailable",
-                    $"Playfield {playfieldId} is not mapped; expected Serenity Islands " +
-                    $"({SerenityIslandsPlayfieldId}).");
-                return;
-            }
-
-            Vector3 position = localPlayer.Transform.Position;
-            Vector3 home = new Vector3(HomeX, HomeY, HomeZ);
-            _homeDistance = position.Distance2DFrom(home);
-
-            if (!_standRequested)
-            {
-                PrepareMovementComponent(localPlayer, localPlayer.Transform.Heading);
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
-                _standRequested = true;
-                _standReadyUtc = now.Add(StandDelay);
-                SetHomeState("standing", "Standing before movement.");
-                return;
-            }
-
-            if (now < _standReadyUtc)
-                return;
-
-            if (_pulsePhase != MovementPulsePhase.Idle)
-            {
-                ProcessMovementPulse(localPlayer, now);
-                return;
-            }
-
-            if (_homeDistance.Value <= HomeReachedDistance)
-            {
-                FaceHome(localPlayer);
-                SetHomeState(
-                    "home",
-                    $"Home at ({HomeX:F3},{HomeY:F3},{HomeZ:F3}); " +
-                    $"distance={_homeDistance.Value:F2}m.");
-                Logger.Information(
-                    $"CityBuddies home job {_homeDirective.JobId} completed for " +
-                    $"{Client.CharacterName}; distance={_homeDistance.Value:F2}m.");
-                return;
-            }
-
-            Vector3 target;
-            string routeState;
-            string routeDetail;
-
-            if (!TrySelectNavmeshTarget(
-                    playfieldId,
-                    position,
-                    home,
-                    out target,
-                    out routeState,
-                    out routeDetail))
-            {
-                StopMovement();
-                SetHomeState("route-unavailable", routeDetail);
-                return;
-            }
-
-            float targetDistance = position.Distance2DFrom(target);
-
-            BeginMovementPulse(
-                localPlayer,
-                position,
-                target,
-                targetDistance,
-                now);
-            SetHomeState(
-                routeState,
-                routeDetail +
-                $" Bounded pulse toward target; distance={targetDistance:F1}m.");
+            ProcessHomeRoute(now);
         }
 
         private void BeginMovementPulse(
@@ -624,6 +540,16 @@ namespace CityBuddies
                 _lastMovementObservationUtc = DateTime.UtcNow;
                 _settledObservationSerial++;
             }
+
+            if (_continuousForwardActive &&
+                (movement.MoveType == MovementAction.FullStop ||
+                 movement.MoveType == MovementAction.ForwardStop))
+            {
+                // AO ended the stream. The update thread will adopt the server
+                // position and issue an explicit ForwardStart rather than an
+                // Update that assumes forward is still held.
+                _continuousServerStopped = true;
+            }
         }
 
         private bool TryGetPositionAfterStop(
@@ -665,7 +591,7 @@ namespace CityBuddies
         private bool TrySelectNavmeshTarget(
             int playfieldId,
             Vector3 position,
-            Vector3 home,
+            Vector3 destination,
             out Vector3 target,
             out string state,
             out string detail)
@@ -683,7 +609,7 @@ namespace CityBuddies
             try
             {
                 IReadOnlyList<Vector3> path =
-                    pathfinder.FindStraightPath(position, home);
+                    pathfinder.FindStraightPath(position, destination);
 
                 for (int i = 0; i < path.Count; i++)
                 {
@@ -692,16 +618,16 @@ namespace CityBuddies
                         continue;
 
                     target = path[i];
-                    state = "moving-to-home";
+                    state = "moving";
                     detail =
-                        $"Serenity navmesh path has {path.Count} points; next " +
+                        $"Playfield {playfieldId} navmesh path has {path.Count} points; next " +
                         $"waypoint=({target.X:F1},{target.Y:F1},{target.Z:F1}).";
                     return true;
                 }
 
-                target = home;
-                state = "moving-to-home";
-                detail = "Serenity navmesh path ends at the City Controller.";
+                target = destination;
+                state = "moving";
+                detail = $"Playfield {playfieldId} navmesh path ends at the destination.";
                 return true;
             }
             catch (Exception ex)
@@ -709,7 +635,7 @@ namespace CityBuddies
                 target = new Vector3();
                 state = null;
                 detail =
-                    $"Serenity navmesh route unavailable from " +
+                    $"Playfield {playfieldId} navmesh route unavailable from " +
                     $"({position.X:F1},{position.Y:F1},{position.Z:F1}): " +
                     ex.Message;
                 return false;
@@ -783,6 +709,7 @@ namespace CityBuddies
             PrepareMovementComponent(localPlayer, heading);
             localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
             ResetPulseState(false);
+            ResetContinuousState(false);
         }
 
         private void StopMovement()
@@ -802,6 +729,7 @@ namespace CityBuddies
             finally
             {
                 ResetPulseState(false);
+                ResetContinuousState(false);
             }
         }
 
@@ -857,6 +785,9 @@ namespace CityBuddies
                         InPlay = inPlay,
                         Dead = _dead,
                         HomeJobId = _homeDirective?.JobId,
+                        HomeMovementMode = _homeDirective == null
+                            ? null
+                            : GetMovementModeName(),
                         HomeState = _homeState,
                         HomeDetail = _homeDetail,
                         HomeDistance = _homeDistance,

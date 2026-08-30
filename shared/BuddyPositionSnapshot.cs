@@ -24,6 +24,7 @@ namespace CityDwellers.Shared
         public int? Health { get; set; }
         public int? MaxHealth { get; set; }
         public string HomeJobId { get; set; }
+        public string HomeMovementMode { get; set; }
         public string HomeState { get; set; }
         public string HomeDetail { get; set; }
         public float? HomeDistance { get; set; }
@@ -35,6 +36,7 @@ namespace CityDwellers.Shared
     {
         public string JobId { get; set; }
         public DateTime RequestedUtc { get; set; }
+        public string MovementMode { get; set; }
         public bool Cancel { get; set; }
     }
 }

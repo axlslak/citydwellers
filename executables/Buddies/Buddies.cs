@@ -32,6 +32,9 @@ public class PluginLoader
     // reserved beyond that blind server-side interval.
     private const int ServerLogoutLingerSeconds = 35;
     private const int HomeNavigationTimeoutSeconds = 600;
+    // One-line rollback switch. "continuous" uses the smooth controller;
+    // "bounded-pulse" retains the previous stop/start movement implementation.
+    private const string DefaultHomeMovementMode = "continuous";
     private const int AbsoluteMaxRaidBuddies = 12;
     private static readonly int[] SupportedHomeLevels =
         { 25, 50, 75, 100, 125, 150, 175, 200 };
@@ -1933,6 +1936,7 @@ public class PluginLoader
             {
                 JobId = buddy.NavigationJobId,
                 RequestedUtc = buddy.NavigationStartedUtc,
+                MovementMode = DefaultHomeMovementMode,
                 Cancel = false
             });
     }
@@ -1948,6 +1952,7 @@ public class PluginLoader
             {
                 JobId = buddy.NavigationJobId,
                 RequestedUtc = buddy.NavigationStartedUtc,
+                MovementMode = DefaultHomeMovementMode,
                 Cancel = true
             });
     }
