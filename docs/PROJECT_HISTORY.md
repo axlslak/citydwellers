@@ -198,8 +198,8 @@ x86 CritterAI DLLs and upstream Grid `152.Navmesh`. Every restored file has a
 fixed byte count and SHA-256; public binaries remain outside Git. CityBuddies
 and Buddies target x86. The unique Serenity navmesh is committed directly.
 
-`[INVARIANT]` Grid remains explicitly route-unavailable. No Grid-to-Serenity
-coordinate or city exit was guessed.
+`[HISTORICAL-INVARIANT]` In `6d03574`, Grid remained explicitly
+route-unavailable. No Grid-to-Serenity coordinate or city exit was guessed.
 
 `[OPEN]` No assistant-side build or runtime test was run, by owner policy.
 Kavey must build and live-test `#home`, especially west of the old T-junction,
@@ -248,10 +248,58 @@ observed trigger, wait for the stable playfield model to become Serenity
 capture must not be coded as model IDs. `Playfield.ModelId` remains the stable
 branching key.
 
-`[OPEN]` The current CityBuddies code still deliberately reports
-route-unavailable in Grid; this observation records the missing evidence but
-does not itself implement the route. The dump also began after ICC-to-Grid
-zoning was underway, so the ICC-side activation remains unmapped.
+`[SUPERSEDED BY 23069f0]` At the time of this observation CityBuddies still
+reported route-unavailable in Grid, and ICC activation remained unmapped. The
+following transaction implements both from the later owner direction and
+static/live dynel evidence.
 
 `[SECURITY]` The raw diagnostic dump was not committed. Only sanitized route
 facts needed for future implementation were retained.
+
+## 2026-08-30 — Continuous ICC-to-CT homing published
+
+`[OWNER-DIRECTION]` Kavey requested that the existing bounded-pulse walker be
+retained in full, that a smoother method become the default for all buddies
+during a multi-day comparison, and that the route be extended from a manually
+positioned buddy near `Enter The Grid` in ICC through Grid and Serenity to CT.
+
+`[DESIGN]` An owner-supplied full-client AO# movement plugin demonstrated the
+useful control pattern: one forward start, continuously refreshed heading and
+position, and a final stop. Its controller could not be reused directly because
+it depends on the full AO client engine. CityBuddies instead ports the pattern
+onto the existing CritterAI route and explicitly integrates conservative
+clientless command positions at 1.6667 m/s every 200 ms. The private reference
+archive was not committed.
+
+`[IMPLEMENTED]` Published commit:
+
+`23069f055817a567baf35fc8253bdec2afbdac37` — `Add continuous ICC-to-CT homing`
+
+The Buddies directive and telemetry now carry a movement mode. New or missing
+modes default to `continuous`; `bounded-pulse`, `bounded`, or `pulse` selects
+the preserved old controller. A single `DefaultHomeMovementMode` constant in
+Buddies changes the global default.
+
+The continuous controller slerps headings across CritterAI straight-path
+waypoints and sends incremental `Update` positions while forward remains held.
+Server-reported movement stays authoritative for arrival and progress. Command
+lead, cross-track drift, and three seconds without measurable server progress
+cause a full stop and route rebuild; repeated recovery remains bounded.
+
+`[IMPLEMENTED]` Stable `Playfield.ModelId` now drives an end-to-end state
+machine: ICC `655`, Grid `152`, and Serenity `6010`. In ICC the raw playfield
+packet is captured before interaction. Nearby static dynels are logged, `Enter
+The Grid` is found by name or verified template `95350`, and the static terminal
+is reconciled to a live packet identity through metadata/type ordinal matching.
+Ambiguous mappings are rejected rather than guessed. The resolved terminal is
+used with limited retries while waiting for Grid.
+
+In Grid the restored `152.Navmesh` routes to the owner-observed city-exit point
+`(211.6727, 3.775, 186.7213)`. The controller stops there and waits for model
+`6010`, matching the captured movement-only handoff. Serenity then follows the
+published `6010.Navmesh` through the old T-junction region to the CT target and
+final heading.
+
+`[OPEN]` No assistant-side build or AO runtime test was run, by owner policy.
+Kavey will build, monitor a small ICC sample through the complete route, and
+compare continuous walking with bounded pulses over several days.

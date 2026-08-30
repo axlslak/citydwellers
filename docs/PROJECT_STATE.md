@@ -66,6 +66,14 @@ This file is the compact restart image for a new development session. It is inte
   - Fixes Kavey's intermittent native `dtNavMesh.getTilesAt` access violation.
   - `NavmeshPathfinder` now strongly retains the `Navmesh` whose native memory
     is referenced by its long-lived `NavmeshQuery`.
+- `[IMPLEMENTED]` Commit `23069f055817a567baf35fc8253bdec2afbdac37`
+  — `Add continuous ICC-to-CT homing`.
+  - Keeps the complete bounded-pulse controller as a directive-selectable
+    rollback path while making continuous steering the Buddies default.
+  - Adds stable-model routing across ICC `655`, Grid `152`, and Serenity
+    `6010`, including live/static ICC terminal identity reconciliation.
+  - This source is published but intentionally not assistant-built or
+    live-tested; Kavey owns both verification steps.
 
 ## Main components
 
@@ -89,11 +97,15 @@ Clientless helper/account host. Important current behavior:
 
 ### CityBuddies plugin
 
-Handles AO movement/home behavior for a Buddies character. Serenity target
-selection now recalculates a straight navmesh path after each confirmed bounded
-movement pulse. The navmesh query is cached by playfield; pulse duration,
-emergency-stop, divergence, stuck detection, and settled server-position
-confirmation remain in control of movement.
+Handles AO movement/home behavior for a Buddies character. The default
+`continuous` controller follows a cached CritterAI straight path with smoothed
+heading changes and 200 ms clientless position updates. Because clientless has
+no local movement engine, it advances conservative 1.6667 m/s command points
+and uses server echoes to detect command lead, lateral drift, and stalls.
+
+The previous `bounded-pulse` implementation remains intact and selectable via
+the home directive. `DefaultHomeMovementMode` in Buddies is the one-line global
+rollback switch. Home telemetry now records the selected movement mode.
 
 ## Chat / authorization model
 
@@ -166,8 +178,10 @@ Known dependency state from recovery:
 - A subsequent `#home 75` run reported 13/13 reached CT and 0 stopped.
 
 `[VERIFIED]` Navmesh target selection is published in `6d03574`.
-`[OPEN]` Kavey must build and live-test `#home`, especially from west of the
-old T-junction failure point.
+`[IMPLEMENTED]` Continuous route following is published in `23069f0`; the
+navmesh supplies the route through the top of the old T and south to CT.
+`[OPEN]` Kavey must build and live-test `#home`, comparing the continuous
+default with the retained bounded-pulse fallback over several days.
 
 ### Grid
 
@@ -191,16 +205,30 @@ old T-junction failure point.
   instance identities. Navigation code must continue branching on stable
   `Playfield.ModelId` values (`152` for Grid and `6010` for Serenity), not the
   captured instance values.
-- `[OPEN]` CityBuddies still returns route-unavailable in Grid. Implement
-  navmesh routing from the current position toward the observed exit trigger,
-  continue/wait until the playfield changes, then let the existing Serenity
-  route take over.
-- `[OPEN]` The dump began after ICC-to-Grid zoning was already underway, so it
-  does not identify the ICC-side approach or activation. Do not infer that
-  separate transition from this evidence.
+- `[IMPLEMENTED]` CityBuddies now loads the restored `152.Navmesh`, follows it
+  from the current Grid position to `(211.6727, 3.775, 186.7213)`, sends a full
+  stop at the observed trigger exactly as the captured player did, waits up to
+  20 seconds for model `6010`, and then hands off to Serenity navigation.
 - `[SECURITY]` The raw protocol dump is owner-supplied diagnostic material and
   remains outside the public repository; only these sanitized conclusions are
   durable project state.
+
+### ICC HQ
+
+- Playfield ID: `655`.
+- Owner-supplied ICC position near the terminal: approximately
+  `(3181.3, 35.9, 880.6)` in code `Vector3` order.
+- `[VERIFIED-DATA]` The pinned clientless static-dynel data places terminal
+  template `95350` approximately 2.6 m from that position. Its synthetic
+  static identity must not be assumed to equal the live interaction identity.
+- `[IMPLEMENTED]` On the ICC playfield packet, CityBuddies captures live dynel
+  type/instance/metadata records. At runtime it lists nearby named static
+  dynels, finds `Enter The Grid` by name (with template `95350` as a data-backed
+  fallback), and resolves the live terminal by unique metadata, unique live
+  type, or the static type ordinal. If no unambiguous candidate exists, it
+  refuses to guess.
+- `[IMPLEMENTED]` A buddy parked within 12 m uses the resolved live identity up
+  to three times at five-second intervals while waiting for stable model `152`.
 
 ### Serenity navmesh
 
@@ -236,10 +264,14 @@ Implemented pathfinder behavior:
 - `FindPath` then `GetStraightPath`.
 - Convert results to AOSharp Common `Vector3` movement targets.
 - Cache pathfinders by playfield.
-- In Serenity, choose the first path point far enough from current position and continue using the existing bounded movement pulse safety logic.
-- In Grid, the current implementation still returns an explicit
-  route-unavailable reason. The exit is now mapped by live observation, but
-  its navmesh leg and zone-transition state have not yet been implemented.
+- In `continuous` mode, keep forward movement active, slerp the heading toward
+  successive straight-path points, and send conservative incremental
+  clientless positions every 200 ms. Stop/replan on excessive command lead,
+  lateral drift, or missing server-confirmed progress.
+- In `bounded-pulse` mode, use the prior orient/start/stop/settle controller
+  unchanged as a rollback path for both mapped navmeshes.
+- In Grid, follow `152.Navmesh` to the observed city-exit trigger, stop, and
+  wait for the stable playfield model to become Serenity.
 
 ## Publication constraints
 
@@ -264,14 +296,13 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-Navmesh-based Serenity homing is published in `6d03574`. Next:
+Continuous ICC-to-CT homing is published in `23069f0`. Next:
 
-1. Kavey rebuilds from `5ec43d5` or later and confirms the native access
-   violation no longer occurs.
-2. Implement the Grid (`152`) navmesh leg toward the observed walk-triggered
-   exit near `(211.6727, 3.775, 186.7213)`, wait for the transition, and then
-   resume the existing Serenity (`6010`) route.
-3. Kavey builds and live-tests the combined Grid-to-CT route. The assistant
-   does not build or run AO unless Kavey explicitly delegates it.
-4. Map the ICC-side entry separately if end-to-end ICC automation is required;
-   the current dump does not contain that activation.
+1. Kavey rebuilds and confirms the native navmesh lifetime fix remains stable.
+2. Kavey parks a small monitored sample near `Enter The Grid` in ICC, starts
+   `#home`, and returns the CityBuddies log/snapshot outcome for ICC live-dynel
+   resolution, Grid zoning, and final CT arrival.
+3. Kavey compares walking quality for several days with `continuous` as the
+   default. If it is unsatisfactory, change `DefaultHomeMovementMode` to
+   `bounded-pulse`; the old controller remains present.
+4. The assistant does not build or run AO unless Kavey explicitly delegates it.

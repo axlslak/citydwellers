@@ -892,9 +892,11 @@ namespace CityBuddies
                             $"'{x.Name}' {x.Identity} " +
                             $"d={position.Distance2DFrom(x.Transform.Position):F1}m"))));
 
-            List<LiveDynelObservation> live = GetObservedLiveDynels();
+            List<LiveDynelObservation> live = GetObservedLiveDynels()
+                .Where(x => x.IdentityType == IdentityType.Terminal)
+                .ToList();
             Logger.Information(
-                $"CityBuddies ICC live dynels captured={live.Count}: " +
+                $"CityBuddies ICC live Terminal dynels captured={live.Count}: " +
                 (live.Count == 0
                     ? "none"
                     : string.Join(
