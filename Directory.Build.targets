@@ -4,6 +4,23 @@
   </PropertyGroup>
 
   <!--
+    CityBuddies uses the x86 CritterAI wrapper used by the pinned AOSharp mods
+    revision. Keep public upstream binaries out of this repository: restore
+    exact, hash-verified copies into the ignored dependency cache before
+    assembly references are resolved.
+  -->
+  <Target
+    Name="RestoreNavmeshDependencies"
+    BeforeTargets="ResolveAssemblyReferences"
+    Condition="'$(MSBuildProjectName)' == 'CityBuddies'">
+    <Message
+      Text="Ensuring pinned CritterAI and Grid navmesh dependencies are available..."
+      Importance="high" />
+    <Exec
+      Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)build\Restore-NavmeshDependencies.ps1&quot; -DependencyRoot &quot;$(NavmeshDependencyRoot)&quot;" />
+  </Target>
+
+  <!--
     AOSharp.Clientless 1.0.16 does not include its runtime GameData files in
     the NuGet package. Flipper needs those files to resolve the static City
     Controller dynel by name. Restore them once into an ignored repository

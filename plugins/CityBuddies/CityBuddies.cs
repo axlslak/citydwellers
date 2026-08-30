@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using AOSharp.Clientless;
@@ -32,11 +33,8 @@ namespace CityBuddies
         private const float HomeHeadingY = -0.997f;
         private const float HomeHeadingZ = 0.000f;
         private const float HomeHeadingW = 0.079f;
-        private const float JunctionX = 994.0f;
-        private const float JunctionY = 5.0f;
-        private const float JunctionZ = 1403.2f;
         private const float HomeReachedDistance = 0.25f;
-        private const float WaypointReachedDistance = 0.50f;
+        private const float NavmeshWaypointMinimumDistance = 0.75f;
         private const float FirstMovementPulseDistance = 0.75f;
         private const float ProvenMovementPulseDistance = 2.00f;
         private const float MinimumPulseProgress = 0.10f;
@@ -45,16 +43,16 @@ namespace CityBuddies
         private const int MaximumStopConfirmationRetries = 2;
         private const int MaximumStuckRecoveries = 5;
 
-        // These are the two unobstructed Serenity Islands street segments
-        // supplied from the live city, plus the narrow northbound recovery line
-        // covering the lake position reached by the first movement experiment.
-        // Anything outside them is reported as unmapped.
-
         private readonly object _snapshotSync = new object();
         private readonly object _movementObservationSync = new object();
+        private readonly Dictionary<int, NavmeshPathfinder> _navmeshPathfinders =
+            new Dictionary<int, NavmeshPathfinder>();
+        private readonly Dictionary<int, string> _navmeshLoadErrors =
+            new Dictionary<int, string>();
         private string _readyPath;
         private string _snapshotPath;
         private string _homeDirectivePath;
+        private string _navmeshDirectory;
         private bool _readyWritten;
         private bool _inPlay;
         private bool _dead;
@@ -106,6 +104,7 @@ namespace CityBuddies
             _homeDirectivePath = Path.Combine(
                 pluginDir,
                 $"citybuddies-home-{Client.CharacterName}.json");
+            _navmeshDirectory = Path.Combine(pluginDir, "NavMeshes");
 
             DeleteSnapshot();
 
@@ -364,8 +363,10 @@ namespace CityBuddies
             string routeState;
             string routeDetail;
 
-            if (!TrySelectCityTarget(
+            if (!TrySelectNavmeshTarget(
+                    playfieldId,
                     position,
+                    home,
                     out target,
                     out routeState,
                     out routeDetail))
@@ -376,17 +377,6 @@ namespace CityBuddies
             }
 
             float targetDistance = position.Distance2DFrom(target);
-
-            if (string.Equals(routeState, "moving-to-junction", StringComparison.Ordinal) &&
-                targetDistance <= WaypointReachedDistance)
-            {
-                StopMovement();
-                ResetPulseState(true);
-                SetHomeState(
-                    "junction",
-                    "Reached the T-junction; turning south toward the City Controller.");
-                return;
-            }
 
             BeginMovementPulse(
                 localPlayer,
@@ -672,54 +662,96 @@ namespace CityBuddies
             return point.Distance2DFrom(closest);
         }
 
-        private bool TrySelectCityTarget(
+        private bool TrySelectNavmeshTarget(
+            int playfieldId,
             Vector3 position,
+            Vector3 home,
             out Vector3 target,
             out string state,
             out string detail)
         {
-            var home = new Vector3(HomeX, HomeY, HomeZ);
-            var junction = new Vector3(JunctionX, JunctionY, JunctionZ);
-
-            bool nearHome = position.Distance2DFrom(home) <= 8.0f;
-            bool onSouthRecovery =
-                Math.Abs(position.X - HomeX) <= 10.0f &&
-                position.Z >= 1080.0f &&
-                position.Z < HomeZ - 8.0f;
-            bool onSouthStreet =
-                Math.Abs(position.X - JunctionX) <= 8.0f &&
-                position.Z >= HomeZ - 8.0f &&
-                position.Z <= JunctionZ + 8.0f;
-            bool onEastStreet =
-                position.X >= JunctionX - 8.0f &&
-                position.X <= 1090.0f &&
-                position.Z >= JunctionZ - 18.0f &&
-                position.Z <= JunctionZ + 20.0f;
-
-            if (nearHome || onSouthRecovery || onSouthStreet)
+            NavmeshPathfinder pathfinder;
+            string loadError;
+            if (!TryGetPathfinder(playfieldId, out pathfinder, out loadError))
             {
+                target = new Vector3();
+                state = null;
+                detail = loadError;
+                return false;
+            }
+
+            try
+            {
+                IReadOnlyList<Vector3> path =
+                    pathfinder.FindStraightPath(position, home);
+
+                for (int i = 0; i < path.Count; i++)
+                {
+                    float waypointDistance = position.Distance2DFrom(path[i]);
+                    if (waypointDistance < NavmeshWaypointMinimumDistance)
+                        continue;
+
+                    target = path[i];
+                    state = "moving-to-home";
+                    detail =
+                        $"Serenity navmesh path has {path.Count} points; next " +
+                        $"waypoint=({target.X:F1},{target.Y:F1},{target.Z:F1}).";
+                    return true;
+                }
+
                 target = home;
                 state = "moving-to-home";
-                detail = onSouthRecovery
-                    ? "Recovering north from the mapped lake line to the City Controller."
-                    : "Following the mapped south street to the City Controller.";
+                detail = "Serenity navmesh path ends at the City Controller.";
                 return true;
             }
-
-            if (onEastStreet)
+            catch (Exception ex)
             {
-                target = junction;
-                state = "moving-to-junction";
-                detail = "Following the mapped west street to the T-junction.";
+                target = new Vector3();
+                state = null;
+                detail =
+                    $"Serenity navmesh route unavailable from " +
+                    $"({position.X:F1},{position.Y:F1},{position.Z:F1}): " +
+                    ex.Message;
+                return false;
+            }
+        }
+
+        private bool TryGetPathfinder(
+            int playfieldId,
+            out NavmeshPathfinder pathfinder,
+            out string error)
+        {
+            if (_navmeshPathfinders.TryGetValue(playfieldId, out pathfinder))
+            {
+                error = null;
                 return true;
             }
 
-            target = new Vector3();
-            state = null;
-            detail =
-                $"Serenity Islands position ({position.X:F1},{position.Y:F1}," +
-                $"{position.Z:F1}) is outside the two mapped safe corridors.";
-            return false;
+            if (_navmeshLoadErrors.TryGetValue(playfieldId, out error))
+                return false;
+
+            string navmeshPath =
+                Path.Combine(_navmeshDirectory, $"{playfieldId}.Navmesh");
+
+            try
+            {
+                pathfinder = NavmeshPathfinder.Load(navmeshPath);
+                _navmeshPathfinders.Add(playfieldId, pathfinder);
+                error = null;
+                Logger.Information(
+                    $"CityBuddies loaded navmesh for playfield {playfieldId}.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                pathfinder = null;
+                error =
+                    $"Unable to load navmesh for playfield {playfieldId}: " +
+                    ex.Message;
+                _navmeshLoadErrors[playfieldId] = error;
+                Logger.Warning(error);
+                return false;
+            }
         }
 
         private static void PrepareMovementComponent(

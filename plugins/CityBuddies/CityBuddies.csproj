@@ -12,6 +12,7 @@
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
+    <PlatformTarget>x86</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -32,9 +33,43 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="CityBuddies.cs" />
+    <Compile Include="NavmeshPathfinder.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Reference Include="cai-nav">
+      <HintPath>$(NavmeshDependencyRoot)\CritterAi\cai-nav.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="cai-nav-rcn">
+      <HintPath>$(NavmeshDependencyRoot)\CritterAi\cai-nav-rcn.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+    <Reference Include="cai-util">
+      <HintPath>$(NavmeshDependencyRoot)\CritterAi\cai-util.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="NavMeshes\6010.Navmesh">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="$(NavmeshDependencyRoot)\NavMeshes\152.Navmesh">
+      <Link>NavMeshes\152.Navmesh</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="$(NavmeshDependencyRoot)\CritterAi\cai-nav.dll">
+      <Link>cai-nav.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="$(NavmeshDependencyRoot)\CritterAi\cai-nav-rcn.dll">
+      <Link>cai-nav-rcn.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="$(NavmeshDependencyRoot)\CritterAi\cai-util.dll">
+      <Link>cai-util.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

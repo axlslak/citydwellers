@@ -2,6 +2,8 @@
   <PropertyGroup>
     <!-- Use NuGet PackageReference for every project in this repository. -->
     <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+    <NavmeshUpstreamRevision>474919d017759c39a530071a0c5b7e6eb162af7a</NavmeshUpstreamRevision>
+    <NavmeshDependencyRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory).dependencies\Navmesh\$(NavmeshUpstreamRevision)'))</NavmeshDependencyRoot>
   </PropertyGroup>
 
   <ItemGroup>
