@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_transaction": "session-5-deferred-navigation-observations",
-  "started_utc": "2026-08-30T18:30:06Z",
-  "base_commit": "6b15344e862d6d93ebebe3dfff402bff3d58d176",
-  "task": "Record deferred live navigation observations without changing code.",
-  "resume_instruction": "Start at RECOVERY.md, confirm journal seq 16, and finish the documentation-only deferred-navigation checkpoint. Preserve the sealed ICC implementation. Record rubber-banding, clientless collision/teleporter behavior, likely X≈994 main street, direct-CT pathing failure, and Grid exit failure as unverified/pending live observations only."
+  "status": "idle",
+  "last_completed_transaction": "session-5-deferred-navigation-observations",
+  "completed_utc": "2026-08-30T18:32:12Z",
+  "checkpoint_commit": "21dbd1bbbfaf20257c772b49aa4d1ac936363247",
+  "next_task": "Kavey builds and verifies parallel buddy login plus one static Enter The Grid activation; later work addresses the recorded navigation failures one problem at a time.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 21dbd1b is on origin/master. ICC implementation abe19cb serializes StaticDynelData preload and calls StaticDynel.Use for Enter The Grid. First test parallel login and one ICC buddy into Grid model 152. Deferred evidence in PROJECT_STATE records continuous rubber-banding, unsafe teleporter crossings, likely X≈994 main-street alignment, direct-CT routing failure, and Grid exit failure; do not combine their fixes."
 }
