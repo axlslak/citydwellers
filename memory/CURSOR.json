@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_transaction": "session-5-grid-bounded-exit-crossing",
-  "started_utc": "2026-08-30T22:51:17Z",
-  "base_commit": "8e6a80377981d481203c917fd377287c4c817544",
-  "task": "Replace Grid stop-at-edge with one immediate bounded crossing pulse and preserve the existing zone timeout.",
-  "resume_instruction": "Start at RECOVERY.md and journal seq 20. Implement only one 2m/1.2s Grid exit pulse using the established approach direction, stop after the pulse if still in Grid, and wait no more than the existing 20 seconds for stable model 6010. Add no 15-second login delay: Kavey verified that restriction belongs to the normal client, while clientless teleports immediately. Do not touch general walking or Serenity street routing."
+  "status": "idle",
+  "last_completed_transaction": "session-5-grid-bounded-exit-crossing",
+  "completed_utc": "2026-08-30T22:57:00Z",
+  "checkpoint_commit": "737da17775ec0ca3d672d711021a6e520fc8785d",
+  "next_task": "Kavey rebuilds and runs one monitored ICC-to-Grid-to-Serenity test of the bounded exit crossing.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 737da17 is on origin/master. Implementation d927cd5 begins an immediate dedicated 2m/1.2s Grid exit pulse at the observed edge, stops if still in Grid, and waits up to 20s for stable model 6010. There is deliberately no 15-second login delay. Kavey should build and return whether it reaches Serenity; if not, return the new timeout and last position snapshot. Do not mix walking smoothness or Serenity main-street work into that test."
 }
