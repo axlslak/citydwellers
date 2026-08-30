@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
@@ -42,6 +43,11 @@ namespace CityBuddies
         private const float PulseDisplacementSlack = 1.00f;
         private const int MaximumStopConfirmationRetries = 2;
         private const int MaximumStuckRecoveries = 5;
+        private const string StaticDynelDataMutexName =
+            @"Local\CityDwellers.StaticDynelData.1.0.16";
+
+        private static readonly TimeSpan StaticDynelDataMutexTimeout =
+            TimeSpan.FromSeconds(30);
 
         private readonly object _snapshotSync = new object();
         private readonly object _movementObservationSync = new object();
@@ -95,6 +101,8 @@ namespace CityBuddies
 
         public override void Init(string pluginDir)
         {
+            PreloadStaticDynelData();
+
             _readyPath = Path.Combine(
                 pluginDir,
                 $"citybuddies-ready-{Client.CharacterName}.ready");
@@ -120,6 +128,67 @@ namespace CityBuddies
                 $"CityBuddies AutoReconnect={Client.Config.AutoReconnect}.");
         }
 
+        private static void PreloadStaticDynelData()
+        {
+            bool mutexHeld = false;
+
+            using (var mutex = new Mutex(false, StaticDynelDataMutexName))
+            {
+                try
+                {
+                    try
+                    {
+                        mutexHeld = mutex.WaitOne(StaticDynelDataMutexTimeout);
+                    }
+                    catch (AbandonedMutexException)
+                    {
+                        // The previous owner exited while holding the mutex. The
+                        // current caller owns it now and can safely retry the load.
+                        mutexHeld = true;
+                    }
+
+                    if (!mutexHeld)
+                    {
+                        throw new TimeoutException(
+                            "Timed out waiting to preload AOSharp static-dynel data.");
+                    }
+
+                    Type dataType = typeof(DynelManager).Assembly.GetType(
+                        "AOSharp.Clientless.StaticDynelData",
+                        true);
+                    PropertyInfo staticDynels = dataType.GetProperty(
+                        "StaticDynels",
+                        BindingFlags.Static | BindingFlags.NonPublic);
+
+                    if (staticDynels == null)
+                    {
+                        throw new MissingMemberException(
+                            dataType.FullName,
+                            "StaticDynels");
+                    }
+
+                    // AOSharp.Clientless 1.0.16 opens StaticDynelData.bin with
+                    // FileShare.None. Each buddy runs in a separate AppDomain,
+                    // so warm each private cache while one named mutex prevents
+                    // parallel domains or Buddies processes from racing the file.
+                    staticDynels.GetValue(null, null);
+                    Logger.Information(
+                        "CityBuddies AOSharp static-dynel data preload completed.");
+                }
+                catch (TargetInvocationException ex)
+                {
+                    throw new InvalidOperationException(
+                        "AOSharp static-dynel data preload failed.",
+                        ex.InnerException ?? ex);
+                }
+                finally
+                {
+                    if (mutexHeld)
+                        mutex.ReleaseMutex();
+                }
+            }
+        }
+
         public override void Teardown()
         {
             StopMovement();
@@ -142,12 +211,6 @@ namespace CityBuddies
                 if (n3Message.N3MessageType == N3MessageType.CharDCMove)
                 {
                     ObserveMovement((CharDCMoveMessage)e.Body);
-                    return;
-                }
-
-                if (n3Message.N3MessageType == N3MessageType.PlayfieldAnarchyF)
-                {
-                    ObservePlayfield((PlayfieldAnarchyFMessage)e.Body);
                     return;
                 }
 

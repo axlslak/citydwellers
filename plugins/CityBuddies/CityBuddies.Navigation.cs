@@ -4,7 +4,6 @@ using System.Linq;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
-using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 
 namespace CityBuddies
 {
@@ -39,10 +38,6 @@ namespace CityBuddies
         private const float GridExitZ = 186.7213f;
         private const float GridExitReachedDistance = 0.25f;
 
-        private readonly object _playfieldObservationSync = new object();
-        private List<LiveDynelObservation> _observedLiveDynels =
-            new List<LiveDynelObservation>();
-        private int _observedLiveDynelPlayfieldId = int.MinValue;
         private int _activeNavigationPlayfieldId = int.MinValue;
 
         private readonly List<Vector3> _continuousPath = new List<Vector3>();
@@ -69,20 +64,8 @@ namespace CityBuddies
 
         private DateTime _iccDiscoveryStartedUtc = DateTime.MinValue;
         private DateTime _nextIccUseUtc = DateTime.MinValue;
-        private Identity _iccLiveTarget;
-        private bool _iccHaveLiveTarget;
         private bool _iccNearbyDynelsLogged;
         private int _iccUseAttempts;
-
-        private sealed class LiveDynelObservation
-        {
-            public IdentityType IdentityType;
-            public int Unknown1;
-            public int Unknown2;
-            public int Unknown3;
-            public int Instance;
-            public int TypeOrdinal;
-        }
 
         private void ProcessHomeRoute(DateTime now)
         {
@@ -778,29 +761,6 @@ namespace CityBuddies
                 return;
             }
 
-            if (!_iccHaveLiveTarget)
-            {
-                string resolution;
-                if (!TryResolveLiveDynel(enterTheGrid, out _iccLiveTarget, out resolution))
-                {
-                    if (now - _iccDiscoveryStartedUtc >= IccDynelDiscoveryTimeout)
-                    {
-                        SetHomeState("route-unavailable", resolution);
-                    }
-                    else
-                    {
-                        SetHomeState("finding-grid-entry", resolution);
-                    }
-                    return;
-                }
-
-                _iccHaveLiveTarget = true;
-                Logger.Information(
-                    $"CityBuddies resolved Enter The Grid static " +
-                    $"{enterTheGrid.Identity} template={enterTheGrid.TemplateId} to " +
-                    $"live {_iccLiveTarget}. {resolution}");
-            }
-
             if (now < _nextIccUseUtc)
                 return;
 
@@ -809,26 +769,24 @@ namespace CityBuddies
                 SetHomeState(
                     "route-unavailable",
                     $"Enter The Grid remained in ICC after {MaximumIccUseAttempts} " +
-                    "live-identity use attempts.");
+                    "static-identity use attempts.");
                 return;
             }
 
             StopMovement();
-            Client.Send(new GenericCmdMessage
+            if (_iccUseAttempts == 0)
             {
-                Temp1 = 0,
-                Count = 1,
-                Action = GenericCmdAction.Use,
-                Temp4 = 1,
-                User = localPlayer.Identity,
-                Target = _iccLiveTarget,
-                Unknown = 1
-            });
+                Logger.Information(
+                    $"CityBuddies using AOSharp static Enter The Grid identity " +
+                    $"{enterTheGrid.Identity} template={enterTheGrid.TemplateId}.");
+            }
+
+            enterTheGrid.Use();
             _iccUseAttempts++;
             _nextIccUseUtc = now.Add(IccUseRetryInterval);
             SetHomeState(
                 "entering-grid",
-                $"Used live Enter The Grid identity {_iccLiveTarget}; attempt " +
+                $"Used static Enter The Grid identity {enterTheGrid.Identity}; attempt " +
                 $"{_iccUseAttempts}/{MaximumIccUseAttempts}, waiting for Grid.");
         }
 
@@ -850,8 +808,8 @@ namespace CityBuddies
                 return exact[0];
 
             // Template 95350 is the terminal at the supplied ICC coordinate.
-            // This fallback still resolves and uses the packet's live identity;
-            // it never sends the synthetic static identity to the server.
+            // AOSharp's static-dynel model is expressly designed to use the
+            // stored identity for these world objects.
             return DynelManager.AllDynels
                 .OfType<StaticDynel>()
                 .Where(x => x.TemplateId == EnterTheGridTemplateId)
@@ -892,141 +850,6 @@ namespace CityBuddies
                             $"'{x.Name}' {x.Identity} " +
                             $"d={position.Distance2DFrom(x.Transform.Position):F1}m"))));
 
-            List<LiveDynelObservation> live = GetObservedLiveDynels()
-                .Where(x => x.IdentityType == IdentityType.Terminal)
-                .ToList();
-            Logger.Information(
-                $"CityBuddies ICC live Terminal dynels captured={live.Count}: " +
-                (live.Count == 0
-                    ? "none"
-                    : string.Join(
-                        "; ",
-                        live.Select(x =>
-                            $"{x.IdentityType}:{x.Instance} " +
-                            $"U1={x.Unknown1} U2={x.Unknown2} U3={x.Unknown3} " +
-                            $"ordinal={x.TypeOrdinal}"))));
-        }
-
-        private bool TryResolveLiveDynel(
-            StaticDynel staticDynel,
-            out Identity identity,
-            out string detail)
-        {
-            identity = new Identity();
-            List<LiveDynelObservation> all = GetObservedLiveDynels();
-            List<LiveDynelObservation> candidates = all
-                .Where(x => x.IdentityType == staticDynel.Identity.Type)
-                .ToList();
-
-            if (candidates.Count == 0)
-            {
-                detail =
-                    $"Waiting for an ICC live {staticDynel.Identity.Type} entry for " +
-                    $"static Enter The Grid {staticDynel.Identity}.";
-                return false;
-            }
-
-            List<LiveDynelObservation> templateMatches = candidates
-                .Where(x =>
-                    x.Unknown1 == staticDynel.TemplateId ||
-                    x.Unknown2 == staticDynel.TemplateId ||
-                    x.Unknown3 == staticDynel.TemplateId)
-                .ToList();
-            LiveDynelObservation selected = templateMatches.Count == 1
-                ? templateMatches[0]
-                : null;
-            string method = "template metadata";
-
-            if (selected == null)
-            {
-                int staticInstance = staticDynel.Identity.Instance;
-                List<LiveDynelObservation> instanceMatches = candidates
-                    .Where(x =>
-                        x.Instance == staticInstance ||
-                        x.Unknown1 == staticInstance ||
-                        x.Unknown2 == staticInstance ||
-                        x.Unknown3 == staticInstance)
-                    .ToList();
-                if (instanceMatches.Count == 1)
-                {
-                    selected = instanceMatches[0];
-                    method = "static-instance metadata";
-                }
-            }
-
-            if (selected == null && candidates.Count == 1)
-            {
-                selected = candidates[0];
-                method = "unique live type";
-            }
-
-            if (selected == null)
-            {
-                int ordinal =
-                    (int)((unchecked((uint)staticDynel.Identity.Instance) >> 16) & 0xFF);
-                selected = candidates.FirstOrDefault(x => x.TypeOrdinal == ordinal);
-                method = $"static ordinal {ordinal}";
-            }
-
-            if (selected == null)
-            {
-                detail =
-                    $"ICC exposed {candidates.Count} live " +
-                    $"{staticDynel.Identity.Type} entries, but none matched static " +
-                    $"Enter The Grid {staticDynel.Identity}; refusing to guess.";
-                return false;
-            }
-
-            identity = new Identity(selected.IdentityType, selected.Instance);
-            detail =
-                $"Resolved by {method}; candidates={candidates.Count}, " +
-                $"U1={selected.Unknown1}, U2={selected.Unknown2}, " +
-                $"U3={selected.Unknown3}.";
-            return true;
-        }
-
-        private void ObservePlayfield(PlayfieldAnarchyFMessage playfield)
-        {
-            int playfieldId = playfield.PlayfieldId1.Instance;
-            var captured = new List<LiveDynelObservation>();
-            var typeCounts = new Dictionary<IdentityType, int>();
-
-            if (playfield.Dynels != null)
-            {
-                foreach (PlayfieldAnarchyFMessage.PlayfieldDynelInfo dynel in
-                         playfield.Dynels)
-                {
-                    int ordinal;
-                    typeCounts.TryGetValue(dynel.IdentityType, out ordinal);
-                    typeCounts[dynel.IdentityType] = ordinal + 1;
-                    captured.Add(new LiveDynelObservation
-                    {
-                        IdentityType = dynel.IdentityType,
-                        Unknown1 = dynel.Unknown1,
-                        Unknown2 = dynel.Unknown2,
-                        Unknown3 = dynel.Unknown3,
-                        Instance = dynel.Instance,
-                        TypeOrdinal = ordinal
-                    });
-                }
-            }
-
-            lock (_playfieldObservationSync)
-            {
-                _observedLiveDynelPlayfieldId = playfieldId;
-                _observedLiveDynels = captured;
-            }
-        }
-
-        private List<LiveDynelObservation> GetObservedLiveDynels()
-        {
-            lock (_playfieldObservationSync)
-            {
-                if (_observedLiveDynelPlayfieldId != IccHeadquartersPlayfieldId)
-                    return new List<LiveDynelObservation>();
-
-                return new List<LiveDynelObservation>(_observedLiveDynels);
-            }
         }
 
         private bool UseBoundedPulseMovement()
@@ -1080,7 +903,6 @@ namespace CityBuddies
         {
             _iccDiscoveryStartedUtc = DateTime.MinValue;
             _nextIccUseUtc = DateTime.MinValue;
-            _iccHaveLiveTarget = false;
             _iccNearbyDynelsLogged = false;
             _iccUseAttempts = 0;
         }
