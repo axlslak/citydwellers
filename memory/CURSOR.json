@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "idle",
-  "last_completed_transaction": "session-5-grid-exit-observation",
-  "completed_utc": "2026-08-30T13:12:42Z",
-  "checkpoint_commit": "2a617ea2e8928147b42c187def3584ab6237b268",
-  "next_task": "Implement Grid model 152 navmesh routing to the observed walk-triggered exit, wait for Serenity model 6010, then continue the existing Serenity route; Kavey builds and live-tests.",
-  "resume_instruction": "Start at RECOVERY.md and confirm commit 2a617ea is on origin/master. The Grid exit evidence is durable: route toward approximately (211.6727, 3.775, 186.7213), detect the stable model transition from 152 to 6010, and reuse Serenity homing. Do not use transient instance IDs. ICC-side entry remains unmapped. The CritterAI lifetime fix still awaits Kavey's rebuild confirmation."
+  "status": "in_progress",
+  "active_transaction": "session-5-continuous-homing-icc-entry",
+  "started_utc": "2026-08-30T13:41:52Z",
+  "base_commit": "91206e643a27b8866fbfd7eac1c44b9727990ead",
+  "task": "Add default continuous steering while retaining bounded pulses, then implement live Enter The Grid discovery/use in ICC and zone-aware Grid-to-Serenity-to-CT homing.",
+  "resume_instruction": "Inspect CityFlipper live/static dynel identity handling and clientless interaction APIs. Implement the new controller without deleting bounded pulses, default all buddies to continuous mode, handle stable model IDs 655/152/6010, update state/history, publish, and seal. Do not build or run AO; Kavey owns testing."
 }
