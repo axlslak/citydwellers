@@ -14,6 +14,8 @@ namespace CityBuddies
         private static readonly TimeSpan ContinuousStuckTimeout =
             TimeSpan.FromMilliseconds(3000);
         private static readonly TimeSpan GridZoneTimeout = TimeSpan.FromSeconds(20);
+        private static readonly TimeSpan GridCrossingPulseDuration =
+            TimeSpan.FromMilliseconds(1200);
         private static readonly TimeSpan IccDynelDiscoveryTimeout = TimeSpan.FromSeconds(15);
         private static readonly TimeSpan IccUseRetryInterval = TimeSpan.FromSeconds(5);
 
@@ -37,6 +39,9 @@ namespace CityBuddies
         private const float GridExitY = 3.775f;
         private const float GridExitZ = 186.7213f;
         private const float GridExitReachedDistance = 0.25f;
+        private const float GridObservedArrivalX = 234.3062f;
+        private const float GridObservedArrivalZ = 212.8138f;
+        private const float GridCrossingDistance = 2.0f;
 
         private int _activeNavigationPlayfieldId = int.MinValue;
 
@@ -60,7 +65,11 @@ namespace CityBuddies
         private int _continuousRecoveries;
 
         private DateTime _gridZoneDeadlineUtc = DateTime.MinValue;
+        private DateTime _gridCrossingStopUtc = DateTime.MinValue;
+        private Vector3 _gridCrossingEndpoint;
+        private Quaternion _gridCrossingHeading;
         private bool _gridCrossingActive;
+        private bool _gridCrossingForwardActive;
 
         private DateTime _iccDiscoveryStartedUtc = DateTime.MinValue;
         private DateTime _nextIccUseUtc = DateTime.MinValue;
@@ -187,7 +196,7 @@ namespace CityBuddies
 
             if (_gridCrossingActive)
             {
-                ProcessGridCrossing(now);
+                ProcessGridCrossing(localPlayer, now);
                 return;
             }
 
@@ -700,26 +709,62 @@ namespace CityBuddies
 
         private void BeginGridCrossing(LocalPlayer localPlayer, DateTime now)
         {
-            // The captured player run stopped at this coordinate and then
-            // zoned without any use/click packet. Reproduce that exact handoff:
-            // stop at the observed walk trigger and wait for Serenity.
-            StopMovement();
+            Vector3 position = localPlayer.Transform.Position;
+            Vector3 direction = new Vector3(
+                GridExitX - GridObservedArrivalX,
+                0,
+                GridExitZ - GridObservedArrivalZ).Normalize();
+
+            _gridCrossingEndpoint = new Vector3(
+                position.X + (direction.X * GridCrossingDistance),
+                position.Y,
+                position.Z + (direction.Z * GridCrossingDistance));
+            _gridCrossingHeading =
+                HeadingTowards(position, _gridCrossingEndpoint);
+
+            // Reuse the proven bounded-pulse envelope for this handoff. The
+            // observed coordinate is the edge of a walk-triggered volume, not
+            // a place to stop. Move through it immediately, then stop if the
+            // playfield has not changed yet.
+            ResetPulseState(false);
+            ResetContinuousState(false);
+            PrepareMovementComponent(localPlayer, position, _gridCrossingHeading);
+            localPlayer.MovementComponent.ChangeMovement(MovementAction.ForwardStart);
+
             _gridCrossingActive = true;
+            _gridCrossingForwardActive = true;
+            _gridCrossingStopUtc = now.Add(GridCrossingPulseDuration);
             _gridZoneDeadlineUtc = now.Add(GridZoneTimeout);
             SetHomeState(
-                "waiting-for-serenity",
-                "Stopped at the observed Grid city-exit trigger; waiting for Serenity.");
+                "crossing-city-exit",
+                $"Started an immediate {GridCrossingDistance:F1}m bounded pulse " +
+                "through the Grid city-exit volume.");
         }
 
-        private void ProcessGridCrossing(DateTime now)
+        private void ProcessGridCrossing(LocalPlayer localPlayer, DateTime now)
         {
+            if (_gridCrossingForwardActive && now >= _gridCrossingStopUtc)
+            {
+                PrepareMovementComponent(
+                    localPlayer,
+                    _gridCrossingEndpoint,
+                    _gridCrossingHeading);
+                localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+                _gridCrossingForwardActive = false;
+                SetHomeState(
+                    "waiting-for-serenity",
+                    $"Completed the {GridCrossingDistance:F1}m Grid exit pulse; " +
+                    "waiting for Serenity.");
+            }
+
             if (now >= _gridZoneDeadlineUtc)
             {
                 StopMovement();
                 SetHomeState(
                     "route-unavailable",
                     $"Grid did not change to Serenity within " +
-                    $"{GridZoneTimeout.TotalSeconds:F0}s after crossing the observed exit.");
+                    $"{GridZoneTimeout.TotalSeconds:F0}s after the bounded " +
+                    $"{GridCrossingDistance:F1}m exit pulse.");
             }
         }
 
@@ -896,6 +941,8 @@ namespace CityBuddies
         private void ResetGridCrossing()
         {
             _gridCrossingActive = false;
+            _gridCrossingForwardActive = false;
+            _gridCrossingStopUtc = DateTime.MinValue;
             _gridZoneDeadlineUtc = DateTime.MinValue;
         }
 
