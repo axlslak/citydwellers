@@ -270,9 +270,18 @@ default with the retained bounded-pulse fallback over several days.
   `BeginGridCrossing` calls `StopMovement`; while waiting,
   `ProcessGridCrossing` sends no further movement. The buddy reaches the point
   but does not actually cross beyond it.
-- `[OPEN]` The next isolated Grid fix should replace stop-and-wait with a short,
-  bounded forward crossing while waiting for stable model `6010`. Exact
-  distance/timeout safeguards remain to be chosen before implementation.
+- `[IMPLEMENTED]` Commit `d927cd59ca69b28800c237447c93b5607f34811a`
+  replaces stop-at-edge with one immediate dedicated crossing pulse. From the
+  observed exit edge it advances 2 m over 1.2 seconds along the recorded
+  arrival-to-exit direction, stops if still in Grid, and retains the 20-second
+  wait for stable model `6010`.
+- `[INVARIANT]` The Grid crossing pulse is independent of the selected general
+  walking mode and is strictly bounded; it cannot leave forward movement open
+  indefinitely when zoning fails.
+- `[OWNER-VERIFIED]` Do not add the normal client's approximately 15-second
+  post-login teleport restriction to clientless. Kavey observed that it is
+  enforced by the full client; the clientless buddy used `Enter The Grid`
+  immediately after login.
 - `[SECURITY]` The raw protocol dump is owner-supplied diagnostic material and
   remains outside the public repository; only these sanitized conclusions are
   durable project state.
@@ -365,12 +374,13 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-The ICC terminal fix in `abe19cb` is verified live. Next:
+The isolated Grid crossing implementation is published in `d927cd5`. Next:
 
-1. Await Kavey's direction before implementing the isolated Grid crossing
-   fix: continue through the exit volume instead of stopping at its edge.
-2. Parallel-login stress verification for the `StaticDynelData.bin` mutex is
-   still useful if the successful run did not start several buddies together.
+1. Kavey rebuilds and repeats one monitored ICC-to-Grid run. Expected Grid
+   states are `crossing-city-exit`, then either model `6010` or
+   `waiting-for-serenity` after the 1.2-second pulse.
+2. If it still remains in Grid, return the new bounded-pulse timeout plus the
+   last position snapshot; do not increase distance without evidence.
 3. Walking quality, city main-street routing, and guest-channel diagnostics
    remain separate later passes.
 4. The assistant does not build or run AO unless Kavey explicitly delegates it.

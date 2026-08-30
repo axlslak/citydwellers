@@ -375,3 +375,28 @@ captured coordinate was itself sufficient to zone is superseded by this test.
 buddy forward through the exit volume until stable model `6010` is observed,
 rather than stopping at the recorded edge coordinate. No implementation was
 made in this evidence transaction.
+
+## 2026-08-30 — Bounded Grid exit crossing published
+
+`[OWNER-DIRECTION]` Kavey approved the isolated Grid handoff fix and clarified
+that the normal client's roughly 15-second post-login teleport restriction is
+client-side. Clientless successfully used `Enter The Grid` immediately, so no
+artificial login delay belongs in this route.
+
+`[IMPLEMENTED]` Published commit:
+
+`d927cd59ca69b28800c237447c93b5607f34811a` — `Cross the Grid exit volume`
+
+At the observed exit edge, CityBuddies now abandons the old stop-and-wait
+inference and starts one dedicated bounded crossing pulse immediately. The
+pulse travels 2 m over 1.2 seconds along the captured Grid arrival-to-exit
+direction. If the playfield has not changed during that pulse, it sends a full
+stop at the bounded endpoint and continues waiting for stable model `6010`.
+The existing 20-second zone timeout remains the final safety limit.
+
+This handoff deliberately does not reuse or modify continuous steering. It
+uses the established bounded-pulse distance and duration regardless of the
+selected home movement mode. Walking smoothness, Serenity main-street routing,
+and chat diagnostics remain outside this transaction.
+
+`[OPEN]` Kavey owns the build and one monitored ICC-to-Grid-to-Serenity test.
