@@ -177,7 +177,30 @@ old T-junction failure point.
 - SHA-256: `da4f46630dcae195129b99340ea63ef0e96ca22a0565ec7fbc0ada54f345b961`.
 - Git blob SHA: `1165314de5cf063580550a1ef3ae2599f62dd552`.
 - `[DECISION]` Avoid duplicating this binary in City Dwellers; restore/fetch it from a pinned public AOSharp revision.
-- `[OPEN]` Grid-to-Serenity exit/handoff is NOT mapped. Do not invent a coordinate or transition.
+- `[LIVE-OBSERVATION]` An owner-supplied player-perspective protocol dump
+  captured the complete Grid-to-Serenity leg for the local player:
+  - Grid arrival/spawn: approximately `(234.3062, 3.775, 212.8138)`.
+  - Last reported Grid position at the exit trigger: approximately
+    `(211.6727, 3.775, 186.7213)`.
+  - Serenity arrival: approximately `(1068.757, 5.010, 1416.942)`.
+- `[VERIFIED]` The local outbound stream contained only movement packets for
+  the Grid exit. A `ForwardStart` led to the last exit coordinate; no click,
+  use, target, or action packet preceded `Changing area. Please wait.` The
+  handoff is therefore a walk-into-volume zoning trigger.
+- `[INVARIANT]` Protocol `PlayfieldId` values in this capture were transient
+  instance identities. Navigation code must continue branching on stable
+  `Playfield.ModelId` values (`152` for Grid and `6010` for Serenity), not the
+  captured instance values.
+- `[OPEN]` CityBuddies still returns route-unavailable in Grid. Implement
+  navmesh routing from the current position toward the observed exit trigger,
+  continue/wait until the playfield changes, then let the existing Serenity
+  route take over.
+- `[OPEN]` The dump began after ICC-to-Grid zoning was already underway, so it
+  does not identify the ICC-side approach or activation. Do not infer that
+  separate transition from this evidence.
+- `[SECURITY]` The raw protocol dump is owner-supplied diagnostic material and
+  remains outside the public repository; only these sanitized conclusions are
+  durable project state.
 
 ### Serenity navmesh
 
@@ -214,8 +237,9 @@ Implemented pathfinder behavior:
 - Convert results to AOSharp Common `Vector3` movement targets.
 - Cache pathfinders by playfield.
 - In Serenity, choose the first path point far enough from current position and continue using the existing bounded movement pulse safety logic.
-- In Grid, return an explicit route-unavailable reason until the real exit
-  handoff is mapped.
+- In Grid, the current implementation still returns an explicit
+  route-unavailable reason. The exit is now mapped by live observation, but
+  its navmesh leg and zone-transition state have not yet been implemented.
 
 ## Publication constraints
 
@@ -244,10 +268,10 @@ Navmesh-based Serenity homing is published in `6d03574`. Next:
 
 1. Kavey rebuilds from `5ec43d5` or later and confirms the native access
    violation no longer occurs.
-2. Kavey live-tests `#home 75`, including a character west of the old Serenity
-   T-junction failure point if practical.
-3. If one character still does not move, capture that character's home state,
-   detail, playfield, and position after the crash fix so its route issue can
-   be diagnosed independently.
-4. Record the build and live-test result without changing the explicit
-   route-unavailable Grid behavior.
+2. Implement the Grid (`152`) navmesh leg toward the observed walk-triggered
+   exit near `(211.6727, 3.775, 186.7213)`, wait for the transition, and then
+   resume the existing Serenity (`6010`) route.
+3. Kavey builds and live-tests the combined Grid-to-CT route. The assistant
+   does not build or run AO unless Kavey explicitly delegates it.
+4. Map the ICC-side entry separately if end-to-end ICC automation is required;
+   the current dump does not contain that activation.

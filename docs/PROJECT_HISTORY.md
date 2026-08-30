@@ -225,3 +225,33 @@ The pathfinder now strongly retains the navmesh for its entire lifetime. No
 assistant-side build or runtime test was run. Kavey must rebuild and confirm
 the access violation is gone. Diagnose the single non-moving buddy separately
 only if it remains afterward, using its reported state/detail and position.
+
+## 2026-08-30 — Grid exit observed from player protocol dump
+
+`[LIVE-OBSERVATION]` Kavey supplied a full player-perspective protocol dump of
+the Grid-to-Serenity transition. The local player arrived in Grid at
+approximately `(234.3062, 3.775, 212.8138)`, moved to approximately
+`(211.6727, 3.775, 186.7213)`, zoned, and arrived in Serenity at approximately
+`(1068.757, 5.010, 1416.942)`.
+
+`[VERIFIED]` The local outbound messages for the exit were movement-only. A
+forward movement sequence reached the exit coordinate, followed by the area
+change; there was no local click, use, target, or action message. The Grid exit
+is a walk-triggered zoning volume rather than an object interaction.
+
+`[DECISION]` The observed Grid exit is now sufficient evidence for the next
+implementation: load/use the restored Grid `152.Navmesh`, route toward the
+observed trigger, wait for the stable playfield model to become Serenity
+`6010`, and then hand control to the existing Serenity path.
+
+`[INVARIANT]` Transient protocol playfield-instance identities from a single
+capture must not be coded as model IDs. `Playfield.ModelId` remains the stable
+branching key.
+
+`[OPEN]` The current CityBuddies code still deliberately reports
+route-unavailable in Grid; this observation records the missing evidence but
+does not itself implement the route. The dump also began after ICC-to-Grid
+zoning was underway, so the ICC-side activation remains unmapped.
+
+`[SECURITY]` The raw diagnostic dump was not committed. Only sanitized route
+facts needed for future implementation were retained.
