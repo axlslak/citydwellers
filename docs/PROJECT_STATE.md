@@ -52,6 +52,15 @@ This file is the compact restart image for a new development session. It is inte
   - Configured logout linger remains 35 seconds.
   - Ordinary lease/lifecycle timestamps remain UTC `DateTime`; only elapsed logout quarantine was changed.
   - This reconstructed the functionality of an earlier chat-only local commit `6585617`, which was never present on GitHub.
+- `[VERIFIED]` Commit `6d035746d9096a1be6ed51d02e09b6887b172414`
+  — `Add Serenity navmesh homing`.
+  - Published the exact approved `6010.Navmesh`.
+  - Replaced manual Serenity corridor selection with cached CritterAI
+    pathfinding while preserving bounded movement pulses and server-position
+    confirmation.
+  - Added pinned, hash-verified dependency restoration and x86 project targets.
+  - Grid behavior remains explicitly unavailable until its real handoff is
+    measured.
 
 ## Main components
 
@@ -75,7 +84,11 @@ Clientless helper/account host. Important current behavior:
 
 ### CityBuddies plugin
 
-Handles AO movement/home behavior for a Buddies character. Current checked-in behavior still contains manual Serenity routing; navmesh replacement is the current unfinished recovery task.
+Handles AO movement/home behavior for a Buddies character. Serenity target
+selection now recalculates a straight navmesh path after each confirmed bounded
+movement pulse. The navmesh query is cached by playfield; pulse duration,
+emergency-stop, divergence, stuck detection, and settled server-position
+confirmation remain in control of movement.
 
 ## Chat / authorization model
 
@@ -129,6 +142,10 @@ Known dependency state from recovery:
   - `OutOfMemoryException` in `SmokeLounge.AOtomation ArraySerializer.Deserialize`.
   - `MissingMethodException` for `ChatHeader.get_Size()`, indicating AOSharp binary/version coupling.
 - `[DECISION]` Do not solve reproducibility by introducing hard-coded developer-machine AOSharp references.
+- CityBuddies and Buddies now target x86 for CritterAI compatibility.
+- `build/Restore-NavmeshDependencies.ps1` restores and SHA-256-verifies the
+  three CritterAI DLLs and Grid `152.Navmesh` from pinned revision
+  `474919d017759c39a530071a0c5b7e6eb162af7a` into ignored `.dependencies`.
 
 ## Navigation / home
 
@@ -137,12 +154,15 @@ Known dependency state from recovery:
 - Playfield ID: `6010`.
 - Home/CT target recovered from code: approximately `(996.004, 5.010, 1248.512)`.
 - Home heading quaternion recovered from code: approximately `(0, -0.997, 0, 0.079)`.
-- Existing manual route contains a T-junction near approximately `(892.50, 7.00, 1288.50)`.
+- `[HISTORICAL]` The replaced manual route contained a T-junction near
+  approximately `(892.50, 7.00, 1288.50)`.
 - The old route was deliberately restrictive and could report route-unavailable for a character west/left of the T junction.
 - A real test exposed exactly this failure mode; the character had to be manually rescued west of the T junction.
 - A subsequent `#home 75` run reported 13/13 reached CT and 0 stopped.
 
-`[OPEN]` Replace the brittle manual Serenity corridor selection with navmesh pathfinding while preserving bounded movement pulses and server-position confirmation behavior.
+`[VERIFIED]` Navmesh target selection is published in `6d03574`.
+`[OPEN]` Kavey must build and live-test `#home`, especially from west of the
+old T-junction failure point.
 
 ### Grid
 
@@ -160,9 +180,10 @@ Known dependency state from recovery:
 - Size: 2,087,208 bytes.
 - SHA-256: `d3bbb491f8e5b575f269f73fee8443c977f371bc0173231105954b3a34eef27c`.
 - Git blob SHA: `7dee622c49ab0778ad4398bc2bd9df4d91b70a5f`.
-- `[OPEN]` This exact raw binary still needs to be published as `plugins/CityBuddies/NavMeshes/6010.Navmesh`.
+- `[VERIFIED]` The exact raw binary is published as
+  `plugins/CityBuddies/NavMeshes/6010.Navmesh` in `6d03574`.
 
-## CritterAI / navmesh dependency plan
+## CritterAI / navmesh dependency implementation
 
 CritterAI is the native navigation/pathfinding layer used by AOSharp navmesh code. Required runtime DLLs:
 
@@ -178,7 +199,7 @@ Pinned recovery revision used during reconstruction:
 
 The CritterAI references are x86, so the CityBuddies plugin and Buddies host need to run x86 for this integration.
 
-Prepared/recovered pathfinder design:
+Implemented pathfinder behavior:
 
 - Deserialize raw `.Navmesh` with `BinaryFormatter` to `byte[]`.
 - `Navmesh.Create(...)`.
@@ -188,7 +209,8 @@ Prepared/recovered pathfinder design:
 - Convert results to AOSharp Common `Vector3` movement targets.
 - Cache pathfinders by playfield.
 - In Serenity, choose the first path point far enough from current position and continue using the existing bounded movement pulse safety logic.
-- In Grid, currently return an explicit route-unavailable reason until the real exit handoff is mapped.
+- In Grid, return an explicit route-unavailable reason until the real exit
+  handoff is mapped.
 
 ## Publication constraints
 
@@ -206,19 +228,17 @@ Two chat-only local commit IDs were mentioned by an earlier session:
 `[VERIFIED]` Neither object existed in the GitHub repository when checked during recovery; they were local to a previous session/worktree and therefore cannot be treated as published commits.
 
 - `6585617` functionality has been reconstructed and published as `71f36fb`.
-- `91aeae6` functionality is only partially reconstructed and is the current unfinished task.
+- `91aeae6` functionality was reconstructed and published cleanly as
+  `6d03574`; the old local object remains absent and non-authoritative.
 
 The first long conversation was titled `AOLite Config JSON Format`. A complete raw transcript was not accessible to the current session by title or conversation ID, so this file records only information that survived continuity/recovery and later verification.
 
 ## Current task / next work
 
-Session #4 continuity hardening is complete in implementation commit
-`929b531`. Substantive development resumes here:
+Navmesh-based Serenity homing is published in `6d03574`. Next:
 
-1. Finish publishing the recovered navmesh-based Serenity homing change.
-2. Commit exact `6010.Navmesh` without committing CritterAI DLLs or InfoHelper.
-3. Restore CritterAI and Grid `152.Navmesh` reproducibly from the pinned upstream revision.
-4. Set required CityBuddies/Buddies projects to x86.
-5. Keep Grid recovery explicitly unavailable until an actual Grid-to-Serenity transition is measured/mapped.
-6. Test `#home` against positions that previously failed west of the Serenity T junction.
-7. Update this file and `PROJECT_HISTORY.md` with the resulting commit SHA and test outcome.
+1. Kavey builds the solution and returns any compile/dependency-restore output.
+2. Kavey live-tests `#home 75`, including a character west of the old Serenity
+   T-junction failure point if practical.
+3. Record the build and live-test result without changing the explicit
+   route-unavailable Grid behavior.

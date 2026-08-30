@@ -172,6 +172,35 @@ assistant writes/reviews code and warns before potentially expensive
 investigation instead of spending the limited Work-session usage window on
 assistant-side builds or runtime tests.
 
-`[OPEN]` Substantive work returns to navmesh-based Serenity homing. The exact
-approved `6010.Navmesh` binary is still absent from Git and must be supplied;
-its recorded hash cannot reconstruct it.
+`[SUPERSEDED]` At the recovery-proof checkpoint, navmesh-based Serenity homing
+and the exact `6010.Navmesh` were still absent. The following Session #5
+transaction recovered and published both.
+
+## 2026-08-30 — Serenity navmesh homing published
+
+`[VERIFIED]` Session #5 recovered the exact owner-supplied `6010.Navmesh` and
+confirmed all recorded identifiers before publication: 2,087,208 bytes,
+SHA-256 `d3bbb491f8e5b575f269f73fee8443c977f371bc0173231105954b3a34eef27c`,
+and Git blob `7dee622c49ab0778ad4398bc2bd9df4d91b70a5f`.
+
+`[VERIFIED]` Published commit:
+
+`6d035746d9096a1be6ed51d02e09b6887b172414` — `Add Serenity navmesh homing`
+
+The change replaces manual Serenity corridor selection with cached CritterAI
+navmesh queries. After every settled server-confirmed movement pulse it finds a
+fresh straight path to the CT and selects the first waypoint far enough ahead.
+The existing bounded pulse, emergency-stop, divergence, stuck, and settled
+position checks remain authoritative for actual movement.
+
+`[VERIFIED]` The same commit adds a pinned PowerShell restore step for the three
+x86 CritterAI DLLs and upstream Grid `152.Navmesh`. Every restored file has a
+fixed byte count and SHA-256; public binaries remain outside Git. CityBuddies
+and Buddies target x86. The unique Serenity navmesh is committed directly.
+
+`[INVARIANT]` Grid remains explicitly route-unavailable. No Grid-to-Serenity
+coordinate or city exit was guessed.
+
+`[OPEN]` No assistant-side build or runtime test was run, by owner policy.
+Kavey must build and live-test `#home`, especially west of the old T-junction,
+then return the result for reconciliation and transaction sealing.
