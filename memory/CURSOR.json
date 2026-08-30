@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "idle",
-  "last_completed_transaction": "session-5-navmesh-lifetime-fix",
-  "completed_utc": "2026-08-30T12:05:57Z",
-  "checkpoint_commit": "5ec43d5b87900ac89f5bd26c35562653098701c9",
-  "next_task": "Kavey rebuilds and confirms the CritterAI access violation is gone, then reports state/detail/playfield/position for the one non-moving buddy if it still fails.",
-  "resume_instruction": "Start at RECOVERY.md and confirm commit 5ec43d5 is on origin/master. The native lifetime fix is complete. Reconcile Kavey's rebuild/live-test output in a new transaction; do not conflate a remaining single-character route failure with the fixed process crash."
+  "status": "in_progress",
+  "active_transaction": "session-5-grid-exit-observation",
+  "started_utc": "2026-08-30T13:06:56Z",
+  "base_commit": "ef83fafdcc9303708dfc28f48a8e443a62c252a6",
+  "task": "Record the verified Grid-to-Serenity handoff from Kavey's player-perspective protocol dump.",
+  "resume_instruction": "Sanitize and record the Grid spawn, walk-triggered exit coordinate, and Serenity landing point in PROJECT_STATE/HISTORY. Do not commit the raw protocol dump. Then append the terminal journal record, return the cursor to idle, and publish."
 }
