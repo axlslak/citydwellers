@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "idle",
-  "last_completed_transaction": "session-5-deferred-navigation-observations",
-  "completed_utc": "2026-08-30T18:32:12Z",
-  "checkpoint_commit": "21dbd1bbbfaf20257c772b49aa4d1ac936363247",
-  "next_task": "Kavey builds and verifies parallel buddy login plus one static Enter The Grid activation; later work addresses the recorded navigation failures one problem at a time.",
-  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 21dbd1b is on origin/master. ICC implementation abe19cb serializes StaticDynelData preload and calls StaticDynel.Use for Enter The Grid. First test parallel login and one ICC buddy into Grid model 152. Deferred evidence in PROJECT_STATE records continuous rubber-banding, unsafe teleporter crossings, likely X≈994 main-street alignment, direct-CT routing failure, and Grid exit failure; do not combine their fixes."
+  "status": "in_progress",
+  "active_transaction": "session-5-icc-live-verification-grid-exit-diagnosis",
+  "started_utc": "2026-08-30T22:26:07Z",
+  "base_commit": "fad7de1bb3bdf2b12ef27547e92c9786b409e6dc",
+  "task": "Record verified ICC entry and diagnose the isolated Grid-to-Serenity timeout without changing code.",
+  "resume_instruction": "Start at RECOVERY.md and journal seq 18. Record that StaticDynel.Use entered Grid immediately, then reconcile the Grid timeout with source: ProcessGridRoute triggers at <=0.25m, BeginGridCrossing calls StopMovement, and ProcessGridCrossing only waits 20s. This is evidence/diagnosis only; do not implement the next crossing behavior without Kavey's direction."
 }
