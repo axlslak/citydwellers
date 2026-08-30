@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_transaction": "session-5-icc-static-terminal-entry",
-  "started_utc": "2026-08-30T18:21:56Z",
-  "base_commit": "e891d77ef09001de6fb3d088fc602760de04851d",
-  "task": "Fix only ICC Enter The Grid activation and shared StaticDynelData.bin contention.",
-  "resume_instruction": "Start at RECOVERY.md, confirm journal seq 14 and the in-progress cursor, then inspect CityBuddies ICC activation and static-data preload. Preserve all movement and post-ICC routing behavior. The intended fix uses AOSharp's static Enter The Grid identity directly and serializes AOSharp.Clientless 1.0.16's per-AppDomain StaticDynelData preload under a named cross-process mutex. Do not build or live-test; Kavey owns both."
+  "status": "idle",
+  "last_completed_transaction": "session-5-icc-static-terminal-entry",
+  "completed_utc": "2026-08-30T18:28:34Z",
+  "checkpoint_commit": "06671f113cd34f74ec04dba59612ad25b1e879cd",
+  "next_task": "Kavey builds and verifies parallel buddy login plus one static Enter The Grid activation; later work addresses movement and downstream routing one problem at a time.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 06671f1 is on origin/master. Implementation abe19cb serializes AOSharp's per-AppDomain StaticDynelData preload and calls StaticDynel.Use for Enter The Grid. Kavey should first build, start parallel buddies to check for sharing violations, then test one ICC buddy near Terminal:C002028F and report whether it reaches Grid model 152. Walking, main-street pathing, Grid exit, and guest-channel diagnostics remain deferred."
 }
