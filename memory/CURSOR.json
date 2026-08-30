@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_transaction": "session-5-grid-exit-observation",
-  "started_utc": "2026-08-30T13:06:56Z",
-  "base_commit": "ef83fafdcc9303708dfc28f48a8e443a62c252a6",
-  "task": "Record the verified Grid-to-Serenity handoff from Kavey's player-perspective protocol dump.",
-  "resume_instruction": "Sanitize and record the Grid spawn, walk-triggered exit coordinate, and Serenity landing point in PROJECT_STATE/HISTORY. Do not commit the raw protocol dump. Then append the terminal journal record, return the cursor to idle, and publish."
+  "status": "idle",
+  "last_completed_transaction": "session-5-grid-exit-observation",
+  "completed_utc": "2026-08-30T13:12:42Z",
+  "checkpoint_commit": "2a617ea2e8928147b42c187def3584ab6237b268",
+  "next_task": "Implement Grid model 152 navmesh routing to the observed walk-triggered exit, wait for Serenity model 6010, then continue the existing Serenity route; Kavey builds and live-tests.",
+  "resume_instruction": "Start at RECOVERY.md and confirm commit 2a617ea is on origin/master. The Grid exit evidence is durable: route toward approximately (211.6727, 3.775, 186.7213), detect the stable model transition from 152 to 6010, and reuse Serenity homing. Do not use transient instance IDs. ICC-side entry remains unmapped. The CritterAI lifetime fix still awaits Kavey's rebuild confirmation."
 }
