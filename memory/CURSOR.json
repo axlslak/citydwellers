@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_transaction": "session-5-icc-live-verification-grid-exit-diagnosis",
-  "started_utc": "2026-08-30T22:26:07Z",
-  "base_commit": "fad7de1bb3bdf2b12ef27547e92c9786b409e6dc",
-  "task": "Record verified ICC entry and diagnose the isolated Grid-to-Serenity timeout without changing code.",
-  "resume_instruction": "Start at RECOVERY.md and journal seq 18. Record that StaticDynel.Use entered Grid immediately, then reconcile the Grid timeout with source: ProcessGridRoute triggers at <=0.25m, BeginGridCrossing calls StopMovement, and ProcessGridCrossing only waits 20s. This is evidence/diagnosis only; do not implement the next crossing behavior without Kavey's direction."
+  "status": "idle",
+  "last_completed_transaction": "session-5-icc-live-verification-grid-exit-diagnosis",
+  "completed_utc": "2026-08-30T22:28:50Z",
+  "checkpoint_commit": "a650f65eeda39a2823afd10163d0cf294030e5c5",
+  "next_task": "Await Kavey's direction on the isolated Grid crossing fix: move through the exit volume instead of stopping at its edge.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after a650f65 is on origin/master. ICC StaticDynel.Use is verified live: it enters Grid immediately. The next isolated bug is source-confirmed: at <=0.25m BeginGridCrossing stops, then waits 20s without further movement, so the buddy never crosses the exit volume. If Kavey approves implementation, add a short bounded forward crossing while waiting for stable model 6010; do not mix in walking smoothness or Serenity main-street changes."
 }
