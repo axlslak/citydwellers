@@ -16,16 +16,24 @@ namespace CityBuddies
         private static readonly CritterVector3 NearestPointExtents =
             new CritterVector3(0.5f, 2.0f, 0.5f);
 
+        // NavmeshQuery owns only a native pointer into this object. Keep the
+        // managed Navmesh alive for the entire query lifetime; otherwise its
+        // finalizer can release dtNavMesh while GetNearestPoint is still used.
+        private readonly Navmesh _navmesh;
         private readonly NavmeshQuery _query;
         private readonly NavmeshQueryFilter _filter;
 
         private NavmeshPathfinder(Navmesh navmesh)
         {
+            if (navmesh == null)
+                throw new ArgumentNullException(nameof(navmesh));
+
+            _navmesh = navmesh;
             _filter = new NavmeshQueryFilter();
 
             NavmeshQuery query;
             NavStatus status = NavmeshQuery.Create(
-                navmesh,
+                _navmesh,
                 MaximumPathPolygons,
                 out query);
             if (NavUtil.Failed(status))
