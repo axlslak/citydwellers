@@ -82,6 +82,9 @@ This file is the compact restart image for a new development session. It is inte
     under a named mutex so parallel buddy logins cannot race its exclusive
     `StaticDynelData.bin` open.
   - Does not alter movement, navmesh paths, Grid exit, or Serenity routing.
+  - `[VERIFIED-LIVE]` Kavey's first focused test entered Grid immediately after
+    the buddy logged into ICC and used the static terminal. The former
+    live-identity wait is resolved.
 
 ## Main components
 
@@ -254,10 +257,22 @@ default with the retained bounded-pulse fallback over several days.
   instance identities. Navigation code must continue branching on stable
   `Playfield.ModelId` values (`152` for Grid and `6010` for Serenity), not the
   captured instance values.
-- `[IMPLEMENTED]` CityBuddies now loads the restored `152.Navmesh`, follows it
-  from the current Grid position to `(211.6727, 3.775, 186.7213)`, sends a full
-  stop at the observed trigger exactly as the captured player did, waits up to
-  20 seconds for model `6010`, and then hands off to Serenity navigation.
+- `[IMPLEMENTED]` CityBuddies loads the restored `152.Navmesh` and follows it
+  from the current Grid position toward `(211.6727, 3.775, 186.7213)`.
+- `[SUPERSEDED-INFERENCE]` Treating that last observed coordinate as a point at
+  which to stop and wait was incorrect. The player capture showed movement to
+  the coordinate, but did not prove that stopping there crosses the zoning
+  volume.
+- `[VERIFIED-LIVE]` The buddy reached the exit area, stopped, remained in Grid,
+  and returned `route-unavailable` after 20 seconds:
+  `Grid did not change to Serenity within 20s after crossing the observed exit.`
+- `[VERIFIED-CODE]` The timeout text is misleading. At `<=0.25m`,
+  `BeginGridCrossing` calls `StopMovement`; while waiting,
+  `ProcessGridCrossing` sends no further movement. The buddy reaches the point
+  but does not actually cross beyond it.
+- `[OPEN]` The next isolated Grid fix should replace stop-and-wait with a short,
+  bounded forward crossing while waiting for stable model `6010`. Exact
+  distance/timeout safeguards remain to be chosen before implementation.
 - `[SECURITY]` The raw protocol dump is owner-supplied diagnostic material and
   remains outside the public repository; only these sanitized conclusions are
   durable project state.
@@ -350,13 +365,12 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-The focused ICC terminal fix is published in `abe19cb`. Next:
+The ICC terminal fix in `abe19cb` is verified live. Next:
 
-1. Kavey rebuilds, starts parallel buddies, and confirms there is no
-   `StaticDynelData.bin` sharing violation.
-2. Kavey parks one monitored buddy near `Enter The Grid` in ICC, starts
-   `#home`, and reports whether static identity `Terminal:C002028F` enters
-   Grid model `152`.
-3. Walking quality, city main-street routing, Grid exit behavior, and guest
-   channel diagnostics are explicitly deferred to later one-problem passes.
+1. Await Kavey's direction before implementing the isolated Grid crossing
+   fix: continue through the exit volume instead of stopping at its edge.
+2. Parallel-login stress verification for the `StaticDynelData.bin` mutex is
+   still useful if the successful run did not start several buddies together.
+3. Walking quality, city main-street routing, and guest-channel diagnostics
+   remain separate later passes.
 4. The assistant does not build or run AO unless Kavey explicitly delegates it.

@@ -353,3 +353,25 @@ but did not zone into Serenity.
 `[DECISION]` These findings are a deferred backlog only. The next live check is
 the sealed ICC static-terminal/login fix; walking control, Serenity street
 routing, and the Grid trigger will each be handled in separate later passes.
+
+## 2026-08-30 — ICC entry verified; Grid stop diagnosed
+
+`[VERIFIED-LIVE]` Kavey's focused build entered Grid immediately after the ICC
+buddy logged on. This verifies the static `Enter The Grid` interaction from
+`abe19cb`; the former wait for a live terminal identity is gone.
+
+The buddy then navigated to the Grid exit area but stayed in model `152` until
+CityBuddies reported:
+
+`Grid did not change to Serenity within 20s after crossing the observed exit.`
+
+`[VERIFIED-CODE]` It had not crossed the volume. `ProcessGridRoute` accepts the
+target at `<=0.25m`; `BeginGridCrossing` immediately calls `StopMovement`; and
+the 20-second waiting state sends no additional movement. The wording “after
+crossing” is therefore inaccurate. Our earlier inference that the final
+captured coordinate was itself sufficient to zone is superseded by this test.
+
+`[OPEN]` The next focused change should keep movement bounded but carry the
+buddy forward through the exit volume until stable model `6010` is observed,
+rather than stopping at the recorded edge coordinate. No implementation was
+made in this evidence transaction.
