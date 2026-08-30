@@ -61,6 +61,11 @@ This file is the compact restart image for a new development session. It is inte
   - Added pinned, hash-verified dependency restoration and x86 project targets.
   - Grid behavior remains explicitly unavailable until its real handoff is
     measured.
+- `[VERIFIED]` Commit `5ec43d5b87900ac89f5bd26c35562653098701c9`
+  — `Keep CritterAI navmesh alive`.
+  - Fixes Kavey's intermittent native `dtNavMesh.getTilesAt` access violation.
+  - `NavmeshPathfinder` now strongly retains the `Navmesh` whose native memory
+    is referenced by its long-lived `NavmeshQuery`.
 
 ## Main components
 
@@ -237,8 +242,12 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 Navmesh-based Serenity homing is published in `6d03574`. Next:
 
-1. Kavey builds the solution and returns any compile/dependency-restore output.
+1. Kavey rebuilds from `5ec43d5` or later and confirms the native access
+   violation no longer occurs.
 2. Kavey live-tests `#home 75`, including a character west of the old Serenity
    T-junction failure point if practical.
-3. Record the build and live-test result without changing the explicit
+3. If one character still does not move, capture that character's home state,
+   detail, playfield, and position after the crash fix so its route issue can
+   be diagnosed independently.
+4. Record the build and live-test result without changing the explicit
    route-unavailable Grid behavior.

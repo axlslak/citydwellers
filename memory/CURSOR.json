@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_transaction": "session-5-navmesh-lifetime-fix",
-  "started_utc": "2026-08-30T12:02:45Z",
-  "base_commit": "5486d2c701ace7ea980afb73a01d3af86edd3c16",
-  "active_task": "Retain Navmesh ownership for the lifetime of NavmeshQuery to stop intermittent native access violations. Kavey builds and live-tests.",
-  "resume_instruction": "Read RECOVERY.md and journal seq 8. Verify origin/master, then inspect NavmeshPathfinder: it must strongly retain the Navmesh used to create its query. Finish and seal this focused fix before unrelated work."
+  "status": "idle",
+  "last_completed_transaction": "session-5-navmesh-lifetime-fix",
+  "completed_utc": "2026-08-30T12:05:57Z",
+  "checkpoint_commit": "5ec43d5b87900ac89f5bd26c35562653098701c9",
+  "next_task": "Kavey rebuilds and confirms the CritterAI access violation is gone, then reports state/detail/playfield/position for the one non-moving buddy if it still fails.",
+  "resume_instruction": "Start at RECOVERY.md and confirm commit 5ec43d5 is on origin/master. The native lifetime fix is complete. Reconcile Kavey's rebuild/live-test output in a new transaction; do not conflate a remaining single-character route failure with the fixed process crash."
 }

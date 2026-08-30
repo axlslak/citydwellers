@@ -204,3 +204,24 @@ coordinate or city exit was guessed.
 `[OPEN]` No assistant-side build or runtime test was run, by owner policy.
 Kavey must build and live-test `#home`, especially west of the old T-junction,
 then return the result for reconciliation and transaction sealing.
+
+## 2026-08-30 — CritterAI native lifetime fix
+
+`[LIVE-TEST]` Kavey reported that one buddy would not move and that Buddies
+intermittently crashed with `AccessViolationException` in
+`dtNavMesh.getTilesAt`, reached through `NavmeshQuery.GetNearestPoint`.
+
+`[DIAGNOSIS]` The new `NavmeshPathfinder` retained its query and filter but not
+the managed `Navmesh` used to create the query. The query holds a native
+pointer into that navmesh, so garbage collection could finalize/free
+`dtNavMesh` while later path queries still used it. The upstream reference
+implementation retained the navmesh as a field.
+
+`[VERIFIED]` Published fix:
+
+`5ec43d5b87900ac89f5bd26c35562653098701c9` — `Keep CritterAI navmesh alive`
+
+The pathfinder now strongly retains the navmesh for its entire lifetime. No
+assistant-side build or runtime test was run. Kavey must rebuild and confirm
+the access violation is gone. Diagnose the single non-moving buddy separately
+only if it remains afterward, using its reported state/detail and position.
