@@ -1,17 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "supported_recovery_keys": [
-    "CITYDWELLERS-RECOVER-V1",
-    "CITYBANKER-RECOVER-V1"
-  ],
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_project": "repository",
-  "transaction": "session-5-correct-repository-boundary",
-  "started_utc": "2026-09-01T23:23:38Z",
-  "base_commit": "92aca3dc6843bbe8916f8aa5ad3ba6674f33a34b",
-  "task": "Remove the mistakenly embedded City Banker recovery scaffolding from City Dwellers and restore a strict two-repository boundary.",
-  "resume_instruction": "Start at RECOVERY.md and journal BEGIN seq 39. Kavey clarified that axlslak/citydwellers and axlslak/citybankers are separate repositories. Remove City Banker recovery cards/checkpoints and shared-repository claims from City Dwellers, retain only a sanitized cross-repository coordination rule, and record the correction without rewriting journal history. Then initialize the same one-writer idea independently in axlslak/citybankers. Do not change application code or build."
+  "status": "idle",
+  "last_completed_project": "repository",
+  "last_completed_transaction": "session-5-correct-repository-boundary",
+  "completed_utc": "2026-09-01T23:32:56Z",
+  "checkpoint_commit": "ac688ff2b5602dbb3f3620c72625c58b6594e66f",
+  "next_task": "Kavey builds and runs one monitored ICC-to-Grid test of the restored full-client movement tail, then returns its NavigationTraces JSONL.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the corrective seal after ac688ff is on axlslak/citydwellers master. City Dwellers and CityBankers are separate repositories with independent recovery systems; Kavey guarantees one GPT writer across both at a time. The invalid CityBankers card/checkpoint files were removed from City Dwellers, and actual CityBankers coordination was sealed separately at fe9bce9 on axlslak/citybankers main. City Dwellers next resumes the monitored ICC-to-Grid test of commit 1464d99."
 }
