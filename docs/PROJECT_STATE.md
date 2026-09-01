@@ -462,6 +462,36 @@ sanitized reusable ideas are durable project state.
   `name.Navmesh` path and its config loader reads a directory path as a file.
   Repair those defects before using it as a validator.
 
+## Navigation forensic trace
+
+- `[IMPLEMENTED]` Every new non-cancelled home job opens a character-specific
+  JSONL trace in the CityBuddies runtime plugin directory under
+  `NavigationTraces`. The filename includes UTC start time, character, and
+  home-job ID; a new job never appends to an older job's trace.
+- `[IMPLEMENTED]` Trace events distinguish outbound movement commands from
+  received local `CharDCMove` echoes. Each event has a UTC timestamp and
+  sequence number plus the available asserted position/heading, locally
+  observed position/heading, packet delta time, stable playfield model, Run
+  Speed stat, route state, pulse/continuous controller state, Grid crossing
+  state, and ICC-use count.
+- `[IMPLEMENTED]` One controller sample per second preserves position and
+  state during quiet waits such as the 20-second Grid zoning window. Route
+  construction, ICC terminal use, playfield changes, lifecycle boundaries,
+  state/detail changes, and all movement actions receive explicit events.
+- `[IMPLEMENTED]` JSON lines omit null fields and are buffered for at most one
+  second. The trace is forced to disk at playfield changes, terminal home
+  states, disconnect, and plugin teardown so the logger does not perform a
+  disk write for every movement packet.
+- `[IMPLEMENTED]` Buddy.exe prints the trace path when CityBuddies starts it
+  and includes `NavigationTraces\\<filename>` in the terminal home result.
+  Manager `#position` now reports Run Speed, trace filename/sequence, and the
+  latest command and echo. It does not flood guest chat with every event.
+- `[INVARIANT]` This is observation only. Movement modes, timings, paths,
+  terminal interaction, and the known Grid crossing pulse are unchanged.
+- `[SECURITY]` Runtime `NavigationTraces` directories are ignored by Git. Raw
+  live traces remain owner-supplied diagnostics and are not published unless
+  Kavey explicitly asks for a sanitized artifact.
+
 ## Publication constraints
 
 - `[DO-NOT-USE]` `InfoHelper` / `InfoHelper.zip` must remain outside the public repository.
@@ -489,15 +519,17 @@ ICC static-terminal entry into Grid is owner-verified. The isolated 2 m Grid
 crossing pulse from `d927cd5` failed and produces alternating retry positions.
 Next:
 
-1. Replace only the final Grid handoff with a deterministic staging/exit state
-   machine that ends with `ForwardStop` at the captured exit coordinate. Do not
-   change general walking, Serenity routing, or ICC terminal use in the same
-   transaction.
-2. Kavey builds and runs one buddy already in or near the Grid exit area. The
-   assistant does not build or run AO unless Kavey explicitly delegates it.
-3. Log the server-observed start position, staging arrival, exact movement
-   actions/positions for the final leg, final Grid position, and stable model
-   transition or timeout. Guest chat should show a concise state/result.
+1. Kavey builds the diagnostic change and runs the one buddy deliberately
+   saved in ICC through one ordinary home job. The assistant does not build or
+   run AO unless Kavey explicitly delegates it.
+2. Preserve the resulting single JSONL file. It should contain the clean ICC
+   terminal interaction, stable change to Grid, navmesh leg, exact exit
+   actions/echoes, quiet wait samples, and terminal outcome without requiring
+   visual narration.
+3. Use that trace to replace only the final Grid handoff with a deterministic
+   staging/exit state machine that ends with `ForwardStop` at the captured exit
+   coordinate. Do not change general walking, Serenity routing, or ICC terminal
+   use in the same transaction.
 4. After Grid-to-Serenity succeeds repeatably, address continuous-walker
    rubber-banding as a separate problem. Preserve bounded-pulse rollback, do
    not use rapid walk/run toggling as synchronization, and retain sustained

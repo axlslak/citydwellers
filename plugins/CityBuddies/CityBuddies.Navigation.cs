@@ -143,14 +143,22 @@ namespace CityBuddies
             SetHomeState(
                 "zoning",
                 $"Entered playfield {playfieldId}; preparing {GetMovementModeName()} navigation.");
+            TraceNavigation(
+                "playfield-change",
+                $"Stable playfield model changed to {playfieldId}.");
+            FlushNavigationTrace(true);
         }
 
         private bool EnsureStanding(LocalPlayer localPlayer, DateTime now)
         {
             if (!_standRequested)
             {
-                PrepareMovementComponent(localPlayer, localPlayer.Transform.Heading);
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
+                SendMovementCommand(
+                    localPlayer,
+                    localPlayer.Transform.Position,
+                    localPlayer.Transform.Heading,
+                    MovementAction.LeaveSit,
+                    "Standing before home navigation.");
                 _standRequested = true;
                 _standReadyUtc = now.Add(StandDelay);
                 SetHomeState("standing", "Standing before movement or interaction.");
@@ -409,9 +417,14 @@ namespace CityBuddies
                 {
                     _continuousCommandPosition = position;
                     _continuousCommandPositionAvailable = true;
-                    PrepareMovementComponent(localPlayer, position, _continuousHeading);
-                    localPlayer.MovementComponent.ChangeMovement(
-                        MovementAction.ForwardStart);
+                    SendMovementCommand(
+                        localPlayer,
+                        position,
+                        _continuousHeading,
+                        MovementAction.ForwardStart,
+                        $"Continuous start toward waypoint " +
+                        $"({_continuousWaypointIndex + 1}/{_continuousPath.Count}) " +
+                        $"at ({target.X:F3},{target.Y:F3},{target.Z:F3}).");
                 }
                 else
                 {
@@ -428,13 +441,17 @@ namespace CityBuddies
                         target,
                         _continuousHeading,
                         (float)(ContinuousMovementSpeed * elapsedSeconds));
+                    float outboundStep =
+                        outbound.Distance2DFrom(_continuousCommandPosition);
                     _continuousCommandPosition = outbound;
-                    PrepareMovementComponent(
+                    SendMovementCommand(
                         localPlayer,
                         outbound,
-                        _continuousHeading);
-                    localPlayer.MovementComponent.ChangeMovement(
-                        MovementAction.Update);
+                        _continuousHeading,
+                        MovementAction.Update,
+                        $"Continuous update toward waypoint " +
+                        $"({_continuousWaypointIndex + 1}/{_continuousPath.Count}); " +
+                        $"step={outboundStep:F3}m.");
                 }
 
                 _continuousForwardActive = true;
@@ -487,6 +504,16 @@ namespace CityBuddies
                 _continuousLastSteerUtc = now;
                 _continuousNextUpdateUtc = DateTime.MinValue;
                 _continuousLastCommandUtc = DateTime.MinValue;
+                TraceNavigation(
+                    "route-built",
+                    $"Playfield {playfieldId} path from " +
+                    $"({position.X:F3},{position.Y:F3},{position.Z:F3}) to " +
+                    $"({destination.X:F3},{destination.Y:F3},{destination.Z:F3}); " +
+                    $"points={_continuousPath.Count}: " +
+                    string.Join(
+                        " -> ",
+                        _continuousPath.Select(x =>
+                            $"({x.X:F3},{x.Y:F3},{x.Z:F3})")));
                 error = null;
                 return true;
             }
@@ -565,11 +592,12 @@ namespace CityBuddies
             DateTime now,
             string label)
         {
-            PrepareMovementComponent(
+            SendMovementCommand(
                 localPlayer,
                 _continuousCommandPosition,
-                _continuousHeading);
-            localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+                _continuousHeading,
+                MovementAction.FullStop,
+                $"Continuous endpoint stop at {label}.");
             ResetContinuousRoute(false);
             _continuousForwardActive = false;
             _standReadyUtc = now.Add(MovementObservationQuietPeriod);
@@ -584,11 +612,12 @@ namespace CityBuddies
             DateTime now,
             string reason)
         {
-            PrepareMovementComponent(
+            SendMovementCommand(
                 localPlayer,
                 localPlayer.Transform.Position,
-                localPlayer.Transform.Heading);
-            localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+                localPlayer.Transform.Heading,
+                MovementAction.FullStop,
+                $"Continuous recovery stop: {reason}");
 
             if (_continuousRecoveries >= MaximumStuckRecoveries)
             {
@@ -728,8 +757,14 @@ namespace CityBuddies
             // playfield has not changed yet.
             ResetPulseState(false);
             ResetContinuousState(false);
-            PrepareMovementComponent(localPlayer, position, _gridCrossingHeading);
-            localPlayer.MovementComponent.ChangeMovement(MovementAction.ForwardStart);
+            SendMovementCommand(
+                localPlayer,
+                position,
+                _gridCrossingHeading,
+                MovementAction.ForwardStart,
+                $"Grid exit pulse start toward " +
+                $"({_gridCrossingEndpoint.X:F3},{_gridCrossingEndpoint.Y:F3}," +
+                $"{_gridCrossingEndpoint.Z:F3}).");
 
             _gridCrossingActive = true;
             _gridCrossingForwardActive = true;
@@ -745,11 +780,12 @@ namespace CityBuddies
         {
             if (_gridCrossingForwardActive && now >= _gridCrossingStopUtc)
             {
-                PrepareMovementComponent(
+                SendMovementCommand(
                     localPlayer,
                     _gridCrossingEndpoint,
-                    _gridCrossingHeading);
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+                    _gridCrossingHeading,
+                    MovementAction.FullStop,
+                    "Grid exit pulse endpoint FullStop.");
                 _gridCrossingForwardActive = false;
                 SetHomeState(
                     "waiting-for-serenity",
@@ -829,6 +865,11 @@ namespace CityBuddies
             enterTheGrid.Use();
             _iccUseAttempts++;
             _nextIccUseUtc = now.Add(IccUseRetryInterval);
+            TraceNavigation(
+                "interaction",
+                $"Used Enter The Grid identity {enterTheGrid.Identity}; " +
+                $"template={enterTheGrid.TemplateId}; attempt={_iccUseAttempts}/" +
+                $"{MaximumIccUseAttempts}; distance={distance:F3}m.");
             SetHomeState(
                 "entering-grid",
                 $"Used static Enter The Grid identity {enterTheGrid.Identity}; attempt " +

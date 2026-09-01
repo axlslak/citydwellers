@@ -25,6 +25,15 @@ namespace CityBuddies
         private static readonly TimeSpan SettledPositionTimeout = TimeSpan.FromMilliseconds(2500);
         private static readonly TimeSpan MovementObservationQuietPeriod =
             TimeSpan.FromMilliseconds(300);
+        private static readonly TimeSpan NavigationTraceFlushInterval =
+            TimeSpan.FromSeconds(1);
+        private static readonly TimeSpan NavigationStateSampleInterval =
+            TimeSpan.FromSeconds(1);
+        private static readonly JsonSerializerSettings NavigationTraceJsonSettings =
+            new JsonSerializerSettings
+            {
+                NullValueHandling = NullValueHandling.Ignore
+            };
 
         private const int SerenityIslandsPlayfieldId = 6010;
         private const float HomeX = 996.004f;
@@ -51,6 +60,8 @@ namespace CityBuddies
 
         private readonly object _snapshotSync = new object();
         private readonly object _movementObservationSync = new object();
+        private readonly object _navigationTraceSync = new object();
+        private readonly Queue<string> _pendingNavigationTrace = new Queue<string>();
         private readonly Dictionary<int, NavmeshPathfinder> _navmeshPathfinders =
             new Dictionary<int, NavmeshPathfinder>();
         private readonly Dictionary<int, string> _navmeshLoadErrors =
@@ -59,12 +70,19 @@ namespace CityBuddies
         private string _snapshotPath;
         private string _homeDirectivePath;
         private string _navmeshDirectory;
+        private string _pluginDirectory;
+        private string _navigationTracePath;
         private bool _readyWritten;
         private bool _inPlay;
         private bool _dead;
         private DateTime _lastSnapshotUtc = DateTime.MinValue;
         private string _lastSnapshotError;
         private string _lastDirectiveError;
+        private string _lastNavigationTraceError;
+        private DateTime _nextNavigationTraceFlushUtc = DateTime.MinValue;
+        private DateTime _nextNavigationStateSampleUtc = DateTime.MinValue;
+        private long _navigationTraceSequence;
+        private int? _lastRunSpeed;
 
         private BuddyHomeDirective _homeDirective;
         private string _homeState;
@@ -85,6 +103,11 @@ namespace CityBuddies
         private Vector3 _lastSettledPosition;
         private MovementAction _lastMovementAction;
         private DateTime _lastMovementObservationUtc = DateTime.MinValue;
+        private int _lastMovementObservationDeltaTime;
+        private Vector3 _lastMovementCommandPosition;
+        private MovementAction _lastMovementCommandAction;
+        private DateTime _lastMovementCommandUtc = DateTime.MinValue;
+        private long _movementCommandSerial;
         private MovementPulsePhase _pulsePhase;
         private int _stuckRecoveries;
         private int _stopConfirmationRetries;
@@ -102,6 +125,8 @@ namespace CityBuddies
         public override void Init(string pluginDir)
         {
             PreloadStaticDynelData();
+
+            _pluginDirectory = pluginDir;
 
             _readyPath = Path.Combine(
                 pluginDir,
@@ -192,6 +217,8 @@ namespace CityBuddies
         public override void Teardown()
         {
             StopMovement();
+            TraceNavigation("lifecycle", "CityBuddies plugin teardown.");
+            FlushNavigationTrace(true);
             Client.MessageReceived -= MessageReceived;
             Client.OnUpdate -= Tick;
             Client.Died -= Died;
@@ -257,6 +284,19 @@ namespace CityBuddies
             if (_homeDirective != null && _inPlay)
                 ProcessHomeNavigation(now);
 
+            if (_homeDirective != null &&
+                !IsTerminalHomeState(_homeState) &&
+                now >= _nextNavigationStateSampleUtc)
+            {
+                TraceNavigation(
+                    "controller-sample",
+                    _homeDetail ?? "Home navigation is active.");
+                _nextNavigationStateSampleUtc =
+                    now.Add(NavigationStateSampleInterval);
+            }
+
+            FlushNavigationTrace(false);
+
             TimeSpan interval = _homeDirective == null
                 ? SnapshotInterval
                 : NavigatingSnapshotInterval;
@@ -285,6 +325,8 @@ namespace CityBuddies
         {
             StopMovement();
             _inPlay = false;
+            TraceNavigation("lifecycle", "AO clientless session disconnected.");
+            FlushNavigationTrace(true);
             WriteSnapshot(false);
         }
 
@@ -327,6 +369,13 @@ namespace CityBuddies
                     return;
                 }
 
+                bool newJob =
+                    _homeDirective == null ||
+                    !string.Equals(
+                        _homeDirective.JobId,
+                        directive.JobId,
+                        StringComparison.Ordinal);
+
                 StopMovement();
                 _homeDirective = directive;
                 _standRequested = false;
@@ -339,6 +388,9 @@ namespace CityBuddies
                     SetHomeState("canceled", "Home navigation was canceled by Buddies.");
                     return;
                 }
+
+                if (newJob)
+                    BeginNavigationTrace(directive);
 
                 SetHomeState(
                     "starting",
@@ -401,8 +453,13 @@ namespace CityBuddies
             // First publish the new heading while explicitly stopped. Forward
             // motion is never left open-ended: every start below has a matching
             // endpoint packet after one short pulse.
-            PrepareMovementComponent(localPlayer, position, _pulseHeading);
-            localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+            SendMovementCommand(
+                localPlayer,
+                position,
+                _pulseHeading,
+                MovementAction.FullStop,
+                $"Bounded pulse orienting toward " +
+                $"({_pulseTarget.X:F3},{_pulseTarget.Y:F3},{_pulseTarget.Z:F3}).");
             _pulsePhase = MovementPulsePhase.Orienting;
             _pulseDeadlineUtc = now.Add(HeadingSettleDelay);
         }
@@ -420,8 +477,12 @@ namespace CityBuddies
 
             if (_pulsePhase == MovementPulsePhase.Orienting)
             {
-                PrepareMovementComponent(localPlayer, _pulseStart, _pulseHeading);
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.ForwardStart);
+                SendMovementCommand(
+                    localPlayer,
+                    _pulseStart,
+                    _pulseHeading,
+                    MovementAction.ForwardStart,
+                    $"Bounded pulse start; requestedDistance={_pulseDistance:F3}m.");
                 _pulsePhase = MovementPulsePhase.Moving;
                 TimeSpan pulseDuration = _successfulPulses == 0
                     ? FirstMovementPulseDuration.Add(
@@ -436,8 +497,12 @@ namespace CityBuddies
                 lock (_movementObservationSync)
                     _settledObservationSerialAtStop = _settledObservationSerial;
 
-                PrepareMovementComponent(localPlayer, _pulseEndpoint, _pulseHeading);
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+                SendMovementCommand(
+                    localPlayer,
+                    _pulseEndpoint,
+                    _pulseHeading,
+                    MovementAction.FullStop,
+                    "Bounded pulse endpoint stop.");
                 _pulsePhase = MovementPulsePhase.Settling;
                 _pulseDeadlineUtc = now.Add(SettledPositionTimeout);
                 return;
@@ -501,8 +566,13 @@ namespace CityBuddies
                 lock (_movementObservationSync)
                     _settledObservationSerialAtStop = _settledObservationSerial;
 
-                PrepareMovementComponent(localPlayer, _pulseEndpoint, _pulseHeading);
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+                SendMovementCommand(
+                    localPlayer,
+                    _pulseEndpoint,
+                    _pulseHeading,
+                    MovementAction.FullStop,
+                    $"Bounded pulse stop confirmation " +
+                    $"{_stopConfirmationRetries}/{MaximumStopConfirmationRetries}.");
                 _pulseDeadlineUtc = now.Add(SettledPositionTimeout);
                 SetHomeState(
                     "confirming-position",
@@ -549,11 +619,13 @@ namespace CityBuddies
             if (displacement > _pulseDistance + PulseDisplacementSlack ||
                 progress < -WrongWayTolerance)
             {
-                PrepareMovementComponent(
+                SendMovementCommand(
                     localPlayer,
                     settledPosition,
-                    localPlayer.Transform.Heading);
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+                    localPlayer.Transform.Heading,
+                    MovementAction.FullStop,
+                    $"Emergency bounded-pulse stop; moved={displacement:F3}m, " +
+                    $"progress={progress:F3}m, crossTrack={crossTrack:F3}m.");
                 ResetPulseState(false);
                 SetHomeState(
                     "movement-diverged",
@@ -601,8 +673,17 @@ namespace CityBuddies
                 _lastSettledPosition = movement.Position;
                 _lastMovementAction = movement.MoveType;
                 _lastMovementObservationUtc = DateTime.UtcNow;
+                _lastMovementObservationDeltaTime = (int)movement.DeltaTime;
                 _settledObservationSerial++;
             }
+
+            TraceNavigation(
+                "movement-echo",
+                "Received local CharDCMove echo.",
+                movement.MoveType,
+                movement.Position,
+                movement.Heading,
+                (int)movement.DeltaTime);
 
             if (_continuousForwardActive &&
                 (movement.MoveType == MovementAction.FullStop ||
@@ -769,8 +850,12 @@ namespace CityBuddies
                 HomeHeadingY,
                 HomeHeadingZ,
                 HomeHeadingW);
-            PrepareMovementComponent(localPlayer, heading);
-            localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+            SendMovementCommand(
+                localPlayer,
+                localPlayer.Transform.Position,
+                heading,
+                MovementAction.FullStop,
+                "Final City Controller position and heading.");
             ResetPulseState(false);
             ResetContinuousState(false);
         }
@@ -783,8 +868,12 @@ namespace CityBuddies
                 if (localPlayer == null || localPlayer.Transform == null)
                     return;
 
-                PrepareMovementComponent(localPlayer, localPlayer.Transform.Heading);
-                localPlayer.MovementComponent.ChangeMovement(MovementAction.FullStop);
+                SendMovementCommand(
+                    localPlayer,
+                    localPlayer.Transform.Position,
+                    localPlayer.Transform.Heading,
+                    MovementAction.FullStop,
+                    "StopMovement requested.");
             }
             catch
             {
@@ -808,17 +897,393 @@ namespace CityBuddies
             }
         }
 
+        private void BeginNavigationTrace(BuddyHomeDirective directive)
+        {
+            FlushNavigationTrace(true);
+
+            lock (_navigationTraceSync)
+            {
+                _pendingNavigationTrace.Clear();
+                _navigationTracePath = null;
+                _navigationTraceSequence = 0;
+                _nextNavigationTraceFlushUtc = DateTime.MinValue;
+                _lastNavigationTraceError = null;
+            }
+
+            try
+            {
+                string traceDirectory = Path.Combine(
+                    _pluginDirectory,
+                    "NavigationTraces");
+                Directory.CreateDirectory(traceDirectory);
+
+                string fileName =
+                    $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-" +
+                    $"{SafeFileToken(Client.CharacterName)}-" +
+                    $"{SafeFileToken(directive.JobId)}.jsonl";
+                string path = Path.Combine(traceDirectory, fileName);
+                File.WriteAllText(path, string.Empty);
+
+                lock (_navigationTraceSync)
+                {
+                    _navigationTracePath = path;
+                }
+
+                TraceNavigation(
+                    "trace-start",
+                    $"Home navigation trace started; requested={directive.RequestedUtc:O}; " +
+                    $"mode={GetMovementModeName()}.");
+                FlushNavigationTrace(true);
+                Logger.Information(
+                    $"CityBuddies navigation trace for {Client.CharacterName}: {path}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning(
+                    $"CityBuddies could not start navigation trace for " +
+                    $"{Client.CharacterName}: {ex.Message}");
+            }
+        }
+
+        private static string SafeFileToken(string value)
+        {
+            string token = string.IsNullOrWhiteSpace(value) ? "unknown" : value;
+            foreach (char invalid in Path.GetInvalidFileNameChars())
+                token = token.Replace(invalid, '_');
+
+            return token;
+        }
+
+        private void SendMovementCommand(
+            LocalPlayer localPlayer,
+            Vector3 assertedPosition,
+            Quaternion assertedHeading,
+            MovementAction action,
+            string reason)
+        {
+            PrepareMovementComponent(
+                localPlayer,
+                assertedPosition,
+                assertedHeading);
+
+            lock (_movementObservationSync)
+            {
+                _lastMovementCommandPosition = assertedPosition;
+                _lastMovementCommandAction = action;
+                _lastMovementCommandUtc = DateTime.UtcNow;
+                _movementCommandSerial++;
+            }
+
+            try
+            {
+                localPlayer.MovementComponent.ChangeMovement(action);
+                TraceNavigation(
+                    "movement-command",
+                    reason,
+                    action,
+                    assertedPosition,
+                    assertedHeading,
+                    null);
+            }
+            catch (Exception ex)
+            {
+                TraceNavigation(
+                    "movement-command-error",
+                    $"{reason} Send failed: {ex.GetType().Name}: {ex.Message}",
+                    action,
+                    assertedPosition,
+                    assertedHeading,
+                    null);
+                throw;
+            }
+        }
+
+        private void TraceNavigation(
+            string kind,
+            string message,
+            MovementAction? action = null,
+            Vector3? assertedPosition = null,
+            Quaternion? assertedHeading = null,
+            int? packetDeltaTime = null)
+        {
+            string tracePath;
+            lock (_navigationTraceSync)
+                tracePath = _navigationTracePath;
+
+            if (string.IsNullOrWhiteSpace(tracePath))
+                return;
+
+            try
+            {
+                DateTime now = DateTime.UtcNow;
+                LocalPlayer localPlayer = DynelManager.LocalPlayer;
+                bool observedAvailable =
+                    localPlayer != null && localPlayer.Transform != null;
+                Vector3 observedPosition = observedAvailable
+                    ? localPlayer.Transform.Position
+                    : new Vector3();
+                Quaternion observedHeading = observedAvailable
+                    ? localPlayer.Transform.Heading
+                    : Quaternion.Identity;
+
+                int? playfieldId = null;
+                try
+                {
+                    if (_inPlay)
+                        playfieldId = (int)Playfield.ModelId;
+                }
+                catch
+                {
+                }
+
+                if (!_lastRunSpeed.HasValue && localPlayer != null)
+                {
+                    try
+                    {
+                        _lastRunSpeed = localPlayer.GetStat(Stat.RunSpeed);
+                    }
+                    catch
+                    {
+                    }
+                }
+
+                MovementAction lastCommandAction = default(MovementAction);
+                Vector3 lastCommandPosition = new Vector3();
+                DateTime lastCommandUtc = DateTime.MinValue;
+                long movementCommandSerial;
+                MovementAction lastObservationAction = default(MovementAction);
+                Vector3 lastObservationPosition = new Vector3();
+                DateTime lastObservationUtc = DateTime.MinValue;
+                int lastObservationDeltaTime = 0;
+                long movementObservationSerial;
+
+                lock (_movementObservationSync)
+                {
+                    lastCommandAction = _lastMovementCommandAction;
+                    lastCommandPosition = _lastMovementCommandPosition;
+                    lastCommandUtc = _lastMovementCommandUtc;
+                    movementCommandSerial = _movementCommandSerial;
+                    lastObservationAction = _lastMovementAction;
+                    lastObservationPosition = _lastSettledPosition;
+                    lastObservationUtc = _lastMovementObservationUtc;
+                    lastObservationDeltaTime = _lastMovementObservationDeltaTime;
+                    movementObservationSerial = _settledObservationSerial;
+                }
+
+                var entry = new NavigationTraceEntry
+                {
+                    Format = "citydwellers-navigation-trace-v1",
+                    Utc = now,
+                    Character = Client.CharacterName,
+                    JobId = _homeDirective?.JobId,
+                    Kind = kind,
+                    Message = message,
+                    PlayfieldId = playfieldId,
+                    InPlay = _inPlay,
+                    Dead = _dead,
+                    RunSpeed = _lastRunSpeed,
+                    HomeMode = _homeDirective == null
+                        ? null
+                        : GetMovementModeName(),
+                    HomeState = _homeState,
+                    HomeDetail = _homeDetail,
+                    Action = action?.ToString(),
+                    PacketDeltaTime = packetDeltaTime,
+                    ObservedPositionAvailable = observedAvailable,
+                    ObservedX = observedAvailable ? (float?)observedPosition.X : null,
+                    ObservedY = observedAvailable ? (float?)observedPosition.Y : null,
+                    ObservedZ = observedAvailable ? (float?)observedPosition.Z : null,
+                    ObservedHeadingX = observedAvailable ? (float?)observedHeading.X : null,
+                    ObservedHeadingY = observedAvailable ? (float?)observedHeading.Y : null,
+                    ObservedHeadingZ = observedAvailable ? (float?)observedHeading.Z : null,
+                    ObservedHeadingW = observedAvailable ? (float?)observedHeading.W : null,
+                    AssertedX = assertedPosition.HasValue
+                        ? (float?)assertedPosition.Value.X
+                        : null,
+                    AssertedY = assertedPosition.HasValue
+                        ? (float?)assertedPosition.Value.Y
+                        : null,
+                    AssertedZ = assertedPosition.HasValue
+                        ? (float?)assertedPosition.Value.Z
+                        : null,
+                    AssertedHeadingX = assertedHeading.HasValue
+                        ? (float?)assertedHeading.Value.X
+                        : null,
+                    AssertedHeadingY = assertedHeading.HasValue
+                        ? (float?)assertedHeading.Value.Y
+                        : null,
+                    AssertedHeadingZ = assertedHeading.HasValue
+                        ? (float?)assertedHeading.Value.Z
+                        : null,
+                    AssertedHeadingW = assertedHeading.HasValue
+                        ? (float?)assertedHeading.Value.W
+                        : null,
+                    MovementCommandSerial = movementCommandSerial,
+                    LastCommandAction = movementCommandSerial > 0
+                        ? lastCommandAction.ToString()
+                        : null,
+                    LastCommandUtc = movementCommandSerial > 0
+                        ? (DateTime?)lastCommandUtc
+                        : null,
+                    LastCommandX = movementCommandSerial > 0
+                        ? (float?)lastCommandPosition.X
+                        : null,
+                    LastCommandY = movementCommandSerial > 0
+                        ? (float?)lastCommandPosition.Y
+                        : null,
+                    LastCommandZ = movementCommandSerial > 0
+                        ? (float?)lastCommandPosition.Z
+                        : null,
+                    MovementObservationSerial = movementObservationSerial,
+                    LastObservationAction = movementObservationSerial > 0
+                        ? lastObservationAction.ToString()
+                        : null,
+                    LastObservationUtc = movementObservationSerial > 0
+                        ? (DateTime?)lastObservationUtc
+                        : null,
+                    LastObservationDeltaTime = movementObservationSerial > 0
+                        ? (int?)lastObservationDeltaTime
+                        : null,
+                    LastObservationX = movementObservationSerial > 0
+                        ? (float?)lastObservationPosition.X
+                        : null,
+                    LastObservationY = movementObservationSerial > 0
+                        ? (float?)lastObservationPosition.Y
+                        : null,
+                    LastObservationZ = movementObservationSerial > 0
+                        ? (float?)lastObservationPosition.Z
+                        : null,
+                    PulsePhase = _pulsePhase.ToString(),
+                    StuckRecoveries = _stuckRecoveries,
+                    ContinuousForwardActive = _continuousForwardActive,
+                    ContinuousCommandAvailable =
+                        _continuousCommandPositionAvailable,
+                    ContinuousCommandX = _continuousCommandPositionAvailable
+                        ? (float?)_continuousCommandPosition.X
+                        : null,
+                    ContinuousCommandY = _continuousCommandPositionAvailable
+                        ? (float?)_continuousCommandPosition.Y
+                        : null,
+                    ContinuousCommandZ = _continuousCommandPositionAvailable
+                        ? (float?)_continuousCommandPosition.Z
+                        : null,
+                    ContinuousWaypointIndex = _continuousWaypointIndex,
+                    ContinuousPathCount = _continuousPath.Count,
+                    GridCrossingActive = _gridCrossingActive,
+                    GridCrossingForwardActive = _gridCrossingForwardActive,
+                    IccUseAttempts = _iccUseAttempts
+                };
+
+                lock (_navigationTraceSync)
+                {
+                    if (!string.Equals(
+                            tracePath,
+                            _navigationTracePath,
+                            StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+
+                    entry.Sequence = Interlocked.Increment(
+                        ref _navigationTraceSequence);
+                    _pendingNavigationTrace.Enqueue(
+                        JsonConvert.SerializeObject(
+                            entry,
+                            NavigationTraceJsonSettings));
+                }
+            }
+            catch (Exception ex)
+            {
+                string error = ex.GetType().Name + ": " + ex.Message;
+                if (!string.Equals(
+                        error,
+                        _lastNavigationTraceError,
+                        StringComparison.Ordinal))
+                {
+                    Logger.Warning(
+                        $"CityBuddies navigation trace event failed for " +
+                        $"{Client.CharacterName}: {error}");
+                    _lastNavigationTraceError = error;
+                }
+            }
+        }
+
+        private void FlushNavigationTrace(bool force)
+        {
+            lock (_navigationTraceSync)
+            {
+                if (string.IsNullOrWhiteSpace(_navigationTracePath) ||
+                    _pendingNavigationTrace.Count == 0)
+                {
+                    return;
+                }
+
+                DateTime now = DateTime.UtcNow;
+                if (!force && now < _nextNavigationTraceFlushUtc)
+                    return;
+
+                try
+                {
+                    File.AppendAllLines(
+                        _navigationTracePath,
+                        _pendingNavigationTrace);
+                    _pendingNavigationTrace.Clear();
+                    _nextNavigationTraceFlushUtc =
+                        now.Add(NavigationTraceFlushInterval);
+
+                    if (!string.IsNullOrWhiteSpace(_lastNavigationTraceError))
+                    {
+                        Logger.Information(
+                            $"CityBuddies navigation trace writing recovered for " +
+                            $"{Client.CharacterName}.");
+                        _lastNavigationTraceError = null;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    string error = ex.GetType().Name + ": " + ex.Message;
+                    if (!string.Equals(
+                            error,
+                            _lastNavigationTraceError,
+                            StringComparison.Ordinal))
+                    {
+                        Logger.Warning(
+                            $"CityBuddies navigation trace flush failed for " +
+                            $"{Client.CharacterName}: {error}");
+                        _lastNavigationTraceError = error;
+                    }
+                }
+            }
+        }
+
         private void SetHomeState(string state, string detail)
         {
-            if (string.Equals(_homeState, state, StringComparison.Ordinal) &&
-                string.Equals(_homeDetail, detail, StringComparison.Ordinal))
+            DateTime now = DateTime.UtcNow;
+            bool stateChanged =
+                !string.Equals(_homeState, state, StringComparison.Ordinal);
+            bool detailChanged =
+                !string.Equals(_homeDetail, detail, StringComparison.Ordinal);
+            if (!stateChanged && !detailChanged)
             {
                 return;
             }
 
-            _homeState = state;
-            _homeDetail = detail;
-            _homeUpdatedUtc = DateTime.UtcNow;
+            if (stateChanged || detailChanged)
+            {
+                _homeState = state;
+                _homeDetail = detail;
+                _homeUpdatedUtc = now;
+            }
+
+            bool terminal = IsTerminalHomeState(state);
+            TraceNavigation(
+                stateChanged ? "state-change" : "state-detail",
+                detail);
+            _nextNavigationStateSampleUtc =
+                now.Add(NavigationStateSampleInterval);
+
+            if (terminal)
+                FlushNavigationTrace(true);
         }
 
         private static bool IsTerminalHomeState(string state)
@@ -854,11 +1319,20 @@ namespace CityBuddies
                         HomeState = _homeState,
                         HomeDetail = _homeDetail,
                         HomeDistance = _homeDistance,
-                        HomeUpdatedUtc = _homeUpdatedUtc
+                        HomeUpdatedUtc = _homeUpdatedUtc,
+                        NavigationTraceFile = string.IsNullOrWhiteSpace(_navigationTracePath)
+                            ? null
+                            : Path.GetFileName(_navigationTracePath),
+                        NavigationTraceSequence = string.IsNullOrWhiteSpace(
+                                _navigationTracePath)
+                            ? (long?)null
+                            : Interlocked.Read(ref _navigationTraceSequence)
                     };
 
                     if (inPlay)
                         PopulateWorldSnapshot(snapshot);
+
+                    PopulateMovementSnapshot(snapshot);
 
                     WriteSnapshotAtomically(snapshot);
 
@@ -883,7 +1357,7 @@ namespace CityBuddies
             }
         }
 
-        private static void PopulateWorldSnapshot(BuddyPositionSnapshot snapshot)
+        private void PopulateWorldSnapshot(BuddyPositionSnapshot snapshot)
         {
             var localPlayer = DynelManager.LocalPlayer;
             if (localPlayer == null)
@@ -913,6 +1387,18 @@ namespace CityBuddies
                 snapshot.Error = AppendError(
                     snapshot.Error,
                     "Unable to read health: " + ex.Message);
+            }
+
+            try
+            {
+                snapshot.RunSpeed = localPlayer.GetStat(Stat.RunSpeed);
+                _lastRunSpeed = snapshot.RunSpeed;
+            }
+            catch (Exception ex)
+            {
+                snapshot.Error = AppendError(
+                    snapshot.Error,
+                    "Unable to read Run Speed: " + ex.Message);
             }
 
             if (localPlayer.Transform == null)
@@ -964,6 +1450,35 @@ namespace CityBuddies
             else
             {
                 snapshot.Error = AppendError(snapshot.Error, "Heading components are unavailable.");
+            }
+        }
+
+        private void PopulateMovementSnapshot(BuddyPositionSnapshot snapshot)
+        {
+            lock (_movementObservationSync)
+            {
+                if (_movementCommandSerial > 0)
+                {
+                    snapshot.LastMovementCommandAction =
+                        _lastMovementCommandAction.ToString();
+                    snapshot.LastMovementCommandUtc = _lastMovementCommandUtc;
+                    snapshot.LastMovementCommandX = _lastMovementCommandPosition.X;
+                    snapshot.LastMovementCommandY = _lastMovementCommandPosition.Y;
+                    snapshot.LastMovementCommandZ = _lastMovementCommandPosition.Z;
+                }
+
+                if (_settledObservationSerial > 0)
+                {
+                    snapshot.LastMovementObservationAction =
+                        _lastMovementAction.ToString();
+                    snapshot.LastMovementObservationUtc =
+                        _lastMovementObservationUtc;
+                    snapshot.LastMovementObservationDeltaTime =
+                        _lastMovementObservationDeltaTime;
+                    snapshot.LastMovementObservationX = _lastSettledPosition.X;
+                    snapshot.LastMovementObservationY = _lastSettledPosition.Y;
+                    snapshot.LastMovementObservationZ = _lastSettledPosition.Z;
+                }
             }
         }
 
@@ -1035,6 +1550,66 @@ namespace CityBuddies
             catch
             {
             }
+        }
+
+        private sealed class NavigationTraceEntry
+        {
+            public string Format { get; set; }
+            public long Sequence { get; set; }
+            public DateTime Utc { get; set; }
+            public string Character { get; set; }
+            public string JobId { get; set; }
+            public string Kind { get; set; }
+            public string Message { get; set; }
+            public int? PlayfieldId { get; set; }
+            public bool InPlay { get; set; }
+            public bool Dead { get; set; }
+            public int? RunSpeed { get; set; }
+            public string HomeMode { get; set; }
+            public string HomeState { get; set; }
+            public string HomeDetail { get; set; }
+            public string Action { get; set; }
+            public int? PacketDeltaTime { get; set; }
+            public bool ObservedPositionAvailable { get; set; }
+            public float? ObservedX { get; set; }
+            public float? ObservedY { get; set; }
+            public float? ObservedZ { get; set; }
+            public float? ObservedHeadingX { get; set; }
+            public float? ObservedHeadingY { get; set; }
+            public float? ObservedHeadingZ { get; set; }
+            public float? ObservedHeadingW { get; set; }
+            public float? AssertedX { get; set; }
+            public float? AssertedY { get; set; }
+            public float? AssertedZ { get; set; }
+            public float? AssertedHeadingX { get; set; }
+            public float? AssertedHeadingY { get; set; }
+            public float? AssertedHeadingZ { get; set; }
+            public float? AssertedHeadingW { get; set; }
+            public long MovementCommandSerial { get; set; }
+            public string LastCommandAction { get; set; }
+            public DateTime? LastCommandUtc { get; set; }
+            public float? LastCommandX { get; set; }
+            public float? LastCommandY { get; set; }
+            public float? LastCommandZ { get; set; }
+            public long MovementObservationSerial { get; set; }
+            public string LastObservationAction { get; set; }
+            public DateTime? LastObservationUtc { get; set; }
+            public int? LastObservationDeltaTime { get; set; }
+            public float? LastObservationX { get; set; }
+            public float? LastObservationY { get; set; }
+            public float? LastObservationZ { get; set; }
+            public string PulsePhase { get; set; }
+            public int StuckRecoveries { get; set; }
+            public bool ContinuousForwardActive { get; set; }
+            public bool ContinuousCommandAvailable { get; set; }
+            public float? ContinuousCommandX { get; set; }
+            public float? ContinuousCommandY { get; set; }
+            public float? ContinuousCommandZ { get; set; }
+            public int ContinuousWaypointIndex { get; set; }
+            public int ContinuousPathCount { get; set; }
+            public bool GridCrossingActive { get; set; }
+            public bool GridCrossingForwardActive { get; set; }
+            public int IccUseAttempts { get; set; }
         }
     }
 }

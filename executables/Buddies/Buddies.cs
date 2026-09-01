@@ -2108,9 +2108,13 @@ public class PluginLoader
                 }
             }
 
+            string traceSuffix =
+                string.IsNullOrWhiteSpace(snapshot.NavigationTraceFile)
+                    ? string.Empty
+                    : $" Trace: NavigationTraces\\{snapshot.NavigationTraceFile}";
             Console.WriteLine(
                 $"Home navigation {terminalState} for {candidate.Character}: " +
-                $"{detail ?? "no detail"}");
+                $"{detail ?? "no detail"}{traceSuffix}");
             RecordHomeNavigationResult(
                 candidate.NavigationJobId,
                 candidate.Character,

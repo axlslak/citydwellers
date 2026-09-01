@@ -508,3 +508,27 @@ AOSharp.Clientless 1.0.16 retains the effective live value and receives
 incremental resurrection changes remains unverified. No raw owner log, code
 change, build, or AO test was committed. Grid exit repeatability remains the
 next isolated implementation task.
+
+## 2026-09-01 — Per-home-job navigation forensics added
+
+`[OWNER-DIRECTION]` Kavey asked for an objective trace before further movement
+changes so live behavior no longer depends on unreliable visual narration.
+One character was deliberately left in ICC for a clean end-to-end specimen.
+
+`[IMPLEMENTED]` CityBuddies now creates one durable JSONL file for each new
+home job. It records outbound movement assertions and received self echoes as
+different event types, along with UTC time, sequence, observed and asserted
+transforms, Run Speed, playfield, home state/detail, route/controller state,
+Grid crossing state, ICC interactions, and once-per-second quiet-state samples.
+Writes are buffered and forced at important or terminal boundaries.
+
+Buddy.exe reports the trace filename with the terminal result. Manager
+`#position` exposes the active filename/event number, Run Speed, and newest
+command/echo without streaming the full trace into guest chat. Runtime trace
+directories are ignored by Git and raw captures remain outside the public
+repository.
+
+`[INVARIANT]` No routing, movement timing, Grid crossing behavior, or command
+semantics were intentionally changed. Kavey retains build and AO runtime-test
+ownership. The next evidence is one ordinary ICC-to-Grid home attempt and its
+resulting JSONL trace.

@@ -1225,6 +1225,37 @@ namespace CityManager
                     body.Append(
                         $"  health: {position.Health?.ToString() ?? "?"}/" +
                         $"{position.MaxHealth?.ToString() ?? "?"}\n");
+                    body.Append(
+                        $"  run speed: {position.RunSpeed?.ToString() ?? "?"}\n");
+
+                    if (!string.IsNullOrWhiteSpace(position.NavigationTraceFile))
+                    {
+                        body.Append(
+                            $"  navigation trace: " +
+                            $"{SafeRaidText(position.NavigationTraceFile)} " +
+                            $"(event {position.NavigationTraceSequence?.ToString() ?? "?"})\n");
+                    }
+
+                    body.Append(
+                        $"  last movement command: " +
+                        $"{SafeRaidText(FormatMovementRecord(
+                            position.LastMovementCommandAction,
+                            position.LastMovementCommandUtc,
+                            position.LastMovementCommandX,
+                            position.LastMovementCommandY,
+                            position.LastMovementCommandZ,
+                            null,
+                            now))}\n");
+                    body.Append(
+                        $"  last movement echo: " +
+                        $"{SafeRaidText(FormatMovementRecord(
+                            position.LastMovementObservationAction,
+                            position.LastMovementObservationUtc,
+                            position.LastMovementObservationX,
+                            position.LastMovementObservationY,
+                            position.LastMovementObservationZ,
+                            position.LastMovementObservationDeltaTime,
+                            now))}\n");
 
                     if (!string.IsNullOrWhiteSpace(position.HomeState))
                     {
@@ -1295,10 +1326,60 @@ namespace CityManager
                 $"dead={position.Dead} pf={position.PlayfieldId?.ToString() ?? "?"} " +
                 $"name='{position.PlayfieldName ?? "unknown"}' pos={FormatPosition(position)} " +
                 $"heading={FormatHeading(position)} hp={position.Health?.ToString() ?? "?"}/" +
-                $"{position.MaxHealth?.ToString() ?? "?"} age={age} " +
+                $"{position.MaxHealth?.ToString() ?? "?"} " +
+                $"runSpeed={position.RunSpeed?.ToString() ?? "?"} age={age} " +
                 $"home={position.HomeState ?? "none"} " +
                 $"homeDistance={(position.HomeDistance.HasValue ? position.HomeDistance.Value.ToString("0.00", CultureInfo.InvariantCulture) : "?")} " +
+                $"trace='{position.NavigationTraceFile ?? "none"}' " +
+                $"traceSeq={position.NavigationTraceSequence?.ToString() ?? "?"} " +
+                $"cmd='{FormatMovementRecord(
+                    position.LastMovementCommandAction,
+                    position.LastMovementCommandUtc,
+                    position.LastMovementCommandX,
+                    position.LastMovementCommandY,
+                    position.LastMovementCommandZ,
+                    null,
+                    now)}' " +
+                $"echo='{FormatMovementRecord(
+                    position.LastMovementObservationAction,
+                    position.LastMovementObservationUtc,
+                    position.LastMovementObservationX,
+                    position.LastMovementObservationY,
+                    position.LastMovementObservationZ,
+                    position.LastMovementObservationDeltaTime,
+                    now)}' " +
                 $"homeDetail='{homeDetail}' error='{error}'";
+        }
+
+        private static string FormatMovementRecord(
+            string action,
+            DateTime? utc,
+            float? x,
+            float? y,
+            float? z,
+            int? packetDeltaTime,
+            DateTime now)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return "none";
+
+            string age = utc.HasValue
+                ? ((int)Math.Max(
+                    0,
+                    (now - utc.Value.ToUniversalTime()).TotalMilliseconds)).ToString() + "ms"
+                : "?";
+            string delta = packetDeltaTime.HasValue
+                ? $" dt={packetDeltaTime.Value}"
+                : string.Empty;
+            return
+                $"{action}@{FormatVector3(x, y, z)} age={age}{delta}";
+        }
+
+        private static string FormatVector3(float? x, float? y, float? z)
+        {
+            return x.HasValue && y.HasValue && z.HasValue
+                ? $"({FormatCoordinate(x)},{FormatCoordinate(y)},{FormatCoordinate(z)})"
+                : "unknown";
         }
 
         private static bool HasPositionReport(BuddyPositionSnapshot position)
