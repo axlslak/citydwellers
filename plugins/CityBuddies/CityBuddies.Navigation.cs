@@ -16,6 +16,14 @@ namespace CityBuddies
         private static readonly TimeSpan GridZoneTimeout = TimeSpan.FromSeconds(20);
         private static readonly TimeSpan GridFinalApproachDuration =
             TimeSpan.FromMilliseconds(1200);
+        private static readonly TimeSpan GridNearExitToStopDelay =
+            TimeSpan.FromMilliseconds(35);
+        private static readonly TimeSpan GridPostStopTurnRightDelay =
+            TimeSpan.FromMilliseconds(83);
+        private static readonly TimeSpan GridPostStopTurnLeftDelay =
+            TimeSpan.FromMilliseconds(6);
+        private static readonly TimeSpan GridPostStopTurnStopDelay =
+            TimeSpan.FromMilliseconds(160);
         private static readonly TimeSpan IccDynelDiscoveryTimeout = TimeSpan.FromSeconds(15);
         private static readonly TimeSpan IccUseRetryInterval = TimeSpan.FromSeconds(5);
 
@@ -38,6 +46,8 @@ namespace CityBuddies
         private const float GridExitX = 211.6727f;
         private const float GridExitY = 3.775f;
         private const float GridExitZ = 186.7213f;
+        private const float GridNearExitX = 211.9757f;
+        private const float GridNearExitZ = 187.0108f;
         private const float GridStagingReachedDistance = 0.25f;
         private const float GridObservedArrivalX = 234.3062f;
         private const float GridObservedArrivalZ = 212.8138f;
@@ -82,6 +92,10 @@ namespace CityBuddies
             Idle,
             SettlingAtStaging,
             FinalApproach,
+            NearExitSample,
+            PostStopTurnRight,
+            PostStopTurnLeft,
+            PostStopTurnStop,
             WaitingForSerenity
         }
 
@@ -803,18 +817,89 @@ namespace CityBuddies
                 if (now < _gridExitPhaseDeadlineUtc)
                     return;
 
+                Vector3 nearExit =
+                    new Vector3(GridNearExitX, GridExitY, GridNearExitZ);
+                SendMovementCommand(
+                    localPlayer,
+                    nearExit,
+                    new Quaternion(0, -0.919104f, 0, 0.3940149f),
+                    MovementAction.TurnLeftMouse,
+                    "Grid captured near-exit TurnLeftMouse sample.");
+                _gridExitPhase = GridExitPhase.NearExitSample;
+                _gridExitPhaseDeadlineUtc = now.Add(GridNearExitToStopDelay);
+                SetHomeState(
+                    "crossing-city-exit",
+                    $"Sent the captured near-exit TurnLeftMouse sample at " +
+                    $"({GridNearExitX:F3},{GridExitY:F3},{GridNearExitZ:F3}); " +
+                    "finishing the full-client movement tail.");
+                return;
+            }
+
+            if (_gridExitPhase == GridExitPhase.NearExitSample)
+            {
+                if (now < _gridExitPhaseDeadlineUtc)
+                    return;
+
                 Vector3 exit = new Vector3(GridExitX, GridExitY, GridExitZ);
                 SendMovementCommand(
                     localPlayer,
                     exit,
-                    _gridExitHeading,
+                    new Quaternion(0, -0.9210626f, 0, 0.3894144f),
                     MovementAction.ForwardStop,
-                    "Grid final approach ForwardStop at the captured exit.");
+                    "Grid captured ForwardStop at the exact exit.");
+                _gridExitPhase = GridExitPhase.PostStopTurnRight;
+                _gridExitPhaseDeadlineUtc =
+                    now.Add(GridPostStopTurnRightDelay);
+                return;
+            }
+
+            if (_gridExitPhase == GridExitPhase.PostStopTurnRight)
+            {
+                if (now < _gridExitPhaseDeadlineUtc)
+                    return;
+
+                SendGridExitTurn(
+                    localPlayer,
+                    MovementAction.TurnRightMouse,
+                    "Grid captured post-stop TurnRightMouse.");
+                _gridExitPhase = GridExitPhase.PostStopTurnLeft;
+                _gridExitPhaseDeadlineUtc =
+                    now.Add(GridPostStopTurnLeftDelay);
+                return;
+            }
+
+            if (_gridExitPhase == GridExitPhase.PostStopTurnLeft)
+            {
+                if (now < _gridExitPhaseDeadlineUtc)
+                    return;
+
+                SendGridExitTurn(
+                    localPlayer,
+                    MovementAction.TurnLeftMouse,
+                    "Grid captured post-stop TurnLeftMouse.");
+                _gridExitPhase = GridExitPhase.PostStopTurnStop;
+                _gridExitPhaseDeadlineUtc =
+                    now.Add(GridPostStopTurnStopDelay);
+                return;
+            }
+
+            if (_gridExitPhase == GridExitPhase.PostStopTurnStop)
+            {
+                if (now < _gridExitPhaseDeadlineUtc)
+                    return;
+
+                Vector3 exit = new Vector3(GridExitX, GridExitY, GridExitZ);
+                SendMovementCommand(
+                    localPlayer,
+                    exit,
+                    new Quaternion(0, -0.9268001f, 0, 0.3755549f),
+                    MovementAction.TurnLeftStop,
+                    "Grid captured post-stop TurnLeftStop.");
                 _gridExitPhase = GridExitPhase.WaitingForSerenity;
                 _gridZoneDeadlineUtc = now.Add(GridZoneTimeout);
                 SetHomeState(
                     "waiting-for-serenity",
-                    $"Sent ForwardStop at the captured Grid exit " +
+                    $"Replayed the captured Grid exit movement tail at " +
                     $"({GridExitX:F3},{GridExitY:F3},{GridExitZ:F3}); " +
                     "waiting for Serenity.");
                 return;
@@ -828,9 +913,23 @@ namespace CityBuddies
                 SetHomeState(
                     "route-unavailable",
                     $"Grid did not change to Serenity within " +
-                    $"{GridZoneTimeout.TotalSeconds:F0}s after ForwardStop at " +
-                    "the captured exit.");
+                    $"{GridZoneTimeout.TotalSeconds:F0}s after replaying the " +
+                    "captured exit movement tail.");
             }
+        }
+
+        private void SendGridExitTurn(
+            LocalPlayer localPlayer,
+            MovementAction action,
+            string reason)
+        {
+            Vector3 exit = new Vector3(GridExitX, GridExitY, GridExitZ);
+            SendMovementCommand(
+                localPlayer,
+                exit,
+                new Quaternion(0, -0.9249107f, 0, 0.3801842f),
+                action,
+                reason);
         }
 
         private void ProcessGridExitStaging(LocalPlayer localPlayer, DateTime now)
@@ -902,7 +1001,7 @@ namespace CityBuddies
             SetHomeState(
                 "crossing-city-exit",
                 $"Started one uninterrupted {GridStagingDistance:F1}m final " +
-                "approach; it will end with ForwardStop at the captured exit.");
+                "approach; reproducing the captured near-exit and stop tail.");
         }
 
         private void ProcessIccEntry(LocalPlayer localPlayer, DateTime now)

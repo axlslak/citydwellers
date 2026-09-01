@@ -1175,7 +1175,8 @@ namespace CityBuddies
                     GridCrossingActive =
                         _gridExitPhase != GridExitPhase.Idle,
                     GridCrossingForwardActive =
-                        _gridExitPhase == GridExitPhase.FinalApproach,
+                        _gridExitPhase == GridExitPhase.FinalApproach ||
+                        _gridExitPhase == GridExitPhase.NearExitSample,
                     IccUseAttempts = _iccUseAttempts
                 };
 
