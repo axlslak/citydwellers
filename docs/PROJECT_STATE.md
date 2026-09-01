@@ -112,7 +112,10 @@ Handles AO movement/home behavior for a Buddies character. The default
 `continuous` controller follows a cached CritterAI straight path with smoothed
 heading changes and 200 ms clientless position updates. Because clientless has
 no local movement engine, it advances conservative 1.6667 m/s command points
-and uses server echoes to detect command lead, lateral drift, and stalls.
+and currently treats echoed movement positions as progress evidence. Full-client
+packet traces now show those replies mirror the sender's asserted position,
+not an independently measured server position, so this progress model is not
+authoritative and remains unverified.
 
 The previous `bounded-pulse` implementation remains intact and selectable via
 the home directive. `DefaultHomeMovementMode` in Buddies is the one-line global
@@ -235,17 +238,51 @@ implemented or independently verified:
   approximately `1.457 m` in `1.218 s` (`1.20 m/s`), and backward running
   covered approximately `2.696 m` in `1.142 s` (`2.36 m/s`). These are
   trace-specific measurements, not universal AO movement constants.
-- `[INFERENCE]` CityBuddies currently advances synthetic continuous positions
-  at `1.6667 m/s`. If the server advances a running buddy nearer the observed
-  `2.3 m/s` while clientless reasserts `1.6667 m/s` positions every 200 ms,
-  each update would pull the character backward. That mechanism closely
-  matches the owner-observed five-times-per-second rubber-banding but still
-  requires a focused live experiment.
+- `[CORRECTION]` No measured displacement rate may be promoted to a fleet-wide
+  constant. AO Run Speed varies by character skill, breed, profession, level,
+  abilities, and temporary state. The home route normally runs after death,
+  when resurrection recovery restores diminished skills over time. The fleet
+  spans eight level brackets, all professions, and multiple breeds. Jump
+  behavior has a separate Strength-related variable and must not be folded
+  into the horizontal movement model.
+- `[LIVE-OBSERVATION]` A longer timestamped full-client trace from another
+  character measured settled running spans around `5.84-6.49 m/s` and walking
+  spans around `1.40-1.51 m/s`. The first `192 ms` after one `ForwardStart`
+  covered only about `0.24 m` (`1.25 m/s`), and other short run legs were below
+  the settled spans. This is evidence of startup/transient behavior in
+  addition to per-character variation; terrain also changed vertical position
+  during the capture.
+- `[LIVE-OBSERVATION]` The normal client did not publish positions every
+  `200 ms`. During uninterrupted legs, repeated `Update` packets appeared at
+  about `5001-5002 ms`, while actions or other client conditions caused earlier
+  updates at intervals such as `1929`, `2739`, and `3333 ms`. Every received
+  movement message again echoed the corresponding sent position; no
+  unsolicited corrective position appeared in this capture. The Unix
+  timestamps have one-second resolution, so they cannot establish precise
+  round-trip latency.
+- `[SUPERSEDED-INFERENCE]` The earlier specific comparison between a `2.3 m/s`
+  server rate and the `1.6667 m/s` predictor was too narrow. The durable finding
+  is that one fixed predictor is inherently wrong across the roster and during
+  resurrection recovery. Reasserting synthetic positions every `200 ms`, far
+  more often than the observed normal-client cadence, is a separate plausible
+  contributor to rubber-banding. The trace does not yet prove either factor is
+  the sole cause.
+- `[PROTOCOL-EVIDENCE]` AOSharp's protocol definitions expose `Stat.RunSpeed`
+  and `SimpleCharFullUpdateMessage.RunSpeedBase`. Normal-client AOSharp also
+  has live vehicle `Runspeed`, `Accel`, and `Velocity` fields. It remains open
+  whether AOSharp.Clientless 1.0.16 retains the effective Run Speed value and
+  receives its incremental resurrection changes. Verify that before designing
+  a stat-driven predictor.
+- `[DECISION]` Do not calibrate general movement from one character. A later
+  general walker must either use verified live per-character movement state
+  and adapt during resurrection recovery, or avoid requiring precise velocity
+  prediction. Its outbound update cadence should be evaluated against the
+  sparse full-client trace rather than preserving the current `200 ms` loop by
+  assumption.
 - `[POSSIBLE-USE]` A single `SwitchToWalk` may still be valuable as a slower,
-  more controllable mode for a complete movement leg, provided the predictor
-  and stop coordinate match walking behavior. This is distinct from rapid
-  walk/run toggling and remains deferred until the Grid exit handoff is
-  repeatable.
+  more controllable mode for a complete movement leg. The observed walk rate
+  is character/trace evidence only, and switching still does not synchronize
+  position. This remains deferred until the Grid exit handoff is repeatable.
 
 ### Serenity Islands
 

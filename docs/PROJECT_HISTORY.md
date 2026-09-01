@@ -471,3 +471,40 @@ additional evidence.
 No movement code was changed and no assistant-side build or AO test was run.
 The deterministic Grid exit experiment remains the next implementation task;
 walking control stays separate.
+
+## 2026-09-01 — Longer movement trace corrects fixed-speed inference
+
+Kavey clarified that AO Run Speed is character-specific and can vary with
+breed, profession, level, abilities, and temporary resurrection state. City
+Dwellers covers eight level brackets, all professions, and multiple breeds;
+after death, diminished skills recover incrementally. Jump height is a
+separate Strength-related variable. A single global velocity therefore cannot
+represent the fleet or even one recovering character over time.
+
+`[LIVE-OBSERVATION]` In a longer timestamped full-client capture, one character
+settled near `5.84-6.49 m/s` while running and `1.40-1.51 m/s` while walking.
+The first `192 ms` run interval and later short run legs were slower, showing
+startup/transient behavior; vertical terrain position also varied. These rates
+are evidence for that character and capture only.
+
+The same trace showed a second structural difference from CityBuddies. The
+normal client emitted repeated uninterrupted-leg `Update` packets after about
+`5001-5002 ms`, with earlier updates associated with intervening actions or
+other client conditions. It did not assert synthetic positions every `200 ms`.
+Every received movement packet still mirrored a sent position, and no
+unsolicited authoritative correction appeared.
+
+`[CORRECTION]` The earlier `2.3 m/s` versus `1.6667 m/s` comparison is not a
+general speed model. The supported conclusion is broader: CityBuddies' fixed
+`1.6667 m/s` predictor cannot match the heterogeneous fleet or resurrection
+recovery, and its `200 ms` self-position update cadence is unlike the captured
+normal client. Either or both may contribute to rubber-banding; neither is yet
+proven as the sole cause.
+
+AOSharp protocol definitions contain `Stat.RunSpeed` and
+`SimpleCharFullUpdateMessage.RunSpeedBase`, while normal-client vehicle state
+also exposes run speed, acceleration, and velocity. Whether
+AOSharp.Clientless 1.0.16 retains the effective live value and receives
+incremental resurrection changes remains unverified. No raw owner log, code
+change, build, or AO test was committed. Grid exit repeatability remains the
+next isolated implementation task.
