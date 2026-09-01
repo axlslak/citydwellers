@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "idle",
-  "last_completed_transaction": "session-5-grid-deterministic-exit",
-  "completed_utc": "2026-09-01T18:34:52Z",
-  "checkpoint_commit": "e2dfeba93f76c2c4f47df8576cb7961c7136fea7",
-  "next_task": "Kavey builds and runs one monitored ICC-to-Grid-to-Serenity home job, then returns its NavigationTraces JSONL.",
-  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after e2dfeba is on origin/master. The deterministic Grid exit implementation is 0f73756: every attempt routes to staging near (212.9832,3.7750,188.2321), confirms the staging FullStop echo as an ordering barrier, sends one uninterrupted ForwardStart, then ForwardStop exactly at (211.6727,3.7750,186.7213) after 1.2s and waits 20s for stable 6010. Kavey owns build/live validation and should return the resulting NavigationTraces JSONL. Keep general walking redesign separate until this handoff is repeatable."
+  "status": "in_progress",
+  "transaction": "session-5-grid-full-client-tail",
+  "started_utc": "2026-09-01T18:47:37Z",
+  "base_commit": "9e84e16d5403820ab552c2c8816ba92b027de8d3",
+  "task": "Preserve deterministic Grid staging while reproducing the successful full client's missing near-exit and post-ForwardStop movement tail.",
+  "resume_instruction": "Start at RECOVERY.md and find journal BEGIN seq 35. Kavey's second trace proved exact staging, ForwardStart, and ForwardStop echoes but no zoning. Extend only the Grid exit phases: TurnLeftMouse at (211.9757,3.7750,187.0108), ForwardStop at (211.6727,3.7750,186.7213), then stationary TurnRightMouse, TurnLeftMouse, and TurnLeftStop with captured headings and bounded timings before the existing 20s wait. Preserve staging/retry resets and all general walking/ICC/Serenity behavior. Do not build or run AO; Kavey owns validation."
 }
