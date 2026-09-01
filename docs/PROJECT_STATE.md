@@ -370,18 +370,13 @@ default with the retained bounded-pulse fallback over several days.
 - `[VERIFIED-LIVE]` The buddy reached the exit area, stopped, remained in Grid,
   and returned `route-unavailable` after 20 seconds:
   `Grid did not change to Serenity within 20s after crossing the observed exit.`
-- `[VERIFIED-CODE]` The timeout text is misleading. At `<=0.25m`,
-  `BeginGridCrossing` calls `StopMovement`; while waiting,
-  `ProcessGridCrossing` sends no further movement. The buddy reaches the point
-  but does not actually cross beyond it.
-- `[IMPLEMENTED]` Commit `d927cd59ca69b28800c237447c93b5607f34811a`
-  replaces stop-at-edge with one immediate dedicated crossing pulse. From the
-  observed exit edge it advances 2 m over 1.2 seconds along the recorded
-  arrival-to-exit direction, stops if still in Grid, and retains the 20-second
-  wait for stable model `6010`.
-- `[INVARIANT]` The Grid crossing pulse is independent of the selected general
-  walking mode and is strictly bounded; it cannot leave forward movement open
-  indefinitely when zoning fails.
+- `[HISTORICAL-CODE]` In the first failed implementation, at `<=0.25m`,
+  `BeginGridCrossing` called `StopMovement`; while waiting,
+  `ProcessGridCrossing` sent no further movement. The buddy reached the point
+  but did not actually cross beyond it.
+- `[SUPERSEDED]` Commit `d927cd59ca69b28800c237447c93b5607f34811a`
+  replaced stop-at-edge with a dedicated 2 m/1.2 s pulse beyond the exit. The
+  pulse stayed bounded but did not reproduce the successful client sequence.
 - `[LIVE-OBSERVATION 2026-09-01]` The bounded crossing pulse still did not zone
   a buddy into Serenity. Repeated home jobs are non-idempotent: one run moves
   the buddy off the observed exit point, the next routes it back, and later
@@ -389,15 +384,30 @@ default with the retained bounded-pulse fallback over several days.
 - `[CORRECTED-EVIDENCE]` A closer reading of the successful full-client trace
   shows `ForwardStop` at exactly `(211.6727, 3.775, 186.7213)`, followed by
   small turn-stop messages and then the area change. It does not show a
-  `FullStop` two metres beyond that point. The current crossing pulse therefore
-  moves beyond the only confirmed trigger coordinate and uses a different stop
-  action from the successful client sequence.
-- `[OPEN]` Do not increase crossing distance again. The next experiment should
-  make every attempt deterministic: approach a fixed staging point on the Grid
-  side, run one uninterrupted final leg, issue `ForwardStop` at the observed
-  exit coordinate, and wait for stable model `6010`. Starting a new job from
-  either side of the staging/exit pair must execute the complete same attempt
-  rather than alternating between its halves.
+  `FullStop` two metres beyond that point. The superseded crossing pulse moved
+  beyond the only confirmed trigger coordinate and used a different stop action
+  from the successful client sequence.
+- `[VERIFIED-TRACE 2026-09-01]` The first complete per-job JSONL contained 354
+  ordered events over 54.889 s. ICC entered Grid after two static-terminal
+  uses. In Grid the continuous route sent 101 synthetic `Update` commands at
+  approximately 204 ms/0.340 m intervals; every `Update` had a matching echo
+  of the asserted position. The route then sent `FullStop` 0.192 m before the
+  captured trigger, started again, and sent `FullStop` 1.808 m beyond it. It
+  never sent the successful client's exact-position `ForwardStop`.
+- `[IMPLEMENTED]` Commit `0f73756945df282ccf0601f9c8c80c40d1ead148`
+  makes the Grid handoff deterministic. Every attempt first navmesh-routes to
+  the fixed Grid-side staging point approximately
+  `(212.9832, 3.7750, 188.2321)`, exactly 2 m before the trigger on the observed
+  arrival-to-exit line. It asserts and receives the staging `FullStop` before
+  one uninterrupted 1.2 s final leg, then sends `ForwardStop` exactly at
+  `(211.6727, 3.775, 186.7213)` and waits 20 s for stable model `6010`.
+- `[IMPLEMENTED]` Every new home directive resets the Grid exit phase. A retry
+  beginning at the trigger or the old overshoot therefore routes back to
+  staging and performs the whole attempt instead of continuing an old wait or
+  alternating between endpoints.
+- `[INVARIANT]` The final Grid leg is independent of the selected general
+  walking mode, sends no synthetic `Update`, and is bounded by an exact
+  `ForwardStop`. General walking remains unchanged pending separate work.
 - `[OWNER-VERIFIED]` Do not add the normal client's approximately 15-second
   post-login teleport restriction to clientless. Kavey observed that it is
   enforced by the full client; the clientless buddy used `Enter The Grid`
@@ -553,21 +563,19 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-ICC static-terminal entry into Grid is owner-verified. The isolated 2 m Grid
-crossing pulse from `d927cd5` failed and produces alternating retry positions.
-Next:
+The complete ICC-to-Grid diagnostic trace has been reconciled, and the failed
+2 m overshoot has been replaced by the deterministic staging-to-exit handoff in
+`0f73756`. Next:
 
-1. Kavey builds the diagnostic change and runs the one buddy deliberately
-   saved in ICC through one ordinary home job. The assistant does not build or
-   run AO unless Kavey explicitly delegates it.
-2. Preserve the resulting single JSONL file. It should contain the clean ICC
-   terminal interaction, stable change to Grid, navmesh leg, exact exit
-   actions/echoes, quiet wait samples, and terminal outcome without requiring
-   visual narration.
-3. Use that trace to replace only the final Grid handoff with a deterministic
-   staging/exit state machine that ends with `ForwardStop` at the captured exit
-   coordinate. Do not change general walking, Serenity routing, or ICC terminal
-   use in the same transaction.
+1. Kavey builds and runs one monitored ICC-to-Grid home job. The assistant does
+   not build or run AO unless Kavey explicitly delegates it.
+2. Preserve the resulting JSONL. The expected Grid sequence is: navmesh route
+   to staging near `(212.9832, 3.7750, 188.2321)`, exact staging `FullStop`
+   echo, `ForwardStart`, exact exit `ForwardStop` after 1.2 s, then stable model
+   `6010` or a bounded 20-second timeout.
+3. If it times out, use that trace to distinguish a missing/late action echo
+   from a confirmed exact sequence that the clientless server path still does
+   not zone. Do not increase crossing distance by guesswork.
 4. After Grid-to-Serenity succeeds repeatably, address continuous-walker
    rubber-banding as a separate problem. Preserve bounded-pulse rollback, do
    not use rapid walk/run toggling as synchronization, and retain sustained

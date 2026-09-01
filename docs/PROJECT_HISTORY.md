@@ -567,3 +567,48 @@ computed in local variables before they are inserted into the position window
 and developer telemetry. This is a syntax-only compatibility correction; the
 resulting text and runtime decisions are unchanged. Kavey owns the confirming
 rebuild.
+
+## 2026-09-01 — Deterministic Grid staging and exact ForwardStop
+
+Kavey returned the first complete per-home-job navigation trace. It contained
+354 monotonically ordered events from `2026-09-01T18:14:38.0576114Z` through
+`2026-09-01T18:15:32.9469416Z`. ICC used the static terminal twice and entered
+stable Grid model `152`. The Grid navmesh route itself succeeded.
+
+`[TRACE-DIAGNOSIS]` Continuous Grid movement sent 101 synthetic `Update`
+commands at approximately 204 ms intervals and 0.340 m per command, exactly
+the hard-coded 1.6667 m/s predictor. All 101 corresponding echoes repeated the
+asserted positions; the trace contained no independent correction. This is
+useful evidence for the later rubber-banding redesign, but that work remains
+deliberately separate because AO speed varies by character and resurrection
+state.
+
+At the transition, the old controller sent `FullStop` approximately 0.192 m
+before the captured trigger, then began another forward leg and sent
+`FullStop` approximately 1.808 m beyond it. That precisely explains both the
+timeout and the alternating retry positions. It did not send the successful
+full client's `ForwardStop` at `(211.6727, 3.775, 186.7213)`.
+
+`[IMPLEMENTED]` Published commit:
+
+`0f73756945df282ccf0601f9c8c80c40d1ead148` — `Make Grid exit attempts deterministic`
+
+Every Grid attempt now targets a staging point exactly 2 m before the captured
+exit along the observed arrival-to-exit line, approximately
+`(212.9832, 3.7750, 188.2321)`. After navmesh arrival it asserts an exact
+staging `FullStop` and waits for the matching self echo as a packet-ordering
+barrier. That echo is not treated as an independent authoritative server
+position. The handoff then sends one `ForwardStart`, no synthetic `Update`, and
+after 1.2 s sends `ForwardStop` exactly at the captured trigger. It waits a
+bounded 20 seconds for stable Serenity model `6010`.
+
+New home directives now reset Grid and ICC transition substates as well as the
+two walking controllers. Therefore a job starting at the old overshoot, at the
+trigger, or during a previous wait always returns to staging and performs the
+same complete attempt. ICC terminal use, general continuous movement,
+bounded-pulse rollback, Serenity routing, and city street selection were not
+changed.
+
+`[OPEN]` Kavey owns the build and one monitored ICC-to-Grid-to-Serenity test.
+The returned JSONL should show staging `FullStop`, final `ForwardStart`, exact
+exit `ForwardStop`, and either stable model `6010` or the bounded timeout.
