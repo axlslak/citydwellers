@@ -218,6 +218,35 @@ implemented or independently verified:
   the ICC terminal test. Address them one problem at a time after the focused
   static terminal/login checks.
 
+### Walk/run movement packet observation (2026-09-01)
+
+- `[LIVE-OBSERVATION]` Kavey's full-client dump shows that `SwitchToWalk` and
+  `SwitchToRun` are ordinary `CharDCMoveMessage` actions carrying the sender's
+  current heading and position. Each received message echoed exactly the sent
+  heading and position while resetting `DeltaTime` to zero. The response is an
+  acknowledgement/relay of the asserted position, not an independent
+  server-measured position correction.
+- `[DECISION]` Do not toggle walk/run several times per second as a position
+  synchronization mechanism. With clientless supplying a stale or predicted
+  position, each toggle would reassert and echo that same value and could add
+  more visible hesitation.
+- `[LIVE-OBSERVATION]` In the supplied short sample, forward running covered
+  approximately `0.985 m` in `0.440 s` (`2.24 m/s`), walking covered
+  approximately `1.457 m` in `1.218 s` (`1.20 m/s`), and backward running
+  covered approximately `2.696 m` in `1.142 s` (`2.36 m/s`). These are
+  trace-specific measurements, not universal AO movement constants.
+- `[INFERENCE]` CityBuddies currently advances synthetic continuous positions
+  at `1.6667 m/s`. If the server advances a running buddy nearer the observed
+  `2.3 m/s` while clientless reasserts `1.6667 m/s` positions every 200 ms,
+  each update would pull the character backward. That mechanism closely
+  matches the owner-observed five-times-per-second rubber-banding but still
+  requires a focused live experiment.
+- `[POSSIBLE-USE]` A single `SwitchToWalk` may still be valuable as a slower,
+  more controllable mode for a complete movement leg, provided the predictor
+  and stop coordinate match walking behavior. This is distinct from rapid
+  walk/run toggling and remains deferred until the Grid exit handoff is
+  repeatable.
+
 ### Serenity Islands
 
 - Playfield ID: `6010`.
@@ -433,5 +462,6 @@ Next:
    actions/positions for the final leg, final Grid position, and stable model
    transition or timeout. Guest chat should show a concise state/result.
 4. After Grid-to-Serenity succeeds repeatably, address continuous-walker
-   rubber-banding as a separate problem. Preserve bounded-pulse rollback and
-   the NavGen/NavManager reference ideas for that later pass.
+   rubber-banding as a separate problem. Preserve bounded-pulse rollback, do
+   not use rapid walk/run toggling as synchronization, and retain sustained
+   walk mode plus the NavGen/NavManager reference ideas for that later pass.

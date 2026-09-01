@@ -438,3 +438,36 @@ AOSharpSDK `1.0.84`. No archive code was imported, built, or tested.
 
 `[OWNER POLICY]` Kavey builds and performs AO runtime tests. Walking
 rubber-banding remains a separate later pass after Grid exit repeatability.
+
+## 2026-09-01 — Walk/run toggling evaluated from packet evidence
+
+`[OWNER HYPOTHESIS]` Because AO supports running and walking states, Kavey
+proposed rapidly alternating `SwitchToWalk` and `SwitchToRun` instead of
+stop/start pulses, hoping each mode switch would make the server return the
+character's current authoritative position.
+
+`[LIVE-OBSERVATION]` Kavey captured full-client sent/received movement pairs.
+Every received walk/run switch contained exactly the heading and position sent
+by the client, with only `DeltaTime` reset to zero. Forward/backward start and
+stop actions behaved the same way. These replies acknowledge or relay the
+sender's asserted movement state; they do not supply a separately measured
+server position.
+
+`[DECISION]` Reject rapid walk/run toggling as a synchronization loop. In
+clientless it would keep resending the same stale or predicted position and may
+increase hesitation. A sustained walking leg remains a possible later
+experiment because the sample shows that walking is materially slower, not
+because switching modes requests position.
+
+`[LIVE-OBSERVATION]` The trace's approximate displacement rates were `2.24
+m/s` running forward, `1.20 m/s` walking forward, and `2.36 m/s` running
+backward. CityBuddies currently predicts `1.6667 m/s` while emitting updates
+every 200 ms. The speed mismatch is a plausible explanation for the visible
+backward snaps: the server advances the running character farther, then the
+next slower synthetic position pulls it backward. The rates are specific to
+this character/sample and must not be promoted to universal constants without
+additional evidence.
+
+No movement code was changed and no assistant-side build or AO test was run.
+The deterministic Grid exit experiment remains the next implementation task;
+walking control stays separate.
