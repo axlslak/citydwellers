@@ -705,7 +705,8 @@ public class FlipperLoader
             File.WriteAllText(_operationIdPath, operationId);
 
         Logger logger = new LoggerConfiguration()
-            .WriteTo.Console()
+            .WriteTo.Console(
+                outputTemplate: LoggingDefaults.ConsoleOutputTemplate)
             .MinimumLevel.Debug()
             .CreateLogger();
 

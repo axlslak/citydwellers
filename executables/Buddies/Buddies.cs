@@ -589,7 +589,8 @@ public class PluginLoader
 
         Logger logger =
             new LoggerConfiguration()
-                .WriteTo.Console()
+                .WriteTo.Console(
+                    outputTemplate: LoggingDefaults.ConsoleOutputTemplate)
                 .MinimumLevel.Debug()
                 .CreateLogger();
 

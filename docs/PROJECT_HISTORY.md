@@ -532,3 +532,29 @@ repository.
 semantics were intentionally changed. Kavey retains build and AO runtime-test
 ownership. The next evidence is one ordinary ICC-to-Grid home attempt and its
 resulting JSONL trace.
+
+## 2026-09-01 — Flipper result publication made unload-safe
+
+Kavey supplied one complete Apcflipper service log. The raid-start watch saw
+100% controller charge, sent one lower action, ignored the repeated pre-toggle
+`Enabled` packet, and then accepted a changed `Disabled` packet with a
+3600-second shield timer. The cloak action was therefore confirmed successful.
+
+Only after Flipper.exe printed `Unloading flipper client...` did a
+`ThreadAbortException` interrupt `CityFlipper.MessageReceived`. AOSharp then
+reported `Failed to deserialize packet` with the same abort still rooted at the
+end of that handler. This identifies a result-publication/unload race rather
+than corrupt cloak data or a failed raid action.
+
+CityFlipper now stops receiving message/update callbacks as soon as a terminal
+result is selected. A thread-pool callback waits 100 ms, writes and logs the
+result, and exposes the final JSON file last through its existing atomic rename.
+Because that file is Flipper.exe's unload signal, the handler that selected the
+result has time to return before AppDomain teardown begins. A teardown abort is
+re-thrown rather than recursively logged from the interrupted handler.
+
+Manager, Buddies, and Flipper now give AOSharp one shared Serilog console
+template containing ISO-style date, time to milliseconds, and numeric UTC
+offset, for example `2026-09-01T20:27:23.123+03:00`. Logs collected on machines
+with different time zones can therefore be correlated directly. No raw owner
+log was committed, and no assistant-side build or AO runtime test was run.

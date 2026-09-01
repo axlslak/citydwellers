@@ -96,6 +96,36 @@ Coordinates chat commands, raid lifecycle, cloak operations, helpers, admin/memb
 
 Controls city cloak state. Boot behavior should be enable-only recovery/assessment: if cloak is already enabled, confirm it; if it can safely be enabled, recover it. Avoid exposing sensitive toggle behavior to arbitrary tells.
 
+- `[VERIFIED-LIVE 2026-09-01]` Apcflipper completed a raid-start lower
+  successfully. The server returned post-toggle `CloakState=Disabled` and
+  `ShieldTimerInSeconds=3600` before any exception occurred.
+- `[DIAGNOSED]` The later `ThreadAbortException` and AOSharp `Failed to
+  deserialize packet` message were teardown noise, not a failed cloak action.
+  Flipper.exe observed `cityflipper-result.json` and began AppDomain unload
+  while the network thread was still returning through
+  `CityFlipper.MessageReceived`; the abort propagated into AOSharp's packet
+  wrapper.
+- `[IMPLEMENTED]` CityFlipper now detaches its message and update handlers when
+  a terminal result is selected. It publishes the result from a deferred
+  callback after a 100 ms quiescence boundary, performs completion logging
+  before the final atomic file rename, and treats that rename as the earliest
+  point at which Flipper.exe may unload the child domain.
+- `[IMPLEMENTED]` `ThreadAbortException` is rethrown without trying to log it
+  as an application message-processing error. Normal message exceptions retain
+  the existing diagnostics.
+
+### Console timestamps
+
+- `[IMPLEMENTED]` The Serilog console output supplied to AOSharp by Manager,
+  Buddies, and Flipper uses one shared full timestamp. Format:
+  `yyyy-MM-ddTHH:mm:ss.fffzzz`, for example
+  `2026-09-01T20:27:23.123+03:00`.
+- `[INVARIANT]` The numeric UTC offset is recorded on every framework/plugin
+  log event, making output from machines in different local time zones
+  comparable without guessing. Stopwatch messages such as `[3.865s]` remain
+  elapsed-duration measurements and are anchored by the surrounding absolute
+  events.
+
 ### Buddies
 
 Clientless helper/account host. Important current behavior:

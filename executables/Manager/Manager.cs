@@ -234,7 +234,12 @@ public class PluginLoader
 
     private static void CreateBot(AccountInfo accInfo, List<string> pluginPaths)
     {
-        Logger logger = new LoggerConfiguration().WriteTo.Console().MinimumLevel.Debug().CreateLogger();
+        Logger logger =
+            new LoggerConfiguration()
+                .WriteTo.Console(
+                    outputTemplate: LoggingDefaults.ConsoleOutputTemplate)
+                .MinimumLevel.Debug()
+                .CreateLogger();
         ClientDomain instance = Client.CreateInstance(accInfo.Username, accInfo.Password, accInfo.Character, Dimension.RubiKa, logger);
 
         foreach (var path in pluginPaths)

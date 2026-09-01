@@ -13,6 +13,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 
 namespace CityFlipper
 {
@@ -69,6 +70,8 @@ namespace CityFlipper
         private int _chargePollCount;
 
         private bool _resultWritten;
+        private int _resultWriteScheduled;
+        private int _stopping;
 
         public override void Init(string pluginDir)
         {
@@ -170,8 +173,25 @@ namespace CityFlipper
             Client.MessageReceived += MessageReceived;
         }
 
+        public override void Teardown()
+        {
+            StopListening();
+        }
+
+        private void StopListening()
+        {
+            if (Interlocked.Exchange(ref _stopping, 1) != 0)
+                return;
+
+            Client.MessageReceived -= MessageReceived;
+            Client.OnUpdate -= Tick;
+        }
+
         private void Tick(object sender, double e)
         {
+            if (Volatile.Read(ref _stopping) != 0)
+                return;
+
             bool writeTimeout = false;
             bool writeCancellation = false;
             double elapsedMs = _timer.Elapsed.TotalMilliseconds;
@@ -220,7 +240,7 @@ namespace CityFlipper
             if (writeTimeout || writeCancellation)
             {
                 Client.OnUpdate -= Tick;
-                WriteResult();
+                ScheduleResultWrite();
                 return;
             }
 
@@ -306,6 +326,9 @@ namespace CityFlipper
         {
             try
             {
+                if (Volatile.Read(ref _stopping) != 0)
+                    return;
+
                 if (e?.Body == null)
                     return;
 
@@ -387,6 +410,10 @@ namespace CityFlipper
                         break;
                     }
                 }
+            }
+            catch (ThreadAbortException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -523,6 +550,10 @@ namespace CityFlipper
                         break;
                     }
                 }
+            }
+            catch (ThreadAbortException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -669,7 +700,7 @@ namespace CityFlipper
 
                         Logger.Warning(
                             "Raid-start cancellation arrived before the cloak packet was sent.");
-                        WriteResult();
+                        ScheduleResultWrite();
                         return;
                     }
 
@@ -696,14 +727,14 @@ namespace CityFlipper
                     }
 
                     Logger.Error($"Failed sending cloak toggle: {ex}");
-                    WriteResult();
+                    ScheduleResultWrite();
                 }
 
                 return;
             }
 
             if (writeResult)
-                WriteResult();
+                ScheduleResultWrite();
         }
 
         private bool IsCancellationRequested()
@@ -785,6 +816,24 @@ namespace CityFlipper
             Logger.Information("====================");
         }
 
+        private void ScheduleResultWrite()
+        {
+            if (Interlocked.Exchange(ref _resultWriteScheduled, 1) != 0)
+                return;
+
+            // The result file is Flipper.exe's unload signal. Detach first, then
+            // publish from a short deferred callback so the packet/update handler
+            // that selected the result has returned before the AppDomain is torn
+            // down.
+            StopListening();
+            ThreadPool.QueueUserWorkItem(
+                _ =>
+                {
+                    Thread.Sleep(100);
+                    WriteResult();
+                });
+        }
+
         private void WriteResult()
         {
             try
@@ -830,14 +879,16 @@ namespace CityFlipper
 
                 File.WriteAllText(tempPath, json);
 
-                if (File.Exists(resultPath))
-                    File.Delete(resultPath);
-
-                File.Move(tempPath, resultPath);
-
                 Logger.Information(
                     $"Flipper observation complete after {_timer.Elapsed.TotalMilliseconds:F0} ms.");
                 Logger.Information("Waiting for Flipper.exe to unload client.");
+
+                if (File.Exists(resultPath))
+                    File.Delete(resultPath);
+
+                // Expose the final file last. Flipper.exe may unload the child
+                // AppDomain as soon as this atomic rename becomes visible.
+                File.Move(tempPath, resultPath);
             }
             catch (Exception ex)
             {

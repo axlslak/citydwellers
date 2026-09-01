@@ -25,6 +25,9 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\BuddyPositionSnapshot.cs">
       <Link>BuddyPositionSnapshot.cs</Link>
     </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\LoggingDefaults.cs">
+      <Link>LoggingDefaults.cs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>
