@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "transaction": "session-5-grid-full-client-tail",
-  "started_utc": "2026-09-01T18:47:37Z",
-  "base_commit": "9e84e16d5403820ab552c2c8816ba92b027de8d3",
-  "task": "Preserve deterministic Grid staging while reproducing the successful full client's missing near-exit and post-ForwardStop movement tail.",
-  "resume_instruction": "Start at RECOVERY.md and find journal BEGIN seq 35. Kavey's second trace proved exact staging, ForwardStart, and ForwardStop echoes but no zoning. Extend only the Grid exit phases: TurnLeftMouse at (211.9757,3.7750,187.0108), ForwardStop at (211.6727,3.7750,186.7213), then stationary TurnRightMouse, TurnLeftMouse, and TurnLeftStop with captured headings and bounded timings before the existing 20s wait. Preserve staging/retry resets and all general walking/ICC/Serenity behavior. Do not build or run AO; Kavey owns validation."
+  "status": "idle",
+  "last_completed_transaction": "session-5-grid-full-client-tail",
+  "completed_utc": "2026-09-01T18:52:31Z",
+  "checkpoint_commit": "2c529a17fc3c4d625f3cd8aac40bcc29a0d3d986",
+  "next_task": "Kavey builds and runs one monitored ICC-to-Grid test of the restored full-client movement tail, then returns its NavigationTraces JSONL.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 2c529a1 is on origin/master. Implementation 1464d99 preserves deterministic staging, then sends captured near-exit TurnLeftMouse, exact ForwardStop, stationary TurnRightMouse, TurnLeftMouse, and TurnLeftStop before waiting 20s for model 6010. Kavey owns build/live validation and should return the JSONL. General walking remains unchanged and separate."
 }
