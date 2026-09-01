@@ -1,13 +1,17 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
+  "supported_recovery_keys": [
+    "CITYDWELLERS-RECOVER-V1",
+    "CITYBANKER-RECOVER-V1"
+  ],
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_project": "repository",
-  "transaction": "session-5-single-writer-coordination",
-  "started_utc": "2026-09-01T23:07:24Z",
-  "base_commit": "3bda2471c1170d1828c1b383d36a85238ab1c5c0",
-  "task": "Add repository-wide single-writer coordination and separate City Banker durable project memory without introducing parallel branches.",
-  "resume_instruction": "Start at RECOVERY.md and find journal BEGIN seq 37. Kavey clarified that exactly one session will write at a time across City Dwellers chat/work and both City Banker sessions. Keep master as the only integration branch, document the global cursor as the writer lock, add City Banker state/history and recovery guidance, and add curated cross-project notes. Do not change application code, build, or run AO. Finish with COMMIT or ABORT and return the cursor idle."
+  "status": "idle",
+  "last_completed_project": "repository",
+  "last_completed_transaction": "session-5-single-writer-coordination",
+  "completed_utc": "2026-09-01T23:16:38Z",
+  "checkpoint_commit": "d595dd56360db3557c6d48301fbd8df3bb370d7d",
+  "next_task": "City Dwellers: Kavey builds/tests the Grid movement tail and returns JSONL. City Banker: its first writer inspects the real project code and populates its technical checkpoint.",
+  "resume_instruction": "Start at RECOVERY.md with the project-specific card and confirm the terminal seal after d595dd5 is on origin/master. Exactly one session writes repo-wide: fetch master, require the global cursor to be idle, publish a project-labelled BEGIN, and finish with a terminal seal. City Dwellers resumes the monitored ICC-to-Grid test of commit 1464d99; City Banker first records repository-verified architecture without inventing technical state."
 }
