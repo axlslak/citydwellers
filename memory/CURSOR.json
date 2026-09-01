@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "idle",
-  "last_completed_transaction": "session-5-walk-run-packet-observation",
-  "completed_utc": "2026-09-01T16:50:56Z",
-  "checkpoint_commit": "486e600318091f78358d77615d47ddd2da52004b",
-  "next_task": "With Kavey's approval, implement only the deterministic Grid-side staging to exact-exit ForwardStop experiment; keep rapid walk/run toggling rejected and walking smoothness separate.",
-  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 486e600 is on origin/master. ICC entry is solved; the d927cd5 Grid crossing failed and retries alternate. Walk/run switches only echo the sender's asserted position and must not be used as rapid synchronization. The trace-specific run speed near 2.3 m/s versus CityBuddies' 1.6667 m/s predictor plausibly explains rubber-banding, while sustained walk mode remains a later experiment. Do not mix that walking work into the next Grid handoff change. Kavey owns builds and live AO tests."
+  "status": "in_progress",
+  "active_transaction": "session-5-dynamic-movement-trace",
+  "started_utc": "2026-09-01T17:11:25Z",
+  "base_commit": "44ea73f06394f143cdf4d7bad40722ddfea5fc6a",
+  "task": "Record the longer full-client movement trace and correct the movement model for per-character, resurrection-dependent Run Speed.",
+  "resume_instruction": "Do not store the raw owner log. Preserve that normal-client movement Updates are sparse and reach a roughly five-second maximum interval, that replies still echo sender positions, and that observed displacement varies by character and within a leg. Supersede any implication that one measured run rate is universal or that fixed 1.6667 m/s can model the eight-bracket fleet, especially during resurrection recovery. Note that protocol structures expose RunSpeedBase/RunSpeed data but clientless availability and live resurrection updates remain to be verified. Finish with a COMMIT or ABORT and return the cursor to idle."
 }
