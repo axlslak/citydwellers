@@ -125,6 +125,14 @@ Controls city cloak state. Boot behavior should be enable-only recovery/assessme
   comparable without guessing. Stopwatch messages such as `[3.865s]` remain
   elapsed-duration measurements and are anchored by the surrounding absolute
   events.
+- `[OWNER-BUILD 2026-09-01]` The first Release build after these changes
+  compiled Manager.exe, Flipper.exe, Buddies.exe, CityFlipper.dll, and
+  CityBuddies.dll. CityManager.dll alone failed because four new diagnostic
+  `FormatMovementRecord` calls crossed newlines inside interpolated-string
+  expressions, syntax unsupported by the repository's C# 7.3 compiler.
+- `[IMPLEMENTED]` The four values are now computed in ordinary local variables
+  before interpolation. Telemetry text is unchanged; the syntax no longer
+  requires C# 11.
 
 ### Buddies
 

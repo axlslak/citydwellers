@@ -558,3 +558,12 @@ template containing ISO-style date, time to milliseconds, and numeric UTC
 offset, for example `2026-09-01T20:27:23.123+03:00`. Logs collected on machines
 with different time zones can therefore be correlated directly. No raw owner
 log was committed, and no assistant-side build or AO runtime test was run.
+
+Kavey's immediate Release build then compiled five of six projects. Only
+CityManager failed, with four `CS8967` errors caused by multiline method calls
+inside interpolated-string expressions. That form requires C# 11, while City
+Dwellers currently compiles as C# 7.3. The command and echo strings are now
+computed in local variables before they are inserted into the position window
+and developer telemetry. This is a syntax-only compatibility correction; the
+resulting text and runtime decisions are unchanged. Kavey owns the confirming
+rebuild.

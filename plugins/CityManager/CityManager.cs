@@ -1236,26 +1236,28 @@ namespace CityManager
                             $"(event {position.NavigationTraceSequence?.ToString() ?? "?"})\n");
                     }
 
-                    body.Append(
-                        $"  last movement command: " +
-                        $"{SafeRaidText(FormatMovementRecord(
+                    string lastMovementCommand = SafeRaidText(
+                        FormatMovementRecord(
                             position.LastMovementCommandAction,
                             position.LastMovementCommandUtc,
                             position.LastMovementCommandX,
                             position.LastMovementCommandY,
                             position.LastMovementCommandZ,
                             null,
-                            now))}\n");
-                    body.Append(
-                        $"  last movement echo: " +
-                        $"{SafeRaidText(FormatMovementRecord(
+                            now));
+                    string lastMovementEcho = SafeRaidText(
+                        FormatMovementRecord(
                             position.LastMovementObservationAction,
                             position.LastMovementObservationUtc,
                             position.LastMovementObservationX,
                             position.LastMovementObservationY,
                             position.LastMovementObservationZ,
                             position.LastMovementObservationDeltaTime,
-                            now))}\n");
+                            now));
+                    body.Append(
+                        $"  last movement command: {lastMovementCommand}\n");
+                    body.Append(
+                        $"  last movement echo: {lastMovementEcho}\n");
 
                     if (!string.IsNullOrWhiteSpace(position.HomeState))
                     {
@@ -1319,6 +1321,22 @@ namespace CityManager
             string homeDetail = string.IsNullOrWhiteSpace(position.HomeDetail)
                 ? "none"
                 : position.HomeDetail.Replace("|", "/").Replace("\r", " ").Replace("\n", " ");
+            string lastMovementCommand = FormatMovementRecord(
+                position.LastMovementCommandAction,
+                position.LastMovementCommandUtc,
+                position.LastMovementCommandX,
+                position.LastMovementCommandY,
+                position.LastMovementCommandZ,
+                null,
+                now);
+            string lastMovementEcho = FormatMovementRecord(
+                position.LastMovementObservationAction,
+                position.LastMovementObservationUtc,
+                position.LastMovementObservationX,
+                position.LastMovementObservationY,
+                position.LastMovementObservationZ,
+                position.LastMovementObservationDeltaTime,
+                now);
 
             return
                 $"{position.Character ?? "unknown"} level={position.Level?.ToString() ?? "?"} " +
@@ -1332,22 +1350,8 @@ namespace CityManager
                 $"homeDistance={(position.HomeDistance.HasValue ? position.HomeDistance.Value.ToString("0.00", CultureInfo.InvariantCulture) : "?")} " +
                 $"trace='{position.NavigationTraceFile ?? "none"}' " +
                 $"traceSeq={position.NavigationTraceSequence?.ToString() ?? "?"} " +
-                $"cmd='{FormatMovementRecord(
-                    position.LastMovementCommandAction,
-                    position.LastMovementCommandUtc,
-                    position.LastMovementCommandX,
-                    position.LastMovementCommandY,
-                    position.LastMovementCommandZ,
-                    null,
-                    now)}' " +
-                $"echo='{FormatMovementRecord(
-                    position.LastMovementObservationAction,
-                    position.LastMovementObservationUtc,
-                    position.LastMovementObservationX,
-                    position.LastMovementObservationY,
-                    position.LastMovementObservationZ,
-                    position.LastMovementObservationDeltaTime,
-                    now)}' " +
+                $"cmd='{lastMovementCommand}' " +
+                $"echo='{lastMovementEcho}' " +
                 $"homeDetail='{homeDetail}' error='{error}'";
         }
 
