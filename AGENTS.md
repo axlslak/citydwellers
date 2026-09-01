@@ -1,20 +1,17 @@
 # Agent Handoff Instructions
 
-This repository keeps durable project memory for City Dwellers and City Banker
-so a new AI/coding session can resume without depending on a long chat
-transcript.
+City Dwellers keeps durable project memory in this repository so a new
+AI/coding session can resume without depending on a long chat transcript.
 
-If the user supplies `CITYDWELLERS-RECOVER-V1` or
-`CITYBANKER-RECOVER-V1`, begin with `RECOVERY.md` and follow it exactly. It is
-the canonical recovery entry point.
+If the user supplies `CITYDWELLERS-RECOVER-V1`, begin with `RECOVERY.md` and
+follow it exactly. It is the canonical recovery entry point.
 
 ## Repository-wide writer lock
 
 Read `docs/REPOSITORY_COORDINATION.md` before making any change.
 
-- `[INVARIANT]` Exactly one session may write anywhere in this repository at a
-  time. This includes City Dwellers Chat mode, City Dwellers Work mode, and
-  every City Banker session.
+- `[INVARIANT]` Exactly one session may write in this repository at a time.
+  This includes City Dwellers Chat mode and City Dwellers Work mode.
 - `[INVARIANT]` `memory/CURSOR.json` is the repository-wide writer lock. It is
   not scoped to a project, process, directory, or ChatGPT mode.
 - `[INVARIANT]` `master` is the single integration branch. Do not create
@@ -23,8 +20,10 @@ Read `docs/REPOSITORY_COORDINATION.md` before making any change.
 - A session may inspect, explain, and plan while another transaction is
   `in_progress`, but it must remain read-only unless it is recovering that
   exact transaction.
-- Every new journal record should identify `project` as `citydwellers`,
-  `citybanker`, or `repository`.
+- `[OWNER-DIRECTION]` Kavey also guarantees one writer at a time across the
+  separate sibling repository `axlslak/citybankers`. That repository has its
+  own recovery key, branch, cursor, journal, state, and history. Never place
+  CityBankers recovery files or technical state in this repository.
 
 Before making a non-trivial change:
 
@@ -33,11 +32,10 @@ Before making a non-trivial change:
    permission to begin unrelated work.
 2. Read `memory/JOURNAL.jsonl`, `memory/PROTOCOL.md`, and
    `docs/REPOSITORY_COORDINATION.md`.
-3. For City Dwellers, read `docs/PROJECT_STATE.md` and relevant entries in
-   `docs/PROJECT_HISTORY.md`. For City Banker, read
-   `docs/citybanker/PROJECT_STATE.md` and relevant entries in
-   `docs/citybanker/PROJECT_HISTORY.md`.
-4. Identify the active project in the journal `BEGIN` and cursor.
+3. Read `docs/PROJECT_STATE.md` and relevant entries in
+   `docs/PROJECT_HISTORY.md`.
+4. Identify the active City Dwellers transaction in the journal `BEGIN` and
+   cursor.
 5. Treat Git and reproducible test evidence as authoritative. A commit mentioned only in a chat is not considered real until it can be found in the repository.
 6. Do not silently resurrect a superseded or rejected approach. Record why a replacement was chosen.
 7. Record a durable journal `BEGIN` and `in_progress` cursor before long or

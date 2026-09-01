@@ -1,8 +1,9 @@
 # Shared Engineering Notes
 
-This is a curated bridge between City Dwellers and City Banker. It contains
-only findings that may be reusable across projects; each receiving project
-still verifies compatibility before adopting them.
+This is a curated bridge from `axlslak/citydwellers` to the separate sibling
+repository `axlslak/citybankers`. It contains only findings that may be
+reusable; the receiving repository still verifies compatibility and records
+its adoption independently.
 
 ## Entry format
 

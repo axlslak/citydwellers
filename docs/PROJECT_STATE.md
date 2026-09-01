@@ -28,16 +28,16 @@ This file is the compact restart image for a new development session. It is inte
 - `[INVARIANT]` Persistent memory stays distilled: retain decisions,
   invariants, evidence, hazards, and the exact resume point; omit nonessential
   conversation and repetitive command history.
-- `[DECISION 2026-09-01]` This repository is shared with the cousin City
-  Banker project. City Banker has separate state/history under
-  `docs/citybanker/`; City Dwellers keeps these existing checkpoint files.
+- `[CORRECTION 2026-09-01]` City Dwellers and CityBankers are separate sibling
+  repositories: `axlslak/citydwellers` and `axlslak/citybankers`. Never place
+  CityBankers recovery cards, state, history, or code in City Dwellers.
 - `[INVARIANT]` City Dwellers Chat and Work sessions alternate on `master` and
-  use `memory/CURSOR.json` as the same repository-wide writer lock used by
-  City Banker. Exactly one session writes anywhere in the repository at a
-  time.
+  use this repository's `memory/CURSOR.json` as their writer lock. Kavey also
+  guarantees that only one session writes across the two sibling repositories
+  at any moment; each repository nevertheless keeps independent recovery state.
 - `[DECISION]` Validated reusable ideas may be curated in
-  `docs/SHARED_ENGINEERING.md`; project-specific evidence and compatibility
-  boundaries must remain explicit.
+  `docs/SHARED_ENGINEERING.md` and intentionally ported to the sibling repo;
+  project-specific evidence and compatibility boundaries remain explicit.
 
 ## Working-session boundary
 
