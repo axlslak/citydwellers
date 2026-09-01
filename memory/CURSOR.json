@@ -3,10 +3,11 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "idle",
-  "last_completed_transaction": "session-5-grid-full-client-tail",
-  "completed_utc": "2026-09-01T18:52:31Z",
-  "checkpoint_commit": "2c529a17fc3c4d625f3cd8aac40bcc29a0d3d986",
-  "next_task": "Kavey builds and runs one monitored ICC-to-Grid test of the restored full-client movement tail, then returns its NavigationTraces JSONL.",
-  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 2c529a1 is on origin/master. Implementation 1464d99 preserves deterministic staging, then sends captured near-exit TurnLeftMouse, exact ForwardStop, stationary TurnRightMouse, TurnLeftMouse, and TurnLeftStop before waiting 20s for model 6010. Kavey owns build/live validation and should return the JSONL. General walking remains unchanged and separate."
+  "status": "in_progress",
+  "active_project": "repository",
+  "transaction": "session-5-single-writer-coordination",
+  "started_utc": "2026-09-01T23:07:24Z",
+  "base_commit": "3bda2471c1170d1828c1b383d36a85238ab1c5c0",
+  "task": "Add repository-wide single-writer coordination and separate City Banker durable project memory without introducing parallel branches.",
+  "resume_instruction": "Start at RECOVERY.md and find journal BEGIN seq 37. Kavey clarified that exactly one session will write at a time across City Dwellers chat/work and both City Banker sessions. Keep master as the only integration branch, document the global cursor as the writer lock, add City Banker state/history and recovery guidance, and add curated cross-project notes. Do not change application code, build, or run AO. Finish with COMMIT or ABORT and return the cursor idle."
 }
