@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_transaction": "session-5-navigation-forensic-trace",
-  "started_utc": "2026-09-01T17:27:20Z",
-  "base_commit": "4fff7885907c045736edf417eeafefe983741824",
-  "task": "Instrument CityBuddies navigation without changing movement behavior, using the single ICC character as the next live specimen.",
-  "resume_instruction": "Implement a durable JSONL trace per character/home job. Capture state changes, playfield transitions, outbound movement actions with asserted position, received self movement echoes, current observed position, Run Speed, controller phase, and route counters. Buffer and periodically flush to reduce timing disturbance; flush at terminal boundaries. Add concise trace filename/Run Speed/latest command and echo fields to the existing snapshot and Manager #position output. Do not add guest-channel event spam, change movement algorithms, build, or run AO tests. Finish with COMMIT or ABORT and return the cursor to idle."
+  "status": "idle",
+  "last_completed_transaction": "session-5-navigation-forensic-trace",
+  "completed_utc": "2026-09-01T17:42:03Z",
+  "checkpoint_commit": "86042ef9ed090b12dbe55409a0b174ad34db7aad",
+  "next_task": "Kavey builds and runs one ordinary home job with the character saved in ICC, then supplies the resulting NavigationTraces JSONL file for analysis before any movement change.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 86042ef is on origin/master. Per-home-job CityBuddies JSONL tracing is implemented. It distinguishes outbound commands from received local movement echoes and includes observed/asserted transforms, Run Speed, playfield, route/controller state, ICC interactions, state transitions, and one-second quiet samples. Buddy.exe reports the filename; Manager #position shows trace sequence, Run Speed, and latest command/echo. The next evidence is the one toon Kavey saved in ICC: Kavey builds, runs one ordinary home job, and supplies its NavigationTraces JSONL. Do not alter Grid exit or general walking until that trace is analyzed. Kavey owns builds and live AO tests."
 }
