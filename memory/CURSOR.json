@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "transaction": "session-5-grid-deterministic-exit",
-  "started_utc": "2026-09-01T18:27:05Z",
-  "base_commit": "b6bcc0f3447c155702a9465fe83d5affe897f9c3",
-  "task": "Replace only the failed Grid crossing pulse with a deterministic, repeat-safe staging-to-exit ForwardStop state machine.",
-  "resume_instruction": "Start at RECOVERY.md, find journal BEGIN seq 33, and inspect Git before assuming implementation exists. Preserve ICC entry and both general walkers. Route every Grid attempt to the fixed staging point 2m before the captured exit, confirm staging, send one uninterrupted final leg ending with ForwardStop at (211.6727,3.775,186.7213), wait for stable 6010, and reset the Grid phase on every new home job. Do not build or run AO; Kavey owns validation."
+  "status": "idle",
+  "last_completed_transaction": "session-5-grid-deterministic-exit",
+  "completed_utc": "2026-09-01T18:34:52Z",
+  "checkpoint_commit": "e2dfeba93f76c2c4f47df8576cb7961c7136fea7",
+  "next_task": "Kavey builds and runs one monitored ICC-to-Grid-to-Serenity home job, then returns its NavigationTraces JSONL.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after e2dfeba is on origin/master. The deterministic Grid exit implementation is 0f73756: every attempt routes to staging near (212.9832,3.7750,188.2321), confirms the staging FullStop echo as an ordering barrier, sends one uninterrupted ForwardStart, then ForwardStop exactly at (211.6727,3.7750,186.7213) after 1.2s and waits 20s for stable 6010. Kavey owns build/live validation and should return the resulting NavigationTraces JSONL. Keep general walking redesign separate until this handoff is repeatable."
 }
