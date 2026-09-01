@@ -382,6 +382,8 @@ namespace CityBuddies
                 _standReadyUtc = DateTime.MinValue;
                 ResetPulseState(true);
                 ResetContinuousState(true);
+                ResetGridCrossing();
+                ResetIccEntry();
 
                 if (directive.Cancel)
                 {
@@ -1169,8 +1171,11 @@ namespace CityBuddies
                         : null,
                     ContinuousWaypointIndex = _continuousWaypointIndex,
                     ContinuousPathCount = _continuousPath.Count,
-                    GridCrossingActive = _gridCrossingActive,
-                    GridCrossingForwardActive = _gridCrossingForwardActive,
+                    GridExitPhase = _gridExitPhase.ToString(),
+                    GridCrossingActive =
+                        _gridExitPhase != GridExitPhase.Idle,
+                    GridCrossingForwardActive =
+                        _gridExitPhase == GridExitPhase.FinalApproach,
                     IccUseAttempts = _iccUseAttempts
                 };
 
@@ -1607,6 +1612,7 @@ namespace CityBuddies
             public float? ContinuousCommandZ { get; set; }
             public int ContinuousWaypointIndex { get; set; }
             public int ContinuousPathCount { get; set; }
+            public string GridExitPhase { get; set; }
             public bool GridCrossingActive { get; set; }
             public bool GridCrossingForwardActive { get; set; }
             public int IccUseAttempts { get; set; }

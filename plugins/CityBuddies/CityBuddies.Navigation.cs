@@ -14,7 +14,7 @@ namespace CityBuddies
         private static readonly TimeSpan ContinuousStuckTimeout =
             TimeSpan.FromMilliseconds(3000);
         private static readonly TimeSpan GridZoneTimeout = TimeSpan.FromSeconds(20);
-        private static readonly TimeSpan GridCrossingPulseDuration =
+        private static readonly TimeSpan GridFinalApproachDuration =
             TimeSpan.FromMilliseconds(1200);
         private static readonly TimeSpan IccDynelDiscoveryTimeout = TimeSpan.FromSeconds(15);
         private static readonly TimeSpan IccUseRetryInterval = TimeSpan.FromSeconds(5);
@@ -38,10 +38,11 @@ namespace CityBuddies
         private const float GridExitX = 211.6727f;
         private const float GridExitY = 3.775f;
         private const float GridExitZ = 186.7213f;
-        private const float GridExitReachedDistance = 0.25f;
+        private const float GridStagingReachedDistance = 0.25f;
         private const float GridObservedArrivalX = 234.3062f;
         private const float GridObservedArrivalZ = 212.8138f;
-        private const float GridCrossingDistance = 2.0f;
+        private const float GridStagingDistance = 2.0f;
+        private const float GridStagingConfirmationDistance = 0.05f;
 
         private int _activeNavigationPlayfieldId = int.MinValue;
 
@@ -65,16 +66,24 @@ namespace CityBuddies
         private int _continuousRecoveries;
 
         private DateTime _gridZoneDeadlineUtc = DateTime.MinValue;
-        private DateTime _gridCrossingStopUtc = DateTime.MinValue;
-        private Vector3 _gridCrossingEndpoint;
-        private Quaternion _gridCrossingHeading;
-        private bool _gridCrossingActive;
-        private bool _gridCrossingForwardActive;
+        private DateTime _gridExitPhaseDeadlineUtc = DateTime.MinValue;
+        private Vector3 _gridExitStaging;
+        private Quaternion _gridExitHeading;
+        private GridExitPhase _gridExitPhase;
+        private int _gridStagingStopRetries;
 
         private DateTime _iccDiscoveryStartedUtc = DateTime.MinValue;
         private DateTime _nextIccUseUtc = DateTime.MinValue;
         private bool _iccNearbyDynelsLogged;
         private int _iccUseAttempts;
+
+        private enum GridExitPhase
+        {
+            Idle,
+            SettlingAtStaging,
+            FinalApproach,
+            WaitingForSerenity
+        }
 
         private void ProcessHomeRoute(DateTime now)
         {
@@ -202,27 +211,28 @@ namespace CityBuddies
         {
             _homeDistance = null;
 
-            if (_gridCrossingActive)
+            if (_gridExitPhase != GridExitPhase.Idle)
             {
-                ProcessGridCrossing(localPlayer, now);
+                ProcessGridExitState(localPlayer, now);
                 return;
             }
 
-            Vector3 exit = new Vector3(GridExitX, GridExitY, GridExitZ);
-            float exitDistance = localPlayer.Transform.Position.Distance2DFrom(exit);
-            if (exitDistance <= GridExitReachedDistance)
+            Vector3 staging = GetGridExitStaging();
+            float stagingDistance =
+                localPlayer.Transform.Position.Distance2DFrom(staging);
+            if (stagingDistance <= GridStagingReachedDistance)
             {
-                BeginGridCrossing(localPlayer, now);
+                BeginGridExitStaging(localPlayer, now);
                 return;
             }
 
             ProcessMappedRoute(
                 localPlayer,
                 GridPlayfieldId,
-                exit,
-                GridExitReachedDistance,
-                "moving-to-city-exit",
-                "Grid city exit",
+                staging,
+                GridStagingReachedDistance,
+                "moving-to-city-exit-staging",
+                "Grid city-exit staging point",
                 now);
         }
 
@@ -736,72 +746,163 @@ namespace CityBuddies
                 value.W / length);
         }
 
-        private void BeginGridCrossing(LocalPlayer localPlayer, DateTime now)
+        private static Vector3 GetGridExitStaging()
         {
-            Vector3 position = localPlayer.Transform.Position;
+            Vector3 exit = new Vector3(GridExitX, GridExitY, GridExitZ);
             Vector3 direction = new Vector3(
                 GridExitX - GridObservedArrivalX,
                 0,
                 GridExitZ - GridObservedArrivalZ).Normalize();
-
-            _gridCrossingEndpoint = new Vector3(
-                position.X + (direction.X * GridCrossingDistance),
-                position.Y,
-                position.Z + (direction.Z * GridCrossingDistance));
-            _gridCrossingHeading =
-                HeadingTowards(position, _gridCrossingEndpoint);
-
-            // Reuse the proven bounded-pulse envelope for this handoff. The
-            // observed coordinate is the edge of a walk-triggered volume, not
-            // a place to stop. Move through it immediately, then stop if the
-            // playfield has not changed yet.
-            ResetPulseState(false);
-            ResetContinuousState(false);
-            SendMovementCommand(
-                localPlayer,
-                position,
-                _gridCrossingHeading,
-                MovementAction.ForwardStart,
-                $"Grid exit pulse start toward " +
-                $"({_gridCrossingEndpoint.X:F3},{_gridCrossingEndpoint.Y:F3}," +
-                $"{_gridCrossingEndpoint.Z:F3}).");
-
-            _gridCrossingActive = true;
-            _gridCrossingForwardActive = true;
-            _gridCrossingStopUtc = now.Add(GridCrossingPulseDuration);
-            _gridZoneDeadlineUtc = now.Add(GridZoneTimeout);
-            SetHomeState(
-                "crossing-city-exit",
-                $"Started an immediate {GridCrossingDistance:F1}m bounded pulse " +
-                "through the Grid city-exit volume.");
+            return new Vector3(
+                exit.X - (direction.X * GridStagingDistance),
+                exit.Y,
+                exit.Z - (direction.Z * GridStagingDistance));
         }
 
-        private void ProcessGridCrossing(LocalPlayer localPlayer, DateTime now)
+        private void BeginGridExitStaging(LocalPlayer localPlayer, DateTime now)
         {
-            if (_gridCrossingForwardActive && now >= _gridCrossingStopUtc)
+            _gridExitStaging = GetGridExitStaging();
+            Vector3 exit = new Vector3(GridExitX, GridExitY, GridExitZ);
+            _gridExitHeading = HeadingTowards(_gridExitStaging, exit);
+
+            ResetPulseState(false);
+            ResetContinuousState(false);
+
+            lock (_movementObservationSync)
+                _settledObservationSerialAtStop = _settledObservationSerial;
+
+            SendMovementCommand(
+                localPlayer,
+                _gridExitStaging,
+                _gridExitHeading,
+                MovementAction.FullStop,
+                $"Grid exit staging stop at " +
+                $"({_gridExitStaging.X:F3},{_gridExitStaging.Y:F3}," +
+                $"{_gridExitStaging.Z:F3}).");
+
+            _gridExitPhase = GridExitPhase.SettlingAtStaging;
+            _gridExitPhaseDeadlineUtc = now.Add(SettledPositionTimeout);
+            _gridStagingStopRetries = 0;
+            SetHomeState(
+                "staging-city-exit",
+                $"Stopped at the fixed Grid-side staging point " +
+                $"{GridStagingDistance:F1}m before the captured exit; " +
+                "waiting for its exact movement echo.");
+        }
+
+        private void ProcessGridExitState(LocalPlayer localPlayer, DateTime now)
+        {
+            if (_gridExitPhase == GridExitPhase.SettlingAtStaging)
             {
-                SendMovementCommand(
-                    localPlayer,
-                    _gridCrossingEndpoint,
-                    _gridCrossingHeading,
-                    MovementAction.FullStop,
-                    "Grid exit pulse endpoint FullStop.");
-                _gridCrossingForwardActive = false;
-                SetHomeState(
-                    "waiting-for-serenity",
-                    $"Completed the {GridCrossingDistance:F1}m Grid exit pulse; " +
-                    "waiting for Serenity.");
+                ProcessGridExitStaging(localPlayer, now);
+                return;
             }
 
-            if (now >= _gridZoneDeadlineUtc)
+            if (_gridExitPhase == GridExitPhase.FinalApproach)
+            {
+                if (now < _gridExitPhaseDeadlineUtc)
+                    return;
+
+                Vector3 exit = new Vector3(GridExitX, GridExitY, GridExitZ);
+                SendMovementCommand(
+                    localPlayer,
+                    exit,
+                    _gridExitHeading,
+                    MovementAction.ForwardStop,
+                    "Grid final approach ForwardStop at the captured exit.");
+                _gridExitPhase = GridExitPhase.WaitingForSerenity;
+                _gridZoneDeadlineUtc = now.Add(GridZoneTimeout);
+                SetHomeState(
+                    "waiting-for-serenity",
+                    $"Sent ForwardStop at the captured Grid exit " +
+                    $"({GridExitX:F3},{GridExitY:F3},{GridExitZ:F3}); " +
+                    "waiting for Serenity.");
+                return;
+            }
+
+            if (_gridExitPhase == GridExitPhase.WaitingForSerenity &&
+                now >= _gridZoneDeadlineUtc)
             {
                 StopMovement();
+                ResetGridCrossing();
                 SetHomeState(
                     "route-unavailable",
                     $"Grid did not change to Serenity within " +
-                    $"{GridZoneTimeout.TotalSeconds:F0}s after the bounded " +
-                    $"{GridCrossingDistance:F1}m exit pulse.");
+                    $"{GridZoneTimeout.TotalSeconds:F0}s after ForwardStop at " +
+                    "the captured exit.");
             }
+        }
+
+        private void ProcessGridExitStaging(LocalPlayer localPlayer, DateTime now)
+        {
+            Vector3 observedPosition;
+            MovementAction observedAction;
+            bool hasObservation = TryGetPositionAfterStop(
+                out observedPosition,
+                out observedAction,
+                out _);
+            bool exactStagingStop =
+                hasObservation &&
+                observedAction == MovementAction.FullStop &&
+                observedPosition.Distance2DFrom(_gridExitStaging) <=
+                    GridStagingConfirmationDistance;
+
+            if (exactStagingStop)
+            {
+                BeginGridFinalApproach(localPlayer, now);
+                return;
+            }
+
+            if (now < _gridExitPhaseDeadlineUtc)
+                return;
+
+            if (_gridStagingStopRetries < MaximumStopConfirmationRetries)
+            {
+                _gridStagingStopRetries++;
+                lock (_movementObservationSync)
+                    _settledObservationSerialAtStop = _settledObservationSerial;
+
+                SendMovementCommand(
+                    localPlayer,
+                    _gridExitStaging,
+                    _gridExitHeading,
+                    MovementAction.FullStop,
+                    $"Grid staging stop confirmation " +
+                    $"{_gridStagingStopRetries}/" +
+                    $"{MaximumStopConfirmationRetries}.");
+                _gridExitPhaseDeadlineUtc = now.Add(SettledPositionTimeout);
+                SetHomeState(
+                    "staging-city-exit",
+                    $"Waiting for the exact Grid staging FullStop echo; " +
+                    $"confirmation {_gridStagingStopRetries}/" +
+                    $"{MaximumStopConfirmationRetries}.");
+                return;
+            }
+
+            StopMovement();
+            ResetGridCrossing();
+            SetHomeState(
+                "route-unavailable",
+                "Grid did not confirm the exact city-exit staging stop.");
+        }
+
+        private void BeginGridFinalApproach(LocalPlayer localPlayer, DateTime now)
+        {
+            SendMovementCommand(
+                localPlayer,
+                _gridExitStaging,
+                _gridExitHeading,
+                MovementAction.ForwardStart,
+                $"Grid final approach start from " +
+                $"({_gridExitStaging.X:F3},{_gridExitStaging.Y:F3}," +
+                $"{_gridExitStaging.Z:F3}) toward the captured exit.");
+
+            _gridExitPhase = GridExitPhase.FinalApproach;
+            _gridExitPhaseDeadlineUtc = now.Add(GridFinalApproachDuration);
+            SetHomeState(
+                "crossing-city-exit",
+                $"Started one uninterrupted {GridStagingDistance:F1}m final " +
+                "approach; it will end with ForwardStop at the captured exit.");
         }
 
         private void ProcessIccEntry(LocalPlayer localPlayer, DateTime now)
@@ -981,10 +1082,10 @@ namespace CityBuddies
 
         private void ResetGridCrossing()
         {
-            _gridCrossingActive = false;
-            _gridCrossingForwardActive = false;
-            _gridCrossingStopUtc = DateTime.MinValue;
+            _gridExitPhase = GridExitPhase.Idle;
+            _gridExitPhaseDeadlineUtc = DateTime.MinValue;
             _gridZoneDeadlineUtc = DateTime.MinValue;
+            _gridStagingStopRetries = 0;
         }
 
         private void ResetIccEntry()
