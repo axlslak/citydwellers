@@ -4,9 +4,9 @@
   "current_session": 5,
   "last_completed_session": 5,
   "status": "idle",
-  "last_completed_transaction": "session-5-grid-bounded-exit-crossing",
-  "completed_utc": "2026-08-30T22:57:00Z",
-  "checkpoint_commit": "737da17775ec0ca3d672d711021a6e520fc8785d",
-  "next_task": "Kavey rebuilds and runs one monitored ICC-to-Grid-to-Serenity test of the bounded exit crossing.",
-  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 737da17 is on origin/master. Implementation d927cd5 begins an immediate dedicated 2m/1.2s Grid exit pulse at the observed edge, stops if still in Grid, and waits up to 20s for stable model 6010. There is deliberately no 15-second login delay. Kavey should build and return whether it reaches Serenity; if not, return the new timeout and last position snapshot. Do not mix walking smoothness or Serenity main-street work into that test."
+  "last_completed_transaction": "session-5-grid-retry-evidence-and-nav-references",
+  "completed_utc": "2026-09-01T16:25:41Z",
+  "checkpoint_commit": "444fdceb15cfb41e52894a56ee19ca6baca6627a",
+  "next_task": "With Kavey's approval, replace only the final Grid handoff with a deterministic fixed-staging to exact-exit sequence ending in ForwardStop, then have Kavey build and test one buddy already near the Grid exit.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 444fdce is on origin/master. ICC static-terminal entry is owner-verified. The d927cd5 2m/1.2s FullStop pulse failed and repeated jobs alternate around the exit. The successful full-client trace instead sends ForwardStop at exactly (211.6727, 3.775, 186.7213). Do not increase distance. Keep walking smoothness, Serenity main-street routing, and ICC logic unchanged while implementing and testing a deterministic Grid-side staging point, one final forward leg, ForwardStop at the captured exit, and the bounded stable-model-6010 wait. Kavey owns builds and live AO tests."
 }
