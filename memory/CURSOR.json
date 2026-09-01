@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_transaction": "session-5-csharp73-position-format-fix",
-  "started_utc": "2026-09-01T18:07:24Z",
-  "base_commit": "91709151040a16fe70e0b4c583fe1dc18b7d8105",
-  "task": "Make the new CityManager movement telemetry syntax compatible with the repository's C# 7.3 compiler.",
-  "resume_instruction": "Kavey's Release build compiled five projects and failed only CityManager with CS8967 at lines 1248, 1258, 1342, and 1350. The cause is four multiline FormatMovementRecord calls placed directly inside interpolated-string expressions, which C# 7.3 rejects. Compute command/echo strings in locals before the interpolation in BuildBuddyPositionWindow and BuildBuddyPositionTelemetry, preserving exact output. Do not build or run AO. Finish with COMMIT or ABORT and return the cursor idle."
+  "status": "idle",
+  "last_completed_transaction": "session-5-csharp73-position-format-fix",
+  "completed_utc": "2026-09-01T18:09:30Z",
+  "checkpoint_commit": "fcd41a0bcf5c6d567429f5be8d40deea2a2ce692",
+  "next_task": "Kavey rebuilds, then repeats one Flipper operation to verify clean unload and full offset timestamps; afterward run the saved ICC toon and supply its NavigationTraces JSONL.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after fcd41a0 is on origin/master. Kavey's first Release build after the Flipper/timestamp/navigation-trace changes compiled five projects and failed only CityManager with four CS8967 errors. The multiline calls inside interpolated expressions are now C# 7.3-compatible locals with identical output. Kavey owns the confirming rebuild. Then repeat one Flipper operation to confirm clean unload and yyyy-MM-ddTHH:mm:ss.fffzzz logging. Afterward run the saved ICC toon once and upload its NavigationTraces JSONL before changing movement."
 }
