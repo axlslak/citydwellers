@@ -278,6 +278,22 @@ default with the retained bounded-pulse fallback over several days.
 - `[INVARIANT]` The Grid crossing pulse is independent of the selected general
   walking mode and is strictly bounded; it cannot leave forward movement open
   indefinitely when zoning fails.
+- `[LIVE-OBSERVATION 2026-09-01]` The bounded crossing pulse still did not zone
+  a buddy into Serenity. Repeated home jobs are non-idempotent: one run moves
+  the buddy off the observed exit point, the next routes it back, and later
+  runs alternate between those positions while continuing to fail.
+- `[CORRECTED-EVIDENCE]` A closer reading of the successful full-client trace
+  shows `ForwardStop` at exactly `(211.6727, 3.775, 186.7213)`, followed by
+  small turn-stop messages and then the area change. It does not show a
+  `FullStop` two metres beyond that point. The current crossing pulse therefore
+  moves beyond the only confirmed trigger coordinate and uses a different stop
+  action from the successful client sequence.
+- `[OPEN]` Do not increase crossing distance again. The next experiment should
+  make every attempt deterministic: approach a fixed staging point on the Grid
+  side, run one uninterrupted final leg, issue `ForwardStop` at the observed
+  exit coordinate, and wait for stable model `6010`. Starting a new job from
+  either side of the staging/exit pair must execute the complete same attempt
+  rather than alternating between its halves.
 - `[OWNER-VERIFIED]` Do not add the normal client's approximately 15-second
   post-login teleport restriction to clientless. Kavey observed that it is
   enforced by the full client; the clientless buddy used `Enter The Grid`
@@ -351,6 +367,35 @@ Implemented pathfinder behavior:
 - In Grid, follow `152.Navmesh` to the observed city-exit trigger, stop, and
   wait for the stable playfield model to become Serenity.
 
+### Reusable full-client navigation references
+
+Owner-supplied `NavGen` and `NavManager` source archives were reviewed on
+2026-09-01. The archives themselves remain outside the repository; only these
+sanitized reusable ideas are durable project state.
+
+- `[REFERENCE]` NavGen uses the full AO client plus AOSharp Recast to bake and
+  save playfield navmeshes. It supports configurable agent dimensions and
+  rasterization parameters, explicit off-mesh links, and visual inspection of
+  both straight paths and path corridors.
+- `[POSSIBLE-USE]` A repaired load-existing-mesh mode could validate Grid
+  `152.Navmesh` and Serenity `6010.Navmesh` in the full client. A mesh that
+  succeeds there but fails in clientless would narrow the CritterAI
+  `AccessViolationException` investigation toward ABI, native lifetime, or
+  query concurrency rather than mesh content.
+- `[REFERENCE]` NavManager combines navmesh legs with direct waypoint legs for
+  ramps and drops, followed by a separate interaction. CityBuddies should keep
+  this hybrid model available: navmesh travel for broad safe movement,
+  deterministic waypoint/staging legs for troublesome geometry, and explicit
+  interaction or playfield-wait legs for transitions.
+- `[DO-NOT-PORT-WHOLESALE]` Both tools depend on the normal AO client and newer
+  AOSharpSDK versions (`1.0.100`/`1.0.105`) even though they reference
+  `AOSharpSDK.Nav 1.0.5`. They provide no clientless movement implementation,
+  no ICC/Serenity route data, and no fix for native CritterAI crashes. The
+  supplied archives contain source but no navmesh binaries.
+- `[KNOWN-DEFECT]` The supplied NavGen load helper uses a literal
+  `name.Navmesh` path and its config loader reads a directory path as a file.
+  Repair those defects before using it as a validator.
+
 ## Publication constraints
 
 - `[DO-NOT-USE]` `InfoHelper` / `InfoHelper.zip` must remain outside the public repository.
@@ -374,13 +419,19 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-The isolated Grid crossing implementation is published in `d927cd5`. Next:
+ICC static-terminal entry into Grid is owner-verified. The isolated 2 m Grid
+crossing pulse from `d927cd5` failed and produces alternating retry positions.
+Next:
 
-1. Kavey rebuilds and repeats one monitored ICC-to-Grid run. Expected Grid
-   states are `crossing-city-exit`, then either model `6010` or
-   `waiting-for-serenity` after the 1.2-second pulse.
-2. If it still remains in Grid, return the new bounded-pulse timeout plus the
-   last position snapshot; do not increase distance without evidence.
-3. Walking quality, city main-street routing, and guest-channel diagnostics
-   remain separate later passes.
-4. The assistant does not build or run AO unless Kavey explicitly delegates it.
+1. Replace only the final Grid handoff with a deterministic staging/exit state
+   machine that ends with `ForwardStop` at the captured exit coordinate. Do not
+   change general walking, Serenity routing, or ICC terminal use in the same
+   transaction.
+2. Kavey builds and runs one buddy already in or near the Grid exit area. The
+   assistant does not build or run AO unless Kavey explicitly delegates it.
+3. Log the server-observed start position, staging arrival, exact movement
+   actions/positions for the final leg, final Grid position, and stable model
+   transition or timeout. Guest chat should show a concise state/result.
+4. After Grid-to-Serenity succeeds repeatably, address continuous-walker
+   rubber-banding as a separate problem. Preserve bounded-pulse rollback and
+   the NavGen/NavManager reference ideas for that later pass.

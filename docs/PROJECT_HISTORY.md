@@ -400,3 +400,41 @@ selected home movement mode. Walking smoothness, Serenity main-street routing,
 and chat diagnostics remain outside this transaction.
 
 `[OPEN]` Kavey owns the build and one monitored ICC-to-Grid-to-Serenity test.
+
+## 2026-09-01 — Grid crossing retry failure and navigation references
+
+`[VERIFIED-LIVE]` ICC entry remains solved: a buddy already near `Enter The
+Grid` uses the static terminal and enters Grid. The dedicated 2 m crossing pulse
+from `d927cd5` did not complete the Grid-to-Serenity handoff. Across repeated
+home jobs the buddy alternates between the observed exit position and the
+bounded endpoint: one run moves away, the next routes back, and neither zones.
+
+`[CORRECTED-EVIDENCE]` The successful full-client trace was re-examined. Its
+last translational message is `ForwardStop` at exactly
+`(211.6727, 3.775, 186.7213)`. Small turn-stop messages follow, then the area
+change. There is no successful `FullStop` two metres beyond the coordinate.
+The implemented pulse therefore differs from the trace in both endpoint and
+stop action. Increasing pulse distance again is not evidence-based.
+
+`[PROPOSED]` Make the Grid exit operation repeatable before investigating
+walking smoothness. Every attempt should use a fixed Grid-side staging point,
+one uninterrupted final forward leg, `ForwardStop` at the captured exit point,
+and a bounded wait for stable model `6010`. A job starting near either point
+must perform the whole staging-to-exit attempt rather than alternate between
+movement halves across jobs.
+
+`[REFERENCE REVIEW]` Kavey supplied NavGen and NavManager source archives.
+NavGen's useful pieces are full-client navmesh baking, configurable Recast
+parameters, off-mesh links, and straight-path/corridor visualization. A repaired
+existing-mesh loader could help separate corrupt-mesh failures from clientless
+CritterAI ABI/lifetime/concurrency failures. NavManager's useful idea is hybrid
+navigation: navmesh for broad legs, explicit direct waypoints for difficult
+ramps/drops, then a separate interaction.
+
+Neither archive is a clientless implementation or a general Grid/Whom-Pah
+planner, and neither contains navmesh binaries. They target normal-client
+AOSharpSDK `1.0.100`/`1.0.105`; City Dwellers remains binary-coupled to
+AOSharpSDK `1.0.84`. No archive code was imported, built, or tested.
+
+`[OWNER POLICY]` Kavey builds and performs AO runtime tests. Walking
+rubber-banding remains a separate later pass after Grid exit repeatability.
