@@ -408,6 +408,19 @@ default with the retained bounded-pulse fallback over several days.
 - `[INVARIANT]` The final Grid leg is independent of the selected general
   walking mode, sends no synthetic `Update`, and is bounded by an exact
   `ForwardStop`. General walking remains unchanged pending separate work.
+- `[VERIFIED-TRACE 2026-09-01]` The deterministic attempt behaved repeatably
+  but still did not zone. Staging `FullStop`, final `ForwardStart`, and exact
+  exit `ForwardStop` all received clean matching echoes; the buddy remained at
+  `(211.6727, 3.7750, 186.7213)` for the full 20-second wait in model `152`.
+- `[CORRECTED-EVIDENCE]` Exact `ForwardStop` was not the complete successful
+  client tail. The full client first sent `TurnLeftMouse` at
+  `(211.9757, 3.7750, 187.0108)`, then `ForwardStop` 35 ms later, followed at
+  the exit by `TurnRightMouse`, `TurnLeftMouse`, and `TurnLeftStop` before the
+  area changed.
+- `[IMPLEMENTED]` Commit `1464d99a01e24e848e70806fcf2f6ee3ba977f3f`
+  preserves deterministic staging and replays that missing bounded movement
+  tail with the captured positions, headings, actions, and relative delays.
+  The 20-second Serenity wait now begins after the final `TurnLeftStop`.
 - `[OWNER-VERIFIED]` Do not add the normal client's approximately 15-second
   post-login teleport restriction to clientless. Kavey observed that it is
   enforced by the full client; the clientless buddy used `Enter The Grid`
@@ -563,16 +576,16 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-The complete ICC-to-Grid diagnostic trace has been reconciled, and the failed
-2 m overshoot has been replaced by the deterministic staging-to-exit handoff in
-`0f73756`. Next:
+The deterministic staging experiment remained in Grid despite an exact
+`ForwardStop`. Commit `1464d99` now reproduces the remaining successful-client
+movement tail without changing general walking. Next:
 
 1. Kavey builds and runs one monitored ICC-to-Grid home job. The assistant does
    not build or run AO unless Kavey explicitly delegates it.
-2. Preserve the resulting JSONL. The expected Grid sequence is: navmesh route
-   to staging near `(212.9832, 3.7750, 188.2321)`, exact staging `FullStop`
-   echo, `ForwardStart`, exact exit `ForwardStop` after 1.2 s, then stable model
-   `6010` or a bounded 20-second timeout.
+2. Preserve the resulting JSONL. After staging and `ForwardStart`, the expected
+   tail is near-exit `TurnLeftMouse`, exact `ForwardStop`, stationary
+   `TurnRightMouse`, `TurnLeftMouse`, `TurnLeftStop`, then stable model `6010`
+   or a bounded 20-second timeout.
 3. If it times out, use that trace to distinguish a missing/late action echo
    from a confirmed exact sequence that the clientless server path still does
    not zone. Do not increase crossing distance by guesswork.

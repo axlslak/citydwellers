@@ -612,3 +612,38 @@ changed.
 `[OPEN]` Kavey owns the build and one monitored ICC-to-Grid-to-Serenity test.
 The returned JSONL should show staging `FullStop`, final `ForwardStart`, exact
 exit `ForwardStop`, and either stable model `6010` or the bounded timeout.
+
+## 2026-09-01 — Full-client Grid exit movement tail restored
+
+Kavey's second deterministic trace proved that the repeatability change worked:
+the buddy stopped at the fixed staging point, sent and received `ForwardStart`,
+sent and received `ForwardStop` exactly at `(211.6727, 3.7750, 186.7213)`, and
+remained there rather than alternating endpoints. It nevertheless stayed in
+Grid model `152` for the complete 20-second wait.
+
+`[CORRECTION]` The successful full-client sequence had previously been reduced
+too far. Its last translational tail was `TurnLeftMouse` at
+`(211.9757, 3.7750, 187.0108)`, then `ForwardStop` 35 ms later at the exact
+exit. It subsequently sent stationary `TurnRightMouse`, `TurnLeftMouse`, and
+`TurnLeftStop` packets at the exit before the area changed. The deterministic
+clientless attempt omitted all four of those surrounding actions.
+
+`[IMPLEMENTED]` Published commit:
+
+`1464d99a01e24e848e70806fcf2f6ee3ba977f3f` — `Replay full Grid exit movement tail`
+
+The fixed staging and retry-safe state machine remain unchanged. The final leg
+now sends the captured near-exit `TurnLeftMouse`, exact `ForwardStop`, and the
+three post-stop turn actions using the captured headings and relative 35 ms,
+83 ms, 6 ms, and 160 ms delays. The bounded 20-second model-`6010` wait starts
+after `TurnLeftStop`. AOSharp's pinned `MovementAction` enum was verified to
+contain every action used by the capture.
+
+The same live trace showed why walking could look somewhat better without a
+general-controller change: its 96 synthetic updates were exceptionally regular
+at approximately 203.05-203.20 ms, and the final 2 m leg contained no updates.
+The main route still used the hard-coded 1.6667 m/s predictor and remained
+visibly rubber-bandy. General walking remains a separate later transaction.
+
+`[OPEN]` Kavey owns the build and next monitored ICC-to-Grid test. No raw trace,
+assistant-side build, or AO runtime test was committed or run.
