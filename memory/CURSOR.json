@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "idle",
-  "last_completed_transaction": "session-5-csharp73-position-format-fix",
-  "completed_utc": "2026-09-01T18:09:30Z",
-  "checkpoint_commit": "fcd41a0bcf5c6d567429f5be8d40deea2a2ce692",
-  "next_task": "Kavey rebuilds, then repeats one Flipper operation to verify clean unload and full offset timestamps; afterward run the saved ICC toon and supply its NavigationTraces JSONL.",
-  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after fcd41a0 is on origin/master. Kavey's first Release build after the Flipper/timestamp/navigation-trace changes compiled five projects and failed only CityManager with four CS8967 errors. The multiline calls inside interpolated expressions are now C# 7.3-compatible locals with identical output. Kavey owns the confirming rebuild. Then repeat one Flipper operation to confirm clean unload and yyyy-MM-ddTHH:mm:ss.fffzzz logging. Afterward run the saved ICC toon once and upload its NavigationTraces JSONL before changing movement."
+  "status": "in_progress",
+  "transaction": "session-5-grid-deterministic-exit",
+  "started_utc": "2026-09-01T18:27:05Z",
+  "base_commit": "b6bcc0f3447c155702a9465fe83d5affe897f9c3",
+  "task": "Replace only the failed Grid crossing pulse with a deterministic, repeat-safe staging-to-exit ForwardStop state machine.",
+  "resume_instruction": "Start at RECOVERY.md, find journal BEGIN seq 33, and inspect Git before assuming implementation exists. Preserve ICC entry and both general walkers. Route every Grid attempt to the fixed staging point 2m before the captured exit, confirm staging, send one uninterrupted final leg ending with ForwardStop at (211.6727,3.775,186.7213), wait for stable 6010, and reset the Grid phase on every new home job. Do not build or run AO; Kavey owns validation."
 }
