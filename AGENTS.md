@@ -1,22 +1,50 @@
 # Agent Handoff Instructions
 
-City Dwellers keeps durable project memory in this repository so a new AI/coding session can resume without depending on a long chat transcript.
+This repository keeps durable project memory for City Dwellers and City Banker
+so a new AI/coding session can resume without depending on a long chat
+transcript.
 
-If the user supplies `CITYDWELLERS-RECOVER-V1`, begin with `RECOVERY.md` and
-follow it exactly. It is the canonical recovery entry point.
+If the user supplies `CITYDWELLERS-RECOVER-V1` or
+`CITYBANKER-RECOVER-V1`, begin with `RECOVERY.md` and follow it exactly. It is
+the canonical recovery entry point.
+
+## Repository-wide writer lock
+
+Read `docs/REPOSITORY_COORDINATION.md` before making any change.
+
+- `[INVARIANT]` Exactly one session may write anywhere in this repository at a
+  time. This includes City Dwellers Chat mode, City Dwellers Work mode, and
+  every City Banker session.
+- `[INVARIANT]` `memory/CURSOR.json` is the repository-wide writer lock. It is
+  not scoped to a project, process, directory, or ChatGPT mode.
+- `[INVARIANT]` `master` is the single integration branch. Do not create
+  session branches as a substitute for acquiring the lock, and never force
+  push.
+- A session may inspect, explain, and plan while another transaction is
+  `in_progress`, but it must remain read-only unless it is recovering that
+  exact transaction.
+- Every new journal record should identify `project` as `citydwellers`,
+  `citybanker`, or `repository`.
 
 Before making a non-trivial change:
 
-1. Read `memory/CURSOR.json`. An `in_progress` cursor is a crash-recovery
-   condition, not permission to assume the prior operation succeeded.
-2. Read `memory/JOURNAL.jsonl` and `memory/PROTOCOL.md`.
-3. Read `docs/PROJECT_STATE.md` for the current architecture, invariants, open work, and known hazards.
-4. Read the relevant entries in `docs/PROJECT_HISTORY.md` when a decision needs historical context.
+1. Fetch/rebase `master`, then read `memory/CURSOR.json`. An `in_progress`
+   cursor is either another active writer or a crash-recovery condition, not
+   permission to begin unrelated work.
+2. Read `memory/JOURNAL.jsonl`, `memory/PROTOCOL.md`, and
+   `docs/REPOSITORY_COORDINATION.md`.
+3. For City Dwellers, read `docs/PROJECT_STATE.md` and relevant entries in
+   `docs/PROJECT_HISTORY.md`. For City Banker, read
+   `docs/citybanker/PROJECT_STATE.md` and relevant entries in
+   `docs/citybanker/PROJECT_HISTORY.md`.
+4. Identify the active project in the journal `BEGIN` and cursor.
 5. Treat Git and reproducible test evidence as authoritative. A commit mentioned only in a chat is not considered real until it can be found in the repository.
 6. Do not silently resurrect a superseded or rejected approach. Record why a replacement was chosen.
 7. Record a durable journal `BEGIN` and `in_progress` cursor before long or
    non-trivial work. Finish it with `COMMIT`, `ABORT`, or `SUPERSEDE`.
-8. After a meaningful implementation, test, discovery, or design decision, update `docs/PROJECT_STATE.md` and/or `docs/PROJECT_HISTORY.md` in the same work session.
+8. After a meaningful implementation, test, discovery, or design decision,
+   update the active project's state and/or history files in the same work
+   session.
 9. Mark uncertain recovered information explicitly. Do not convert old-chat recollection into a verified fact without checking code, Git, or logs.
 
 ## Conversation-specific memory

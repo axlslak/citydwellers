@@ -1,52 +1,63 @@
-# City Dwellers Recovery Entry Point
+# City Dwellers / City Banker Recovery Entry Point
 
-Recovery key: `CITYDWELLERS-RECOVER-V1`
+Recovery keys: `CITYDWELLERS-RECOVER-V1`, `CITYBANKER-RECOVER-V1`
 
 This file is the canonical front door for a new ChatGPT/Codex session. The
-owner should only need to provide the recovery card below and the memory
-password separately.
+owner should only need to provide the appropriate recovery card. The City
+Dwellers memory password is supplied separately when historical encrypted
+conversation context is needed.
 
 ## Recovery card
 
 ```text
-CITYDWELLERS-RECOVER-V1 | REPO axlslak/citydwellers | BRANCH master | READ RECOVERY.md | MEMORY PASSWORD FOLLOWS SEPARATELY
+CITYDWELLERS-RECOVER-V1 | REPO axlslak/citydwellers | BRANCH master | PROJECT citydwellers | READ RECOVERY.md | MEMORY PASSWORD FOLLOWS SEPARATELY
+CITYBANKER-RECOVER-V1 | REPO axlslak/citydwellers | BRANCH master | PROJECT citybanker | READ RECOVERY.md
 ```
 
-The same single line is stored in `RECOVERY_CARD.txt` for copying, printing,
-or encoding as a QR code. It deliberately does not contain the password.
+The lines are also stored in `RECOVERY_CARD.txt` and
+`CITYBANKER_RECOVERY_CARD.txt`. Neither contains a password.
 
 ## Instructions to the receiving session
 
 1. Clone or fetch `axlslak/citydwellers`, branch `master`.
 2. Confirm the worktree/ref and inspect current Git history before trusting a
    remembered commit.
-3. Read, in this order:
+3. Identify `PROJECT citydwellers` or `PROJECT citybanker` from the recovery
+   card or the owner's current request.
+4. Read, in this order:
    - `AGENTS.md`
+   - `docs/REPOSITORY_COORDINATION.md`
    - `memory/CURSOR.json`
    - `memory/JOURNAL.jsonl`
    - `memory/PROTOCOL.md`
-   - `docs/PROJECT_STATE.md`
-   - `docs/PROJECT_HISTORY.md`
-   - `memory/MANIFEST.json`
-   - `memory/README.md`
-4. If the cursor says `in_progress`, find the matching journal `BEGIN`. Do not
-   assume that operation completed. Inspect Git and either resume it or record
-   an `ABORT`/`SUPERSEDE` transaction.
-5. Ask the owner for the memory password if it was not supplied with the
-   recovery card. Never store it in Git.
-6. Decrypt the boot-required conversation memories in manifest order, verify
-   their byte counts and SHA-256 hashes, and treat them as historical context.
-7. Current Git/code/reproducible test evidence wins over encrypted recollection.
-8. Report the recovered state before making code changes unless the owner
+5. If the cursor says `in_progress`, find the matching journal `BEGIN`. The
+   lock is repository-wide. Remain read-only unless the owner says the prior
+   writer was interrupted and this session is recovering it. Inspect Git and
+   then resume it or record an `ABORT`/`SUPERSEDE` transaction; never start an
+   unrelated write.
+6. Read the selected project's checkpoint:
+   - City Dwellers: `docs/PROJECT_STATE.md` and
+     `docs/PROJECT_HISTORY.md`.
+   - City Banker: `docs/citybanker/PROJECT_STATE.md` and
+     `docs/citybanker/PROJECT_HISTORY.md`.
+7. For City Dwellers, also read `memory/MANIFEST.json` and
+   `memory/README.md`. Ask for the password if it was not supplied, decrypt
+   boot-required memories in manifest order, and verify byte counts and
+   SHA-256 hashes. Never store the password in Git.
+8. A City Banker recovery does not decrypt City Dwellers conversations unless
+   the owner specifically asks for that historical cross-project context.
+9. Current Git/code/reproducible test evidence wins over encrypted recollection.
+10. Report the recovered state before making code changes unless the owner
    explicitly asked for an implementation in the same request.
 
 ## The Heaven Sent rule
 
 Every session is mortal. Before a long, risky, or multi-stage operation, leave
 a small durable clue for the next session: a journal `BEGIN` and an
-`in_progress` cursor committed to Git. Finish with `COMMIT`, `ABORT`, or
-`SUPERSEDE`. A future session must be able to tell where the previous one
-stopped without asking the owner to reconstruct it from memory.
+`in_progress` cursor committed and published to `master`. This acquires the
+repository-wide writer lock. Finish with `COMMIT`, `ABORT`, or `SUPERSEDE` and
+return the cursor to `idle`. A future session must be able to tell where the
+previous one stopped without asking the owner to reconstruct it from memory.
 
 ## Security boundary
 

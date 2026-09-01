@@ -1,11 +1,15 @@
-# City Dwellers Durable Recovery Protocol
+# Repository Durable Recovery Protocol
 
-Protocol id: `CITYDWELLERS-RECOVER-V1`
+Recovery keys: `CITYDWELLERS-RECOVER-V1`, `CITYBANKER-RECOVER-V1`
 
-The recovery system is organized like a checkpoint plus write-ahead log:
+The recovery system is organized like a checkpoint plus write-ahead log. The
+journal and cursor are shared by City Dwellers and City Banker:
 
-- `docs/PROJECT_STATE.md` is the compact current-state checkpoint.
-- `docs/PROJECT_HISTORY.md` is the condensed engineering history.
+- `docs/PROJECT_STATE.md` and `docs/PROJECT_HISTORY.md` are the City Dwellers
+  checkpoint and engineering history.
+- `docs/citybanker/PROJECT_STATE.md` and
+  `docs/citybanker/PROJECT_HISTORY.md` are the City Banker equivalents.
+- `docs/REPOSITORY_COORDINATION.md` defines the cross-session write rules.
 - `memory/JOURNAL.jsonl` is the append-only semantic transaction log.
 - `memory/CURSOR.json` is the replaceable pointer to current/incomplete work.
 - `memory/MANIFEST.json` indexes encrypted session memories.
@@ -14,13 +18,20 @@ The recovery system is organized like a checkpoint plus write-ahead log:
 
 ## Transaction protocol
 
+`memory/CURSOR.json` is a repository-wide lock. Exactly one session may write
+at a time across all projects and ChatGPT modes. Other sessions may read,
+analyze, and discuss, but they may not edit, commit, or publish while the
+cursor is `in_progress`, unless they are recovering that exact interrupted
+transaction.
+
 Before a non-trivial, long-running, or risky operation:
 
-1. Append a `BEGIN` record to `memory/JOURNAL.jsonl`.
-2. Set `memory/CURSOR.json` to `in_progress`, naming the transaction, base
-   commit, task, and exact resume instruction.
-3. Commit this recovery marker. Publish it before starting when repository
-   access permits.
+1. Fetch/rebase `master` and confirm the cursor is `idle`.
+2. Append a `BEGIN` record to `memory/JOURNAL.jsonl`. Include `project` as
+   `citydwellers`, `citybanker`, or `repository`.
+3. Set `memory/CURSOR.json` to `in_progress`, naming the active project,
+   transaction, base commit, task, and exact resume instruction.
+4. Commit and publish this recovery marker to `master` before implementation.
 
 During the operation:
 
@@ -34,7 +45,7 @@ During the operation:
 At the end:
 
 1. Verify the implementation and repository state.
-2. Update `PROJECT_STATE.md` and `PROJECT_HISTORY.md`.
+2. Update the active project's state/history files.
 3. Create or extend an encrypted session memory when the conversation has
    accumulated reasoning that is not adequately represented by state/history.
 4. Commit the implementation/memory changes.
@@ -48,6 +59,8 @@ At the end:
 
 - JSON Lines: exactly one valid JSON object per line.
 - `seq` is strictly increasing and never reused.
+- New records identify `project` as `citydwellers`, `citybanker`, or
+  `repository`.
 - Existing lines are append-only. Correct mistakes with a later `SUPERSEDE`
   entry rather than rewriting history.
 - The journal records semantic operations, not every shell command or file
@@ -68,6 +81,8 @@ The cursor is intentionally small and replaceable. It must answer:
 - What should the next session do first?
 
 The cursor is not history. The append-only journal and Git preserve history.
+The cursor is global: an `in_progress` City Banker transaction also blocks City
+Dwellers writes, and vice versa.
 
 ## Keeping growth manageable
 

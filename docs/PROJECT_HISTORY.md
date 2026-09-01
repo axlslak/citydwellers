@@ -647,3 +647,22 @@ visibly rubber-bandy. General walking remains a separate later transaction.
 
 `[OPEN]` Kavey owns the build and next monitored ICC-to-Grid test. No raw trace,
 assistant-side build, or AO runtime test was committed or run.
+
+## 2026-09-01 — Repository-wide single-writer coordination
+
+Kavey authorized City Dwellers Chat mode for smaller bugs, City Dwellers Work
+mode for serious work, and two additional GPT sessions for the cousin City
+Banker project in this same repository. Kavey also established the simplifying
+invariant: only one of those sessions will write at a time.
+
+`[DECISION]` All projects and modes continue on `master`; no session branches
+are needed. The existing cursor is now explicitly the repository-wide writer
+lock. A writer fetches `master`, publishes its `BEGIN`/`in_progress` marker,
+makes one focused change, and publishes a terminal seal returning the cursor
+to `idle`. Other sessions may read and discuss during an active transaction,
+but cannot write unless they are recovering that exact interrupted work.
+
+`[DECISION]` City Banker receives separate compact state/history and its own
+recovery card. The projects share the global journal and may share validated
+engineering ideas through `docs/SHARED_ENGINEERING.md`; no code is ported
+without project-specific compatibility evidence.
