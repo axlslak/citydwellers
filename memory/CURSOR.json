@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "idle",
-  "last_completed_transaction": "session-5-flipper-quiescent-unload-and-offset-time",
-  "completed_utc": "2026-09-01T18:03:36Z",
-  "checkpoint_commit": "115a04c41d5b5d499dca18fb047717a395b77a97",
-  "next_task": "Kavey builds and repeats one Flipper operation, verifying a clean unload and full offset timestamps; afterward run the saved ICC toon once and supply its NavigationTraces JSONL.",
-  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 115a04c is on origin/master. Apcflipper's supplied raid-lower log proved the cloak action succeeded: post-toggle state Disabled, shield timer 3600. The later ThreadAbort/deserialization lines were an unload race. CityFlipper now detaches handlers, waits 100 ms on a deferred callback, logs completion, and exposes the atomic result file last; ThreadAbort bypasses normal plugin error logging. Flipper, Buddies, and Manager AOSharp logs now use yyyy-MM-ddTHH:mm:ss.fffzzz with numeric UTC offset. Kavey builds/tests. First repeat one Flipper operation and confirm clean unload/timestamps. Then return to the already-instrumented one-toon ICC home run and upload its NavigationTraces JSONL before changing movement."
+  "status": "in_progress",
+  "active_transaction": "session-5-csharp73-position-format-fix",
+  "started_utc": "2026-09-01T18:07:24Z",
+  "base_commit": "91709151040a16fe70e0b4c583fe1dc18b7d8105",
+  "task": "Make the new CityManager movement telemetry syntax compatible with the repository's C# 7.3 compiler.",
+  "resume_instruction": "Kavey's Release build compiled five projects and failed only CityManager with CS8967 at lines 1248, 1258, 1342, and 1350. The cause is four multiline FormatMovementRecord calls placed directly inside interpolated-string expressions, which C# 7.3 rejects. Compute command/echo strings in locals before the interpolation in BuildBuddyPositionWindow and BuildBuddyPositionTelemetry, preserving exact output. Do not build or run AO. Finish with COMMIT or ABORT and return the cursor idle."
 }
