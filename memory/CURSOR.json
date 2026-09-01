@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_transaction": "session-5-walk-run-packet-observation",
-  "started_utc": "2026-09-01T16:48:41Z",
-  "base_commit": "8c1cae845200daa4768048e73bd135693b679ede",
-  "task": "Record and interpret the owner-supplied SwitchToWalk/SwitchToRun packet trace without changing movement code.",
-  "resume_instruction": "Inspect Kavey's packet pairs: each received SwitchToWalk/SwitchToRun exactly echoes the sent heading and position with DeltaTime reset to zero. Preserve the conclusion that mode switching is not an independent position query. Record the observed run/walk displacement rates as trace-specific evidence, keep rapid toggling rejected, and leave implementation unchanged. Finish with a COMMIT or ABORT record and return the cursor to idle."
+  "status": "idle",
+  "last_completed_transaction": "session-5-walk-run-packet-observation",
+  "completed_utc": "2026-09-01T16:50:56Z",
+  "checkpoint_commit": "486e600318091f78358d77615d47ddd2da52004b",
+  "next_task": "With Kavey's approval, implement only the deterministic Grid-side staging to exact-exit ForwardStop experiment; keep rapid walk/run toggling rejected and walking smoothness separate.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 486e600 is on origin/master. ICC entry is solved; the d927cd5 Grid crossing failed and retries alternate. Walk/run switches only echo the sender's asserted position and must not be used as rapid synchronization. The trace-specific run speed near 2.3 m/s versus CityBuddies' 1.6667 m/s predictor plausibly explains rubber-banding, while sustained walk mode remains a later experiment. Do not mix that walking work into the next Grid handoff change. Kavey owns builds and live AO tests."
 }
