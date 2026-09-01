@@ -3,10 +3,10 @@
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 5,
   "last_completed_session": 5,
-  "status": "in_progress",
-  "active_transaction": "session-5-flipper-quiescent-unload-and-offset-time",
-  "started_utc": "2026-09-01T17:56:53Z",
-  "base_commit": "b59ff80a23ef81c903c6dade19a512e96b89ab83",
-  "task": "Remove Apcflipper's post-success ThreadAbort teardown race and add unambiguous full date/time/UTC-offset prefixes to client logs.",
-  "resume_instruction": "Apcflipper's raid lower is confirmed successful: the server returned Disabled with a 3600-second shield timer. The later errors occur only after Flipper.exe begins unloading: AppDomain ThreadAbort interrupts CityFlipper.MessageReceived and AOSharp reports that same abort as packet deserialization failure. Detach CityFlipper handlers before exposing the result file, publish the file after a short deferred quiescence boundary, rethrow ThreadAbort without secondary plugin error logging, and add one shared Serilog console template with ISO-8601 full date, milliseconds, and numeric UTC offset to Flipper, Buddies, and Manager. Do not change cloak behavior, commit the raw log, build, or run AO. Finish with COMMIT or ABORT and return the cursor idle."
+  "status": "idle",
+  "last_completed_transaction": "session-5-flipper-quiescent-unload-and-offset-time",
+  "completed_utc": "2026-09-01T18:03:36Z",
+  "checkpoint_commit": "115a04c41d5b5d499dca18fb047717a395b77a97",
+  "next_task": "Kavey builds and repeats one Flipper operation, verifying a clean unload and full offset timestamps; afterward run the saved ICC toon once and supply its NavigationTraces JSONL.",
+  "resume_instruction": "Start at RECOVERY.md and confirm the terminal seal after 115a04c is on origin/master. Apcflipper's supplied raid-lower log proved the cloak action succeeded: post-toggle state Disabled, shield timer 3600. The later ThreadAbort/deserialization lines were an unload race. CityFlipper now detaches handlers, waits 100 ms on a deferred callback, logs completion, and exposes the atomic result file last; ThreadAbort bypasses normal plugin error logging. Flipper, Buddies, and Manager AOSharp logs now use yyyy-MM-ddTHH:mm:ss.fffzzz with numeric UTC offset. Kavey builds/tests. First repeat one Flipper operation and confirm clean unload/timestamps. Then return to the already-instrumented one-toon ICC home run and upload its NavigationTraces JSONL before changing movement."
 }
