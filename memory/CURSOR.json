@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 5,
+  "current_session": 6,
   "last_completed_session": 5,
-  "status": "idle",
-  "last_completed_project": "repository",
-  "last_completed_transaction": "session-5-correct-repository-boundary",
-  "completed_utc": "2026-09-01T23:32:56Z",
-  "checkpoint_commit": "ac688ff2b5602dbb3f3620c72625c58b6594e66f",
-  "next_task": "Kavey builds and runs one monitored ICC-to-Grid test of the restored full-client movement tail, then returns its NavigationTraces JSONL.",
-  "resume_instruction": "Start at RECOVERY.md and confirm the corrective seal after ac688ff is on axlslak/citydwellers master. City Dwellers and CityBankers are separate repositories with independent recovery systems; Kavey guarantees one GPT writer across both at a time. The invalid CityBankers card/checkpoint files were removed from City Dwellers, and actual CityBankers coordination was sealed separately at fe9bce9 on axlslak/citybankers main. City Dwellers next resumes the monitored ICC-to-Grid test of commit 1464d99."
+  "status": "in_progress",
+  "active_project": "citydwellers",
+  "transaction": "session-6-grid-trigger-traversal",
+  "started_utc": "2026-09-02T06:11:49Z",
+  "base_commit": "463b19e7b1008c9757d14163f1f1135cd76258dc",
+  "task": "Use the failed exact-tail trace to make the clientless Grid final approach traverse the trigger volume instead of only asserting sparse endpoint actions.",
+  "resume_instruction": "Start at RECOVERY.md and journal BEGIN seq 41. Inspect the failed Apcr20000 trace: ICC entry, staging, and every captured tail action/echo succeeded, but playfield stayed 152. Implement one bounded synthetic traversal across the 2m final leg while preserving the exact captured near-exit/post-stop tail, update state/history, and leave builds/live AO testing to Kavey."
 }
