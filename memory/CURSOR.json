@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 6,
-  "last_completed_session": 5,
-  "status": "in_progress",
-  "active_project": "citydwellers",
-  "transaction": "session-6-grid-trigger-traversal",
-  "started_utc": "2026-09-02T06:11:49Z",
-  "base_commit": "463b19e7b1008c9757d14163f1f1135cd76258dc",
-  "task": "Use the failed exact-tail trace to make the clientless Grid final approach traverse the trigger volume instead of only asserting sparse endpoint actions.",
-  "resume_instruction": "Start at RECOVERY.md and journal BEGIN seq 41. Inspect the failed Apcr20000 trace: ICC entry, staging, and every captured tail action/echo succeeded, but playfield stayed 152. Implement one bounded synthetic traversal across the 2m final leg while preserving the exact captured near-exit/post-stop tail, update state/history, and leave builds/live AO testing to Kavey."
+  "last_completed_session": 6,
+  "status": "idle",
+  "last_completed_project": "citydwellers",
+  "last_completed_transaction": "session-6-grid-trigger-traversal",
+  "completed_utc": "2026-09-02T06:17:04Z",
+  "checkpoint_commit": "1e358e1a8a810d77fb4e56c44bc2b6c925d6e73c",
+  "next_task": "Kavey builds and runs one monitored ICC-to-Grid test, then returns the NavigationTraces JSONL.",
+  "resume_instruction": "Start at RECOVERY.md. Commit 1e358e1 adds five bounded 200ms intermediate Update assertions across the final Grid approach before preserving the exact captured near-exit and post-stop tail. Kavey owns the build and monitored test. The trace should show five 'Grid final traversal update' commands and then either stable Serenity model 6010 or the bounded timeout."
 }
