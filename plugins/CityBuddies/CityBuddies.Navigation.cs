@@ -16,6 +16,8 @@ namespace CityBuddies
         private static readonly TimeSpan GridZoneTimeout = TimeSpan.FromSeconds(20);
         private static readonly TimeSpan GridFinalApproachDuration =
             TimeSpan.FromMilliseconds(1200);
+        private static readonly TimeSpan GridFinalTraversalUpdateInterval =
+            TimeSpan.FromMilliseconds(200);
         private static readonly TimeSpan GridNearExitToStopDelay =
             TimeSpan.FromMilliseconds(35);
         private static readonly TimeSpan GridPostStopTurnRightDelay =
@@ -53,6 +55,7 @@ namespace CityBuddies
         private const float GridObservedArrivalZ = 212.8138f;
         private const float GridStagingDistance = 2.0f;
         private const float GridStagingConfirmationDistance = 0.05f;
+        private const int GridFinalTraversalUpdateCount = 5;
 
         private int _activeNavigationPlayfieldId = int.MinValue;
 
@@ -81,6 +84,9 @@ namespace CityBuddies
         private Quaternion _gridExitHeading;
         private GridExitPhase _gridExitPhase;
         private int _gridStagingStopRetries;
+        private DateTime _gridFinalApproachStartedUtc = DateTime.MinValue;
+        private DateTime _gridNextTraversalUpdateUtc = DateTime.MinValue;
+        private int _gridFinalTraversalUpdatesSent;
 
         private DateTime _iccDiscoveryStartedUtc = DateTime.MinValue;
         private DateTime _nextIccUseUtc = DateTime.MinValue;
@@ -814,6 +820,7 @@ namespace CityBuddies
 
             if (_gridExitPhase == GridExitPhase.FinalApproach)
             {
+                SendDueGridTraversalUpdate(localPlayer, now);
                 if (now < _gridExitPhaseDeadlineUtc)
                     return;
 
@@ -997,11 +1004,57 @@ namespace CityBuddies
                 $"{_gridExitStaging.Z:F3}) toward the captured exit.");
 
             _gridExitPhase = GridExitPhase.FinalApproach;
+            _gridFinalApproachStartedUtc = now;
+            _gridNextTraversalUpdateUtc =
+                now.Add(GridFinalTraversalUpdateInterval);
+            _gridFinalTraversalUpdatesSent = 0;
             _gridExitPhaseDeadlineUtc = now.Add(GridFinalApproachDuration);
             SetHomeState(
                 "crossing-city-exit",
-                $"Started one uninterrupted {GridStagingDistance:F1}m final " +
-                "approach; reproducing the captured near-exit and stop tail.");
+                $"Started a bounded {GridStagingDistance:F1}m final approach " +
+                $"with {GridFinalTraversalUpdateCount} intermediate traversal " +
+                "assertions before reproducing the captured near-exit tail.");
+        }
+
+        private void SendDueGridTraversalUpdate(
+            LocalPlayer localPlayer,
+            DateTime now)
+        {
+            if (_gridFinalTraversalUpdatesSent >=
+                    GridFinalTraversalUpdateCount ||
+                now < _gridNextTraversalUpdateUtc)
+            {
+                return;
+            }
+
+            _gridFinalTraversalUpdatesSent++;
+            float fraction =
+                (float)_gridFinalTraversalUpdatesSent /
+                (GridFinalTraversalUpdateCount + 1);
+            Vector3 nearExit =
+                new Vector3(GridNearExitX, GridExitY, GridNearExitZ);
+            Vector3 traversalPosition = new Vector3(
+                _gridExitStaging.X +
+                    ((nearExit.X - _gridExitStaging.X) * fraction),
+                GridExitY,
+                _gridExitStaging.Z +
+                    ((nearExit.Z - _gridExitStaging.Z) * fraction));
+
+            SendMovementCommand(
+                localPlayer,
+                traversalPosition,
+                _gridExitHeading,
+                MovementAction.Update,
+                $"Grid final traversal update " +
+                $"{_gridFinalTraversalUpdatesSent}/" +
+                $"{GridFinalTraversalUpdateCount} at " +
+                $"({traversalPosition.X:F3},{traversalPosition.Y:F3}," +
+                $"{traversalPosition.Z:F3}).");
+
+            _gridNextTraversalUpdateUtc = _gridFinalApproachStartedUtc.Add(
+                TimeSpan.FromTicks(
+                    GridFinalTraversalUpdateInterval.Ticks *
+                    (_gridFinalTraversalUpdatesSent + 1)));
         }
 
         private void ProcessIccEntry(LocalPlayer localPlayer, DateTime now)
@@ -1185,6 +1238,9 @@ namespace CityBuddies
             _gridExitPhaseDeadlineUtc = DateTime.MinValue;
             _gridZoneDeadlineUtc = DateTime.MinValue;
             _gridStagingStopRetries = 0;
+            _gridFinalApproachStartedUtc = DateTime.MinValue;
+            _gridNextTraversalUpdateUtc = DateTime.MinValue;
+            _gridFinalTraversalUpdatesSent = 0;
         }
 
         private void ResetIccEntry()

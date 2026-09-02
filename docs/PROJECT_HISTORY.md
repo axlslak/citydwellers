@@ -666,3 +666,29 @@ that only one GPT session writes across both repositories at a time.
 receiving repository records the adoption and its compatibility evidence. No
 application code or project-specific state is shared merely because the
 projects are related.
+
+## 2026-09-02 — Grid endpoint replay replaced with bounded trigger traversal
+
+Kavey returned the monitored Apcr20000 JSONL requested by the previous cursor.
+The 424-event trace was contiguous. ICC static-terminal entry succeeded on the
+first attempt, Grid navmesh staging succeeded, and every restored full-client
+tail command received its corresponding local echo. The character nevertheless
+remained at the exact exit in model `152` until the 20-second timeout.
+
+`[CORRECTION]` Adding the four previously omitted turn actions was insufficient.
+The failed trace reproduced their captured positions and headings, so repeating
+the same sparse endpoint tail cannot distinguish the next hypothesis. The
+clientless session also showed no changing observed position during the
+uninterrupted two-metre `ForwardStart` leg; its first changed assertion was the
+near-exit action 1.2 seconds later.
+
+`[IMPLEMENTED]` The final Grid leg now adds five bounded `Update` assertions,
+scheduled every 200 ms and linearly spaced from the exact staging point toward
+the captured near-exit point. This gives the server intermediate traversal
+samples without changing the general walker or introducing a character-wide
+speed constant. After those samples, the exact captured near-exit
+`TurnLeftMouse`, exit `ForwardStop`, post-stop turns, headings, relative
+delays, deterministic retry state, and 20-second Serenity wait remain intact.
+
+No raw owner trace was committed. No assistant-side build or AO runtime test
+was run. Kavey owns the confirming build and monitored test.

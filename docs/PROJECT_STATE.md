@@ -603,3 +603,28 @@ movement tail without changing general walking. Next:
    rubber-banding as a separate problem. Preserve bounded-pulse rollback, do
    not use rapid walk/run toggling as synchronization, and retain sustained
    walk mode plus the NavGen/NavManager reference ideas for that later pass.
+
+## Grid trigger traversal experiment (2026-09-02)
+
+- `[VERIFIED-LIVE]` Apcr20000 trace
+  `250ae67451cb445f93ade329f940a279-200` entered Grid model `152`
+  from ICC on the first static-terminal attempt, reached the exact staging
+  stop, sent and echoed every restored full-client tail action, and remained
+  at `(211.6727, 3.7750, 186.7213)` for the complete 20-second wait.
+  No Serenity model `6010` event occurred.
+- `[CORRECTION]` The missing-tail-action hypothesis is disproven. Exact
+  endpoint actions and headings alone do not make the clientless session
+  traverse the Grid exit.
+- `[IMPLEMENTED]` The isolated two-metre final approach now publishes five
+  deterministic intermediate `Update` positions at 200 ms intervals between
+  the confirmed staging point and the captured near-exit point. It then
+  preserves the captured `TurnLeftMouse`, exact `ForwardStop`, and three
+  post-stop turn actions unchanged.
+- `[INVARIANT]` This experiment changes only the final Grid crossing leg.
+  ICC entry, Grid staging/retry behavior, general continuous movement,
+  bounded-pulse rollback, Serenity routing, and the 20-second zone timeout are
+  unchanged.
+- `[OPEN]` Kavey owns the build and one monitored ICC-to-Grid test. The next
+  JSONL should contain five `Grid final traversal update` commands before the
+  captured near-exit tail, followed by either model `6010` or the bounded
+  timeout.
