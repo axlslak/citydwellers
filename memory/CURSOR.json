@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 7,
-  "last_completed_session": 6,
-  "status": "in_progress",
+  "last_completed_session": 7,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-7-humanize-manager-output",
-  "started_utc": "2026-09-06T05:40:01Z",
-  "base_commit": "55e156ece277da4993798b02f72085fe5a064516",
-  "task": "Build polished member-facing status and paged help AO windows, add Manager uptime and complete operational health, and replace automatic guest telemetry dumping with an explicit shareable dump command.",
-  "resume_instruction": "Start at RECOVERY.md and journal BEGIN seq 43. Inspect every implemented command and existing AO text-window helper before changing output. Add humanized colored status/help windows with uptime, cloak history, Flipper/Buddies health, member guidance and command-detail pages. Keep normal guest reporting concise; diagnostics must be exported only by an explicit dump command to a file Kavey can share. Improve console evidence without leaking secrets. Do not build or live-test; Kavey owns both."
+  "completed_utc": "2026-09-06T05:50:01Z",
+  "base_commit": "29113bf0c7b530093166e15cc8b91b94d87534b3",
+  "task": "Kavey builds and verifies Manager help/status blobs and diagnostics across tell, organization, and guest channels; capture status plus dump if organization-only silence recurs.",
+  "resume_instruction": "Start at RECOVERY.md. The repository is idle. First inspect Kavey's build or AO feedback for the Manager presentation change sealed by journal seq 44. If the build succeeds, verify help, help commands, help raid, and status in tell/org/guest; confirm guest reconnection produces no backlog; run admin dump and collect the reported file. If org-only silence recurs, preserve status, dump, channel, and approximate uptime before resetting. The bounded Grid trigger traversal test remains open afterward. Do not build or live-test unless Kavey explicitly delegates it."
 }
