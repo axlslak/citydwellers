@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
@@ -29,7 +30,8 @@ namespace CityManager
         private const string OrgChannelName = "Athen Paladins";
         private const string CommandPrefix = "#";
         private const string DeveloperCharacter = "Kavem";
-        private const int DevBacklogLimit = 25;
+        private const int DiagnosticHistoryLimit = 500;
+        private const long DiagnosticLogRotateBytes = 2L * 1024L * 1024L;
 
         private static readonly HashSet<string> PublicCommands =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -62,16 +64,20 @@ namespace CityManager
                 "memberlist",
                 "member",
                 "ban",
-                "unban"
+                "unban",
+                "dump"
             };
 
         private readonly object _stateSync = new object();
         private readonly object _devSync = new object();
-        private readonly Queue<string> _devBacklog = new Queue<string>();
+        private readonly Queue<string> _diagnosticHistory = new Queue<string>();
+        private readonly Stopwatch _managerUptime = Stopwatch.StartNew();
+        private readonly DateTime _managerStartedUtc = DateTime.UtcNow;
 
         private string _settingsDir;
         private string _statePath;
         private string _eventsPath;
+        private string _diagnosticLogPath;
         private bool _charInPlay;
 
         private bool _devInviteSent;
@@ -98,6 +104,7 @@ namespace CityManager
 
             _statePath = Path.Combine(_settingsDir, "citymanager-cloak-state.json");
             _eventsPath = Path.Combine(_settingsDir, "citymanager-cloak-events.jsonl");
+            _diagnosticLogPath = Path.Combine(_settingsDir, "citymanager-diagnostics.log");
 
             Logger.Information($"CityManager initialized. Settings directory: {_settingsDir}");
             AdminListStore.Initialize(_settingsDir);
@@ -389,14 +396,15 @@ namespace CityManager
 
             string command = parts[0].ToLowerInvariant();
             bool hasCommandShape =
-                ((command == "help" ||
-                  command == "cloak" ||
+                ((command == "cloak" ||
                   command == "status" ||
                   command == "leave" ||
                   command == "join" ||
                   command == "adminlist" ||
                   command == "memberlist" ||
-                  command == "positions") && parts.Length == 1) ||
+                  command == "positions" ||
+                  command == "dump") && parts.Length == 1) ||
+                (command == "help" && parts.Length <= 3) ||
                 (command == "home" &&
                  (parts.Length == 1 || parts.Length == 2)) ||
                 (command == "alts" && HasTellAltsCommandShape(parts)) ||
@@ -514,7 +522,7 @@ namespace CityManager
             switch (command)
             {
                 case "help":
-                    Reply(replyTarget, BuildHelpMessage(replyTarget));
+                    ProcessHelpCommand(parts, replyTarget, isAdmin);
                     break;
 
                 case "cloak":
@@ -709,32 +717,11 @@ namespace CityManager
                 case "unban":
                     ProcessBanCommand(senderName, parts, replyTarget, true);
                     break;
+
+                case "dump":
+                    BeginDiagnosticDump(senderName, parts, replyTarget);
+                    break;
             }
-        }
-
-        private string BuildHelpMessage(ReplyTarget target)
-        {
-            string prefix = target.RequiresPrefix ? "#" : string.Empty;
-            string suffix = target.RequiresPrefix
-                ? " Commands in this channel must start with #."
-                : " # is optional in tells.";
-
-            return
-                $"Members: {prefix}help, {prefix}status, {prefix}alts, {prefix}leave, {prefix}join. " +
-                $"In organization or guest chat: #cloak, #raid. " +
-                $"Raid owner/admin: {prefix}cancel [raid-token]. " +
-                $"Raid-assist buttons are available to Squad Commanders and higher. " +
-                $"Admins may also use cloak and raid in tells. " +
-                $"Admin: {prefix}invite [character], {prefix}kick [character], " +
-                $"{prefix}wakeup [level] [index], {prefix}sleep [index], " +
-                $"{prefix}spinup [level] [count], {prefix}spindown [count], " +
-                $"{prefix}positions, {prefix}home [level|all|status], " +
-                $"{prefix}adminlist, {prefix}admin [add|del/rem/remove/delete] [character], " +
-                $"{prefix}memberlist, {prefix}member [add|del/rem/remove/delete] [character], " +
-                $"{prefix}ban [character], {prefix}unban [character], " +
-                $"{prefix}alts [character|list|add|del/rem/remove/delete|recover]. " +
-                $"Recovery: {prefix}recoverraid [owner] [all|general] [level] [count]." +
-                suffix;
         }
 
         private string UnknownCommandMessage(ReplyTarget target)
@@ -824,41 +811,6 @@ namespace CityManager
 
                     Reply(target, CloakPresentation.Unavailable());
                 }
-            });
-        }
-
-        private void BeginServiceStatus(ReplyTarget target)
-        {
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                bool raidFlipperBusy = IsRaidFlipperBusy();
-                bool recoveryFlipperBusy = CityRaidAutomation.IsFlipperBusy();
-                WorkerLinkStatus flipper = raidFlipperBusy
-                    ? WorkerLinkStatus.Usable("watching City Controller charge")
-                    : recoveryFlipperBusy
-                        ? WorkerLinkStatus.Usable("checking cloak state")
-                        : PingWorker("Flipper", FlipperPipeName);
-                WorkerLinkStatus buddies = PingWorker("Buddies", BuddiesPipeName);
-                string cloak = BuildCloakStatusSummary();
-                string recovery = CityRaidAutomation.GetStatusText();
-                string raid = BuildRaidStatusSummary();
-                string alts = BuildAltStatusSummary();
-
-                string reply =
-                    $"Manager = online/usable. " +
-                    $"{cloak}. {recovery}. {raid}. " +
-                    $"{alts}. " +
-                    $"Flipper = {flipper.PublicText}. " +
-                    $"Buddies = {buddies.PublicText}.";
-
-                string diagnostic =
-                    $"STATUS Manager=online/usable; " +
-                    $"{alts}; " +
-                    $"Flipper={flipper.DiagnosticText}; " +
-                    $"Buddies={buddies.DiagnosticText}.";
-
-                Logger.Information(diagnostic);
-                Reply(target, reply);
             });
         }
 
@@ -1040,14 +992,13 @@ namespace CityManager
                     DevTrace(
                         $"BUDDY POSITIONS OK [{shortId}]: active={positions.Count} " +
                         $"reporting={reporting} fresh={fresh} inplay={inPlay} dead={dead}.");
-                    TraceBuddyPositions(positions, now);
+                    RecordBuddyPositionsForDump(positions, now);
 
                     string window = BuildBuddyPositionWindow(positions, now);
                     Reply(
                         target,
                         $"Buddy positions: {positions.Count} active, {reporting} reporting, " +
-                        $"{inPlay} in play, {dead} dead. {window} " +
-                        "Detailed telemetry was queued for the guest channel.");
+                        $"{inPlay} in play, {dead} dead. {window}");
                 }
                 catch (Exception ex)
                 {
@@ -1286,25 +1237,15 @@ namespace CityManager
             return $"<a href=\"text://{body}\">Click here to open window</a>";
         }
 
-        private void TraceBuddyPositions(
+        private void RecordBuddyPositionsForDump(
             IList<BuddyPositionSnapshot> positions,
             DateTime now)
         {
-            const int entriesPerMessage = 3;
-
-            for (int offset = 0; offset < positions.Count; offset += entriesPerMessage)
+            for (int index = 0; index < positions.Count; index++)
             {
-                int count = Math.Min(entriesPerMessage, positions.Count - offset);
-                var entries = new List<string>(count);
-
-                for (int index = 0; index < count; index++)
-                    entries.Add(BuildBuddyPositionTelemetry(positions[offset + index], now));
-
-                int part = (offset / entriesPerMessage) + 1;
-                int totalParts = (positions.Count + entriesPerMessage - 1) / entriesPerMessage;
-                DevTrace(
-                    $"BUDDY POS {part}/{totalParts}: " +
-                    string.Join(" | ", entries));
+                RecordDiagnostic(
+                    "BUDDY POSITION SNAPSHOT: " +
+                    BuildBuddyPositionTelemetry(positions[index], now));
             }
         }
 
@@ -1753,22 +1694,25 @@ namespace CityManager
 
         private void ConfirmDevChannel()
         {
-            bool shouldFlush = false;
+            bool newlyConfirmed = false;
 
             lock (_devSync)
             {
                 if (!_devChannelConfirmed)
                 {
                     _devChannelConfirmed = true;
-                    shouldFlush = true;
+                    newlyConfirmed = true;
                 }
             }
 
-            if (!shouldFlush)
-                return;
-
-            SendGuestMessage("GUEST channel confirmed. Flushing buffered telemetry.");
-            FlushDevBacklog();
+            if (newlyConfirmed)
+            {
+                SendGuestMessage(
+                    "<font color='#89D2E8'>[Manager]</font> " +
+                    "<font color='#00DE42'>Live diagnostics connected.</font> " +
+                    "Earlier events were kept on disk; use <font color='#F79410'>#dump</font> " +
+                    "instead of receiving a backlog.");
+            }
         }
 
         private void DevTrace(string text)
@@ -1776,37 +1720,93 @@ namespace CityManager
             if (string.IsNullOrWhiteSpace(text))
                 return;
 
+            RecordDiagnostic(text);
+
+            bool confirmed;
             lock (_devSync)
-            {
-                if (!_devChannelConfirmed)
-                {
-                    while (_devBacklog.Count >= DevBacklogLimit)
-                        _devBacklog.Dequeue();
+                confirmed = _devChannelConfirmed;
 
-                    _devBacklog.Enqueue(text);
-                    return;
-                }
-            }
-
-            SendGuestMessage(text);
+            if (confirmed)
+                SendGuestMessage(FormatLiveDiagnostic(text));
         }
 
-        private void FlushDevBacklog()
+        private void RecordDiagnostic(string text)
         {
-            while (true)
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            string line = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture) +
+                          " | " + SanitizeDiagnosticText(text);
+
+            lock (_devSync)
             {
-                string message;
+                while (_diagnosticHistory.Count >= DiagnosticHistoryLimit)
+                    _diagnosticHistory.Dequeue();
 
-                lock (_devSync)
+                _diagnosticHistory.Enqueue(line);
+                AppendDiagnosticLineLocked(line);
+            }
+
+            Logger.Information("DIAGNOSTIC " + SanitizeDiagnosticText(text));
+        }
+
+        private void AppendDiagnosticLineLocked(string line)
+        {
+            if (string.IsNullOrWhiteSpace(_diagnosticLogPath))
+                return;
+
+            try
+            {
+                if (File.Exists(_diagnosticLogPath) &&
+                    new FileInfo(_diagnosticLogPath).Length >= DiagnosticLogRotateBytes)
                 {
-                    if (_devBacklog.Count == 0)
-                        return;
-
-                    message = _devBacklog.Dequeue();
+                    string previous = _diagnosticLogPath + ".previous";
+                    if (File.Exists(previous))
+                        File.Delete(previous);
+                    File.Move(_diagnosticLogPath, previous);
                 }
 
-                SendGuestMessage(message);
+                File.AppendAllText(_diagnosticLogPath, line + Environment.NewLine);
             }
+            catch (Exception ex)
+            {
+                Logger.Warning("Unable to append Manager diagnostic log: " + ex.Message);
+            }
+        }
+
+        private static string SanitizeDiagnosticText(string text)
+        {
+            return (text ?? string.Empty)
+                .Replace("\r", " ")
+                .Replace("\n", " ")
+                .Trim();
+        }
+
+        private string FormatLiveDiagnostic(string text)
+        {
+            string safe = EscapeBlobText(SanitizeDiagnosticText(text));
+            string color = "#89D2E8";
+
+            if (safe.IndexOf("ERROR", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                safe.IndexOf("FAIL", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                safe.IndexOf("DENIED", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                color = "#FF5050";
+            }
+            else if (safe.IndexOf(" OK", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     safe.IndexOf("COMPLETE", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     safe.IndexOf("ENABLED", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                color = "#00DE42";
+            }
+            else if (safe.IndexOf("DUE", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     safe.IndexOf("DISABLED", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                color = "#F79410";
+            }
+
+            return "<font color='#89D2E8'>[Manager]</font> " +
+                   "<font color='" + color + "'>" + safe + "</font>";
         }
 
         private void SendGuestMessage(string text)
