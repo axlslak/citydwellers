@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 8,
+  "current_session": 9,
   "last_completed_session": 8,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-8-manager-presentation-build-fix",
-  "completed_utc": "2026-09-06T05:53:11Z",
-  "base_commit": "e6ec02f57cd2105ab7016eba0d199ea4b2c256e9",
-  "task": "Kavey reruns the Release build, then verifies Manager help/status blobs, guest live diagnostics without backlog replay, and admin dump output.",
-  "resume_instruction": "Start at RECOVERY.md. The repository is idle. Inspect Kavey's confirming build output for commit e6ec02f57cd2105ab7016eba0d199ea4b2c256e9. If clean, continue the tell/org/guest rendering checklist from session 7. If organization-only silence recurs, preserve status and an admin dump before reset."
+  "transaction": "session-9-org-output-resilience-and-restart",
+  "started_utc": "2026-09-06T17:21:04Z",
+  "base_commit": "daaff43c3e32f169a0c435998b1a92b03a2a93cf",
+  "task": "Repair org outbound routing when LocalPlayer org stats are absent and implement an administrator-only Manager restart command.",
+  "resume_instruction": "Read journal BEGIN seq 47 and the supplied 2026-09-06 org failure log. Manager still receives org input; outbound SendOrgMessage silently fails when LocalPlayer org stat is unavailable. Implement remembered-channel direct delivery plus private fallback and truthful health reporting. Add safe admin restart, update help/status/dumps/docs, do source verification only, and return cursor idle."
 }
