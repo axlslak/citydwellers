@@ -775,3 +775,21 @@ The administrator-only restart command acknowledges first, saves state, starts
 a delayed replacement of the current Manager executable, and exits the old
 process. In-game help and the command list document restart; status and dumps
 document org-output health. Kavey owns the build and live verification.
+
+
+## 2026-09-06 — Direct organization packet route corrected
+
+The first org-resilience runtime test behaved safely but proved
+ChatClient.SendGroupMessage is not public in AOSharp.Clientless 1.0.16. Manager
+marked organization output degraded and delivered the status privately as
+designed.
+
+Inspection of the exact pinned NuGet assembly resolved the API uncertainty.
+Client.SendOrgMessage reads LocalPlayer stat 5 and, if present, constructs a
+GroupMsgMessage containing GroupMessageType.Org, the integer channel ID, and
+the text, then passes it to public Client.Send. Published commit
+418abc49ac88f4ff794aac6d14a654853435bd68 now performs that same packet send
+with the channel ID learned from incoming org messages, skipping only the
+failed LocalPlayer-stat lookup. The speculative reflection path was removed.
+Private fallback, status/dump health, raid migration, and admin restart remain
+unchanged. Kavey owns the confirming build and live org test.
