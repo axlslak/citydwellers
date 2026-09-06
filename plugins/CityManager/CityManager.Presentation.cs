@@ -445,7 +445,12 @@ namespace CityManager
             string syntax,
             string description)
         {
-            return "  " + CommandLink(target, syntax, syntax) +
+            string renderedSyntax = syntax.IndexOf('[', StringComparison.Ordinal) >= 0
+                ? "<font color='" + ColorCommand + "'>" +
+                  EscapeBlobText(syntax) + "</font>"
+                : CommandLink(target, syntax, syntax);
+
+            return "  " + renderedSyntax +
                    "\n    <font color='" + ColorMuted + "'>" +
                    EscapeBlobText(description) + "</font>\n";
         }
