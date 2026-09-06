@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 7,
+  "current_session": 8,
   "last_completed_session": 7,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-7-humanize-manager-output",
-  "completed_utc": "2026-09-06T05:50:01Z",
-  "base_commit": "29113bf0c7b530093166e15cc8b91b94d87534b3",
-  "task": "Kavey builds and verifies Manager help/status blobs and diagnostics across tell, organization, and guest channels; capture status plus dump if organization-only silence recurs.",
-  "resume_instruction": "Start at RECOVERY.md. The repository is idle. First inspect Kavey's build or AO feedback for the Manager presentation change sealed by journal seq 44. If the build succeeds, verify help, help commands, help raid, and status in tell/org/guest; confirm guest reconnection produces no backlog; run admin dump and collect the reported file. If org-only silence recurs, preserve status, dump, channel, and approximate uptime before resetting. The bounded Grid trigger traversal test remains open afterward. Do not build or live-test unless Kavey explicitly delegates it."
+  "transaction": "session-8-manager-presentation-build-fix",
+  "started_utc": "2026-09-06T05:52:23Z",
+  "base_commit": "fe0b594ce956f5debfd8886dc96cf728830555e8",
+  "task": "Fix the five CityManager.Presentation.cs compile errors returned by Kavey's Release build.",
+  "resume_instruction": "Read journal BEGIN seq 45. Add AOSharp.Clientless.Logging to the presentation partial and replace the invalid IndexOf(char, StringComparison) call with IndexOf(char). Do not alter presentation behavior. Publish, document Kavey's build evidence, seal, and return the cursor idle."
 }
