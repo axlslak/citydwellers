@@ -728,3 +728,18 @@ sprayed into guest chat.
 [OPEN] Kavey owns the C# 7.3 build and live AO verification across tell,
 organization, and guest channels. No assistant-side build, test suite, or live
 AO runtime test was run.
+
+
+## 2026-09-06 — Manager presentation C# compatibility correction
+
+Kavey's Release build compiled Manager.exe, Flipper, Buddies, CityFlipper, and
+CityBuddies. CityManager failed on five errors in the newly added presentation
+partial: the target framework has no IndexOf(char, StringComparison) overload,
+and C# using directives do not carry across partial-class source files, leaving
+four Logger references unresolved.
+
+[IMPLEMENTED] Commit e6ec02f57cd2105ab7016eba0d199ea4b2c256e9
+adds the AOSharp.Clientless.Logging import and uses IndexOf(char). These are
+compile-only corrections with no intended runtime behavior change. The CS0649
+and obsolete-API messages in the supplied build output are warnings and were
+not changed. Kavey owns the confirming rebuild.
