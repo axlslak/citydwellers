@@ -586,23 +586,26 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-The deterministic staging experiment remained in Grid despite an exact
-`ForwardStop`. Commit `1464d99` now reproduces the remaining successful-client
-movement tail without changing general walking. Next:
+The Manager presentation and diagnostics overhaul is published for Kavey's
+build and live AO verification.
 
-1. Kavey builds and runs one monitored ICC-to-Grid home job. The assistant does
-   not build or run AO unless Kavey explicitly delegates it.
-2. Preserve the resulting JSONL. After staging and `ForwardStart`, the expected
-   tail is near-exit `TurnLeftMouse`, exact `ForwardStop`, stationary
-   `TurnRightMouse`, `TurnLeftMouse`, `TurnLeftStop`, then stable model `6010`
-   or a bounded 20-second timeout.
-3. If it times out, use that trace to distinguish a missing/late action echo
-   from a confirmed exact sequence that the clientless server path still does
-   not zone. Do not increase crossing distance by guesswork.
-4. After Grid-to-Serenity succeeds repeatably, address continuous-walker
-   rubber-banding as a separate problem. Preserve bounded-pulse rollback, do
-   not use rapid walk/run toggling as synchronization, and retain sustained
-   walk mode plus the NavGen/NavManager reference ideas for that later pass.
+1. Build CityManager with the repository's C# 7.3/.NET Framework 4.8 toolchain.
+2. In a tell, organization chat, and guest chat, open help, help commands,
+   an individual topic such as help raid, and status. Confirm the target-
+   specific blob links and page sizes render correctly in each channel.
+3. Leave and rejoin Apcmanager's guest channel. The first incoming message must
+   produce one concise live-diagnostics confirmation and must not replay
+   buffered telemetry.
+4. As an administrator, run dump. Confirm the reply identifies a timestamped
+   file beneath diagnostic-dumps and that the file contains the Manager
+   snapshot plus retained diagnostics.
+5. If the organization-channel silence returns, capture status, create a
+   dump, and note whether tells and guest chat still answer. This evidence
+   should distinguish command routing/channel state from a dead Manager or
+   worker outage.
+6. The bounded Grid trigger traversal experiment remains open after the Manager
+   verification. Preserve the next Apcr20000 JSONL for analysis; do not change
+   the general walker by guesswork.
 
 ## Grid trigger traversal experiment (2026-09-02)
 
@@ -628,3 +631,29 @@ movement tail without changing general walking. Next:
   JSONL should contain five `Grid final traversal update` commands before the
   captured near-exit tail, followed by either model `6010` or the bounded
   timeout.
+
+
+## Manager member interface and diagnostics (2026-09-06)
+
+- [IMPLEMENTED] Manager uptime is measured with a monotonic Stopwatch and
+  paired with a UTC start timestamp. status opens a colored operational blob
+  containing Manager/AO state, live-diagnostic connection state, cloak status
+  and five recent cloak events, raid recovery, Flipper and Buddies link detail,
+  Buddy activity counts, raid state, alt-cache state, and membership freshness.
+- [IMPLEMENTED] Help is a topic-based blob manual modeled after established
+  AO bot conventions: overview, command list, syntax guide, member subjects,
+  administrator-only subjects for administrators, and individual command
+  explanations. Concrete commands are clickable; argument-bearing syntax is
+  highlighted without sending placeholder text.
+- [DECISION] Blob content is paginated at explicit target-aware limits:
+  organization 5600 characters, guest 6500, and tell 7200. Page links identify
+  their page number and preserve the originating reply route for command links.
+- [IMPLEMENTED] Developer telemetry no longer flushes a buffered burst when
+  the guest channel becomes active. New events remain concise, colored, and
+  live. All diagnostics are timestamped to a rotating two-megabyte disk log;
+  an administrator-only dump command writes a timestamped snapshot beneath
+  diagnostic-dumps.
+- [IMPLEMENTED] Detailed Buddy position telemetry is recorded for an explicit
+  dump but no longer pushed into guest chat by the positions command.
+- [OPEN] Kavey owns compilation and AO rendering/runtime verification. No
+  assistant-side build, test suite, or live AO test was run.
