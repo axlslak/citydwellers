@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 9,
+  "current_session": 10,
   "last_completed_session": 9,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-9-org-output-resilience-and-restart",
-  "completed_utc": "2026-09-06T17:25:54Z",
-  "base_commit": "3bf8f8ce8961cc28501d7f7f2702e3e64bc9ec72",
-  "task": "Kavey builds and live-tests observed-channel org replies, private fallback, raid migration, status/dump org health, and administrator restart.",
-  "resume_instruction": "Start at RECOVERY.md. The repository is idle. Inspect Kavey's build output first. Then verify org help/status, observe the org-output route in status or dump, test raid migration only if org delivery is degraded, and run admin restart once. Automatic ICC-to-city home remains parked as a low-priority nice-to-have."
+  "transaction": "session-10-raw-org-channel-send",
+  "started_utc": "2026-09-06T19:13:40Z",
+  "base_commit": "f84d0431ce7c5e6e6f73e68754c3c550af024eb7",
+  "task": "Send organization replies using the observed channel ID and the exact GroupMsgMessage packet route used by pinned AOSharp.Clientless.",
+  "resume_instruction": "Read journal BEGIN seq 49. Replace reflection-based Chat.SendGroupMessage with Client.Send(new GroupMsgMessage { MessageType=Org, ChannelId=observed, Text=text }). Remove now-unused reflection import, update docs with live evidence and assembly inspection, source-check, seal idle."
 }
