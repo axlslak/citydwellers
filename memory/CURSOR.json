@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 8,
-  "last_completed_session": 7,
-  "status": "in_progress",
+  "last_completed_session": 8,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-8-manager-presentation-build-fix",
-  "started_utc": "2026-09-06T05:52:23Z",
-  "base_commit": "fe0b594ce956f5debfd8886dc96cf728830555e8",
-  "task": "Fix the five CityManager.Presentation.cs compile errors returned by Kavey's Release build.",
-  "resume_instruction": "Read journal BEGIN seq 45. Add AOSharp.Clientless.Logging to the presentation partial and replace the invalid IndexOf(char, StringComparison) call with IndexOf(char). Do not alter presentation behavior. Publish, document Kavey's build evidence, seal, and return the cursor idle."
+  "completed_utc": "2026-09-06T05:53:11Z",
+  "base_commit": "e6ec02f57cd2105ab7016eba0d199ea4b2c256e9",
+  "task": "Kavey reruns the Release build, then verifies Manager help/status blobs, guest live diagnostics without backlog replay, and admin dump output.",
+  "resume_instruction": "Start at RECOVERY.md. The repository is idle. Inspect Kavey's confirming build output for commit e6ec02f57cd2105ab7016eba0d199ea4b2c256e9. If clean, continue the tell/org/guest rendering checklist from session 7. If organization-only silence recurs, preserve status and an admin dump before reset."
 }
