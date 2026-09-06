@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using AOSharp.Clientless.Logging;
 using CityDwellers.Shared;
 using Newtonsoft.Json;
 
@@ -445,7 +446,7 @@ namespace CityManager
             string syntax,
             string description)
         {
-            string renderedSyntax = syntax.IndexOf('[', StringComparison.Ordinal) >= 0
+            string renderedSyntax = syntax.IndexOf('[') >= 0
                 ? "<font color='" + ColorCommand + "'>" +
                   EscapeBlobText(syntax) + "</font>"
                 : CommandLink(target, syntax, syntax);
