@@ -131,6 +131,19 @@ namespace CityManager
                     body = BuildGuestHelp(target);
                     return true;
 
+                case "restart":
+                    if (!isAdmin)
+                        return false;
+                    title = "Restart Manager";
+                    body = CommandHelp(
+                        target,
+                        "restart",
+                        "Restart Apcmanager and reconnect its AO session.",
+                        "Use this when the clientless AO session has degraded, especially when organization output loses its LocalPlayer organization stat.",
+                        "Administrator",
+                        "The current process starts a delayed replacement, then exits.");
+                    return true;
+
                 case "dump":
                 case "diagnostics":
                     if (!isAdmin)
@@ -281,6 +294,7 @@ namespace CityManager
                 body.Append(HelpSyntaxLine(target, "unban [character]", "Remove a bot ban."));
                 body.Append(HelpSyntaxLine(target, "recoverraid [owner] [all|general] [level] [count]", "Recover a raid after restart."));
                 body.Append(HelpSyntaxLine(target, "dump", "Save a diagnostic snapshot."));
+                body.Append(HelpSyntaxLine(target, "restart", "Restart Apcmanager and its AO session."));
             }
 
             return body.ToString();
@@ -341,7 +355,8 @@ namespace CityManager
                 HelpMenuLine(target, "help buddies", "Buddies", "Lifecycle and position tools.") +
                 HelpMenuLine(target, "help invite", "Guest administration", "Invite and kick.") +
                 HelpMenuLine(target, "help recoverraid", "Raid recovery", "Restart recovery only.") +
-                HelpMenuLine(target, "help dump", "Diagnostics", "Save evidence for investigation.");
+                HelpMenuLine(target, "help dump", "Diagnostics", "Save evidence for investigation.") +
+                HelpMenuLine(target, "help restart", "Restart Manager", "Replace a degraded AO session.");
         }
 
         private string BuildBuddyHelp(ReplyTarget target)
@@ -495,6 +510,7 @@ namespace CityManager
                 string raid = BuildRaidStatusSummary();
                 string alts = BuildAltStatusSummary();
                 string membership = BuildMembershipStatusForBlob();
+                string orgOutput = BuildOrgOutboundStatusSummary();
 
                 string diagnostic =
                     "STATUS Manager=online uptime=" + FormatDuration(_managerUptime.Elapsed) +
@@ -515,7 +531,8 @@ namespace CityManager
                     recovery,
                     raid,
                     alts,
-                    membership);
+                    membership,
+                    orgOutput);
 
                 string links = BuildBlobLinks(target, "System Status", "Open status", body);
                 string healthColor = flipper.IsUsable && buddies.IsUsable
@@ -540,7 +557,8 @@ namespace CityManager
             string recovery,
             string raid,
             string alts,
-            string membership)
+            string membership,
+            string orgOutput)
         {
             var body = new StringBuilder();
             body.Append(HelpHeader(
@@ -555,6 +573,7 @@ namespace CityManager
             body.Append(StatusLine(_devChannelConfirmed, "Live diagnostics", _devChannelConfirmed
                 ? "Connected; new events report live"
                 : "Not confirmed; events are still kept on disk"));
+            body.Append(StatusLine(!IsOrgOutboundDegraded(), "Org output", orgOutput));
 
             body.Append("\n").Append(StatusSection("City cloak"));
             body.Append(StatusLine(_status != CloakStatus.Unknown, "Cloak", cloak));
@@ -771,6 +790,7 @@ namespace CityManager
                     header.AppendLine("Raid: " + BuildRaidStatusSummary());
                     header.AppendLine("Alts: " + BuildAltStatusSummary());
                     header.AppendLine("Membership: " + BuildMembershipStatusForBlob());
+                    header.AppendLine("OrgOutput: " + BuildOrgOutboundStatusSummary());
                     header.AppendLine();
                     header.AppendLine("Diagnostic log:");
 
