@@ -681,9 +681,10 @@ change.
   used by Client.SendOrgMessage. That method logged failure internally without
   throwing, so the old wrapper falsely claimed success.
 - [IMPLEMENTED] Manager remembers the channel ID and name of received
-  organization traffic. Org replies first discover and invoke the public
-  Chat.SendGroupMessage overload compatible with that observed ID, bypassing
-  LocalPlayer organization-stat lookup. Every compatible overload is tried.
+  organization traffic. Org replies construct the same GroupMsgMessage packet
+  as AOSharp.Clientless SendOrgMessage, but supply the observed channel ID
+  directly and pass it to public Client.Send. This bypasses only the broken
+  LocalPlayer stat-5 lookup.
 - [IMPLEMENTED] If direct delivery is unavailable and ordinary SendOrgMessage
   cannot safely be used, Manager marks org output degraded and delivers the
   reply privately to the command issuer. status and dump expose the route,
@@ -699,3 +700,19 @@ change.
   and its AO session, not Flipper or Buddies.
 - [OPEN] Kavey owns compilation and live AO verification. No assistant-side
   build or AO runtime test was run.
+
+
+## Raw organization-channel correction (2026-09-06)
+
+- [VERIFIED-LIVE] The first resilience build truthfully detected degradation
+  and delivered status by tell, but AOSharp.Clientless.Chat.ChatClient exposes
+  no public SendGroupMessage method. The reflection route therefore could not
+  send to org.
+- [VERIFIED-BINARY] Inspection of the pinned AOSharp.Clientless 1.0.16 NuGet
+  assembly showed SendOrgMessage reads LocalPlayer stat 5, rejects a missing or
+  zero result, then creates GroupMsgMessage with GroupMessageType.Org, the
+  integer channel ID, and text before calling public Client.Send.
+- [IMPLEMENTED] Manager now constructs that exact message using the channel ID
+  observed on incoming organization traffic. Reflection and its unused import
+  were removed. Private fallback and degraded-health reporting remain.
+- [OPEN] Kavey owns the confirming build and org status test.
