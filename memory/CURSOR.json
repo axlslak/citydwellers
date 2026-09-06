@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 10,
-  "last_completed_session": 9,
-  "status": "in_progress",
+  "last_completed_session": 10,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-10-raw-org-channel-send",
-  "started_utc": "2026-09-06T19:13:40Z",
-  "base_commit": "f84d0431ce7c5e6e6f73e68754c3c550af024eb7",
-  "task": "Send organization replies using the observed channel ID and the exact GroupMsgMessage packet route used by pinned AOSharp.Clientless.",
-  "resume_instruction": "Read journal BEGIN seq 49. Replace reflection-based Chat.SendGroupMessage with Client.Send(new GroupMsgMessage { MessageType=Org, ChannelId=observed, Text=text }). Remove now-unused reflection import, update docs with live evidence and assembly inspection, source-check, seal idle."
+  "completed_utc": "2026-09-06T19:14:43Z",
+  "base_commit": "418abc49ac88f4ff794aac6d14a654853435bd68",
+  "task": "Kavey rebuilds and verifies that org status replies use Client.Send(GroupMsgMessage Org) with observed channel 4736 despite missing LocalPlayer org stat.",
+  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Inspect Kavey's build and live org status result for commit 418abc49ac88f4ff794aac6d14a654853435bd68. Expected log: org reply sent directly with detail Client.Send(GroupMsgMessage Org, channel 4736), with no private fallback. If it fails, preserve the exception and dump. Restart/admin and raid migration remain pending live verification."
 }
