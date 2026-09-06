@@ -692,3 +692,39 @@ delays, deterministic retry state, and 20-second Serenity wait remain intact.
 
 No raw owner trace was committed. No assistant-side build or AO runtime test
 was run. Kavey owns the confirming build and monitored test.
+
+
+## 2026-09-06 — Manager status, help blobs, and explicit diagnostics
+
+After a long-running Apcmanager instance stopped answering organization chat
+while tells and its guest channel still worked, a reset restored organization
+replies. No conclusive console or log evidence identified the cause. This
+failure shape is consistent with a channel-specific receive/dispatch state
+problem rather than total Manager death, but that remains a hypothesis until a
+recurrence is captured.
+
+[IMPLEMENTED] Published code through commit:
+
+29113bf0c7b530093166e15cc8b91b94d87534b3 — Keep argument syntax illustrative in help
+
+Manager now tracks monotonic uptime and its UTC start time. status is a colored,
+paged AO blob containing Manager state, cloak and recent history, raid recovery,
+Flipper, Buddies and Buddy activity, active raid work, alts, and roster
+freshness. The compact outer line still exposes immediate online/uptime health.
+
+The plaintext help dump was replaced with a topic-oriented AO manual inspired
+by the durable interaction patterns used by Nadybot, BeBot, and Tyrbot:
+clickable overview and topic links, command-list and syntax pages, focused
+command explanations, and access-aware administrator sections. Blob pagination
+has independently controlled limits for organization, guest, and tell output.
+
+The guest diagnostic channel no longer replays buffered telemetry when it is
+confirmed. New events are timestamped to a rotating disk log and reported live
+in concise colored lines. The administrator-only dump command writes a
+timestamped diagnostic snapshot with current Manager state and retained log
+content. Detailed position telemetry is kept for that file instead of being
+sprayed into guest chat.
+
+[OPEN] Kavey owns the C# 7.3 build and live AO verification across tell,
+organization, and guest channels. No assistant-side build, test suite, or live
+AO runtime test was run.
