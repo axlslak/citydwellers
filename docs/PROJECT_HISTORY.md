@@ -743,3 +743,35 @@ adds the AOSharp.Clientless.Logging import and uses IndexOf(char). These are
 compile-only corrections with no intended runtime behavior change. The CS0649
 and obsolete-API messages in the supplied build output are warnings and were
 not changed. Kavey owns the confirming rebuild.
+
+
+## 2026-09-06 — Organization-output failure isolated and bypassed
+
+A supplied console capture established that Apcmanager continued receiving
+organization commands after AOSharp repeatedly reported it could not obtain
+the LocalPlayer organization stat. The first failure appeared immediately
+after login-time packet deserialization and duplicate-dynel exceptions.
+Client.SendOrgMessage logged the missing-stat failure internally but returned
+without throwing, while Manager's wrapper incorrectly logged a successful
+send.
+
+[IMPLEMENTED] Published code through commit:
+
+3bf8f8ce8961cc28501d7f7f2702e3e64bc9ec72 — Try every direct group-send overload
+
+Manager now remembers the concrete organization channel observed on incoming
+traffic and uses reflection to invoke the compatible public
+Chat.SendGroupMessage overload directly. This avoids depending on the damaged
+LocalPlayer organization stat while remaining compatible with the pinned
+AOSharp.Clientless API. If no direct route works, the command issuer receives
+the reply in a tell and org-output health becomes degraded in status and dump.
+
+A raid interface retains its origin by design. This explained why raid retries
+from tell and guest also looked silent: their output continued targeting the
+broken org origin. An owner retry from tell or guest now migrates a degraded
+org-origin raid to that current route.
+
+The administrator-only restart command acknowledges first, saves state, starts
+a delayed replacement of the current Manager executable, and exits the old
+process. In-game help and the command list document restart; status and dumps
+document org-output health. Kavey owns the build and live verification.
