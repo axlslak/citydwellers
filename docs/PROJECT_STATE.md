@@ -586,26 +586,24 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-The Manager presentation and diagnostics overhaul is published for Kavey's
-build and live AO verification.
+Kavey builds and live-tests the organization-output resilience and restart
+change.
 
-1. Build CityManager with the repository's C# 7.3/.NET Framework 4.8 toolchain.
-2. In a tell, organization chat, and guest chat, open help, help commands,
-   an individual topic such as help raid, and status. Confirm the target-
-   specific blob links and page sizes render correctly in each channel.
-3. Leave and rejoin Apcmanager's guest channel. The first incoming message must
-   produce one concise live-diagnostics confirmation and must not replay
-   buffered telemetry.
-4. As an administrator, run dump. Confirm the reply identifies a timestamped
-   file beneath diagnostic-dumps and that the file contains the Manager
-   snapshot plus retained diagnostics.
-5. If the organization-channel silence returns, capture status, create a
-   dump, and note whether tells and guest chat still answer. This evidence
-   should distinguish command routing/channel state from a dead Manager or
-   worker outage.
-6. The bounded Grid trigger traversal experiment remains open after the Manager
-   verification. Preserve the next Apcr20000 JSONL for analysis; do not change
-   the general walker by guesswork.
+1. Start Manager normally and verify an org help or status reply uses the
+   observed channel directly.
+2. If AOSharp again reports that it cannot obtain LocalPlayer org stat, verify
+   org replies still arrive. status and dump must describe the direct route or
+   a degraded route truthfully.
+3. If direct org delivery is unavailable, verify the command issuer receives a
+   private fallback rather than silence.
+4. Open a raid in org chat. If org output degrades, retry raid from tell or
+   guest and confirm its interface migrates to that usable channel.
+5. As an administrator, run restart. Confirm the acknowledgement arrives, the
+   old Manager exits, and a replacement Manager reconnects after approximately
+   two seconds.
+6. Automatic ICC-to-city home movement is parked as a low-priority nice-to-have
+   with a reliable manual administrator workaround. Preserve its existing code
+   and traces; do not resume it without a new operational reason or evidence.
 
 ## Grid trigger traversal experiment (2026-09-02)
 
@@ -669,3 +667,35 @@ build and live AO verification.
   AOSharp.Clientless.Logging and uses the framework-compatible IndexOf(char)
   overload. No presentation or command behavior changed.
 - [OPEN] Kavey owns the confirming Release rebuild and live AO rendering checks.
+
+
+## Organization-output resilience and Manager restart (2026-09-06)
+
+- [VERIFIED-LIVE] The captured failure did not stop inbound organization
+  commands. Manager received later org commands after AOSharp began logging
+  "Could not obtain LocalPlayer org stat." The failure was outbound org
+  delivery.
+- [ROOT-CAUSE] Two AOSharp packet-processing failures occurred before InPlay:
+  an apparent allocation failure while deserializing an array and a duplicate
+  dynel insertion. The session then lacked the LocalPlayer organization stat
+  used by Client.SendOrgMessage. That method logged failure internally without
+  throwing, so the old wrapper falsely claimed success.
+- [IMPLEMENTED] Manager remembers the channel ID and name of received
+  organization traffic. Org replies first discover and invoke the public
+  Chat.SendGroupMessage overload compatible with that observed ID, bypassing
+  LocalPlayer organization-stat lookup. Every compatible overload is tried.
+- [IMPLEMENTED] If direct delivery is unavailable and ordinary SendOrgMessage
+  cannot safely be used, Manager marks org output degraded and delivers the
+  reply privately to the command issuer. status and dump expose the route,
+  last observed channel, and last send attempt.
+- [IMPLEMENTED] An active raid whose org origin is degraded migrates to its
+  owner's current tell or guest target when retried there, rebuilding future
+  buttons for that usable route.
+- [IMPLEMENTED] Administrators have restart. It acknowledges the request,
+  persists Manager state, starts a hidden PowerShell helper that launches the
+  same Manager executable after two seconds in the same working directory,
+  then exits the damaged process.
+- [DECISION] restart is intentionally administrator-only. It restarts Manager
+  and its AO session, not Flipper or Buddies.
+- [OPEN] Kavey owns compilation and live AO verification. No assistant-side
+  build or AO runtime test was run.
