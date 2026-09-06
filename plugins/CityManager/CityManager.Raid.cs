@@ -143,6 +143,8 @@ namespace CityManager
                 return;
             }
 
+            MigrateRaidOriginIfOrgOutputDegraded(session, target);
+
             string action = parts[1].ToLowerInvariant();
 
             if (action == "refresh" && parts.Length == 3)
@@ -236,7 +238,10 @@ namespace CityManager
                 if (existing != null)
                 {
                     if (IsRaidOwner(existing, senderName, target.SenderId))
+                    {
+                        MigrateRaidOriginIfOrgOutputDegraded(existing, target);
                         Reply(existing.Origin, BuildRaidWindow(existing));
+                    }
                     else
                         Reply(target, "Raid in progress already.");
 
@@ -265,6 +270,30 @@ namespace CityManager
                 $"RAID SETUP owner={senderName} token={existing.Token} origin={target.Kind} deadline={existing.StageDeadlineUtc:O}.");
             SaveRaidState();
             Reply(existing.Origin, BuildRaidWindow(existing));
+        }
+
+        private void MigrateRaidOriginIfOrgOutputDegraded(
+            RaidSession session,
+            ReplyTarget commandTarget)
+        {
+            if (session == null ||
+                commandTarget == null ||
+                commandTarget.IsOrg ||
+                session.Origin == null ||
+                !session.Origin.IsOrg ||
+                !IsOrgOutboundDegraded())
+            {
+                return;
+            }
+
+            ReplyKind previousKind = session.Origin.Kind;
+            session.Origin = commandTarget;
+            SaveRaidState();
+            DevTrace(
+                "RAID ORIGIN migrated from " + previousKind +
+                " to " + commandTarget.Kind +
+                " because organization output is degraded; token=" +
+                session.Token + ".");
         }
 
         private bool IsCurrentRaidOwnerCommand(
