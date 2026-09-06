@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 9,
-  "last_completed_session": 8,
-  "status": "in_progress",
+  "last_completed_session": 9,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-9-org-output-resilience-and-restart",
-  "started_utc": "2026-09-06T17:21:04Z",
-  "base_commit": "daaff43c3e32f169a0c435998b1a92b03a2a93cf",
-  "task": "Repair org outbound routing when LocalPlayer org stats are absent and implement an administrator-only Manager restart command.",
-  "resume_instruction": "Read journal BEGIN seq 47 and the supplied 2026-09-06 org failure log. Manager still receives org input; outbound SendOrgMessage silently fails when LocalPlayer org stat is unavailable. Implement remembered-channel direct delivery plus private fallback and truthful health reporting. Add safe admin restart, update help/status/dumps/docs, do source verification only, and return cursor idle."
+  "completed_utc": "2026-09-06T17:25:54Z",
+  "base_commit": "3bf8f8ce8961cc28501d7f7f2702e3e64bc9ec72",
+  "task": "Kavey builds and live-tests observed-channel org replies, private fallback, raid migration, status/dump org health, and administrator restart.",
+  "resume_instruction": "Start at RECOVERY.md. The repository is idle. Inspect Kavey's build output first. Then verify org help/status, observe the org-output route in status or dump, test raid migration only if org delivery is degraded, and run admin restart once. Automatic ICC-to-city home remains parked as a low-priority nice-to-have."
 }
