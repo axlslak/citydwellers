@@ -657,3 +657,15 @@ build and live AO verification.
   dump but no longer pushed into guest chat by the positions command.
 - [OPEN] Kavey owns compilation and AO rendering/runtime verification. No
   assistant-side build, test suite, or live AO test was run.
+
+
+## Manager build compatibility correction (2026-09-06)
+
+- [VERIFIED-BUILD] Kavey's first Release build after the Manager presentation
+  overhaul built five projects successfully. CityManager alone failed with one
+  invalid char/StringComparison IndexOf overload and four unresolved Logger
+  references in the new partial file.
+- [IMPLEMENTED] The presentation partial now imports
+  AOSharp.Clientless.Logging and uses the framework-compatible IndexOf(char)
+  overload. No presentation or command behavior changed.
+- [OPEN] Kavey owns the confirming Release rebuild and live AO rendering checks.
