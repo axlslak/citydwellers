@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
-using System.Reflection;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -15,6 +14,7 @@ using AOSharp.Common.GameData;
 using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.GameData;
 using SmokeLounge.AOtomation.Messaging.Messages;
+using SmokeLounge.AOtomation.Messaging.Messages.ChatMessages;
 using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 using CityDwellers.Shared;
 
@@ -1533,77 +1533,38 @@ namespace CityManager
             out string detail)
         {
             detail = "no observed channel id";
-            if (Client.Chat == null || channelId == null)
+            if (channelId == null)
                 return false;
 
-            List<MethodInfo> methods = Client.Chat.GetType()
-                .GetMethods(BindingFlags.Instance | BindingFlags.Public)
-                .Where(candidate =>
-                {
-                    if (!string.Equals(
-                            candidate.Name,
-                            "SendGroupMessage",
-                            StringComparison.Ordinal))
-                    {
-                        return false;
-                    }
-
-                    ParameterInfo[] parameters = candidate.GetParameters();
-                    return parameters.Length == 2 &&
-                           parameters[1].ParameterType == typeof(string);
-                })
-                .ToList();
-
-            if (methods.Count == 0)
+            try
             {
-                detail = "Chat.SendGroupMessage is unavailable";
+                int observedChannelId = Convert.ToInt32(
+                    channelId,
+                    CultureInfo.InvariantCulture);
+                if (observedChannelId <= 0)
+                {
+                    detail = "observed channel id is invalid";
+                    return false;
+                }
+
+                Client.Send(
+                    new GroupMsgMessage
+                    {
+                        MessageType = GroupMessageType.Org,
+                        ChannelId = observedChannelId,
+                        Text = text
+                    });
+
+                detail =
+                    "Client.Send(GroupMsgMessage Org, channel " +
+                    observedChannelId + ")";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                detail = "raw org-channel send failed: " + ex.Message;
                 return false;
             }
-
-            var failures = new List<string>();
-            foreach (MethodInfo method in methods)
-            {
-                try
-                {
-                    ParameterInfo channelParameter = method.GetParameters()[0];
-                    object convertedChannelId = channelId;
-                    if (!channelParameter.ParameterType.IsInstanceOfType(channelId))
-                    {
-                        convertedChannelId = channelParameter.ParameterType.IsEnum
-                            ? Enum.ToObject(channelParameter.ParameterType, channelId)
-                            : Convert.ChangeType(
-                                channelId,
-                                channelParameter.ParameterType,
-                                CultureInfo.InvariantCulture);
-                    }
-
-                    method.Invoke(
-                        Client.Chat,
-                        new[] { convertedChannelId, (object)text });
-                    detail =
-                        method.Name + "(" +
-                        channelParameter.ParameterType.Name + ", String)";
-                    return true;
-                }
-                catch (TargetInvocationException ex)
-                {
-                    Exception cause = ex.InnerException ?? ex;
-                    failures.Add(
-                        method.GetParameters()[0].ParameterType.Name +
-                        ": " + cause.Message);
-                }
-                catch (Exception ex)
-                {
-                    failures.Add(
-                        method.GetParameters()[0].ParameterType.Name +
-                        ": " + ex.Message);
-                }
-            }
-
-            detail =
-                "direct channel send failed for every overload: " +
-                string.Join(" | ", failures);
-            return false;
         }
 
         private void SetOrgOutboundHealth(bool degraded, string detail)
