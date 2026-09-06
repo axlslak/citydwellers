@@ -1536,57 +1536,74 @@ namespace CityManager
             if (Client.Chat == null || channelId == null)
                 return false;
 
-            try
-            {
-                MethodInfo method = Client.Chat.GetType()
-                    .GetMethods(BindingFlags.Instance | BindingFlags.Public)
-                    .FirstOrDefault(candidate =>
+            List<MethodInfo> methods = Client.Chat.GetType()
+                .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                .Where(candidate =>
+                {
+                    if (!string.Equals(
+                            candidate.Name,
+                            "SendGroupMessage",
+                            StringComparison.Ordinal))
                     {
-                        if (!string.Equals(
-                                candidate.Name,
-                                "SendGroupMessage",
-                                StringComparison.Ordinal))
-                        {
-                            return false;
-                        }
+                        return false;
+                    }
 
-                        ParameterInfo[] parameters = candidate.GetParameters();
-                        return parameters.Length == 2 &&
-                               parameters[1].ParameterType == typeof(string);
-                    });
+                    ParameterInfo[] parameters = candidate.GetParameters();
+                    return parameters.Length == 2 &&
+                           parameters[1].ParameterType == typeof(string);
+                })
+                .ToList();
 
-                if (method == null)
-                {
-                    detail = "Chat.SendGroupMessage is unavailable";
-                    return false;
-                }
-
-                ParameterInfo channelParameter = method.GetParameters()[0];
-                object convertedChannelId = channelId;
-                if (!channelParameter.ParameterType.IsInstanceOfType(channelId))
-                {
-                    convertedChannelId = Convert.ChangeType(
-                        channelId,
-                        channelParameter.ParameterType,
-                        CultureInfo.InvariantCulture);
-                }
-
-                method.Invoke(Client.Chat, new[] { convertedChannelId, (object)text });
-                detail =
-                    method.Name + "(" + channelParameter.ParameterType.Name + ", String)";
-                return true;
-            }
-            catch (TargetInvocationException ex)
+            if (methods.Count == 0)
             {
-                Exception cause = ex.InnerException ?? ex;
-                detail = "direct channel send failed: " + cause.Message;
+                detail = "Chat.SendGroupMessage is unavailable";
                 return false;
             }
-            catch (Exception ex)
+
+            var failures = new List<string>();
+            foreach (MethodInfo method in methods)
             {
-                detail = "direct channel send failed: " + ex.Message;
-                return false;
+                try
+                {
+                    ParameterInfo channelParameter = method.GetParameters()[0];
+                    object convertedChannelId = channelId;
+                    if (!channelParameter.ParameterType.IsInstanceOfType(channelId))
+                    {
+                        convertedChannelId = channelParameter.ParameterType.IsEnum
+                            ? Enum.ToObject(channelParameter.ParameterType, channelId)
+                            : Convert.ChangeType(
+                                channelId,
+                                channelParameter.ParameterType,
+                                CultureInfo.InvariantCulture);
+                    }
+
+                    method.Invoke(
+                        Client.Chat,
+                        new[] { convertedChannelId, (object)text });
+                    detail =
+                        method.Name + "(" +
+                        channelParameter.ParameterType.Name + ", String)";
+                    return true;
+                }
+                catch (TargetInvocationException ex)
+                {
+                    Exception cause = ex.InnerException ?? ex;
+                    failures.Add(
+                        method.GetParameters()[0].ParameterType.Name +
+                        ": " + cause.Message);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(
+                        method.GetParameters()[0].ParameterType.Name +
+                        ": " + ex.Message);
+                }
             }
+
+            detail =
+                "direct channel send failed for every overload: " +
+                string.Join(" | ", failures);
+            return false;
         }
 
         private void SetOrgOutboundHealth(bool degraded, string detail)
