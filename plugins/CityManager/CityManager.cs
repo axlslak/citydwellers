@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
+using System.Reflection;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -65,7 +66,8 @@ namespace CityManager
                 "member",
                 "ban",
                 "unban",
-                "dump"
+                "dump",
+                "restart"
             };
 
         private readonly object _stateSync = new object();
@@ -79,6 +81,14 @@ namespace CityManager
         private string _eventsPath;
         private string _diagnosticLogPath;
         private bool _charInPlay;
+
+        private readonly object _orgOutputSync = new object();
+        private object _lastOrgChannelId;
+        private string _lastOrgChannelName;
+        private DateTime? _lastOrgChannelObservedUtc;
+        private bool _orgOutboundDegraded;
+        private string _orgOutboundDetail = "not tested since startup";
+        private DateTime? _lastOrgOutboundAttemptUtc;
 
         private bool _devInviteSent;
         private bool _devChannelConfirmed;
@@ -269,6 +279,7 @@ namespace CityManager
                 if (!IsOrganizationChannel(msg.ChannelId, msg.ChannelName))
                     return;
 
+                RememberOrganizationChannel(msg.ChannelId, msg.ChannelName);
                 ObserveAltPresenceAnnouncement(msg.SenderName, msg.Message);
                 ObserveOrganizationMembershipMessage(cityMessage);
                 ObserveRaidCityMessage(cityMessage, msg.ChannelId);
@@ -403,7 +414,8 @@ namespace CityManager
                   command == "adminlist" ||
                   command == "memberlist" ||
                   command == "positions" ||
-                  command == "dump") && parts.Length == 1) ||
+                  command == "dump" ||
+                  command == "restart") && parts.Length == 1) ||
                 (command == "help" && parts.Length <= 3) ||
                 (command == "home" &&
                  (parts.Length == 1 || parts.Length == 2)) ||
@@ -720,6 +732,10 @@ namespace CityManager
 
                 case "dump":
                     BeginDiagnosticDump(senderName, parts, replyTarget);
+                    break;
+
+                case "restart":
+                    BeginManagerRestart(senderName, parts, replyTarget);
                     break;
             }
         }
@@ -1418,10 +1434,21 @@ namespace CityManager
 
                 if (target.IsOrg)
                 {
-                    if (TrySendOrgMessage(text))
+                    if (TrySendOrgMessage(target, text))
                         return;
 
-                    Logger.Warning("Unable to send command reply in the originating org channel.");
+                    string warning =
+                        "<font color='#F79410'>Organization output is degraded.</font> " +
+                        "This reply was delivered privately. " + text;
+                    Logger.Warning(
+                        "Unable to send command reply in the originating org channel; " +
+                        "falling back to the command issuer's tell.");
+                    DevTrace(
+                        "ORG SEND FALLBACK -> tell sender=" + target.SenderId +
+                        " channel=" + (target.ChannelName ?? "unknown") + ".");
+
+                    if (target.SenderId != 0)
+                        Client.SendPrivateMessage(target.SenderId, warning);
                     return;
                 }
 
@@ -1434,20 +1461,239 @@ namespace CityManager
             }
         }
 
-        private bool TrySendOrgMessage(string text)
+        private void RememberOrganizationChannel(int channelId, string channelName)
         {
+            lock (_orgOutputSync)
+            {
+                _lastOrgChannelId = channelId;
+                _lastOrgChannelName = channelName;
+                _lastOrgChannelObservedUtc = DateTime.UtcNow;
+            }
+        }
+
+        private bool TrySendOrgMessage(ReplyTarget target, string text)
+        {
+            object channelId = target != null ? target.ChannelId : null;
+            string channelName = target != null ? target.ChannelName : null;
+
+            lock (_orgOutputSync)
+            {
+                if (channelId == null)
+                    channelId = _lastOrgChannelId;
+                if (string.IsNullOrWhiteSpace(channelName))
+                    channelName = _lastOrgChannelName;
+                _lastOrgOutboundAttemptUtc = DateTime.UtcNow;
+            }
+
+            string directDetail;
+            if (TrySendDirectGroupMessage(channelId, text, out directDetail))
+            {
+                SetOrgOutboundHealth(
+                    false,
+                    "direct channel delivery via " +
+                    (channelName ?? "remembered organization channel") +
+                    " (" + directDetail + ")");
+                Logger.Information(
+                    "Org reply sent directly to observed channel " +
+                    (channelName ?? "unknown") + ".");
+                return true;
+            }
+
+            if (Client.OrgId > 0)
+            {
+                try
+                {
+                    Client.SendOrgMessage(text);
+                    SetOrgOutboundHealth(
+                        false,
+                        "Client.SendOrgMessage using LocalPlayer organization stat");
+                    Logger.Information(
+                        "Org reply submitted through AOSharp.Clientless.Client.SendOrgMessage.");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    directDetail += "; SendOrgMessage threw " + ex.Message;
+                }
+            }
+            else
+            {
+                directDetail += "; LocalPlayer organization stat is unavailable";
+            }
+
+            SetOrgOutboundHealth(true, directDetail);
+            Logger.Warning("Organization reply unavailable: " + directDetail);
+            DevTrace("ORG SEND DEGRADED: " + directDetail);
+            return false;
+        }
+
+        private bool TrySendDirectGroupMessage(
+            object channelId,
+            string text,
+            out string detail)
+        {
+            detail = "no observed channel id";
+            if (Client.Chat == null || channelId == null)
+                return false;
+
             try
             {
-                Client.SendOrgMessage(text);
-                Logger.Information("Org reply sent through AOSharp.Clientless.Client.SendOrgMessage.");
+                MethodInfo method = Client.Chat.GetType()
+                    .GetMethods(BindingFlags.Instance | BindingFlags.Public)
+                    .FirstOrDefault(candidate =>
+                    {
+                        if (!string.Equals(
+                                candidate.Name,
+                                "SendGroupMessage",
+                                StringComparison.Ordinal))
+                        {
+                            return false;
+                        }
+
+                        ParameterInfo[] parameters = candidate.GetParameters();
+                        return parameters.Length == 2 &&
+                               parameters[1].ParameterType == typeof(string);
+                    });
+
+                if (method == null)
+                {
+                    detail = "Chat.SendGroupMessage is unavailable";
+                    return false;
+                }
+
+                ParameterInfo channelParameter = method.GetParameters()[0];
+                object convertedChannelId = channelId;
+                if (!channelParameter.ParameterType.IsInstanceOfType(channelId))
+                {
+                    convertedChannelId = Convert.ChangeType(
+                        channelId,
+                        channelParameter.ParameterType,
+                        CultureInfo.InvariantCulture);
+                }
+
+                method.Invoke(Client.Chat, new[] { convertedChannelId, (object)text });
+                detail =
+                    method.Name + "(" + channelParameter.ParameterType.Name + ", String)";
                 return true;
+            }
+            catch (TargetInvocationException ex)
+            {
+                Exception cause = ex.InnerException ?? ex;
+                detail = "direct channel send failed: " + cause.Message;
+                return false;
             }
             catch (Exception ex)
             {
-                Logger.Warning($"Client.SendOrgMessage failed: {ex.Message}");
-                DevTrace($"ORG SEND ERROR: {ex.Message}");
+                detail = "direct channel send failed: " + ex.Message;
                 return false;
             }
+        }
+
+        private void SetOrgOutboundHealth(bool degraded, string detail)
+        {
+            lock (_orgOutputSync)
+            {
+                _orgOutboundDegraded = degraded;
+                _orgOutboundDetail = string.IsNullOrWhiteSpace(detail)
+                    ? "no detail"
+                    : detail;
+            }
+        }
+
+        private string BuildOrgOutboundStatusSummary()
+        {
+            lock (_orgOutputSync)
+            {
+                string observed = _lastOrgChannelObservedUtc.HasValue
+                    ? ", channel observed " +
+                      FormatDuration(DateTime.UtcNow - _lastOrgChannelObservedUtc.Value) +
+                      " ago"
+                    : ", no org channel observed since startup";
+                string attempted = _lastOrgOutboundAttemptUtc.HasValue
+                    ? ", last send attempt " +
+                      FormatDuration(DateTime.UtcNow - _lastOrgOutboundAttemptUtc.Value) +
+                      " ago"
+                    : ", no send attempted since startup";
+
+                return (_orgOutboundDegraded ? "degraded" : "ready") +
+                       " — " + _orgOutboundDetail + observed + attempted;
+            }
+        }
+
+        private bool IsOrgOutboundDegraded()
+        {
+            lock (_orgOutputSync)
+                return _orgOutboundDegraded;
+        }
+
+        private void BeginManagerRestart(
+            string senderName,
+            string[] parts,
+            ReplyTarget target)
+        {
+            if (parts.Length != 1)
+            {
+                Reply(target, Usage(target, "restart"));
+                return;
+            }
+
+            string executablePath;
+            string workingDirectory;
+            try
+            {
+                executablePath = Process.GetCurrentProcess().MainModule.FileName;
+                workingDirectory = Path.GetDirectoryName(executablePath);
+            }
+            catch (Exception ex)
+            {
+                Reply(target, "Manager restart is unavailable: " + ex.Message);
+                DevTrace("RESTART PREPARE ERROR actor=" + senderName + ": " + ex.Message);
+                return;
+            }
+
+            Reply(
+                target,
+                "<font color='#F79410'>Manager restart accepted.</font> " +
+                "Apcmanager will disconnect and return in a few seconds.");
+            RecordDiagnostic(
+                "RESTART requested by " + senderName +
+                "; executable=" + executablePath + ".");
+            SaveState();
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    string escapedExecutable = executablePath.Replace("'", "''");
+                    string escapedDirectory =
+                        (workingDirectory ?? string.Empty).Replace("'", "''");
+                    string command =
+                        "Start-Sleep -Seconds 2; " +
+                        "Start-Process -FilePath '" + escapedExecutable + "' " +
+                        "-WorkingDirectory '" + escapedDirectory + "'";
+
+                    Process.Start(
+                        new ProcessStartInfo
+                        {
+                            FileName = "powershell.exe",
+                            Arguments =
+                                "-NoProfile -NonInteractive -WindowStyle Hidden " +
+                                "-Command \"" + command + "\"",
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            WorkingDirectory = workingDirectory
+                        });
+
+                    Thread.Sleep(750);
+                    Environment.Exit(0);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("Manager restart failed: " + ex);
+                    DevTrace("RESTART ERROR actor=" + senderName + ": " + ex.Message);
+                    Reply(target, "Manager restart failed: " + ex.Message);
+                }
+            });
         }
 
         private void JoinGuestChannel(string senderName, ReplyTarget target)
