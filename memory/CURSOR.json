@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 11,
+  "current_session": 12,
   "last_completed_session": 11,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-11-child-readiness-regression",
-  "completed_utc": "2026-09-07T02:26:17Z",
-  "base_commit": "904a9c1dfbe612c1b34907510860f9f84b6ebf41",
-  "task": "Kavey rebuilds all services, restarts Manager/Flipper/Buddies, then verifies #cloak performs a live probe after restart and one Buddy reaches ready without a false timeout.",
-  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Inspect Kavey's build and live results for commit 904a9c1dfbe612c1b34907510860f9f84b6ebf41. Expected: after Flipper restart, persisted cache cannot suppress the first live probe; future cache is rejected; CityBuddies logs readiness via CharInPlay packet or Client.InPlay. Index 12 remains intentional spare capacity. If Flipper still shows Zoning-to-Disconnected, diagnose that genuine AO session failure separately."
+  "transaction": "session-12-cloak-recovery-backoff",
+  "started_utc": "2026-09-07T02:41:20Z",
+  "base_commit": "852a2a7d55867c3421ee1561bb393caa7e81884a",
+  "task": "Add progressive Manager backoff after repeated Flipper recovery failures so AO can release ghost sessions.",
+  "resume_instruction": "Start at RECOVERY.md and recover session 12. Modify CityRaidAutomation in OrgRankAuthorizer.cs: retain a quick transient retry, then back off progressively, reset on success/new recovery, and expose next retry timing in status. Kavey owns build/live verification."
 }
