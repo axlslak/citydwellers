@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 15,
+  "current_session": 16,
   "last_completed_session": 15,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-15-explicit-utc-helper-link",
-  "completed_utc": "2026-09-07T20:29:39Z",
-  "base_commit": "2df74c00255ed5badf7f942468966c49e14c9491",
-  "task": "Kavey rebuilds the Release solution and verifies Flipper and CityManager now compile.",
-  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Session 15 implementation 2df74c00255ed5badf7f942468966c49e14c9491 explicitly links shared/UtcTimestamp.cs into the three consuming legacy projects. This is a build-wiring fix only; session 14 clock behavior and fixed 30-second retries are unchanged."
+  "transaction": "session-16-static-format-compile-fix",
+  "started_utc": "2026-09-07T20:33:24Z",
+  "base_commit": "7a1bfb69cac7b59d30e159f857ca5712b5e8cd54",
+  "task": "Fix the remaining CityManager CS0120 compile error in FormatSnapshotAge.",
+  "resume_instruction": "Start at RECOVERY.md and recover session 16. Change only the static/instance mismatch in FormatSnapshotAge, validate, publish, and release the writer lock."
 }
