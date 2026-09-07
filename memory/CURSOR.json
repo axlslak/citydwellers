@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 16,
-  "last_completed_session": 15,
-  "status": "in_progress",
+  "last_completed_session": 16,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-16-static-format-compile-fix",
-  "started_utc": "2026-09-07T20:33:24Z",
-  "base_commit": "7a1bfb69cac7b59d30e159f857ca5712b5e8cd54",
-  "task": "Fix the remaining CityManager CS0120 compile error in FormatSnapshotAge.",
-  "resume_instruction": "Start at RECOVERY.md and recover session 16. Change only the static/instance mismatch in FormatSnapshotAge, validate, publish, and release the writer lock."
+  "completed_utc": "2026-09-07T20:37:04Z",
+  "base_commit": "8c01d340abb1ab145ff16fae3d593795920d5117",
+  "task": "Kavey rebuilds CityManager and confirms the Release solution succeeds.",
+  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Session 16 implementation 8c01d340abb1ab145ff16fae3d593795920d5117 fixes the remaining CS0120 by making FormatSnapshotAge an instance helper. Build-only binding fix; runtime behavior is unchanged."
 }
