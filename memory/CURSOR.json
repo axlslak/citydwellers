@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 11,
-  "last_completed_session": 10,
-  "status": "in_progress",
+  "last_completed_session": 11,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-11-child-readiness-regression",
-  "started_utc": "2026-09-07T11:55:00Z",
-  "base_commit": "3d8eabea5d49d10a40227ac7cebe5e288309ddaa",
-  "task": "Repair child-client readiness reporting and bound raid spinup attempts after live preflight reported timeouts across indexes 0 through 12.",
-  "resume_instruction": "Start at RECOVERY.md and recover session 11. Inspect CityBuddies and CityFlipper readiness signaling around missed CharInPlay delivery, then ensure a request for 12 Buddies attempts at most 12 account slots. Preserve diagnostics for genuine Zoning-to-Disconnected and AlreadyLoggedIn failures. Kavey owns build/live verification."
+  "completed_utc": "2026-09-07T02:26:17Z",
+  "base_commit": "904a9c1dfbe612c1b34907510860f9f84b6ebf41",
+  "task": "Kavey rebuilds all services, restarts Manager/Flipper/Buddies, then verifies #cloak performs a live probe after restart and one Buddy reaches ready without a false timeout.",
+  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Inspect Kavey's build and live results for commit 904a9c1dfbe612c1b34907510860f9f84b6ebf41. Expected: after Flipper restart, persisted cache cannot suppress the first live probe; future cache is rejected; CityBuddies logs readiness via CharInPlay packet or Client.InPlay. Index 12 remains intentional spare capacity. If Flipper still shows Zoning-to-Disconnected, diagnose that genuine AO session failure separately."
 }
