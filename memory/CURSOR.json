@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 12,
+  "current_session": 13,
   "last_completed_session": 12,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-12-cloak-recovery-backoff",
-  "completed_utc": "2026-09-07T02:44:10Z",
-  "base_commit": "97104999ce9b3901eb1f95e6a15c9b22312a68fa",
-  "task": "Kavey rebuilds Manager and verifies repeated Flipper recovery failures wait 30s, then 2m, then 5m rather than retrying every 30s forever.",
-  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Inspect Kavey's Manager build and live recovery pacing for commit 97104999ce9b3901eb1f95e6a15c9b22312a68fa. Expected retry delays after consecutive failures: 30s, 120s, then 300s. Success or a new authoritative cloak lifecycle resets the sequence."
+  "transaction": "session-13-revert-recovery-backoff",
+  "started_utc": "2026-09-07T02:46:42Z",
+  "base_commit": "18df03c0f5f5fb1ec524a72d9c5c82664783abf3",
+  "task": "Revert the unrequested progressive cloak recovery backoff and restore original retry behavior.",
+  "resume_instruction": "Start at RECOVERY.md and recover session 13. Revert implementation commit 97104999ce9b3901eb1f95e6a15c9b22312a68fa only. Preserve session 11 commit 904a9c1 clock-independent Flipper cache freshness, future observation rejection, and readiness changes."
 }
