@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 10,
+  "current_session": 11,
   "last_completed_session": 10,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-10-raw-org-channel-send",
-  "completed_utc": "2026-09-06T19:14:43Z",
-  "base_commit": "418abc49ac88f4ff794aac6d14a654853435bd68",
-  "task": "Kavey rebuilds and verifies that org status replies use Client.Send(GroupMsgMessage Org) with observed channel 4736 despite missing LocalPlayer org stat.",
-  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Inspect Kavey's build and live org status result for commit 418abc49ac88f4ff794aac6d14a654853435bd68. Expected log: org reply sent directly with detail Client.Send(GroupMsgMessage Org, channel 4736), with no private fallback. If it fails, preserve the exception and dump. Restart/admin and raid migration remain pending live verification."
+  "transaction": "session-11-child-readiness-regression",
+  "started_utc": "2026-09-07T11:55:00Z",
+  "base_commit": "3d8eabea5d49d10a40227ac7cebe5e288309ddaa",
+  "task": "Repair child-client readiness reporting and bound raid spinup attempts after live preflight reported timeouts across indexes 0 through 12.",
+  "resume_instruction": "Start at RECOVERY.md and recover session 11. Inspect CityBuddies and CityFlipper readiness signaling around missed CharInPlay delivery, then ensure a request for 12 Buddies attempts at most 12 account slots. Preserve diagnostics for genuine Zoning-to-Disconnected and AlreadyLoggedIn failures. Kavey owns build/live verification."
 }
