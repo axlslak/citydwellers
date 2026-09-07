@@ -283,6 +283,8 @@ namespace CityManager
         private const string FlipperPipeName = "citydwellers-flipper";
         private const int FlipperConnectTimeoutMs = 1000;
         private const int RetryAfterFailureSeconds = 30;
+        private const int RetryAfterSecondFailureSeconds = 120;
+        private const int RetryAfterRepeatedFailureSeconds = 300;
         private const int DuplicateRaidWindowSeconds = 20;
         private const int PersistedStateTrustSeconds = 3600;
         private const int CloakDownSeconds = 3600;
@@ -296,6 +298,8 @@ namespace CityManager
         private static bool _raidRecoveryPending;
         private static bool _bootAssessmentStarted;
         private static bool _failureReported;
+        private static int _consecutiveRecoveryFailures;
+        private static DateTime? _nextRetryUtc;
         private static DateTime _managerStartedUtc = DateTime.MinValue;
         private static DateTime _raidOccurredUtc = DateTime.MinValue;
         private static DateTime _lastRaidEventUtc = DateTime.MinValue;
@@ -323,6 +327,8 @@ namespace CityManager
                 _managerStartedUtc = DateTime.UtcNow;
                 _bootAssessmentStarted = false;
                 _failureReported = false;
+                _consecutiveRecoveryFailures = 0;
+                _nextRetryUtc = null;
                 _knownStatus = status;
                 _lastObservedUtc = lastObservedUtc;
                 _canRaiseAtUtc = canRaiseAtUtc;
@@ -350,6 +356,8 @@ namespace CityManager
                 _raidRecoveryPending = false;
                 _bootAssessmentStarted = false;
                 _failureReported = false;
+                _consecutiveRecoveryFailures = 0;
+                _nextRetryUtc = null;
                 _knownStatus = CloakStatus.Unknown;
                 _lastObservedUtc = null;
                 _canRaiseAtUtc = null;
@@ -415,6 +423,7 @@ namespace CityManager
                     return;
 
                 _bootAssessmentStarted = true;
+                ResetRecoveryBackoffLocked();
                 CancelRetryLocked();
 
                 bool recentPersistedObservation =
@@ -559,6 +568,7 @@ namespace CityManager
                 _raidOccurredUtc = now;
                 _raidRecoveryPending = true;
                 _failureReported = false;
+                ResetRecoveryBackoffLocked();
                 CancelRetryLocked();
             }
 
@@ -597,6 +607,7 @@ namespace CityManager
                 recoveryUtc = _canRaiseAtUtc.Value;
                 _raidRecoveryPending = true;
                 _failureReported = false;
+                ResetRecoveryBackoffLocked();
                 CancelRetryLocked();
             }
 
@@ -647,12 +658,13 @@ namespace CityManager
                 }
                 catch (Exception ex)
                 {
+                    int retrySeconds = NextFailureRetrySeconds();
                     ReportRecoveryWait(
                         $"CLOAK RECOVERY ERROR{(shortId == null ? string.Empty : " [" + shortId + "]")}: " +
                         ex.Message,
-                        RetryAfterFailureSeconds);
+                        retrySeconds);
 
-                    ScheduleRetry(RetryAfterFailureSeconds);
+                    ScheduleRetry(retrySeconds);
                 }
                 finally
                 {
@@ -691,7 +703,7 @@ namespace CityManager
                 return;
             }
 
-            int retrySeconds = RetryAfterFailureSeconds;
+            int retrySeconds;
 
             if (response != null &&
                 string.Equals(
@@ -707,6 +719,7 @@ namespace CityManager
 
                 lock (Sync)
                 {
+                    ResetRecoveryBackoffLocked();
                     _knownStatus = CloakStatus.Disabled;
                     _lastObservedUtc = response.ObservedUtc ?? DateTime.UtcNow;
                     _canRaiseAtUtc = DateTime.UtcNow.AddSeconds(retrySeconds);
@@ -716,6 +729,10 @@ namespace CityManager
                 }
 
                 NotifyObservation(response);
+            }
+            else
+            {
+                retrySeconds = NextFailureRetrySeconds();
             }
 
             string message = response?.Message ?? "No response from Flipper.";
@@ -782,6 +799,9 @@ namespace CityManager
 
                 CancelRetryLocked();
 
+                _nextRetryUtc = DateTime.UtcNow.AddSeconds(
+                    Math.Max(1, seconds));
+
                 _retryTimer = new Timer(
                     _ =>
                     {
@@ -826,6 +846,7 @@ namespace CityManager
                 {
                     _raidRecoveryPending = false;
                     _failureReported = false;
+                    ResetRecoveryBackoffLocked();
                     changed = true;
                 }
 
@@ -855,7 +876,12 @@ namespace CityManager
                     }
 
                     return _failureReported
-                        ? "cloak recovery waiting to retry"
+                        ? _nextRetryUtc.HasValue &&
+                          _nextRetryUtc.Value > DateTime.UtcNow
+                            ? "cloak recovery retry in " +
+                              FormatStatusDuration(
+                                  _nextRetryUtc.Value - DateTime.UtcNow)
+                            : "cloak recovery waiting to retry"
                         : "cloak recovery pending";
                 }
 
@@ -900,6 +926,7 @@ namespace CityManager
                     _raidOccurredUtc = _lastObservedUtc.Value;
                     _raidRecoveryPending = true;
                     _failureReported = false;
+                    ResetRecoveryBackoffLocked();
                     scheduleUtc = _canRaiseAtUtc ??
                         _raidOccurredUtc.AddSeconds(CloakDownSeconds);
                     _canRaiseAtUtc = scheduleUtc;
@@ -932,11 +959,35 @@ namespace CityManager
 
         private static void CancelRetryLocked()
         {
-            if (_retryTimer == null)
-                return;
+            _nextRetryUtc = null;
 
-            _retryTimer.Dispose();
-            _retryTimer = null;
+            if (_retryTimer != null)
+            {
+                _retryTimer.Dispose();
+                _retryTimer = null;
+            }
+        }
+
+        private static int NextFailureRetrySeconds()
+        {
+            lock (Sync)
+            {
+                _consecutiveRecoveryFailures++;
+
+                if (_consecutiveRecoveryFailures == 1)
+                    return RetryAfterFailureSeconds;
+
+                if (_consecutiveRecoveryFailures == 2)
+                    return RetryAfterSecondFailureSeconds;
+
+                return RetryAfterRepeatedFailureSeconds;
+            }
+        }
+
+        private static void ResetRecoveryBackoffLocked()
+        {
+            _consecutiveRecoveryFailures = 0;
+            _nextRetryUtc = null;
         }
 
         private static FlipperResponse SendFlipperRequest(FlipperRequest request)
