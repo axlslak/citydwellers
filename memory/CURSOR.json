@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 13,
+  "current_session": 14,
   "last_completed_session": 13,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-13-revert-recovery-backoff",
-  "completed_utc": "2026-09-07T02:48:21Z",
-  "base_commit": "3c00294b29e6de16774880d863cef02b9b9185ab",
-  "task": "Diagnose and eliminate time-zone/clock contamination without changing cloak recovery retry policy.",
-  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Session 12's backoff was wrong and is reverted by 3c00294b29e6de16774880d863cef02b9b9185ab. Preserve fixed 30-second retries. Continue only on the actual clock/time-zone defect: session 11 commit 904a9c1 uses monotonic in-process cache freshness, rejects future Flipper/Manager observations, and no longer labels negative age just now."
+  "transaction": "session-14-clock-domain-hardening",
+  "started_utc": "2026-09-07T02:50:37Z",
+  "base_commit": "90e1c4a60a80d44b102334c3e0ec815fe2e12ee3",
+  "task": "Audit and harden time-zone/VM-clock behavior across City Dwellers without altering retries.",
+  "resume_instruction": "Start at RECOVERY.md and recover session 14. Preserve fixed 30-second cloak recovery retries. Audit DateTime use: replace process-local deadline/freshness decisions with Stopwatch; normalize persisted/cross-process timestamps to UTC and reject implausible future values. Session 11 already hardened Flipper cache freshness."
 }
