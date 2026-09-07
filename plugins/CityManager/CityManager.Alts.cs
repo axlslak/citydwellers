@@ -7,6 +7,7 @@ using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Chat;
 using AOSharp.Clientless.Logging;
+using CityDwellers.Shared;
 using Newtonsoft.Json;
 
 namespace CityManager
@@ -373,6 +374,32 @@ namespace CityManager
                 return;
 
             DateTime now = DateTime.UtcNow;
+            if (_nextAltTickUtc > now + UtcTimestamp.FutureTolerance)
+            {
+                Logger.Warning(
+                    "ALT scheduler detected a backward system-clock correction; " +
+                    "discarding future pacing deadlines.");
+                _nextAltTickUtc = now;
+                lock (_altsSync)
+                {
+                    _nextAltRequestUtc = now;
+                    if (_pendingAltLookup != null &&
+                        _pendingAltLookup.DeadlineUtc >
+                        now.AddSeconds(
+                            AltReplyTimeoutSeconds +
+                            UtcTimestamp.FutureTolerance.TotalSeconds))
+                    {
+                        _pendingAltLookup.DeadlineUtc = now;
+                    }
+
+                    foreach (AltLookupRequest queued in _altQueue)
+                    {
+                        if (UtcTimestamp.IsFuture(queued.NotBeforeUtc, now))
+                            queued.NotBeforeUtc = now;
+                    }
+                }
+            }
+
             if (now < _nextAltTickUtc)
                 return;
 
@@ -1714,9 +1741,14 @@ namespace CityManager
         {
             string main = ResolveCanonicalAltMainLocked(target);
             AltGroup group;
+            TimeSpan age;
             return _altGroups.TryGetValue(main, out group) &&
                    group.LastUpdatedUtc.HasValue &&
-                   now < group.LastUpdatedUtc.Value.AddHours(AltRefreshHours);
+                   UtcTimestamp.TryGetAge(
+                       group.LastUpdatedUtc.Value,
+                       now,
+                       out age) &&
+                   age < TimeSpan.FromHours(AltRefreshHours);
         }
 
         private int GetAltGroupCount()
@@ -1749,8 +1781,20 @@ namespace CityManager
 
                 group.Main = normalized;
                 NormalizeAltGroupLocked(group);
+                group.LastUpdatedUtc = UtcTimestamp.Normalize(
+                    group.LastUpdatedUtc);
                 if (invalidateLegacyFreshness)
                     group.LastUpdatedUtc = null;
+                else if (group.LastUpdatedUtc.HasValue &&
+                         UtcTimestamp.IsFuture(
+                             group.LastUpdatedUtc.Value,
+                             DateTime.UtcNow))
+                {
+                    Logger.Warning(
+                        $"Discarding future-dated alt freshness for " +
+                        $"{group.Main}: {group.LastUpdatedUtc.Value:O}.");
+                    group.LastUpdatedUtc = null;
+                }
                 _altGroups[group.Main] = group;
             }
 

@@ -826,3 +826,36 @@ startups appeared to fail. That retry behavior is preserved.
 
 Kavey owns the build and live verification. No assistant-side build or AO
 runtime test was run.
+
+
+## 2026-09-07 — UTC contract and clock-domain hardening
+
+The poisoned Flipper cache showed `2026-09-07T10:15:36Z` while the same
+operation's measured time was about `02:35Z`. Session 11 prevented that record
+from being considered fresh, but the wider audit found another machine-zone
+hazard: JSON timestamps whose fields were named `Utc` could deserialize with
+`DateTimeKind.Unspecified`. Calling `ToUniversalTime()` then interpreted the
+value in the current Windows timezone, so moving a settings directory between
+Romania, UTC, and a `-07:00` VM could change the represented instant.
+
+`[IMPLEMENTED]` All projects now compile a shared UTC normalizer. Explicit UTC
+and local values retain correct round-trip behavior; offset-less persisted
+`...Utc` values are treated as UTC by contract rather than as machine-local
+time. Manager applies this to cloak state/events, Flipper responses,
+membership freshness, alt freshness, Buddy snapshots, raid cooldowns, and
+restored raid state. Materially future freshness is discarded. A future
+Flipper cache is automatically moved aside under an `.invalid-clock-*` name.
+
+`[IMPLEMENTED]` Process-local durations no longer depend on wall-clock UTC in
+the critical paths audited: Flipper result waits, Buddies home waits and
+leases, cleanup eligibility, navigation timeout, Manager home monitoring,
+guest ID lookup, and org-rank lookup/cache expiry use monotonic stopwatch
+time. Alt, membership, and raid scheduler gates detect implausible future
+pacing after a backward VM clock correction and re-evaluate instead of
+remaining blocked for hours. Implausibly future persisted raid anchors are
+rejected and non-active raid deadlines beyond ten minutes are expired safely.
+
+This transaction does not change the fixed 30-second cloak recovery retry
+policy. Console timestamps continue to include their explicit numeric local
+offset for correlation. Kavey owns build and live verification; no
+assistant-side build or AO runtime test was run.

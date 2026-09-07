@@ -6,6 +6,7 @@ using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
+using CityDwellers.Shared;
 using Newtonsoft.Json;
 
 namespace CityManager
@@ -1138,6 +1139,26 @@ namespace CityManager
         {
             DateTime now = DateTime.UtcNow;
 
+            if (_nextRaidTickUtc > now + UtcTimestamp.FutureTolerance)
+            {
+                Logger.Warning(
+                    "RAID scheduler detected a backward system-clock " +
+                    "correction; re-evaluating deadlines now.");
+                _nextRaidTickUtc = now;
+
+                lock (_raidSync)
+                {
+                    if (_raidSession != null &&
+                        _raidSession.StageDeadlineUtc != DateTime.MaxValue &&
+                        _raidSession.StageDeadlineUtc > now.AddMinutes(10))
+                    {
+                        _raidSession.StageDeadlineUtc = now;
+                        _raidSession.WorkerDeadlineUtc = now;
+                        _raidSession.ControllerRetryNotBeforeUtc = now;
+                    }
+                }
+            }
+
             if (now < _nextRaidTickUtc)
                 return;
 
@@ -2207,13 +2228,45 @@ namespace CityManager
                     {
                         foreach (KeyValuePair<string, DateTime> item in state.Cooldowns)
                         {
-                            if (!string.IsNullOrWhiteSpace(item.Key) && item.Value > now)
-                                _raidCooldowns[item.Key] = item.Value;
+                            DateTime cooldownUtc = UtcTimestamp.Normalize(item.Value);
+                            if (!string.IsNullOrWhiteSpace(item.Key) &&
+                                cooldownUtc > now &&
+                                cooldownUtc <= now.AddSeconds(
+                                    RaidCooldownSeconds +
+                                    UtcTimestamp.FutureTolerance.TotalSeconds))
+                            {
+                                _raidCooldowns[item.Key] = cooldownUtc;
+                            }
                         }
                     }
 
                     if (restored != null)
                     {
+                        if (UtcTimestamp.IsFuture(restored.CreatedUtc, now) ||
+                            (restored.CloakLowerConfirmedUtc.HasValue &&
+                             UtcTimestamp.IsFuture(
+                                 restored.CloakLowerConfirmedUtc.Value,
+                                 now)) ||
+                            (restored.CityTargetedUtc != default(DateTime) &&
+                             UtcTimestamp.IsFuture(
+                                 restored.CityTargetedUtc,
+                                 now)))
+                        {
+                            throw new InvalidDataException(
+                                "Persisted raid state contains a future event anchor.");
+                        }
+
+                        if (restored.StageDeadlineUtc != DateTime.MaxValue &&
+                            restored.StageDeadlineUtc > now.AddMinutes(10))
+                        {
+                            Logger.Warning(
+                                $"Expiring implausible future raid deadline " +
+                                $"{restored.StageDeadlineUtc:O}.");
+                            restored.StageDeadlineUtc = now;
+                            restored.WorkerDeadlineUtc = now;
+                            restored.ControllerRetryNotBeforeUtc = now;
+                        }
+
                         restored.ControllerProbeInFlight = false;
                         restored.BuddySpinupInFlight = false;
                         restored.BuddyCleanupInFlight = false;
@@ -2457,11 +2510,16 @@ namespace CityManager
                 OwnerId = saved.OwnerId,
                 Origin = origin,
                 Stage = stage,
-                CreatedUtc = saved.CreatedUtc,
-                StageDeadlineUtc = saved.StageDeadlineUtc,
-                WorkerDeadlineUtc = saved.WorkerDeadlineUtc,
-                CityTargetedUtc = saved.CityTargetedUtc,
-                CloakLowerConfirmedUtc = saved.CloakLowerConfirmedUtc,
+                CreatedUtc = UtcTimestamp.Normalize(saved.CreatedUtc),
+                StageDeadlineUtc = saved.StageDeadlineUtc == DateTime.MaxValue
+                    ? DateTime.MaxValue
+                    : UtcTimestamp.Normalize(saved.StageDeadlineUtc),
+                WorkerDeadlineUtc = UtcTimestamp.Normalize(saved.WorkerDeadlineUtc),
+                CityTargetedUtc = saved.CityTargetedUtc == default(DateTime)
+                    ? default(DateTime)
+                    : UtcTimestamp.Normalize(saved.CityTargetedUtc),
+                CloakLowerConfirmedUtc = UtcTimestamp.Normalize(
+                    saved.CloakLowerConfirmedUtc),
                 CloakLowerConfirmedActor = saved.CloakLowerConfirmedActor,
                 RaidType = saved.RaidType,
                 Level = saved.Level,
@@ -2474,7 +2532,8 @@ namespace CityManager
                 IsExternalAssist = saved.IsExternalAssist,
                 CurrentMilestone = saved.CurrentMilestone,
                 ControllerRetryPending = saved.ControllerRetryPending,
-                ControllerRetryNotBeforeUtc = saved.ControllerRetryNotBeforeUtc
+                ControllerRetryNotBeforeUtc = UtcTimestamp.Normalize(
+                    saved.ControllerRetryNotBeforeUtc)
             };
 
             if (saved.StartedBuddyIndexes != null)

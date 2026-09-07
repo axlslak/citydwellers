@@ -7,6 +7,7 @@ using System.Net;
 using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
+using CityDwellers.Shared;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -94,6 +95,24 @@ namespace CityManager
         private void TickMembership()
         {
             DateTime now = DateTime.UtcNow;
+            if (_nextMembershipTickUtc > now + UtcTimestamp.FutureTolerance)
+            {
+                Logger.Warning(
+                    "MEMBERSHIP scheduler detected a backward system-clock " +
+                    "correction; re-evaluating refresh deadlines now.");
+                _nextMembershipTickUtc = now;
+
+                lock (_membershipSync)
+                {
+                    if (_membershipNextAttemptUtc >
+                        now.AddHours(MembershipRefreshHours) +
+                        UtcTimestamp.FutureTolerance)
+                    {
+                        _membershipNextAttemptUtc = now;
+                    }
+                }
+            }
+
             if (now < _nextMembershipTickUtc)
                 return;
 
@@ -934,9 +953,23 @@ namespace CityManager
                 _membershipOrgId = state.OrgId;
                 _membershipDimension = state.Dimension > 0 ? state.Dimension : 5;
                 _membershipOrgName = state.OrgName;
-                _membershipLastSuccessfulFetchUtc = state.LastSuccessfulFetchUtc;
-                _membershipSourceUpdatedUtc = state.SourceUpdatedUtc;
+                _membershipLastSuccessfulFetchUtc = UtcTimestamp.Normalize(
+                    state.LastSuccessfulFetchUtc);
+                _membershipSourceUpdatedUtc = UtcTimestamp.Normalize(
+                    state.SourceUpdatedUtc);
                 _suspiciousRosterShrinkCount = state.SuspiciousRosterShrinkCount;
+
+                if (_membershipLastSuccessfulFetchUtc.HasValue &&
+                    UtcTimestamp.IsFuture(
+                        _membershipLastSuccessfulFetchUtc.Value,
+                        DateTime.UtcNow))
+                {
+                    Logger.Warning(
+                        $"Discarding future-dated membership freshness " +
+                        $"{_membershipLastSuccessfulFetchUtc.Value:O}; " +
+                        "the cached roster is retained but refresh is due now.");
+                    _membershipLastSuccessfulFetchUtc = null;
+                }
 
                 AddPersistedNamesLocked(state.OfficialMembers, _officialMembers);
                 AddPersistedNamesLocked(state.LiveAddedMembers, _liveAddedMembers);

@@ -749,12 +749,15 @@ public class PluginLoader
             buddy.IsStarting = false;
             buddy.Purpose = "failed-start";
             buddy.LeaseExpiresUtc = DateTime.UtcNow;
+            buddy.LeaseExpiresTimestamp = Stopwatch.GetTimestamp();
             buddy.NavigationHold = false;
             buddy.NavigationState = "failed";
             buddy.NavigationDetail = "Login failed before navigation could start.";
             buddy.CleanupFailures++;
             buddy.NextCleanupAttemptUtc =
                 DateTime.UtcNow.AddSeconds(FailedCleanupRetrySeconds);
+            buddy.NextCleanupAttemptTimestamp =
+                DeadlineTimestamp(FailedCleanupRetrySeconds);
             buddy.CleanupQueued = false;
         }
     }
@@ -801,7 +804,7 @@ public class PluginLoader
                     "demo-expiry",
                     StringComparison.OrdinalIgnoreCase) &&
                 ((buddy.LeaseExpiresUtc.HasValue &&
-                  DateTime.UtcNow < buddy.LeaseExpiresUtc.Value) ||
+                  Stopwatch.GetTimestamp() < buddy.LeaseExpiresTimestamp) ||
                  buddy.NavigationHold))
             {
                 buddy.CleanupQueued = false;
@@ -890,6 +893,8 @@ public class PluginLoader
                 buddy.CleanupFailures++;
                 buddy.NextCleanupAttemptUtc =
                     DateTime.UtcNow.AddSeconds(FailedCleanupRetrySeconds);
+                buddy.NextCleanupAttemptTimestamp =
+                    DeadlineTimestamp(FailedCleanupRetrySeconds);
             }
 
             Console.WriteLine(
@@ -1159,6 +1164,7 @@ public class PluginLoader
 
         buddy.CleanupFailures = 0;
         buddy.NextCleanupAttemptUtc = null;
+        buddy.NextCleanupAttemptTimestamp = 0;
         buddy.CleanupQueued = false;
 
         if (request != null && request.Home)
@@ -1183,11 +1189,12 @@ public class PluginLoader
                      StringComparison.OrdinalIgnoreCase) ||
                  hasDifferentPreflightOwner) &&
                 (!buddy.LeaseExpiresUtc.HasValue ||
-                 DateTime.UtcNow < buddy.LeaseExpiresUtc.Value);
+                 Stopwatch.GetTimestamp() < buddy.LeaseExpiresTimestamp);
 
             buddy.NavigationHold = true;
             buddy.NavigationJobId = request.Id;
             buddy.NavigationStartedUtc = DateTime.UtcNow;
+            buddy.NavigationStartedTimestamp = Stopwatch.GetTimestamp();
             buddy.NavigationLogoutWhenComplete =
                 request.LogoutAfterHome &&
                 (!hasIndependentOwner || hasDifferentPreflightOwner);
@@ -1202,6 +1209,7 @@ public class PluginLoader
             {
                 buddy.Purpose = request.Purpose ?? "home";
                 buddy.LeaseExpiresUtc = null;
+                buddy.LeaseExpiresTimestamp = 0;
             }
 
             if (!IsRaidRequest(request))
@@ -1211,8 +1219,11 @@ public class PluginLoader
         if (IsRaidRequest(request))
         {
             buddy.Purpose = "raid";
-            buddy.LeaseExpiresUtc = DateTime.UtcNow.AddSeconds(
-                GetLeaseSeconds(request, DefaultRaidSafetyLeaseSeconds));
+            int raidLeaseSeconds =
+                GetLeaseSeconds(request, DefaultRaidSafetyLeaseSeconds);
+            buddy.LeaseExpiresUtc =
+                DateTime.UtcNow.AddSeconds(raidLeaseSeconds);
+            buddy.LeaseExpiresTimestamp = DeadlineTimestamp(raidLeaseSeconds);
             return;
         }
 
@@ -1232,6 +1243,7 @@ public class PluginLoader
 
         buddy.Purpose = "demo";
         buddy.LeaseExpiresUtc = DateTime.UtcNow.AddSeconds(leaseSeconds);
+        buddy.LeaseExpiresTimestamp = DeadlineTimestamp(leaseSeconds);
     }
 
     private static bool IsRaidRequest(WorkerRequest request)
@@ -1267,10 +1279,7 @@ public class PluginLoader
     private static string DescribeLease(ActiveBuddy buddy)
     {
         int remainingSeconds = buddy.LeaseExpiresUtc.HasValue
-            ? Math.Max(
-                0,
-                (int)Math.Ceiling(
-                    (buddy.LeaseExpiresUtc.Value - DateTime.UtcNow).TotalSeconds))
+            ? RemainingSeconds(buddy.LeaseExpiresTimestamp)
             : 0;
 
         return string.Equals(
@@ -1293,18 +1302,18 @@ public class PluginLoader
 
             lock (ActiveLock)
             {
-                DateTime now = DateTime.UtcNow;
+                long nowTimestamp = Stopwatch.GetTimestamp();
 
                 foreach (ActiveBuddy buddy in ActiveBuddies.Values)
                 {
                     if (buddy.LeaseExpiresUtc.HasValue &&
-                        now >= buddy.LeaseExpiresUtc.Value &&
+                        nowTimestamp >= buddy.LeaseExpiresTimestamp &&
                         !buddy.IsStarting &&
                         !buddy.IsStopping &&
                         !buddy.NavigationHold &&
                         !buddy.CleanupQueued &&
                         (!buddy.NextCleanupAttemptUtc.HasValue ||
-                         now >= buddy.NextCleanupAttemptUtc.Value))
+                         nowTimestamp >= buddy.NextCleanupAttemptTimestamp))
                     {
                         buddy.CleanupQueued = true;
                         expiredIndexes.Add(buddy.Index);
@@ -1643,10 +1652,11 @@ public class PluginLoader
 
     private static void WaitForHomeLevel(string levelJobId)
     {
-        DateTime deadline = DateTime.UtcNow.AddSeconds(
-            HomeNavigationTimeoutSeconds + FailedCleanupRetrySeconds + 30);
+        var timeout = Stopwatch.StartNew();
+        int timeoutSeconds =
+            HomeNavigationTimeoutSeconds + FailedCleanupRetrySeconds + 30;
 
-        while (!_stopping && DateTime.UtcNow < deadline)
+        while (!_stopping && timeout.Elapsed.TotalSeconds < timeoutSeconds)
         {
             bool pending = false;
 
@@ -1849,6 +1859,32 @@ public class PluginLoader
     private static string BuildCharacterName(int level, int index)
     {
         return $"Apcr{level:D3}{index:D2}";
+    }
+
+    private static long DeadlineTimestamp(int seconds)
+    {
+        return Stopwatch.GetTimestamp() +
+               (long)Math.Max(0, seconds) * Stopwatch.Frequency;
+    }
+
+    private static double ElapsedSeconds(long startedTimestamp)
+    {
+        if (startedTimestamp <= 0)
+            return 0;
+
+        long elapsed = Stopwatch.GetTimestamp() - startedTimestamp;
+        return elapsed <= 0
+            ? 0
+            : (double)elapsed / Stopwatch.Frequency;
+    }
+
+    private static int RemainingSeconds(long deadlineTimestamp)
+    {
+        long remaining = deadlineTimestamp - Stopwatch.GetTimestamp();
+        return remaining <= 0
+            ? 0
+            : (int)Math.Ceiling(
+                (double)remaining / Stopwatch.Frequency);
     }
 
     private static string GetReadyPath(string character)
@@ -2070,9 +2106,8 @@ public class PluginLoader
                 terminalState = snapshot.HomeState;
                 detail = snapshot.HomeDetail;
             }
-            else if (
-                DateTime.UtcNow - candidate.NavigationStartedUtc >=
-                TimeSpan.FromSeconds(HomeNavigationTimeoutSeconds))
+            else if (ElapsedSeconds(candidate.NavigationStartedTimestamp) >=
+                     HomeNavigationTimeoutSeconds)
             {
                 terminalState = "timeout";
                 detail =
@@ -2106,6 +2141,7 @@ public class PluginLoader
                 {
                     candidate.CleanupQueued = true;
                     candidate.LeaseExpiresUtc = DateTime.UtcNow;
+                    candidate.LeaseExpiresTimestamp = Stopwatch.GetTimestamp();
                 }
             }
 
@@ -2351,14 +2387,17 @@ public class PluginLoader
         public long StartedSequence;
         public string Purpose;
         public DateTime? LeaseExpiresUtc;
+        public long LeaseExpiresTimestamp;
         public int CleanupFailures;
         public DateTime? NextCleanupAttemptUtc;
+        public long NextCleanupAttemptTimestamp;
         public bool IsStarting;
         public bool IsStopping;
         public bool CleanupQueued;
         public bool NavigationHold;
         public string NavigationJobId;
         public DateTime NavigationStartedUtc;
+        public long NavigationStartedTimestamp;
         public bool NavigationLogoutWhenComplete;
         public string NavigationState;
         public string NavigationDetail;

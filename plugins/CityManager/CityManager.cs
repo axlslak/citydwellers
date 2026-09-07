@@ -793,11 +793,12 @@ namespace CityManager
                     }
 
                     if (response.ObservedUtc.HasValue &&
-                        response.ObservedUtc.Value.ToUniversalTime() >
-                        DateTime.UtcNow.AddMinutes(2))
+                        UtcTimestamp.IsFuture(
+                            response.ObservedUtc.Value,
+                            DateTime.UtcNow))
                     {
                         string invalidTime =
-                            response.ObservedUtc.Value.ToUniversalTime().ToString("O");
+                            UtcTimestamp.Normalize(response.ObservedUtc.Value).ToString("O");
                         Logger.Warning(
                             $"IPC <- Flipper {request.Id}: rejected future " +
                             $"observation {invalidTime}.");
@@ -1100,10 +1101,10 @@ namespace CityManager
 
         private void MonitorHomeCompletion(ReplyTarget target, string homeJobId)
         {
-            DateTime deadline = DateTime.UtcNow.AddHours(2);
+            var timeout = Stopwatch.StartNew();
             int consecutiveFailures = 0;
 
-            while (DateTime.UtcNow < deadline)
+            while (timeout.Elapsed < TimeSpan.FromHours(2))
             {
                 Thread.Sleep(5000);
 
@@ -1191,7 +1192,7 @@ namespace CityManager
                             ? "#00DE42"
                             : "#F79410";
                     string age = reported
-                        ? FormatDuration(SnapshotAge(position, now)) + " ago"
+                        ? FormatSnapshotAge(position, now)
                         : "never";
 
                     body.Append(
@@ -1286,7 +1287,7 @@ namespace CityManager
             DateTime now)
         {
             string age = HasPositionReport(position)
-                ? ((int)Math.Max(0, SnapshotAge(position, now).TotalSeconds)).ToString() + "s"
+                ? FormatSnapshotAgeSeconds(position, now)
                 : "unknown";
             string error = string.IsNullOrWhiteSpace(position.Error)
                 ? "none"
@@ -1341,9 +1342,7 @@ namespace CityManager
                 return "none";
 
             string age = utc.HasValue
-                ? ((int)Math.Max(
-                    0,
-                    (now - utc.Value.ToUniversalTime()).TotalMilliseconds)).ToString() + "ms"
+                ? FormatObservedAgeMilliseconds(utc.Value, now)
                 : "?";
             string delta = packetDeltaTime.HasValue
                 ? $" dt={packetDeltaTime.Value}"
@@ -1368,16 +1367,57 @@ namespace CityManager
             BuddyPositionSnapshot position,
             DateTime now)
         {
+            TimeSpan age;
             return HasPositionReport(position) &&
-                   SnapshotAge(position, now) <= TimeSpan.FromSeconds(BuddySnapshotFreshSeconds);
+                   UtcTimestamp.TryGetAge(
+                       position.ObservedUtc,
+                       now,
+                       out age) &&
+                   age <= TimeSpan.FromSeconds(BuddySnapshotFreshSeconds);
         }
 
-        private static TimeSpan SnapshotAge(
+        private static string FormatSnapshotAge(
             BuddyPositionSnapshot position,
             DateTime now)
         {
-            TimeSpan age = now - position.ObservedUtc.ToUniversalTime();
-            return age < TimeSpan.Zero ? TimeSpan.Zero : age;
+            TimeSpan age;
+            return UtcTimestamp.TryGetAge(
+                       position.ObservedUtc,
+                       now,
+                       out age)
+                ? FormatDuration(age) + " ago"
+                : "invalid future timestamp";
+        }
+
+        private static string FormatSnapshotAgeSeconds(
+            BuddyPositionSnapshot position,
+            DateTime now)
+        {
+            TimeSpan age;
+            if (!UtcTimestamp.TryGetAge(
+                    position.ObservedUtc,
+                    now,
+                    out age))
+            {
+                return "invalid-future";
+            }
+
+            return ((int)Math.Min(
+                int.MaxValue,
+                age.TotalSeconds)).ToString() + "s";
+        }
+
+        private static string FormatObservedAgeMilliseconds(
+            DateTime observedUtc,
+            DateTime nowUtc)
+        {
+            TimeSpan age;
+            if (!UtcTimestamp.TryGetAge(observedUtc, nowUtc, out age))
+                return "invalid-future";
+
+            return ((int)Math.Min(
+                int.MaxValue,
+                age.TotalMilliseconds)).ToString() + "ms";
         }
 
         private static string FormatPosition(BuddyPositionSnapshot position)
@@ -1838,9 +1878,9 @@ namespace CityManager
                 return false;
             }
 
-            DateTime deadline = DateTime.UtcNow.AddMilliseconds(GuestLookupTimeoutMs);
+            var timeout = Stopwatch.StartNew();
 
-            while (DateTime.UtcNow < deadline)
+            while (timeout.ElapsedMilliseconds < GuestLookupTimeoutMs)
             {
                 Thread.Sleep(50);
 
@@ -2192,7 +2232,7 @@ namespace CityManager
 
                 _status = parsedStatus;
                 _shieldTimerInSeconds = response.ShieldTimerInSeconds ?? 0;
-                _lastObservedUtc = response.ObservedUtc ?? now;
+                _lastObservedUtc = UtcTimestamp.Normalize(response.ObservedUtc) ?? now;
                 _observationSource = response.Cached ? "Flipper.Cache" : "Flipper.Probe";
                 _raiseTimeIsProvisional = false;
                 _raiseDueLogged = false;
@@ -2306,16 +2346,17 @@ namespace CityManager
                 {
                     _status = state.Status;
                     _shieldTimerInSeconds = state.ShieldTimerInSeconds;
-                    _lastObservedUtc = state.LastObservedUtc;
-                    _lastChangedUtc = state.LastChangedUtc;
-                    _canRaiseAtUtc = state.CanRaiseAtUtc;
+                    _lastObservedUtc = UtcTimestamp.Normalize(state.LastObservedUtc);
+                    _lastChangedUtc = UtcTimestamp.Normalize(state.LastChangedUtc);
+                    _canRaiseAtUtc = UtcTimestamp.Normalize(state.CanRaiseAtUtc);
                     _raiseDueLogged = state.RaiseDueLogged;
                     _raiseTimeIsProvisional = state.RaiseTimeIsProvisional;
                     _observationSource = state.ObservationSource ?? "Unknown";
 
                     if (_lastObservedUtc.HasValue &&
-                        _lastObservedUtc.Value.ToUniversalTime() >
-                        DateTime.UtcNow.AddMinutes(2))
+                        UtcTimestamp.IsFuture(
+                            _lastObservedUtc.Value,
+                            DateTime.UtcNow))
                     {
                         Logger.Warning(
                             $"Discarding future-dated persisted cloak state " +
@@ -2332,9 +2373,14 @@ namespace CityManager
                 }
 
                 CloakEventRecord latestEvent = LoadLatestCloakEvent();
+                if (latestEvent != null)
+                    latestEvent.OccurredUtc =
+                        UtcTimestamp.Normalize(latestEvent.OccurredUtc);
+
                 if (latestEvent != null &&
-                    latestEvent.OccurredUtc.ToUniversalTime() >
-                    DateTime.UtcNow.AddMinutes(2))
+                    UtcTimestamp.IsFuture(
+                        latestEvent.OccurredUtc,
+                        DateTime.UtcNow))
                 {
                     Logger.Warning(
                         $"Ignoring future-dated cloak event " +

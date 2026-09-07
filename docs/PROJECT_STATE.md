@@ -136,6 +136,23 @@ Controls city cloak state. Boot behavior should be enable-only recovery/assessme
 
 ### Console timestamps
 
+- `[INVARIANT 2026-09-07]` A persisted field named `Utc` is normalized by
+  contract. An offset-less JSON value is treated as UTC, never converted from
+  the current machine's local timezone. Explicit local values are converted;
+  explicit UTC values remain UTC.
+- `[IMPLEMENTED 2026-09-07]` Process-local waits now use `Stopwatch` for
+  Flipper result timeout, Buddies home-level timeout, Manager home monitoring,
+  guest name lookup, org-rank lookup/cache expiry, Buddy leases, cleanup
+  eligibility, and navigation timeout.
+- `[IMPLEMENTED 2026-09-07]` Future-tainted Flipper cache files are moved to a
+  recoverable `.invalid-clock-*` file automatically. Future timestamps cannot
+  make cloak, alt, membership, Buddy-position, raid-cooldown, or restored raid
+  state appear fresh or pending for hours.
+- `[IMPLEMENTED 2026-09-07]` Manager's alt, membership, and raid schedulers
+  detect implausible future pacing after a backward VM clock correction and
+  re-evaluate immediately. Cloak recovery retry policy remains the original
+  fixed 30 seconds.
+
 - `[IMPLEMENTED]` The Serilog console output supplied to AOSharp by Manager,
   Buddies, and Flipper uses one shared full timestamp. Format:
   `yyyy-MM-ddTHH:mm:ss.fffzzz`, for example

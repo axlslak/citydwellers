@@ -564,7 +564,8 @@ public class FlipperLoader
         WorkerRequest request)
     {
         return !request.NotBeforeUtc.HasValue ||
-               cache.ObservedUtc >= request.NotBeforeUtc.Value;
+               UtcTimestamp.Normalize(cache.ObservedUtc) >=
+               UtcTimestamp.Normalize(request.NotBeforeUtc.Value);
     }
 
     private static bool IsEnabled(string state)
@@ -744,7 +745,7 @@ public class FlipperLoader
 
             domain.Start();
 
-            DateTime timeout = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            Stopwatch resultWaitTimer = Stopwatch.StartNew();
 
             while (!File.Exists(resultPath))
             {
@@ -758,7 +759,7 @@ public class FlipperLoader
                     return run;
                 }
 
-                if (DateTime.UtcNow >= timeout)
+                if (resultWaitTimer.ElapsedMilliseconds >= timeoutMs)
                 {
                     Console.WriteLine(
                         $"[{totalTimer.Elapsed.TotalSeconds:F3}s] " +

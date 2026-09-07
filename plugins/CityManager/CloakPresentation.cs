@@ -1,4 +1,5 @@
 using System;
+using CityDwellers.Shared;
 
 namespace CityManager
 {
@@ -62,8 +63,12 @@ namespace CityManager
 
             if (cached && observedUtc.HasValue)
             {
-                TimeSpan age = DateTime.UtcNow - observedUtc.Value;
-                string ageText = age < TimeSpan.Zero
+                TimeSpan age;
+                bool validAge = UtcTimestamp.TryGetAge(
+                    observedUtc.Value,
+                    DateTime.UtcNow,
+                    out age);
+                string ageText = !validAge
                     ? "cached timestamp is invalid"
                     : age.TotalSeconds < 5
                         ? "last verified just now"

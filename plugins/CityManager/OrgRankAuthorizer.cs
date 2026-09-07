@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Threading;
@@ -7,6 +8,7 @@ using AOSharp.Clientless;
 using AOSharp.Clientless.Chat;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
+using CityDwellers.Shared;
 using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.GameData;
 using SmokeLounge.AOtomation.Messaging.Messages;
@@ -67,7 +69,7 @@ namespace CityManager
                 CachedRank candidate;
                 if (RankCache.TryGetValue(senderId, out candidate))
                 {
-                    if (candidate.ExpiresUtc > DateTime.UtcNow)
+                    if (candidate.ExpiresTimestamp > Stopwatch.GetTimestamp())
                         cached = candidate;
                     else
                         RankCache.Remove(senderId);
@@ -91,7 +93,7 @@ namespace CityManager
                     {
                         SenderId = senderId,
                         SenderName = senderName,
-                        RequestedUtc = DateTime.UtcNow
+                        RequestedTimestamp = Stopwatch.GetTimestamp()
                     };
                     PendingLookups[senderId] = pending;
                     shouldRequest = true;
@@ -167,7 +169,8 @@ namespace CityManager
                     RankCache[senderId] = new CachedRank
                     {
                         Rank = rank,
-                        ExpiresUtc = DateTime.UtcNow.AddSeconds(RankCacheSeconds)
+                        ExpiresTimestamp = Stopwatch.GetTimestamp() +
+                            (long)RankCacheSeconds * Stopwatch.Frequency
                     };
                 }
 
@@ -208,7 +211,11 @@ namespace CityManager
                 if (!PendingLookups.TryGetValue(senderId, out pending))
                     return;
 
-                if ((DateTime.UtcNow - pending.RequestedUtc).TotalMilliseconds < LookupTimeoutMs)
+                long elapsedTicks =
+                    Stopwatch.GetTimestamp() - pending.RequestedTimestamp;
+                double elapsedMilliseconds =
+                    (double)elapsedTicks * 1000.0 / Stopwatch.Frequency;
+                if (elapsedTicks >= 0 && elapsedMilliseconds < LookupTimeoutMs)
                     return;
             }
 
@@ -256,14 +263,14 @@ namespace CityManager
         private class CachedRank
         {
             public string Rank;
-            public DateTime ExpiresUtc;
+            public long ExpiresTimestamp;
         }
 
         private class PendingLookup
         {
             public uint SenderId;
             public string SenderName;
-            public DateTime RequestedUtc;
+            public long RequestedTimestamp;
             public readonly List<Action<OrgRankAuthorization>> Callbacks =
                 new List<Action<OrgRankAuthorization>>();
         }
@@ -324,8 +331,8 @@ namespace CityManager
                 _bootAssessmentStarted = false;
                 _failureReported = false;
                 _knownStatus = status;
-                _lastObservedUtc = lastObservedUtc;
-                _canRaiseAtUtc = canRaiseAtUtc;
+                _lastObservedUtc = UtcTimestamp.Normalize(lastObservedUtc);
+                _canRaiseAtUtc = UtcTimestamp.Normalize(canRaiseAtUtc);
                 _observationSource = observationSource ?? "Unknown";
                 _observationCallback = observationCallback;
                 _initialized = true;
@@ -678,7 +685,9 @@ namespace CityManager
                 lock (Sync)
                 {
                     _knownStatus = CloakStatus.Enabled;
-                    _lastObservedUtc = response.ObservedUtc ?? DateTime.UtcNow;
+                    _lastObservedUtc =
+                        UtcTimestamp.Normalize(response.ObservedUtc) ??
+                        DateTime.UtcNow;
                     _canRaiseAtUtc = null;
                     _observationSource = response.Cached
                         ? "Flipper.Cache"
@@ -708,7 +717,9 @@ namespace CityManager
                 lock (Sync)
                 {
                     _knownStatus = CloakStatus.Disabled;
-                    _lastObservedUtc = response.ObservedUtc ?? DateTime.UtcNow;
+                    _lastObservedUtc =
+                        UtcTimestamp.Normalize(response.ObservedUtc) ??
+                        DateTime.UtcNow;
                     _canRaiseAtUtc = DateTime.UtcNow.AddSeconds(retrySeconds);
                     _observationSource = response.Cached
                         ? "Flipper.Cache"
@@ -887,8 +898,8 @@ namespace CityManager
                     return;
 
                 _knownStatus = status;
-                _lastObservedUtc = observedUtc ?? now;
-                _canRaiseAtUtc = canRaiseAtUtc;
+                _lastObservedUtc = UtcTimestamp.Normalize(observedUtc) ?? now;
+                _canRaiseAtUtc = UtcTimestamp.Normalize(canRaiseAtUtc);
                 _observationSource = source ?? "Manager";
 
                 if (status == CloakStatus.Enabled)

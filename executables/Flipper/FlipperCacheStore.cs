@@ -2,12 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using CityDwellers.Shared;
 using Newtonsoft.Json;
 
 internal static class FlipperCacheStore
 {
-    private static readonly TimeSpan FutureTimestampTolerance =
-        TimeSpan.FromMinutes(2);
     private static readonly object Sync = new object();
 
     private static string _cachePath;
@@ -83,12 +82,13 @@ internal static class FlipperCacheStore
                     return false;
                 }
 
-                DateTime observedUtc = record.ObservedUtc.ToUniversalTime();
-                if (observedUtc > DateTime.UtcNow + FutureTimestampTolerance)
+                DateTime observedUtc = UtcTimestamp.Normalize(record.ObservedUtc);
+                if (UtcTimestamp.IsFuture(observedUtc, DateTime.UtcNow))
                 {
                     Console.WriteLine(
                         $"Ignoring Flipper cache dated in the future: " +
                         $"observed={observedUtc:O}, now={DateTime.UtcNow:O}.");
+                    QuarantineInvalidClockCache();
                     return false;
                 }
 
@@ -167,12 +167,33 @@ internal static class FlipperCacheStore
 
                 File.Move(tempPath, _cachePath);
 
-                _freshObservedUtc = record.ObservedUtc.ToUniversalTime();
+                _freshObservedUtc = UtcTimestamp.Normalize(record.ObservedUtc);
                 _freshSavedTimestamp = Stopwatch.GetTimestamp();
             }
             catch
             {
             }
+        }
+    }
+
+    private static void QuarantineInvalidClockCache()
+    {
+        try
+        {
+            if (!File.Exists(_cachePath))
+                return;
+
+            string quarantinePath =
+                _cachePath + ".invalid-clock-" + Guid.NewGuid().ToString("N");
+            File.Move(_cachePath, quarantinePath);
+            Console.WriteLine(
+                $"Moved the invalid cache aside as " +
+                $"{Path.GetFileName(quarantinePath)}.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(
+                $"Unable to quarantine the invalid Flipper cache: {ex.Message}");
         }
     }
 
