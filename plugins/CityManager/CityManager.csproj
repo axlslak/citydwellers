@@ -43,6 +43,9 @@
     <Compile Include="CityExtendedMessageParser.cs" />
     <Compile Include="CloakPresentation.cs" />
     <Compile Include="OrgRankAuthorizer.cs" />
+    <Compile Include="..\..\shared\UtcTimestamp.cs">
+      <Link>UtcTimestamp.cs</Link>
+    </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -34,6 +34,9 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Buddies.cs" />
+    <Compile Include="..\..\shared\UtcTimestamp.cs">
+      <Link>UtcTimestamp.cs</Link>
+    </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

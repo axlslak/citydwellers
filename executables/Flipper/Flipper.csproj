@@ -36,6 +36,9 @@
     <Compile Include="ClientlessGameDataBootstrap.cs" />
     <Compile Include="Flipper.cs" />
     <Compile Include="FlipperCacheStore.cs" />
+    <Compile Include="..\..\shared\UtcTimestamp.cs">
+      <Link>UtcTimestamp.cs</Link>
+    </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

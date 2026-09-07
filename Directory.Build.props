@@ -28,9 +28,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\LoggingDefaults.cs">
       <Link>LoggingDefaults.cs</Link>
     </Compile>
-    <Compile Include="$(MSBuildThisFileDirectory)shared\UtcTimestamp.cs">
-      <Link>UtcTimestamp.cs</Link>
-    </Compile>
   </ItemGroup>
 
   <ItemGroup>
