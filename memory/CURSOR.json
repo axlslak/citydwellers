@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 14,
-  "last_completed_session": 13,
-  "status": "in_progress",
+  "last_completed_session": 14,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-14-clock-domain-hardening",
-  "started_utc": "2026-09-07T02:50:37Z",
-  "base_commit": "90e1c4a60a80d44b102334c3e0ec815fe2e12ee3",
-  "task": "Audit and harden time-zone/VM-clock behavior across City Dwellers without altering retries.",
-  "resume_instruction": "Start at RECOVERY.md and recover session 14. Preserve fixed 30-second cloak recovery retries. Audit DateTime use: replace process-local deadline/freshness decisions with Stopwatch; normalize persisted/cross-process timestamps to UTC and reject implausible future values. Session 11 already hardened Flipper cache freshness."
+  "completed_utc": "2026-09-07T03:05:21Z",
+  "base_commit": "31114962650a6df9f150593401e2a8e7dd9e4b1f",
+  "task": "Kavey rebuilds all City Dwellers components and verifies clock hardening in live AO.",
+  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Session 14 implementation 31114962650a6df9f150593401e2a8e7dd9e4b1f hardens time-zone and VM-clock handling across Manager, Flipper, and Buddies. Fixed 30-second cloak recovery retries remain unchanged. Kavey owns rebuild and live AO verification; investigate the separate Flipper Zoning-to-Disconnected failure if it persists."
 }
