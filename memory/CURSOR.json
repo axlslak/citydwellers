@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 15,
-  "last_completed_session": 14,
-  "status": "in_progress",
+  "last_completed_session": 15,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-15-explicit-utc-helper-link",
-  "started_utc": "2026-09-07T20:26:43Z",
-  "base_commit": "6446f9b8b7a2fe027d39afebe14a43fcf2486962",
-  "task": "Fix the session 14 compile break by explicitly linking UtcTimestamp.cs into each consuming legacy project.",
-  "resume_instruction": "Start at RECOVERY.md and recover session 15. The code edits explicitly link shared/UtcTimestamp.cs into Buddies, Flipper, and CityManager and remove its global Compile item. Validate project XML and publish without changing runtime behavior."
+  "completed_utc": "2026-09-07T20:29:39Z",
+  "base_commit": "2df74c00255ed5badf7f942468966c49e14c9491",
+  "task": "Kavey rebuilds the Release solution and verifies Flipper and CityManager now compile.",
+  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Session 15 implementation 2df74c00255ed5badf7f942468966c49e14c9491 explicitly links shared/UtcTimestamp.cs into the three consuming legacy projects. This is a build-wiring fix only; session 14 clock behavior and fixed 30-second retries are unchanged."
 }
