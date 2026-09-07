@@ -63,12 +63,11 @@ namespace CityManager
             if (cached && observedUtc.HasValue)
             {
                 TimeSpan age = DateTime.UtcNow - observedUtc.Value;
-                if (age < TimeSpan.Zero)
-                    age = TimeSpan.Zero;
-
-                string ageText = age.TotalSeconds < 5
-                    ? "last verified just now"
-                    : $"last verified {FormatAge(age)} ago";
+                string ageText = age < TimeSpan.Zero
+                    ? "cached timestamp is invalid"
+                    : age.TotalSeconds < 5
+                        ? "last verified just now"
+                        : $"last verified {FormatAge(age)} ago";
 
                 reply +=
                     $" <font color={Separator}>|</font> " +

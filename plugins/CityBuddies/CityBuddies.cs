@@ -251,16 +251,7 @@ namespace CityBuddies
                 _inPlay = true;
                 _dead = false;
 
-                if (!_readyWritten)
-                {
-                    File.WriteAllText(
-                        _readyPath,
-                        $"{Client.CharacterName}|{DateTime.UtcNow:O}");
-
-                    _readyWritten = true;
-                    Logger.Information(
-                        $"CityBuddies ready: {Client.CharacterName} reached InPlay.");
-                }
+                EnsureReadySignal("CharInPlay packet");
 
                 WriteSnapshot(true);
             }
@@ -274,6 +265,15 @@ namespace CityBuddies
         {
             DateTime now = DateTime.UtcNow;
             _inPlay = Client.InPlay;
+
+            // AOSharp may update Client.InPlay before this plugin observes the
+            // corresponding CharInPlay packet. The host waits on this marker,
+            // so use the public client state as a second authoritative path.
+            if (_inPlay)
+            {
+                _dead = false;
+                EnsureReadySignal("Client.InPlay");
+            }
 
             if (now >= _nextDirectivePollUtc)
             {
@@ -305,6 +305,30 @@ namespace CityBuddies
                 return;
 
             WriteSnapshot(_inPlay);
+        }
+
+        private void EnsureReadySignal(string source)
+        {
+            if (_readyWritten)
+                return;
+
+            try
+            {
+                File.WriteAllText(
+                    _readyPath,
+                    $"{Client.CharacterName}|{DateTime.UtcNow:O}");
+
+                _readyWritten = true;
+                Logger.Information(
+                    $"CityBuddies ready: {Client.CharacterName} reached InPlay " +
+                    $"via {source}.");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(
+                    $"CityBuddies could not publish its ready marker via " +
+                    $"{source}: {ex.Message}");
+            }
         }
 
         private void Died()

@@ -1,19 +1,26 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using Newtonsoft.Json;
 
 internal static class FlipperCacheStore
 {
+    private static readonly TimeSpan FutureTimestampTolerance =
+        TimeSpan.FromMinutes(2);
     private static readonly object Sync = new object();
 
     private static string _cachePath;
     private static int _freshSeconds;
+    private static long _freshSavedTimestamp;
+    private static DateTime _freshObservedUtc;
 
     public static void Initialize(string baseDirectory, int freshSeconds)
     {
         _cachePath = Path.Combine(baseDirectory, "cityflipper-cache.json");
         _freshSeconds = freshSeconds > 0 ? freshSeconds : 60;
+        _freshSavedTimestamp = 0;
+        _freshObservedUtc = default(DateTime);
     }
 
     public static bool TryGetFresh(out FlipperCacheSnapshot snapshot)
@@ -21,8 +28,37 @@ internal static class FlipperCacheStore
         if (!TryGetAny(out snapshot))
             return false;
 
-        return DateTime.UtcNow - snapshot.ObservedUtc <=
-               TimeSpan.FromSeconds(_freshSeconds);
+        lock (Sync)
+        {
+            if (_freshSavedTimestamp == 0 ||
+                snapshot.ObservedUtc != _freshObservedUtc)
+            {
+                // A persisted record loaded after service restart has no
+                // trustworthy elapsed-time anchor. It remains available as a
+                // historical fallback, but must not suppress a live probe.
+                return false;
+            }
+
+            long elapsedTicks = Stopwatch.GetTimestamp() - _freshSavedTimestamp;
+            if (elapsedTicks < 0)
+                return false;
+
+            double elapsedSeconds =
+                (double)elapsedTicks / Stopwatch.Frequency;
+            if (elapsedSeconds > _freshSeconds)
+                return false;
+
+            if (snapshot.ShieldTimerInSeconds.HasValue &&
+                snapshot.ShieldTimerInSeconds.Value > 0)
+            {
+                snapshot.ShieldTimerInSeconds = Math.Max(
+                    0,
+                    snapshot.ShieldTimerInSeconds.Value -
+                    (int)Math.Floor(elapsedSeconds));
+            }
+
+            return true;
+        }
     }
 
     public static bool TryGetAny(out FlipperCacheSnapshot snapshot)
@@ -47,22 +83,25 @@ internal static class FlipperCacheStore
                     return false;
                 }
 
-                int? adjustedTimer = record.ShieldTimerInSeconds;
-                if (adjustedTimer.HasValue && adjustedTimer.Value > 0)
+                DateTime observedUtc = record.ObservedUtc.ToUniversalTime();
+                if (observedUtc > DateTime.UtcNow + FutureTimestampTolerance)
                 {
-                    int elapsedSeconds = Math.Max(
-                        0,
-                        (int)Math.Floor((DateTime.UtcNow - record.ObservedUtc).TotalSeconds));
-
-                    adjustedTimer = Math.Max(0, adjustedTimer.Value - elapsedSeconds);
+                    Console.WriteLine(
+                        $"Ignoring Flipper cache dated in the future: " +
+                        $"observed={observedUtc:O}, now={DateTime.UtcNow:O}.");
+                    return false;
                 }
 
                 snapshot = new FlipperCacheSnapshot
                 {
                     CloakState = record.CloakState,
-                    ShieldTimerInSeconds = adjustedTimer,
+                    // Without an in-process monotonic anchor, retain the
+                    // original timer. This is conservative after restart and
+                    // cannot make the shield appear ready early after a clock
+                    // correction.
+                    ShieldTimerInSeconds = record.ShieldTimerInSeconds,
                     ControllerCharge = record.ControllerCharge,
-                    ObservedUtc = record.ObservedUtc,
+                    ObservedUtc = observedUtc,
                     Source = record.Source
                 };
 
@@ -127,6 +166,9 @@ internal static class FlipperCacheStore
                     File.Delete(_cachePath);
 
                 File.Move(tempPath, _cachePath);
+
+                _freshObservedUtc = record.ObservedUtc.ToUniversalTime();
+                _freshSavedTimestamp = Stopwatch.GetTimestamp();
             }
             catch
             {

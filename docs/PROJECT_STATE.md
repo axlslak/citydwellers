@@ -104,6 +104,16 @@ Coordinates chat commands, raid lifecycle, cloak operations, helpers, admin/memb
 
 ### Flipper
 
+- `[IMPLEMENTED 2026-09-07]` Flipper cache freshness is anchored to
+  `Stopwatch`, not UTC subtraction. A persisted record loaded after a Flipper
+  service restart is historical fallback data and cannot suppress a live
+  probe. Observations materially ahead of the current UTC clock are rejected.
+  Shield countdown adjustment is monotonic while the service is running and
+  conservative after restart.
+- `[IMPLEMENTED 2026-09-07]` CityFlipper subscribes to updates immediately and
+  accepts `Client.InPlay` as a fallback when the plugin does not observe the
+  matching `CharInPlay` packet. Genuine zoning disconnects remain failures.
+
 Controls city cloak state. Boot behavior should be enable-only recovery/assessment: if cloak is already enabled, confirm it; if it can safely be enabled, recover it. Avoid exposing sensitive toggle behavior to arbitrary tells.
 
 - `[VERIFIED-LIVE 2026-09-01]` Apcflipper completed a raid-start lower
@@ -155,6 +165,17 @@ Clientless helper/account host. Important current behavior:
 - home navigation timeout is 600 seconds.
 
 ### CityBuddies plugin
+
+- `[IMPLEMENTED 2026-09-07]` Buddy readiness is published from either the
+  matching `CharInPlay` packet or AOSharp's authoritative `Client.InPlay`
+  state. This prevents a successfully established child session from being
+  unloaded and reported as a 20-second timeout merely because plugin packet
+  delivery was missed.
+- `[CORRECTION 2026-09-07]` A 12-Buddy raid request may legitimately show
+  attempts for indexes `0..12`: account count is 13, raid active limit is 12,
+  and the thirteenth account is intentional spare capacity. The retry was a
+  consequence of every earlier readiness attempt appearing terminally failed,
+  not an off-by-one count defect.
 
 Handles AO movement/home behavior for a Buddies character. The default
 `continuous` controller follows a cached CritterAI straight path with smoothed

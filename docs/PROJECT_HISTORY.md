@@ -793,3 +793,36 @@ with the channel ID learned from incoming org messages, skipping only the
 failed LocalPlayer-stat lookup. The speculative reflection path was removed.
 Private fallback, status/dump health, raid migration, and admin restart remain
 unchanged. Kavey owns the confirming build and live org test.
+
+
+## 2026-09-07 — Child readiness and clock-independent Flipper freshness
+
+Live raid preflight reported zero of twelve Buddies started and terminal
+timeouts for indexes `0..12`; Flipper raid watch also failed to produce a
+result. A later `#cloak` continued to show the same 12.1% cached charge as
+“last verified just now” despite hours and service resets. The cached
+observation itself was several hours ahead of the raid's explicit UTC times.
+
+`[DIAGNOSIS]` Two independent false-fresh/readiness hazards were present.
+CityBuddies wrote its host readiness marker only from the plugin's
+`CharInPlay` message handler even though its update loop already read
+`Client.InPlay`. CityFlipper did not subscribe to updates until that same
+packet handler ran. Separately, Flipper considered any negative UTC cache age
+fresh, so a VM clock corrected after writing a future-dated record could keep
+that record fresh for hours and prevent live probes.
+
+`[IMPLEMENTED]` Both child plugins now use `Client.InPlay` as a fallback
+readiness signal while retaining packet-based detection. Flipper cache
+freshness and live shield countdown adjustment use process-monotonic elapsed
+time. A persisted record has no monotonic freshness anchor after restart and
+therefore cannot suppress a live probe; it remains conservative historical
+fallback data. Future-dated observations are rejected by Flipper and Manager,
+and the UI no longer converts negative age to “just now.”
+
+`[CORRECTION]` Indexes `0..12` do not prove a 13-for-12 counting error. The
+configuration deliberately provides thirteen accounts with a twelve-character
+raid limit; index 12 is spare capacity and was attempted after all preceding
+startups appeared to fail. That retry behavior is preserved.
+
+Kavey owns the build and live verification. No assistant-side build or AO
+runtime test was run.

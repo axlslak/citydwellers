@@ -792,6 +792,22 @@ namespace CityManager
                         return;
                     }
 
+                    if (response.ObservedUtc.HasValue &&
+                        response.ObservedUtc.Value.ToUniversalTime() >
+                        DateTime.UtcNow.AddMinutes(2))
+                    {
+                        string invalidTime =
+                            response.ObservedUtc.Value.ToUniversalTime().ToString("O");
+                        Logger.Warning(
+                            $"IPC <- Flipper {request.Id}: rejected future " +
+                            $"observation {invalidTime}.");
+                        DevTrace(
+                            $"FLIPPER FAIL [{shortId}]: rejected future-dated " +
+                            $"cache observation {invalidTime}.");
+                        Reply(target, CloakPresentation.Unavailable());
+                        return;
+                    }
+
                     ApplyFlipperObservation(response);
 
                     string reply = CloakPresentation.Build(
@@ -2296,9 +2312,36 @@ namespace CityManager
                     _raiseDueLogged = state.RaiseDueLogged;
                     _raiseTimeIsProvisional = state.RaiseTimeIsProvisional;
                     _observationSource = state.ObservationSource ?? "Unknown";
+
+                    if (_lastObservedUtc.HasValue &&
+                        _lastObservedUtc.Value.ToUniversalTime() >
+                        DateTime.UtcNow.AddMinutes(2))
+                    {
+                        Logger.Warning(
+                            $"Discarding future-dated persisted cloak state " +
+                            $"observation {_lastObservedUtc.Value:O}.");
+                        _status = CloakStatus.Unknown;
+                        _shieldTimerInSeconds = 0;
+                        _lastObservedUtc = null;
+                        _lastChangedUtc = null;
+                        _canRaiseAtUtc = null;
+                        _raiseDueLogged = false;
+                        _raiseTimeIsProvisional = false;
+                        _observationSource = "InvalidFutureTimestamp";
+                    }
                 }
 
                 CloakEventRecord latestEvent = LoadLatestCloakEvent();
+                if (latestEvent != null &&
+                    latestEvent.OccurredUtc.ToUniversalTime() >
+                    DateTime.UtcNow.AddMinutes(2))
+                {
+                    Logger.Warning(
+                        $"Ignoring future-dated cloak event " +
+                        $"{latestEvent.OccurredUtc:O} while restoring state.");
+                    latestEvent = null;
+                }
+
                 if (latestEvent != null &&
                     (!_lastObservedUtc.HasValue ||
                      latestEvent.OccurredUtc > _lastObservedUtc.Value))

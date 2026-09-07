@@ -171,6 +171,7 @@ namespace CityFlipper
             _timer.Start();
 
             Client.MessageReceived += MessageReceived;
+            Client.OnUpdate += Tick;
         }
 
         public override void Teardown()
@@ -191,6 +192,17 @@ namespace CityFlipper
         {
             if (Volatile.Read(ref _stopping) != 0)
                 return;
+
+            // Do not depend exclusively on receiving CharInPlay after plugin
+            // subscription. AOSharp's public state can already be true when
+            // the plugin gets its first update.
+            if (!_charInPlay)
+            {
+                if (!Client.InPlay)
+                    return;
+
+                OnCharInPlay("Client.InPlay");
+            }
 
             bool writeTimeout = false;
             bool writeCancellation = false;
@@ -347,7 +359,7 @@ namespace CityFlipper
                         var charInPlay = (CharInPlayMessage)e.Body;
 
                         if (charInPlay.Identity.Instance == Client.LocalDynelId)
-                            OnCharInPlay();
+                            OnCharInPlay("CharInPlay packet");
 
                         break;
                     }
@@ -421,7 +433,7 @@ namespace CityFlipper
             }
         }
 
-        private void OnCharInPlay()
+        private void OnCharInPlay(string source)
         {
             if (_charInPlay)
                 return;
@@ -429,8 +441,8 @@ namespace CityFlipper
             _charInPlay = true;
             _inPlayMs = _timer.Elapsed.TotalMilliseconds;
 
-            Logger.Information($"CharInPlay after {_inPlayMs:F0} ms.");
-            Client.OnUpdate += Tick;
+            Logger.Information(
+                $"CharInPlay after {_inPlayMs:F0} ms via {source}.");
         }
 
         private void HandleTransportSignal(AOTransportSignalMessage signal)
