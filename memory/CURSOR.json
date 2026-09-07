@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 14,
+  "current_session": 15,
   "last_completed_session": 14,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-14-clock-domain-hardening",
-  "completed_utc": "2026-09-07T03:05:21Z",
-  "base_commit": "31114962650a6df9f150593401e2a8e7dd9e4b1f",
-  "task": "Kavey rebuilds all City Dwellers components and verifies clock hardening in live AO.",
-  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Session 14 implementation 31114962650a6df9f150593401e2a8e7dd9e4b1f hardens time-zone and VM-clock handling across Manager, Flipper, and Buddies. Fixed 30-second cloak recovery retries remain unchanged. Kavey owns rebuild and live AO verification; investigate the separate Flipper Zoning-to-Disconnected failure if it persists."
+  "transaction": "session-15-explicit-utc-helper-link",
+  "started_utc": "2026-09-07T20:26:43Z",
+  "base_commit": "6446f9b8b7a2fe027d39afebe14a43fcf2486962",
+  "task": "Fix the session 14 compile break by explicitly linking UtcTimestamp.cs into each consuming legacy project.",
+  "resume_instruction": "Start at RECOVERY.md and recover session 15. The code edits explicitly link shared/UtcTimestamp.cs into Buddies, Flipper, and CityManager and remove its global Compile item. Validate project XML and publish without changing runtime behavior."
 }
