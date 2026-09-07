@@ -826,24 +826,3 @@ startups appeared to fail. That retry behavior is preserved.
 
 Kavey owns the build and live verification. No assistant-side build or AO
 runtime test was run.
-
-
-## 2026-09-07 — Progressive cloak-recovery backoff
-
-After the bad future cache was rejected, live evidence isolated the remaining
-failure: Apcflipper reached gameserver `Zoning`, disconnected before `InPlay`,
-and subsequent logins returned `AlreadyLoggedIn`. Manager nevertheless
-continued enable-only recovery every 30 seconds. That repeated pressure could
-outlive AO's server-side ghost session and eventually occupy Flipper long
-enough for one-second pipe connection attempts to fail.
-
-`[IMPLEMENTED]` Recovery retains one 30-second retry for a transient failure,
-then waits 2 minutes after the second consecutive failure and 5 minutes after
-each later failure. The one-shot timer remains duration-based. Successful
-Flipper confirmation, authoritative cloak lifecycle evidence, or a newly
-armed recovery resets the failure counter. Status reports the approximate
-remaining retry delay.
-
-This changes retry pacing only. Recovery remains enable-only and cannot lower
-the cloak. Kavey owns build and live verification; no assistant-side build or
-AO test was run.

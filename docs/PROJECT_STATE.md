@@ -104,12 +104,6 @@ Coordinates chat commands, raid lifecycle, cloak operations, helpers, admin/memb
 
 ### Flipper
 
-- `[IMPLEMENTED 2026-09-07]` Manager cloak recovery no longer retries a
-  failing Flipper every 30 seconds indefinitely. Consecutive failures wait
-  30 seconds, then 2 minutes, then 5 minutes between later attempts. Success,
-  an authoritative cloak event, or a new recovery lifecycle resets the
-  backoff. The underlying one-shot timers use elapsed delays rather than wall
-  clock comparisons.
 - `[IMPLEMENTED 2026-09-07]` Flipper cache freshness is anchored to
   `Stopwatch`, not UTC subtraction. A persisted record loaded after a Flipper
   service restart is historical fallback data and cannot suppress a live
