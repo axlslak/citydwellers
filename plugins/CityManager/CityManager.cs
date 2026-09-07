@@ -1376,7 +1376,7 @@ namespace CityManager
                    age <= TimeSpan.FromSeconds(BuddySnapshotFreshSeconds);
         }
 
-        private static string FormatSnapshotAge(
+        private string FormatSnapshotAge(
             BuddyPositionSnapshot position,
             DateTime now)
         {
