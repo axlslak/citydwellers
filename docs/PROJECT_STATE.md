@@ -906,6 +906,14 @@ resilience and restart change:
   state must be copied to the unified data layout before live startup when the
   banker characters already hold stock; never initialize over real custody as
   if it were an empty bank.
+- `[VERIFIED-STATIC]` Every compiled Banker state, readiness, diagnostic,
+  audit, queue, ledger, and tell-queue path resolves beneath the unified
+  executable-adjacent `data` directory. No imported runtime reader consumes
+  mutable state from the old settings root.
+- `[IMPLEMENTED]` Runtime inventory recognizes the Bankers-generated
+  `physical-states` archives and `.log` files in `logs`; it continues to warn
+  about obsolete repair-normalizer attempt directories that current code no
+  longer produces or reads.
 - `[DEFERRED]` City Dwellers admins, members, and alts are not yet shared with
   CityBankers. Kavem remains the imported bootstrap administrator until the
   owner defines the next integration layer.

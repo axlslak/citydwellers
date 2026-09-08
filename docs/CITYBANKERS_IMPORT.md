@@ -59,6 +59,18 @@ corresponding unified `data` locations before the first authoritative live
 run. Do not start with empty state when the banker characters already hold
 physical stock, and do not synthesize or edit stock files by hand.
 
+For the owner's 2026-09-08 cutover, the migration archive is rooted at the
+contents of `data`, not at a legacy `settings` or nested `data` wrapper. It
+retains the current operational storage, stock, empty dispatch queue, active
+ledger/index, latest coherent physical/baseline evidence, completed repair
+receipt, and durable history. Legacy `banker.json`, stopped-process readiness
+markers, completed repair-plan attempts, redundant older audit snapshots,
+diagnostic dumps, and old text logs are not migration inputs.
+
+Every compiled Banker path resolves through the executable-adjacent `data`
+directory. Startup readiness files are regenerated there; they are never
+restored from the old settings root.
+
 ## Deliberately unchanged
 
 This first import does not redesign CityBankers behavior. In particular:
@@ -72,4 +84,3 @@ This first import does not redesign CityBankers behavior. In particular:
 
 Those shared concepts are the next deliberate integration layer, not part of
 the executable/config import.
-
