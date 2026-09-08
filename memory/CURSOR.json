@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 23,
+  "current_session": 24,
   "last_completed_session": 23,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T17:31:52Z",
-  "transaction": null,
-  "base_commit": "b6ef6655bda06cf61f4db46ce7ad515a4ccf81d1",
-  "task": "Owner build and migration boundary: copy existing CityBankers physical/accounting state into the unified data layout before the first live CityDwellers.exe startup, then compile Release and validate one-process startup without changing live custody state.",
-  "resume_instruction": "Cursor is idle. Before any live run with stocked banker characters, follow docs/CITYBANKERS_IMPORT.md and copy the old banker data, ledger, logs, and history into the unified executable-adjacent data tree. Kavey owns compilation and live validation. The next code task is shared admin/member/alt integration after owner requirements."
+  "status_changed_utc": "2026-09-08T18:22:35Z",
+  "transaction": "session-24-central-tell-queue",
+  "base_commit": "43fd340dc6885330dd14a4b31bae7d04d178c07f",
+  "task": "Create one Manager-coordinated outbound AO tell queue for all persistent City Dwellers and CityBankers clients, assigning messages to fresh idle senders without outrunning AO chat limits.",
+  "resume_instruction": "Recover session-24-central-tell-queue. Preserve message order and donor-facing markup, route every Manager/Banker outbound tell through IPC, register only live clients, exclude busy traders, use per-sender pacing and acknowledgements, and keep Flipper/Buddies excluded while they have no AO session. The journal was repaired from b6ef665 before this BEGIN because commit 43fd340 contained a truncated journal blob; code was unaffected."
 }
