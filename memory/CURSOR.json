@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 19,
-  "last_completed_session": 18,
-  "status": "in_progress",
+  "last_completed_session": 19,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T09:15:43Z",
+  "completed_utc": "2026-09-08T09:24:11Z",
   "transaction": "session-19-runtime-alien-file-warnings",
-  "base_commit": "08bc1b9de9d79dfd1af939d9f081c6d4690d0fa9",
-  "task": "Warn at startup about unused or misplaced entries in both the runtime/settings root and data without deleting or moving anything.",
-  "resume_instruction": "Recover session-19-runtime-alien-file-warnings. Add a centralized inventory validator invoked by the unified host after logging initializes. Preserve required binaries/static assets and all known generated data patterns. Warn specifically when a known file belongs on the other side; warn generically for unknown entries. Do not delete, move, or select between duplicates."
+  "base_commit": "4a555e5c5895adbdc0b0d24f61fac0c24ffc74f6",
+  "task": "Kavey reloads the solution, restores NuGet for the new CityDwellers project, builds Release, and verifies startup inventory warnings against the mixed runtime directories.",
+  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Session 19 published non-destructive alien-file warnings for settings/runtime and data. Review Kavey's NuGet restore/build result and startup warning log before changing code, or begin a fresh transaction for the next owner request."
 }
