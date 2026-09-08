@@ -812,3 +812,21 @@ resilience and restart change:
   interactive startup, migration, service lifecycle, reboot with delayed
   network storage, NTP-unavailable waiting, clock repair, Manager-only restart,
   and live AO behavior. No assistant-side build or runtime test was run.
+
+
+## Runtime inventory warnings (2026-09-08)
+
+- `[IMPLEMENTED]` Unified-host startup inventories the executable/settings
+  root and `data` after durable logging is available and before AO components
+  start. Known entries on the wrong side receive a specific destination
+  warning; unknown files and directories are reported as unused alien entries.
+- `[INVARIANT]` The validator is diagnostic only. It never reads competing
+  copies, chooses a winner, deletes, or moves an entry. Runtime behavior keeps
+  using only the documented location.
+- `[IMPLEMENTED]` Runtime binaries, symbols, configuration artifacts,
+  `GameData`, and `NavMeshes` are distinguished from the four administrator
+  JSON settings. Known mutable files and temporary/invalid preservation
+  patterns are distinguished from alien data. `NavigationTraces` and
+  `diagnostic-dumps` validate their generated child filename shapes.
+- `[OPEN]` Kavey owns build confirmation and startup-log verification against
+  the deliberately mixed deployment directories.

@@ -250,6 +250,7 @@ namespace CityDwellers.Host
                 ProbeWritableData(dataDirectory);
                 RuntimeLog.Initialize(dataDirectory);
                 _dataDirectory = dataDirectory;
+                ReportRuntimeLayout(runtimeDirectory, dataDirectory);
                 DeleteManagerRestartRequest();
                 if (IsManagerRestartRequested())
                     throw new IOException(
@@ -311,6 +312,39 @@ namespace CityDwellers.Host
                 ".citydwellers-write-test-" + Guid.NewGuid().ToString("N"));
             File.WriteAllText(path, "write test");
             File.Delete(path);
+        }
+
+        private static void ReportRuntimeLayout(
+            string runtimeDirectory,
+            string dataDirectory)
+        {
+            List<string> warnings;
+            try
+            {
+                warnings = SettingsPaths.InspectRuntimeLayout(
+                    runtimeDirectory,
+                    dataDirectory);
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Write(
+                    "WARNING: runtime inventory inspection could not finish: " +
+                    ex.Message);
+                return;
+            }
+
+            if (warnings.Count == 0)
+            {
+                RuntimeLog.Write("Runtime inventory contains no alien entries.");
+                return;
+            }
+
+            RuntimeLog.Write(
+                "WARNING: runtime inventory found " + warnings.Count +
+                " unused or misplaced " +
+                (warnings.Count == 1 ? "entry." : "entries."));
+            foreach (string warning in warnings)
+                RuntimeLog.Write("WARNING: " + warning);
         }
 
         private static int StopComponents(

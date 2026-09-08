@@ -89,6 +89,236 @@ namespace CityDwellers.Shared
             }
         }
 
+        public static List<string> InspectRuntimeLayout(
+            string runtimeDirectory,
+            string dataDirectory)
+        {
+            var warnings = new List<string>();
+
+            foreach (string file in Directory.GetFiles(runtimeDirectory))
+            {
+                string name = Path.GetFileName(file);
+                if (AdministratorSettings.Contains(name) || IsRuntimeArtifact(name))
+                    continue;
+
+                warnings.Add(
+                    IsBotDataFile(name)
+                        ? $"Misplaced data file in settings/runtime root: '{name}'. " +
+                          $"It belongs under data and is ignored here."
+                        : $"Alien file in settings/runtime root: '{name}'. " +
+                          $"City Dwellers does not use it."
+                );
+            }
+
+            foreach (string directory in Directory.GetDirectories(runtimeDirectory))
+            {
+                string name = Path.GetFileName(directory);
+                if (string.Equals(name, DataDirectoryName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(name, "GameData", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(name, "NavMeshes", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                bool belongsInData = IsBotDataDirectory(name);
+                warnings.Add(
+                    belongsInData
+                        ? $"Misplaced data directory in settings/runtime root: '{name}'. " +
+                          $"It belongs under data and is ignored here."
+                        : $"Alien directory in settings/runtime root: '{name}'. " +
+                          $"City Dwellers does not use it."
+                );
+            }
+
+            foreach (string file in Directory.GetFiles(dataDirectory))
+            {
+                string name = Path.GetFileName(file);
+                if (IsBotDataFile(name))
+                    continue;
+
+                if (AdministratorSettings.Contains(name))
+                {
+                    warnings.Add(
+                        $"Misplaced administrator setting in data: '{name}'. " +
+                        $"It belongs beside CityDwellers.exe and is ignored here.");
+                }
+                else if (IsRuntimeArtifact(name))
+                {
+                    warnings.Add(
+                        $"Misplaced runtime file in data: '{name}'. " +
+                        $"It belongs beside CityDwellers.exe and is ignored here.");
+                }
+                else
+                {
+                    warnings.Add(
+                        $"Alien file in data: '{name}'. City Dwellers does not use it.");
+                }
+            }
+
+            foreach (string directory in Directory.GetDirectories(dataDirectory))
+            {
+                string name = Path.GetFileName(directory);
+                if (IsBotDataDirectory(name))
+                {
+                    InspectBotDataDirectory(directory, name, warnings);
+                    continue;
+                }
+
+                if (string.Equals(name, "GameData", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(name, "NavMeshes", StringComparison.OrdinalIgnoreCase))
+                {
+                    warnings.Add(
+                        $"Misplaced runtime directory in data: '{name}'. " +
+                        $"It belongs beside CityDwellers.exe and is ignored here.");
+                }
+                else
+                {
+                    warnings.Add(
+                        $"Alien directory in data: '{name}'. City Dwellers does not use it.");
+                }
+            }
+
+            warnings.Sort(StringComparer.OrdinalIgnoreCase);
+            return warnings;
+        }
+
+        private static bool IsRuntimeArtifact(string name)
+        {
+            foreach (string legacyHost in new[] { "Manager", "Flipper", "Buddies" })
+            {
+                if (string.Equals(name, legacyHost + ".exe", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(name, legacyHost + ".exe.config", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(name, legacyHost + ".pdb", StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            string extension = Path.GetExtension(name);
+            return string.Equals(extension, ".dll", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(extension, ".pdb", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(extension, ".xml", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(extension, ".config", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "CityDwellers.exe", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsBotDataDirectory(string name)
+        {
+            return string.Equals(name, "NavigationTraces", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "diagnostic-dumps", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsBotDataFile(string name)
+        {
+            string[] exactNames =
+            {
+                "adminlist.json",
+                "banlist.json",
+                "memberlist.json",
+                "alts.json",
+                "citymanager-cloak-state.json",
+                "citymanager-cloak-events.jsonl",
+                "citymanager-diagnostics.log",
+                "citymanager-diagnostics.log.previous",
+                "citymanager-membership-state.json",
+                "citymanager-raid-state.json",
+                "citydwellers.log",
+                "citydwellers.log.previous",
+                "citydwellers-manager-restart.request",
+                "citydwellers-manager-restart.request.tmp",
+                "cityflipper-cache.json",
+                "cityflipper-cache.json.tmp",
+                "cityflipper-toggle.request",
+                "cityflipper-operation.id",
+                "cityflipper-cancel.request",
+                "cityflipper-result.json",
+                "cityflipper-result.json.tmp",
+                "portable-layout-v2.migrated"
+            };
+
+            foreach (string exactName in exactNames)
+            {
+                if (string.Equals(name, exactName, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            return MatchesPrefix(name, "adminlist.json.invalid-") ||
+                   MatchesPrefix(name, "banlist.json.invalid-") ||
+                   MatchesPrefix(name, "memberlist.json.invalid-") ||
+                   MatchesPrefix(name, "citymanager-membership-state.json.invalid-") ||
+                   MatchesPrefix(name, "alts.json.invalid-") ||
+                   MatchesPrefix(name, "cityflipper-cache.json.invalid-clock-") ||
+                   (MatchesPrefix(name, "cityflipper-cancel.request.") &&
+                    name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) ||
+                   (MatchesPrefix(name, "citybuddies-ready-") &&
+                    name.EndsWith(".ready", StringComparison.OrdinalIgnoreCase)) ||
+                   (MatchesPrefix(name, "citybuddies-position-") &&
+                    (name.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+                     name.EndsWith(".json.tmp", StringComparison.OrdinalIgnoreCase))) ||
+                   (MatchesPrefix(name, "citybuddies-home-") &&
+                    (name.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+                     name.EndsWith(".json.tmp", StringComparison.OrdinalIgnoreCase))) ||
+                   (name.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase) &&
+                    (MatchesPrefix(name, "adminlist.json") ||
+                     MatchesPrefix(name, "banlist.json") ||
+                     MatchesPrefix(name, "memberlist.json") ||
+                     MatchesPrefix(name, "alts.json") ||
+                     MatchesPrefix(name, "citymanager-cloak-state.json") ||
+                     MatchesPrefix(name, "citymanager-membership-state.json") ||
+                     MatchesPrefix(name, "citymanager-raid-state.json")));
+        }
+
+        private static bool MatchesPrefix(string name, string prefix)
+        {
+            return name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void InspectBotDataDirectory(
+            string directory,
+            string directoryName,
+            List<string> warnings)
+        {
+            string expectedPattern = string.Equals(
+                directoryName,
+                "NavigationTraces",
+                StringComparison.OrdinalIgnoreCase)
+                ? "*.jsonl"
+                : "apcmanager-dump-*.log";
+
+            var expected = new HashSet<string>(
+                Directory.GetFiles(directory, expectedPattern, SearchOption.TopDirectoryOnly),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (string file in Directory.GetFiles(
+                directory,
+                "*",
+                SearchOption.AllDirectories))
+            {
+                if (expected.Contains(file))
+                    continue;
+
+                string relativePath = file.Substring(directory.Length).TrimStart(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar);
+                warnings.Add(
+                    $"Alien file in data\\{directoryName}: '{relativePath}'. " +
+                    $"City Dwellers does not use it.");
+            }
+
+            foreach (string childDirectory in Directory.GetDirectories(
+                directory,
+                "*",
+                SearchOption.AllDirectories))
+            {
+                string relativePath = childDirectory.Substring(directory.Length).TrimStart(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar);
+                warnings.Add(
+                    $"Alien directory in data\\{directoryName}: '{relativePath}'. " +
+                    $"City Dwellers does not use it.");
+            }
+        }
+
         private static string GetRuntimeDirectory()
         {
             return Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory);

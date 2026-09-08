@@ -80,6 +80,14 @@ Every cache, state file, database, generated list, request/result marker, log,
 diagnostic dump, and navigation trace created by City Dwellers lives under
 `data`.
 
+At every unified-host startup, City Dwellers inventories both locations. It
+logs a warning for each unknown entry and a more specific warning when a known
+setting, data file, binary, or static directory is on the wrong side. The
+inventory is diagnostic only: it never deletes, moves, opens, or chooses
+between duplicate files. Only the copy in the documented location is used.
+The bot-owned `NavigationTraces` and `diagnostic-dumps` directories are also
+checked for unexpected contents.
+
 On first start from the new repository-relative output, City Dwellers
 conservatively imports an existing repository `settings` directory and mutable
 files from the old `bin\Release` or `bin\Debug` directory. It copies a file only

@@ -927,3 +927,19 @@ requires an explicit administrator setting.
 
 No assistant-side compilation, Windows service execution, or AO test was run.
 Kavey owns the authoritative Visual Studio Release build and deployment tests.
+
+
+## 2026-09-08 — Non-destructive runtime inventory
+
+The first portable deployment was populated conservatively by copying more
+legacy content than City Dwellers needs into both settings and data. Startup
+now reports that ambiguity instead of silently ignoring it. The unified host
+classifies its administrator settings, runtime artifacts, static directories,
+mutable data, transient files, preserved invalid records, traces, and dumps.
+Known entries found on the wrong side say where they belong; all other entries
+are explicitly reported as unused.
+
+The requested policy was revised from deletion to warnings before
+implementation. No file is opened for selection, deleted, moved, or
+quarantined by the inventory check. The documented location remains the only
+location each subsystem reads.
