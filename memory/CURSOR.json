@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 20,
-  "last_completed_session": 19,
-  "status": "in_progress",
+  "last_completed_session": 20,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T09:45:27Z",
+  "completed_utc": "2026-09-08T09:50:17Z",
   "transaction": "session-20-cross-appdomain-runtime-root",
-  "base_commit": "2d02ae75db26ba1dfda495940def74d965b5cc10",
-  "task": "Make every AOSharp child AppDomain use the unified executable's runtime/settings and data roots.",
-  "resume_instruction": "Recover session-20-cross-appdomain-runtime-root. Live evidence shows CityDwellers.exe uses release/data while CityManager and CityFlipper child AppDomains resolve the old repository settings base, causing Flipper result timeouts. Establish the host runtime root once at process scope before child domains start and make SettingsPaths consume it. Do not change the fixed 30-second retry policy or Flipper timeouts."
+  "base_commit": "63734b7f52bbeb220c97fd47a97337981ad57655",
+  "task": "Kavey rebuilds Release and confirms Manager, CityFlipper, and the unified loader all use release and release/data, with no Flipper result timeout.",
+  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Session 20 published the cross-AppDomain runtime-root repair. Review Kavey's rebuild/live log: Manager settings must be the release root, all data must be release/data, and CityFlipper completion must be observed promptly by the loader. Do not alter the fixed 30-second retry policy."
 }
