@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 24,
+  "current_session": 25,
   "last_completed_session": 24,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T18:52:19Z",
-  "transaction": null,
-  "base_commit": "9f668c27ba5239936c7e6ba88ce11ac15682e78f",
-  "task": "Owner build boundary: compile Release, then validate ordered tell delivery, round-robin sender use, banker trade-busy exclusion, restart recovery, and Apcmanager-owned alt lookup replies in live AO.",
-  "resume_instruction": "Cursor is idle. The centralized tell queue is published. Kavey owns compilation and live AO validation. If a build or runtime error appears, begin a focused repair transaction from 9f668c27 and preserve the queue's ordered single-assignment and required-sender contracts."
+  "status_changed_utc": "2026-09-08T21:32:21Z",
+  "transaction": "session-25-tell-queue-client-import",
+  "base_commit": "298de31f9352bdc6c9151b10b0cc25959ea775af",
+  "task": "Repair the CityManager tell-queue build failure caused by the new partial source file not importing AOSharp.Clientless for the Client API.",
+  "resume_instruction": "Recover session-25-tell-queue-client-import. Add only the missing AOSharp.Clientless namespace import to CityManager.TellQueue.cs, preserve queue behavior, run static checks, publish, and return the cursor to idle. Kavey owns the confirming Release build."
 }
