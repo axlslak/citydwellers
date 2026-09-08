@@ -17,7 +17,7 @@ using Serilog;
 using Serilog.Core;
 using CityDwellers.Shared;
 
-public class PluginLoader
+public class BuddiesHost
 {
     private const string PipeName = "citydwellers-buddies";
     private const int WakeupTimeoutMs = 20000;
@@ -66,9 +66,20 @@ public class PluginLoader
     private static long _nextStartSequence;
     private static Timer _leaseTimer;
     private static volatile bool _stopping;
+    private static bool _interactive;
 
     static void Main(string[] args)
     {
+        Environment.ExitCode = Run(args, null, true);
+    }
+
+    public static int Run(
+        string[] args,
+        WaitHandle stopSignal,
+        bool interactive)
+    {
+        _interactive = interactive;
+        _stopping = false;
         _baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
         string settingsDirectory;
@@ -80,8 +91,7 @@ public class PluginLoader
                 out settingsError))
         {
             StopForConfiguration(settingsError);
-            Environment.Exit(1);
-            return;
+            return 1;
         }
 
         string configPath = SettingsPaths.GetFilePath(settingsDirectory, "buddies.json");
@@ -95,15 +105,14 @@ public class PluginLoader
                     out templateError))
             {
                 StopForConfiguration(templateError);
-                Environment.Exit(1);
-                return;
+                return 1;
             }
 
             StopForConfiguration(
                 $"Created a Buddies configuration template at '{configPath}'.\n" +
                 "The user account prefix and pass1 password are examples and cannot log in. " +
-                "Replace them, then start Buddies again.");
-            return;
+                "Replace them, then start CityDwellers again.");
+            return 1;
         }
 
         try
@@ -115,9 +124,8 @@ public class PluginLoader
         {
             Console.WriteLine($"Failed to load '{configPath}'.");
             Console.WriteLine(ex);
-            StopForConfiguration("Correct buddies.json, then start Buddies again.");
-            Environment.Exit(1);
-            return;
+            StopForConfiguration("Correct buddies.json, then start CityDwellers again.");
+            return 1;
         }
 
         bool configChanged = false;
@@ -141,9 +149,8 @@ public class PluginLoader
 
         if (!ValidateConfig(_config))
         {
-            StopForConfiguration($"Correct '{configPath}', then start Buddies again.");
-            Environment.Exit(1);
-            return;
+            StopForConfiguration($"Correct '{configPath}', then start CityDwellers again.");
+            return 1;
         }
 
         if (configChanged)
@@ -184,7 +191,8 @@ public class PluginLoader
         Console.WriteLine();
         Console.WriteLine("Buddies service idle. Zero buddy AO sessions are started automatically.");
         Console.WriteLine("Waiting for Manager requests.");
-        Console.WriteLine("Press ENTER to stop Buddies and unload any active buddies.");
+        if (_interactive)
+            Console.WriteLine("Press ENTER to stop Buddies and unload any active buddies.");
         Console.WriteLine();
 
         InitializeSlotWorkers();
@@ -203,7 +211,7 @@ public class PluginLoader
             TimeSpan.FromSeconds(1),
             TimeSpan.FromSeconds(1));
 
-        Console.ReadLine();
+        WaitForStop(stopSignal);
 
         Console.WriteLine();
         Console.WriteLine("Stopping Buddies service...");
@@ -213,6 +221,7 @@ public class PluginLoader
         ShutdownAll();
         StopSlotWorkers();
         Console.WriteLine("Buddies service stopped.");
+        return 0;
     }
 
     private static string BuildDefaultConfig()
@@ -232,9 +241,20 @@ public class PluginLoader
     private static void StopForConfiguration(string message)
     {
         Console.WriteLine(message);
-        Console.WriteLine();
-        Console.WriteLine("Press ENTER to exit.");
-        Console.ReadLine();
+        if (_interactive)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Press ENTER to exit.");
+            Console.ReadLine();
+        }
+    }
+
+    private static void WaitForStop(WaitHandle stopSignal)
+    {
+        if (stopSignal != null)
+            stopSignal.WaitOne();
+        else
+            Console.ReadLine();
     }
 
     private static bool ValidateConfig(Config config)

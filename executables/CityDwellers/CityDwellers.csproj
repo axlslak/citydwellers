@@ -1,20 +1,21 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{0D4088B8-B32E-4B9E-8B10-091FDBE25924}</ProjectGuid>
+    <ProjectGuid>{A44A13CA-F0EF-4C15-961D-E9BB102928D8}</ProjectGuid>
     <OutputType>Exe</OutputType>
-    <RootNamespace>Flipper</RootNamespace>
-    <AssemblyName>Flipper</AssemblyName>
+    <RootNamespace>CityDwellers.Host</RootNamespace>
+    <AssemblyName>CityDwellers</AssemblyName>
+    <StartupObject>CityDwellers.Host.Program</StartupObject>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
     <Deterministic>true</Deterministic>
+    <PlatformTarget>x86</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
     <Optimize>false</Optimize>
@@ -24,7 +25,6 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
-    <PlatformTarget>AnyCPU</PlatformTarget>
     <DebugType>pdbonly</DebugType>
     <Optimize>true</Optimize>
     <OutputPath>..\..\release\</OutputPath>
@@ -33,13 +33,33 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="ClientlessGameDataBootstrap.cs" />
-    <Compile Include="Flipper.cs" />
-    <Compile Include="FlipperCacheStore.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="RuntimeLog.cs" />
+    <Compile Include="ServiceCommands.cs" />
+    <Compile Include="TimeReadinessGate.cs" />
+    <Compile Include="WindowsService.cs" />
+    <Compile Include="..\Manager\Manager.cs">
+      <Link>Components\ManagerHost.cs</Link>
+    </Compile>
+    <Compile Include="..\Flipper\ClientlessGameDataBootstrap.cs">
+      <Link>Components\ClientlessGameDataBootstrap.cs</Link>
+    </Compile>
+    <Compile Include="..\Flipper\Flipper.cs">
+      <Link>Components\FlipperHost.cs</Link>
+    </Compile>
+    <Compile Include="..\Flipper\FlipperCacheStore.cs">
+      <Link>Components\FlipperCacheStore.cs</Link>
+    </Compile>
+    <Compile Include="..\Buddies\Buddies.cs">
+      <Link>Components\BuddiesHost.cs</Link>
+    </Compile>
     <Compile Include="..\..\shared\UtcTimestamp.cs">
       <Link>UtcTimestamp.cs</Link>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System.ServiceProcess" />
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />

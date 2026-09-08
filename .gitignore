@@ -37,6 +37,7 @@ data/
 /manager.json
 /flipper.json
 /buddies.json
+/citydwellers.json
 .dependencies/
 
 # Visual Studio 2015/2017 cache/options directory

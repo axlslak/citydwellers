@@ -776,3 +776,39 @@ resilience and restart change:
   observed on incoming organization traffic. Reflection and its unused import
   were removed. Private fallback and degraded-health reporting remain.
 - [OPEN] Kavey owns the confirming build and org status test.
+
+
+## Unified portable host and service (2026-09-08)
+
+- `[IMPLEMENTED]` Release and Debug are self-contained runtime roots with no
+  `bin` layer. Administrator settings (`citydwellers.json`, `manager.json`,
+  `flipper.json`, and `buddies.json`) live beside the executable; bot-owned
+  state, caches, coordination files, diagnostics, and logs live under `data`.
+- `[IMPLEMENTED]` The solution now builds four projects: three AO plugins and
+  one `CityDwellers.exe`. Manager, Flipper, and Buddies are supervised
+  in-process components; their separate console projects are gone.
+- `[INVARIANT]` Flipper remains logged out while idle and Buddies starts zero
+  AO helpers while idle. Manager is the only persistent AO client. A component
+  failure stops the host so Windows Service Control Manager can apply its
+  configured restart policy.
+- `[IMPLEMENTED]` The executable runs interactively or as the delayed automatic
+  `CityDwellers` Windows service. Install/uninstall commands declare TCP/IP and
+  Workstation dependencies and configure restart-on-failure. Network-backed
+  deployment requires a service identity with share permissions; interactive
+  mapped drive letters are not a service contract.
+- `[IMPLEMENTED]` Before AO starts, the host verifies `data` is writable and
+  requires independent NTP confirmation that system UTC is within the allowed
+  skew. Failed confirmation triggers bounded `w32tm` resync attempts and
+  monotonic retries. The host stays alive and diagnostic while waiting and
+  never silently bypasses the gate; bypass is an explicit admin setting.
+- `[IMPLEMENTED]` Pre-trust logs use monotonic uptime. After confirmation they
+  use offset-bearing timestamps. Combined output rotates under
+  `data\citydwellers.log` for headless diagnosis.
+- `[CORRECTION]` Administrator `restart` no longer uses PowerShell to start a
+  second executable or exits the process. The coordinator gracefully recycles
+  Manager only, leaving Flipper and Buddies online; global shutdown wins over
+  a simultaneous restart request.
+- `[OPEN]` Kavey owns the authoritative Release build and Windows 10 N checks:
+  interactive startup, migration, service lifecycle, reboot with delayed
+  network storage, NTP-unavailable waiting, clock repair, Manager-only restart,
+  and live AO behavior. No assistant-side build or runtime test was run.

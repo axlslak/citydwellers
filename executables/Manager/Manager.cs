@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Serilog;
 using Serilog.Core;
@@ -12,7 +13,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using CityDwellers.Shared;
 
-public class PluginLoader
+public class ManagerHost
 {
     // Manager configuration lives beside the executable in the portable
     // runtime root. Bot-owned mutable files live under data.
@@ -38,16 +39,28 @@ public class PluginLoader
     //}
 
     private static List<ClientDomain> BotDomains = new List<ClientDomain>();
+    private static bool _interactive;
 
     static void Main(string[] args)
     {
+        Environment.ExitCode = Run(args, null, true);
+    }
+
+    public static int Run(
+        string[] args,
+        WaitHandle stopSignal,
+        bool interactive)
+    {
+        _interactive = interactive;
+        BotDomains = new List<ClientDomain>();
+
         string settingsDirectory;
         string settingsError;
 
         if (!SettingsPaths.TryEnsureDirectory(out settingsDirectory, out settingsError))
         {
             StopForConfiguration(settingsError);
-            return;
+            return 1;
         }
 
         string configPath = SettingsPaths.GetFilePath(settingsDirectory, "manager.json");
@@ -61,14 +74,14 @@ public class PluginLoader
                     out templateError))
             {
                 StopForConfiguration(templateError);
-                return;
+                return 1;
             }
 
             StopForConfiguration(
                 $"Created a Manager configuration template at '{configPath}'.\n" +
                 "The user1, pass1, and char1 values are examples and cannot log in. " +
-                "Replace them, then start Manager again.");
-            return;
+                "Replace them, then start CityDwellers again.");
+            return 1;
         }
 
         Config config;
@@ -83,7 +96,7 @@ public class PluginLoader
         {
             StopForConfiguration(
                 $"Unable to read Manager configuration '{configPath}'.\n{ex}");
-            return;
+            return 1;
         }
 
         string validationError;
@@ -91,7 +104,7 @@ public class PluginLoader
         {
             StopForConfiguration(
                 $"Manager configuration '{configPath}' is invalid.\n{validationError}");
-            return;
+            return 1;
         }
 
         var pluginPaths = new List<string>();
@@ -106,20 +119,37 @@ public class PluginLoader
             {
                 StopForConfiguration(
                     $"Manager plugin was not found at '{pluginPath}'.\n" +
-                    "Use a filename such as 'CityManager.dll' for a plugin beside Manager.exe.");
-                return;
+                    "Use a filename such as 'CityManager.dll' for a plugin beside CityDwellers.exe.");
+                return 1;
             }
 
             pluginPaths.Add(pluginPath);
         }
 
-        foreach (AccountInfo acc in config.Accounts)
-            CreateBot(acc, pluginPaths);
+        try
+        {
+            foreach (AccountInfo acc in config.Accounts)
+                CreateBot(acc, pluginPaths);
 
-        Console.ReadLine();
+            WaitForStop(stopSignal);
+            return 0;
+        }
+        finally
+        {
+            foreach (var domain in BotDomains)
+            {
+                try
+                {
+                    domain.Unload();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Unable to unload a Manager client domain: " + ex);
+                }
+            }
 
-        foreach (var domain in BotDomains)
-            domain.Unload();
+            BotDomains.Clear();
+        }
     }
 
     private static bool TryValidateConfig(Config config, out string error)
@@ -228,9 +258,20 @@ public class PluginLoader
     private static void StopForConfiguration(string message)
     {
         Console.WriteLine(message);
-        Console.WriteLine();
-        Console.WriteLine("Press ENTER to exit.");
-        Console.ReadLine();
+        if (_interactive)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Press ENTER to exit.");
+            Console.ReadLine();
+        }
+    }
+
+    private static void WaitForStop(WaitHandle stopSignal)
+    {
+        if (stopSignal != null)
+            stopSignal.WaitOne();
+        else
+            Console.ReadLine();
     }
 
     private static void CreateBot(AccountInfo accInfo, List<string> pluginPaths)
@@ -246,6 +287,7 @@ public class PluginLoader
         foreach (var path in pluginPaths)
             instance.LoadPlugin(path);
 
+        BotDomains.Add(instance);
         instance.Start();
     }
 

@@ -1676,17 +1676,28 @@ namespace CityManager
                 return;
             }
 
-            string executablePath;
-            string workingDirectory;
+            string restartRequestPath = Path.Combine(
+                _dataDir,
+                "citydwellers-manager-restart.request");
+            string temporaryPath = restartRequestPath + ".tmp";
             try
             {
-                executablePath = Process.GetCurrentProcess().MainModule.FileName;
-                workingDirectory = Path.GetDirectoryName(executablePath);
+                File.WriteAllText(
+                    temporaryPath,
+                    senderName + "|" + DateTime.UtcNow.ToString("O"));
             }
             catch (Exception ex)
             {
                 Reply(target, "Manager restart is unavailable: " + ex.Message);
                 DevTrace("RESTART PREPARE ERROR actor=" + senderName + ": " + ex.Message);
+                try
+                {
+                    if (File.Exists(temporaryPath))
+                        File.Delete(temporaryPath);
+                }
+                catch
+                {
+                }
                 return;
             }
 
@@ -1696,43 +1707,29 @@ namespace CityManager
                 "Apcmanager will disconnect and return in a few seconds.");
             RecordDiagnostic(
                 "RESTART requested by " + senderName +
-                "; executable=" + executablePath + ".");
+                "; unified host will recycle Manager only.");
             SaveState();
 
-            ThreadPool.QueueUserWorkItem(_ =>
+            try
             {
+                if (File.Exists(restartRequestPath))
+                    File.Delete(restartRequestPath);
+                File.Move(temporaryPath, restartRequestPath);
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Manager restart handoff failed: " + ex);
+                DevTrace("RESTART HANDOFF ERROR actor=" + senderName + ": " + ex.Message);
+                Reply(target, "Manager restart handoff failed: " + ex.Message);
                 try
                 {
-                    string escapedExecutable = executablePath.Replace("'", "''");
-                    string escapedDirectory =
-                        (workingDirectory ?? string.Empty).Replace("'", "''");
-                    string command =
-                        "Start-Sleep -Seconds 2; " +
-                        "Start-Process -FilePath '" + escapedExecutable + "' " +
-                        "-WorkingDirectory '" + escapedDirectory + "'";
-
-                    Process.Start(
-                        new ProcessStartInfo
-                        {
-                            FileName = "powershell.exe",
-                            Arguments =
-                                "-NoProfile -NonInteractive -WindowStyle Hidden " +
-                                "-Command \"" + command + "\"",
-                            UseShellExecute = false,
-                            CreateNoWindow = true,
-                            WorkingDirectory = workingDirectory
-                        });
-
-                    Thread.Sleep(750);
-                    Environment.Exit(0);
+                    if (File.Exists(temporaryPath))
+                        File.Delete(temporaryPath);
                 }
-                catch (Exception ex)
+                catch
                 {
-                    Logger.Error("Manager restart failed: " + ex);
-                    DevTrace("RESTART ERROR actor=" + senderName + ": " + ex.Message);
-                    Reply(target, "Manager restart failed: " + ex.Message);
                 }
-            });
+            }
         }
 
         private void JoinGuestChannel(string senderName, ReplyTarget target)

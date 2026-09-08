@@ -893,3 +893,37 @@ design.
 
 No assistant-side build or AO runtime test was run. Kavey owns the Visual
 Studio Release build and migration verification.
+
+
+## 2026-09-08 — One executable, Windows service, and trusted-time startup
+
+The three-console deployment was replaced by one `CityDwellers.exe`. The old
+Manager, Flipper, and Buddies host source remains recognizable but is compiled
+into one supervised process alongside the three plugin DLLs. Separate host
+project definitions and executable configuration files were removed. Release
+and Debug still produce the portable runtime roots established in session 17.
+
+The process starts Flipper and Buddies as idle request services, then Manager
+as the persistent AO client. It owns coordinated shutdown and converts an
+unexpected component exit into a process failure so Service Control Manager
+can restart it. The administrator restart operation now hands a request to the
+coordinator, which gracefully recycles Manager only; the earlier PowerShell
+self-launch and whole-process exit design is superseded.
+
+`CityDwellers.exe install-service` creates a delayed-automatic Windows service
+with TCP/IP and Workstation dependencies and restart-on-failure actions. The
+service runs without a desktop, writes combined output to a rotating data log,
+and requests enough stop time for AO client-domain cleanup. Network-backed
+storage requires a UNC-resolvable directory link and a service account with
+permissions on the share.
+
+Before AO code starts, the host proves the data directory writable and queries
+administrator-selected NTP servers directly. It compares independent UTC to
+the system clock, requests Windows Time rediscovery/resynchronization when
+needed, and retries using a monotonic clock. Until trust is established, log
+entries carry only monotonic uptime. A broken or blocked time source leaves the
+host alive and visibly waiting rather than starting AO with false time; bypass
+requires an explicit administrator setting.
+
+No assistant-side compilation, Windows service execution, or AO test was run.
+Kavey owns the authoritative Visual Studio Release build and deployment tests.

@@ -52,7 +52,7 @@ public static class ClientlessGameDataBootstrap
         if (args == null || args.Length != 3)
         {
             Console.Error.WriteLine(
-                "Internal usage: Flipper.exe restore-gamedata <cache-directory> <output-directory>");
+                "Internal usage: CityDwellers.exe restore-gamedata <cache-directory> <output-directory>");
             return 2;
         }
 

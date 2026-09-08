@@ -14,7 +14,8 @@ namespace CityDwellers.Shared
             {
                 "manager.json",
                 "flipper.json",
-                "buddies.json"
+                "buddies.json",
+                "citydwellers.json"
             };
 
         public static bool TryEnsureDirectories(

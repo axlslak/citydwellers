@@ -29,13 +29,25 @@ public class FlipperLoader
     private static string _operationIdPath;
     private static string _cancelRequestPath;
     private static int _timeoutMs;
+    private static bool _interactive;
+    private static volatile bool _stopping;
 
     static void Main(string[] args)
     {
+        Environment.ExitCode = Run(args, null, true);
+    }
+
+    public static int Run(
+        string[] args,
+        WaitHandle stopSignal,
+        bool interactive)
+    {
+        _interactive = interactive;
+        _stopping = false;
+
         if (ClientlessGameDataBootstrap.IsRestoreCommand(args))
         {
-            Environment.ExitCode = ClientlessGameDataBootstrap.Run(args);
-            return;
+            return ClientlessGameDataBootstrap.Run(args);
         }
 
         _baseDir = AppDomain.CurrentDomain.BaseDirectory;
@@ -47,41 +59,38 @@ public class FlipperLoader
                 out settingsError))
         {
             StopForConfiguration(settingsError);
-            Environment.Exit(1);
-            return;
+            return 1;
         }
 
         if (!LoadConfig())
         {
-            Environment.Exit(1);
-            return;
+            return 1;
         }
 
         if (args.Length == 0)
         {
-            RunService();
-            return;
+            return RunService(stopSignal);
         }
 
         if (args.Length == 1 &&
             string.Equals(args[0], "probe", StringComparison.OrdinalIgnoreCase))
         {
             RunManualProbe(false);
-            return;
+            return 0;
         }
 
         if (args.Length == 1 &&
             string.Equals(args[0], "toggle", StringComparison.OrdinalIgnoreCase))
         {
             RunManualProbe(true);
-            return;
+            return 0;
         }
 
         Console.WriteLine("Usage:");
-        Console.WriteLine("  Flipper.exe         # persistent idle service");
-        Console.WriteLine("  Flipper.exe probe   # one read-only controller probe");
-        Console.WriteLine("  Flipper.exe toggle  # one guarded cloak toggle probe");
-        Environment.Exit(1);
+        Console.WriteLine("  CityDwellers.exe             # all services, interactive");
+        Console.WriteLine("  CityDwellers.exe flipper-probe");
+        Console.WriteLine("  CityDwellers.exe flipper-toggle");
+        return 1;
     }
 
     private static bool LoadConfig()
@@ -103,7 +112,7 @@ public class FlipperLoader
             StopForConfiguration(
                 $"Created a Flipper configuration template at '{configPath}'.\n" +
                 "The user1, pass1, and char1 values are examples and cannot log in. " +
-                "Replace them, then start Flipper again.");
+                "Replace them, then start CityDwellers again.");
             return false;
         }
 
@@ -215,12 +224,15 @@ public class FlipperLoader
     private static void StopForConfiguration(string message)
     {
         Console.WriteLine(message);
-        Console.WriteLine();
-        Console.WriteLine("Press ENTER to exit.");
-        Console.ReadLine();
+        if (_interactive)
+        {
+            Console.WriteLine();
+            Console.WriteLine("Press ENTER to exit.");
+            Console.ReadLine();
+        }
     }
 
-    private static void RunService()
+    private static int RunService(WaitHandle stopSignal)
     {
         Console.WriteLine("======================================");
         Console.WriteLine(" City Dwellers - Flipper Service");
@@ -234,7 +246,8 @@ public class FlipperLoader
         Console.WriteLine("Recent confirmed city state is served from cache before a new login.");
         Console.WriteLine("Enable-only requests may raise cloak, but can never lower it.");
         Console.WriteLine("Waiting for Manager requests.");
-        Console.WriteLine("Press ENTER to stop Flipper.");
+        if (_interactive)
+            Console.WriteLine("Press ENTER to stop Flipper.");
         Console.WriteLine();
 
         Thread pipeThread = new Thread(RunPipeServer)
@@ -245,16 +258,21 @@ public class FlipperLoader
 
         pipeThread.Start();
 
-        Console.ReadLine();
+        if (stopSignal != null)
+            stopSignal.WaitOne();
+        else
+            Console.ReadLine();
 
+        _stopping = true;
         DeleteIfExists(_toggleRequestPath);
         DeleteIfExists(_operationIdPath);
         Console.WriteLine("Flipper service stopped.");
+        return 0;
     }
 
     private static void RunPipeServer()
     {
-        while (true)
+        while (!_stopping)
         {
             try
             {
@@ -648,8 +666,11 @@ public class FlipperLoader
             PrintResult(run);
 
         Console.WriteLine();
-        Console.WriteLine("Press ENTER to exit.");
-        Console.ReadLine();
+        if (_interactive)
+        {
+            Console.WriteLine("Press ENTER to exit.");
+            Console.ReadLine();
+        }
     }
 
     private static ProbeRun RunProbe(bool toggle)
