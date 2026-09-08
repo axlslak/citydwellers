@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 22,
+  "current_session": 23,
   "last_completed_session": 22,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T10:43:19Z",
-  "transaction": null,
-  "base_commit": "0aae6645fed00eaac452a0ca307f8aeb0cc62968",
-  "task": "Kavey pulls master, places the supplied merged citydwellers.json beside CityDwellers.exe, removes manager.json/flipper.json/buddies.json, rebuilds Release, and performs the authoritative startup and IPC check.",
-  "resume_instruction": "No repository write is active. Start the next task with a new journal BEGIN and in-progress cursor. citydwellers.json is now the sole administrator settings file and contains required Manager, Flipper, and Buddies sections; the old component files are ignored."
+  "status_changed_utc": "2026-09-08T16:47:12Z",
+  "transaction": "session-23-citybankers-host-import",
+  "base_commit": "9c020b1a5f365b599d8f23a7dbee1e2863ce103c",
+  "task": "Import current CityBankers into City Dwellers without redesign: CityDwellers.exe supervises the six banker domains, CityBankers.dll remains the implied plugin, and citydwellers.json gains the sole Bankers configuration section.",
+  "resume_instruction": "Recover session-23-citybankers-host-import. Preserve current CityBankers behavior and physical-state authority; adapt only host lifecycle, unified portable paths, and the one-file settings schema. Keep all credentials outside Git."
 }
