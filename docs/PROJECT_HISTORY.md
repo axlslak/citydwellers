@@ -959,3 +959,16 @@ process-scoped state before it starts Flipper, Buddies, or Manager. Every copy
 of the shared path resolver checks that state, so all child domains agree on
 the same settings and data directories regardless of plugin/AppDomain base.
 No retry interval or operation timeout changed.
+
+
+## 2026-09-08 — Plugin paths removed from administrator settings
+
+The mixed deployment retained explicit Manager and Flipper plugin paths while
+Buddies already had an implied default. Under a single fixed runtime those
+paths were unnecessary and could continue loading stale DLLs from the old
+repository `settings` directory.
+
+All three components now imply exactly one sibling DLL and ignore legacy
+`Plugins` JSON properties. New templates no longer emit the property. This
+closes the configuration path that allowed a current unified host to load old
+plugin code with obsolete path behavior.

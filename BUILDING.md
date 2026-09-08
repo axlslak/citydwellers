@@ -127,13 +127,11 @@ Examples of bot-owned files under `data` include `adminlist.json`,
 `cityflipper-cache.json`, process-coordination markers, diagnostic logs and
 dumps, and `NavigationTraces`.
 
-Plugin entries may be simple filenames because all Release assemblies share
-the same runtime root:
-
-```json
-"Plugins": ["CityManager.dll"],
-"Bot": "Bobsan"
-```
+Plugin DLLs are fixed parts of the unified runtime and are not administrator
+settings. Manager always loads `CityManager.dll`, Flipper always loads
+`CityFlipper.dll`, and Buddies always loads `CityBuddies.dll` from beside
+`CityDwellers.exe`. Remove obsolete `Plugins` properties from all three JSON
+files; legacy properties are ignored rather than followed.
 
 `Bot` belongs in `manager.json`. Set it to the character name of the bot that
 answers `alts <character>` tells, or leave it `null` to disable external alt
@@ -141,9 +139,6 @@ lookups. Existing Manager configurations receive the missing optional field on
 their next start. Manager stores the last good answers in `data\alts.json`,
 refreshes administrator identities after 24 hours, and keeps using the cache if
 the alt bot is unavailable.
-
-Use `CityFlipper.dll` in `flipper.json`. The `Plugins` field may be omitted
-from `buddies.json`; Buddies then loads `CityBuddies.dll` automatically.
 
 ## Unified host and Windows service
 
@@ -222,8 +217,7 @@ at most 12 raid-owned buddies online, and starts up to four AO sessions at once:
   "AccountCount": 13,
   "ActiveLimit": 12,
   "MaxParallelLogins": 4,
-  "Password": "pass1",
-  "Plugins": null
+  "Password": "pass1"
 }
 ```
 

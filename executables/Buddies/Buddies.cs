@@ -61,8 +61,8 @@ public class BuddiesHost
             BindingFlags.Instance | BindingFlags.NonPublic);
 
     private static Config _config;
-    private static string _baseDir;
     private static string _dataDir;
+    private static string _pluginPath;
     private static long _nextStartSequence;
     private static Timer _leaseTimer;
     private static volatile bool _stopping;
@@ -80,7 +80,6 @@ public class BuddiesHost
     {
         _interactive = interactive;
         _stopping = false;
-        _baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
         string settingsDirectory;
         string settingsError;
@@ -91,6 +90,14 @@ public class BuddiesHost
                 out settingsError))
         {
             StopForConfiguration(settingsError);
+            return 1;
+        }
+
+        _pluginPath = Path.Combine(settingsDirectory, "CityBuddies.dll");
+        if (!File.Exists(_pluginPath))
+        {
+            StopForConfiguration(
+                $"Required Buddies plugin was not found at '{_pluginPath}'.");
             return 1;
         }
 
@@ -636,8 +643,7 @@ public class BuddiesHost
                 Dimension.RubiKa,
                 logger);
 
-            foreach (string pluginPath in GetPluginPaths())
-                domain.LoadPlugin(pluginPath);
+            domain.LoadPlugin(_pluginPath);
 
             domain.Start();
             RenewClientDomainLease(domain, character);
@@ -1862,24 +1868,6 @@ public class BuddiesHost
             : string.Join(",", indexes);
     }
 
-    private static IEnumerable<string> GetPluginPaths()
-    {
-        if (_config.Plugins != null && _config.Plugins.Count > 0)
-        {
-            foreach (string configuredPath in _config.Plugins)
-            {
-                yield return Path.GetFullPath(
-                    Path.IsPathRooted(configuredPath)
-                        ? configuredPath
-                        : Path.Combine(_baseDir, configuredPath));
-            }
-
-            yield break;
-        }
-
-        yield return Path.Combine(_baseDir, "CityBuddies.dll");
-    }
-
     private static string BuildCharacterName(int level, int index)
     {
         return $"Apcr{level:D3}{index:D2}";
@@ -2399,7 +2387,6 @@ public class BuddiesHost
         public int? ActiveLimit;
         public int? MaxParallelLogins;
         public string Password;
-        public List<string> Plugins;
     }
 
     private class ActiveBuddy

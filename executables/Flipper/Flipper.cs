@@ -20,7 +20,6 @@ public class FlipperLoader
 
     private static Config _config;
     private static AccountInfo _account;
-    private static string _baseDir;
     private static string _settingsDir;
     private static string _dataDir;
     private static string _pluginPath;
@@ -49,8 +48,6 @@ public class FlipperLoader
         {
             return ClientlessGameDataBootstrap.Run(args);
         }
-
-        _baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
         string settingsError;
         if (!SettingsPaths.TryEnsureDirectories(
@@ -136,13 +133,6 @@ public class FlipperLoader
             return false;
         }
 
-        if (_config.Plugins == null || _config.Plugins.Count != 1)
-        {
-            StopForConfiguration(
-                $"'{configPath}' must contain exactly one plugin.");
-            return false;
-        }
-
         _account = _config.Accounts[0];
 
         if (_account == null ||
@@ -167,12 +157,13 @@ public class FlipperLoader
             ? _config.ProbeTimeoutMs
             : 20000;
 
-        string configuredPlugin = _config.Plugins[0];
-
-        _pluginPath = Path.GetFullPath(
-            Path.IsPathRooted(configuredPlugin)
-                ? configuredPlugin
-                : Path.Combine(_baseDir, configuredPlugin));
+        _pluginPath = Path.Combine(_settingsDir, "CityFlipper.dll");
+        if (!File.Exists(_pluginPath))
+        {
+            StopForConfiguration(
+                $"Required Flipper plugin was not found at '{_pluginPath}'.");
+            return false;
+        }
 
         _pluginDir = Path.GetDirectoryName(_pluginPath);
         _toggleRequestPath =
@@ -205,7 +196,6 @@ public class FlipperLoader
                     Character = "char1"
                 }
             },
-            Plugins = new List<string> { "CityFlipper.dll" },
             ProbeTimeoutMs = 20000,
             DelayBetweenPassesMs = 5000,
             CacheFreshSeconds = 60
@@ -1004,7 +994,6 @@ public class FlipperLoader
     public class Config
     {
         public List<AccountInfo> Accounts;
-        public List<string> Plugins;
         public int ProbeTimeoutMs = 20000;
         public int DelayBetweenPassesMs = 5000;
         public int CacheFreshSeconds = 60;

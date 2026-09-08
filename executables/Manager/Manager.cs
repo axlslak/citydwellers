@@ -32,9 +32,6 @@ public class ManagerHost
     //      "Character": "Testchar2"
     //    }
     //  ],
-    //  "Plugins": [
-    //    "CityManager.dll"
-    //  ],
     //  "Bot": "Bobsan"
     //}
 
@@ -107,29 +104,18 @@ public class ManagerHost
             return 1;
         }
 
-        var pluginPaths = new List<string>();
-        foreach (string configuredPath in config.Plugins)
+        string pluginPath = Path.Combine(settingsDirectory, "CityManager.dll");
+        if (!File.Exists(pluginPath))
         {
-            string pluginPath = Path.GetFullPath(
-                Path.IsPathRooted(configuredPath)
-                    ? configuredPath
-                    : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, configuredPath));
-
-            if (!File.Exists(pluginPath))
-            {
-                StopForConfiguration(
-                    $"Manager plugin was not found at '{pluginPath}'.\n" +
-                    "Use a filename such as 'CityManager.dll' for a plugin beside CityDwellers.exe.");
-                return 1;
-            }
-
-            pluginPaths.Add(pluginPath);
+            StopForConfiguration(
+                $"Required Manager plugin was not found at '{pluginPath}'.");
+            return 1;
         }
 
         try
         {
             foreach (AccountInfo acc in config.Accounts)
-                CreateBot(acc, pluginPaths);
+                CreateBot(acc, pluginPath);
 
             WaitForStop(stopSignal);
             return 0;
@@ -160,12 +146,6 @@ public class ManagerHost
             return false;
         }
 
-        if (config.Plugins == null || config.Plugins.Count == 0)
-        {
-            error = "At least one plugin is required.";
-            return false;
-        }
-
         foreach (AccountInfo account in config.Accounts)
         {
             if (account == null ||
@@ -182,15 +162,6 @@ public class ManagerHost
                 error =
                     "The user1/pass1/char1 defaults cannot log in. " +
                     "Replace them with the Manager account.";
-                return false;
-            }
-        }
-
-        foreach (string plugin in config.Plugins)
-        {
-            if (string.IsNullOrWhiteSpace(plugin))
-            {
-                error = "Plugin paths cannot be empty.";
                 return false;
             }
         }
@@ -212,7 +183,6 @@ public class ManagerHost
                     Character = "char1"
                 }
             },
-            Plugins = new List<string> { "CityManager.dll" },
             Bot = null
         };
 
@@ -274,7 +244,7 @@ public class ManagerHost
             Console.ReadLine();
     }
 
-    private static void CreateBot(AccountInfo accInfo, List<string> pluginPaths)
+    private static void CreateBot(AccountInfo accInfo, string pluginPath)
     {
         Logger logger =
             new LoggerConfiguration()
@@ -284,8 +254,7 @@ public class ManagerHost
                 .CreateLogger();
         ClientDomain instance = Client.CreateInstance(accInfo.Username, accInfo.Password, accInfo.Character, Dimension.RubiKa, logger);
 
-        foreach (var path in pluginPaths)
-            instance.LoadPlugin(path);
+        instance.LoadPlugin(pluginPath);
 
         BotDomains.Add(instance);
         instance.Start();
@@ -294,7 +263,6 @@ public class ManagerHost
     public class Config
     {
         public List<AccountInfo> Accounts;
-        public List<string> Plugins;
         public string Bot;
     }
 

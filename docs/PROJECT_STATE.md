@@ -848,3 +848,18 @@ resilience and restart change:
 - `[OPEN]` Kavey owns the confirming Release build. Manager initialization and
   Flipper result production/consumption must all report the same `release` and
   `release\data` roots.
+
+
+## Implied unified-runtime plugins (2026-09-08)
+
+- `[DECISION]` Plugin DLL paths are no longer administrator settings. Manager,
+  Flipper, and Buddies each load their one fixed DLL from the unified runtime
+  root: `CityManager.dll`, `CityFlipper.dll`, and `CityBuddies.dll`.
+- `[IMPLEMENTED]` New configuration templates omit `Plugins`; the config models
+  no longer consume it. Existing JSON may retain the obsolete property without
+  affecting resolution, but administrators should remove it.
+- `[INVARIANT]` An absolute or parent-relative legacy plugin path cannot divert
+  a component into the old `settings` directory. A missing implied DLL is a
+  clear startup configuration failure.
+- `[OPEN]` Kavey owns rebuild and live confirmation that all three plugins load
+  from beside `CityDwellers.exe`.
