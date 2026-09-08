@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 21,
-  "last_completed_session": 20,
-  "status": "in_progress",
+  "last_completed_session": 21,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T10:13:24Z",
-  "transaction": "session-21-implied-plugin-contract",
-  "base_commit": "1058e231ac99ce080064498657a8a02e725a1b81",
-  "task": "Remove configurable plugin paths from Manager, Flipper, and Buddies; each unified component must load its one implied DLL beside CityDwellers.exe.",
-  "resume_instruction": "Recover session-21-implied-plugin-contract. Delete Plugins from all three config models/templates and stop honoring legacy Plugins values. Manager loads CityManager.dll, Flipper loads CityFlipper.dll, and Buddies loads CityBuddies.dll from the unified runtime root. Preserve account and operational settings."
+  "status_changed_utc": "2026-09-08T10:21:01Z",
+  "transaction": null,
+  "base_commit": "55692d398cda19f00541a08e4c8da6fe8c005d31",
+  "task": "Kavey removes obsolete Plugins properties from manager.json, flipper.json, and buddies.json, rebuilds Release, and confirms each component loads its fixed sibling DLL and Flipper returns its result.",
+  "resume_instruction": "No repository write is active. Start the next task with a new journal BEGIN and in-progress cursor. The unified host now ignores legacy Plugins JSON properties and loads CityManager.dll, CityFlipper.dll, and CityBuddies.dll beside CityDwellers.exe."
 }
