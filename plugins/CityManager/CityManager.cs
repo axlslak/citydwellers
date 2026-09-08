@@ -129,6 +129,7 @@ namespace CityManager
                 $"count={AdminListStore.Snapshot().Count}.");
             InitializeMembership();
             InitializeAlts();
+            InitializeTellQueue();
             LoadState();
             InitializeRaidCoordinator();
             OrgRankAuthorizer.Initialize();
@@ -151,6 +152,7 @@ namespace CityManager
                 ShutdownRaidCoordinator();
                 ShutdownAlts();
                 ShutdownMembership();
+                ShutdownTellQueue();
 
                 if (Client.Chat != null)
                 {
@@ -256,7 +258,7 @@ namespace CityManager
                 ProcessCommand(
                     msg.SenderName,
                     commandText,
-                    ReplyTarget.ForTell(msg.SenderId));
+                    ReplyTarget.ForTell(msg.SenderId, msg.SenderName));
             }
             catch (Exception ex)
             {
@@ -313,7 +315,11 @@ namespace CityManager
                 ProcessCommand(
                     msg.SenderName,
                     commandText,
-                    ReplyTarget.ForOrg(msg.SenderId, msg.ChannelId, msg.ChannelName));
+                    ReplyTarget.ForOrg(
+                        msg.SenderId,
+                        msg.ChannelId,
+                        msg.ChannelName,
+                        msg.SenderName));
             }
             catch (Exception ex)
             {
@@ -1509,11 +1515,11 @@ namespace CityManager
                         " channel=" + (target.ChannelName ?? "unknown") + ".");
 
                     if (target.SenderId != 0)
-                        Client.SendPrivateMessage(target.SenderId, warning);
+                        QueueTell(target, warning);
                     return;
                 }
 
-                Client.SendPrivateMessage(target.SenderId, text);
+                QueueTell(target, text);
             }
             catch (Exception ex)
             {
@@ -2290,6 +2296,7 @@ namespace CityManager
 
         private void Tick(object sender, double e)
         {
+            TickTellQueue();
             TryInviteDeveloper();
             TickMembership();
             TickAlts();
@@ -2535,6 +2542,7 @@ namespace CityManager
         {
             public ReplyKind Kind;
             public uint SenderId;
+            public string SenderName;
             public object ChannelId;
             public string ChannelName;
 
@@ -2542,21 +2550,27 @@ namespace CityManager
             public bool IsGuest => Kind == ReplyKind.Guest;
             public bool RequiresPrefix => Kind != ReplyKind.Tell;
 
-            public static ReplyTarget ForTell(uint senderId)
+            public static ReplyTarget ForTell(uint senderId, string senderName = null)
             {
                 return new ReplyTarget
                 {
                     Kind = ReplyKind.Tell,
-                    SenderId = senderId
+                    SenderId = senderId,
+                    SenderName = senderName
                 };
             }
 
-            public static ReplyTarget ForOrg(uint senderId, object channelId, string channelName)
+            public static ReplyTarget ForOrg(
+                uint senderId,
+                object channelId,
+                string channelName,
+                string senderName = null)
             {
                 return new ReplyTarget
                 {
                     Kind = ReplyKind.Org,
                     SenderId = senderId,
+                    SenderName = senderName,
                     ChannelId = channelId,
                     ChannelName = channelName
                 };

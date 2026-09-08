@@ -52,6 +52,7 @@
     <Compile Include="StartupWriteFrontWatchdogAgent.cs" />
     <Compile Include="StaticDynelDataPreloader.cs" />
     <Compile Include="StockCommandEngine.cs" />
+    <Compile Include="TellQueueSenderAgent.cs" />
     <Compile Include="StorageBaselineCoordinator.cs" />
     <Compile Include="StorageBaselineStateSeeder.cs" />
     <Compile Include="StorageWriteFrontReconciliationAgent.cs" />
@@ -65,6 +66,7 @@
     <Compile Include="..\..\bankers\shared\SettingsPaths.cs"><Link>Shared\SettingsPaths.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\SymbiantCatalog.cs"><Link>Shared\SymbiantCatalog.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\TrustedOperators.cs"><Link>Shared\TrustedOperators.cs</Link></Compile>
+    <Compile Include="..\..\bankers\shared\TellQueueClient.cs"><Link>Shared\TellQueueClient.cs</Link></Compile>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

@@ -975,14 +975,54 @@ namespace CityManager
 
                         _pendingAltLookup = request;
                         request.SentUtc = DateTime.UtcNow;
+                        request.DeadlineUtc = DateTime.MaxValue;
+                    }
+
+                    string tellJobId = QueueTell(
+                        _altsBotName,
+                        botId,
+                        $"alts {request.Target}",
+                        Client.CharacterName);
+
+                    TellDeliveryAcknowledgement acknowledgement = null;
+                    while (acknowledgement == null)
+                    {
+                        lock (_altsSync)
+                        {
+                            if (_altsShuttingDown)
+                            {
+                                _altSendInFlight = false;
+                                return;
+                            }
+                        }
+
+                        TellDeliveryAcknowledgement observed;
+                        if (TellQueue.TryReadAcknowledgement(
+                                _dataDir,
+                                tellJobId,
+                                out observed))
+                        {
+                            acknowledgement = observed;
+                            break;
+                        }
+
+                        Thread.Sleep(100);
+                    }
+
+                    if (!acknowledgement.Success)
+                        throw new InvalidOperationException(
+                            acknowledgement.Error ?? "queued tell send failed");
+
+                    lock (_altsSync)
+                    {
+                        request.SentUtc = acknowledgement.SentUtc;
                         request.DeadlineUtc = request.SentUtc.AddSeconds(
                             AltReplyTimeoutSeconds);
                         _altSendInFlight = false;
                     }
 
-                    Client.SendPrivateMessage(botId, $"alts {request.Target}");
                     Logger.Information(
-                        $"ALTS -> {_altsBotName}: alts {request.Target}");
+                        $"ALTS queued/sent -> {_altsBotName}: alts {request.Target}");
                     DevTrace(
                         $"ALTS -> {_altsBotName} target={request.Target} " +
                         $"reason={request.Reason}; timeout=30s.");

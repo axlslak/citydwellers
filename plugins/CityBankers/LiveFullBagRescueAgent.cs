@@ -461,13 +461,14 @@ namespace CityBankers
 
         private void TellKavem(string message)
         {
-            if (string.IsNullOrWhiteSpace(message) || Client.Chat == null)
+            if (string.IsNullOrWhiteSpace(message))
                 return;
 
-            Client.Chat.SendPrivateMessage(
+            TellQueueClient.Enqueue(
+                _settingsDir,
+                Client.CharacterName,
                 TrustedOperators.BootstrapAdmin,
-                CityBankersChatPalette.WhiteBaseMarkup(message),
-                true);
+                CityBankersChatPalette.WhiteBaseMarkup(message));
             RuntimeStateStore.AppendActivity(
                 _settingsDir,
                 Client.CharacterName,

@@ -1341,11 +1341,11 @@ namespace CityBankers
         {
             if (string.IsNullOrWhiteSpace(message))
                 return;
-            if (Client.Chat != null)
-                Client.Chat.SendPrivateMessage(
-                    TrustedOperators.BootstrapAdmin,
-                    message,
-                    true);
+            TellQueueClient.Enqueue(
+                _settingsDir,
+                Client.CharacterName,
+                TrustedOperators.BootstrapAdmin,
+                message);
             RuntimeStateStore.AppendActivity(
                 _settingsDir,
                 Client.CharacterName,

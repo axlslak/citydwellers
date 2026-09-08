@@ -1021,3 +1021,23 @@ Kavey's next requirements.
 
 No assistant-side compilation or live AO runtime test was run. Kavey owns the
 authoritative Release build and live one-process validation.
+
+
+## 2026-09-08 — Manager-coordinated outbound tell queue
+
+The always-online bankers make outbound chat capacity a fleet resource rather
+than a property of Kbcentral alone. All Manager and CityBankers application
+tells now enter one durable, sequence-ordered queue. The first configured
+Manager character schedules one message at a time to a configured client that
+is in play, has a fresh heartbeat, is outside an AO trade, and has satisfied
+its own pacing interval. Sender acknowledgement releases the next job, stale
+assignments are recovered, and repeated failures are preserved for diagnosis.
+
+Ordinary messages can rotate through Apcmanager and all six bankers. The alt
+lookup remains pinned to Apcmanager because the external bot replies to the
+character that asked; its 30-second response deadline begins only after the
+queued send is acknowledged. Flipper and Buddies remain outside this pool
+because their idle lifecycle has no logged-in AO character.
+
+No assistant-side compilation or live AO test was run. Kavey owns the
+authoritative Release build and live chat-rate verification.

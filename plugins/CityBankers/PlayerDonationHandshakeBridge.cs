@@ -346,11 +346,11 @@ namespace CityBankers
             if (string.IsNullOrWhiteSpace(_partnerName) || string.IsNullOrWhiteSpace(message))
                 return;
 
-            if (Client.Chat != null)
-                Client.Chat.SendPrivateMessage(
-                    _partnerName,
-                    CityBankersChatPalette.WhiteBaseMarkup(message),
-                    true);
+            TellQueueClient.Enqueue(
+                _settingsDir,
+                Client.CharacterName,
+                _partnerName,
+                CityBankersChatPalette.WhiteBaseMarkup(message));
 
             RuntimeStateStore.AppendActivity(
                 _settingsDir,

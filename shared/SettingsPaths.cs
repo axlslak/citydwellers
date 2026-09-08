@@ -286,6 +286,7 @@ namespace CityDwellers.Shared
                    string.Equals(name, "ledger", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "logs", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "history", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "tell-queue", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "storage-baselines", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "physical-census-v2", StringComparison.OrdinalIgnoreCase);
         }
@@ -374,6 +375,60 @@ namespace CityDwellers.Shared
             string directoryName,
             List<string> warnings)
         {
+            if (string.Equals(
+                    directoryName,
+                    "tell-queue",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                var allowedChildren = new HashSet<string>(
+                    new[] { "pending", "assigned", "acknowledgements", "senders", "failed" },
+                    StringComparer.OrdinalIgnoreCase);
+
+                foreach (string child in Directory.GetDirectories(directory))
+                {
+                    if (!allowedChildren.Contains(Path.GetFileName(child)))
+                    {
+                        warnings.Add(
+                            $"Alien directory in data\\{directoryName}: " +
+                            $"'{Path.GetFileName(child)}'. City Dwellers does not use it.");
+                    }
+                }
+
+                foreach (string file in Directory.GetFiles(
+                    directory,
+                    "*",
+                    SearchOption.AllDirectories))
+                {
+                    if (string.Equals(
+                            file,
+                            Path.Combine(directory, "sequence.txt"),
+                            StringComparison.OrdinalIgnoreCase) ||
+                        Path.GetFileName(file).StartsWith(
+                            "sequence.txt.tmp-",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string parent = Path.GetFileName(Path.GetDirectoryName(file));
+                    if (allowedChildren.Contains(parent) &&
+                        (file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+                         Path.GetFileName(file).Contains(".json.tmp-")))
+                    {
+                        continue;
+                    }
+
+                    string relative = file.Substring(directory.Length).TrimStart(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar);
+                    warnings.Add(
+                        $"Alien file in data\\{directoryName}: '{relative}'. " +
+                        "City Dwellers does not use it.");
+                }
+
+                return;
+            }
+
             if (string.Equals(
                     directoryName,
                     "physical-census-v2",

@@ -476,7 +476,7 @@ namespace CityManager
                             $"Owner/admin cancellation remains available while the raid is active. " +
                             $"<a href='chatcmd:///tell Apcmanager #cancel {session.Token}'>Cancel raid</a>";
 
-                        Client.SendPrivateMessage(adminId, message);
+                        QueueTell(admin, adminId, message);
                     }
                     catch (Exception ex)
                     {
@@ -2441,6 +2441,9 @@ namespace CityManager
                 OriginSenderId = session.Origin != null
                     ? session.Origin.SenderId
                     : session.OwnerId,
+                OriginSenderName = session.Origin != null
+                    ? session.Origin.SenderName
+                    : session.OwnerName,
                 OriginChannelName = session.Origin != null
                     ? session.Origin.ChannelName
                     : null,
@@ -2491,7 +2494,8 @@ namespace CityManager
                     origin = ReplyTarget.ForOrg(
                         saved.OriginSenderId,
                         null,
-                        saved.OriginChannelName ?? OrgChannelName);
+                        saved.OriginChannelName ?? OrgChannelName,
+                        saved.OriginSenderName ?? saved.OwnerName);
                     break;
 
                 case ReplyKind.Guest:
@@ -2499,7 +2503,9 @@ namespace CityManager
                     break;
 
                 default:
-                    origin = ReplyTarget.ForTell(saved.OriginSenderId);
+                    origin = ReplyTarget.ForTell(
+                        saved.OriginSenderId,
+                        saved.OriginSenderName ?? saved.OwnerName);
                     break;
             }
 
@@ -3070,6 +3076,7 @@ namespace CityManager
             public uint OwnerId;
             public string OriginKind;
             public uint OriginSenderId;
+            public string OriginSenderName;
             public string OriginChannelName;
             public string Stage;
             public DateTime CreatedUtc;

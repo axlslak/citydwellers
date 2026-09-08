@@ -24,6 +24,7 @@ namespace CityBankers
         private string _tempPath;
         private string _reportCommandPath;
         private string _reportAckPath;
+        private string _dataDir;
         private bool _inPlay;
         private bool _diagnosticStarted;
         private bool _snapshotWritten;
@@ -39,6 +40,7 @@ namespace CityBankers
                 throw new InvalidOperationException(settingsError);
 
             pluginDir = RuntimeStateStore.GetDataDirectory(settingsDir);
+            _dataDir = pluginDir;
             string token = SafeFileToken(Client.CharacterName);
 
             _resultPath = Path.Combine(
@@ -450,10 +452,12 @@ namespace CityBankers
                     if (string.IsNullOrWhiteSpace(message))
                         continue;
 
-                    Client.Chat.SendPrivateMessage(
+                    CityDwellers.Shared.TellQueue.Enqueue(
+                        _dataDir,
+                        Client.CharacterName,
                         command.Recipient,
-                        message,
-                        true);
+                        null,
+                        message);
                     ack.MessageCount++;
                 }
 

@@ -912,3 +912,31 @@ resilience and restart change:
 - `[OPEN]` Kavey owns Release compilation, one-process startup/shutdown proof,
   six-banker readiness, retained-state verification, and live donation/stock
   checks.
+
+
+## Central outbound tell queue (2026-09-08)
+
+- `[IMPLEMENTED]` Manager and CityBankers no longer send application tells
+  directly. Producers append ordered jobs beneath `data/tell-queue`; the first
+  configured Manager account is the sole scheduler.
+- `[IMPLEMENTED]` Apcmanager and all six configured bankers publish live
+  sender heartbeats. The scheduler admits only configured, fresh, in-play,
+  idle clients and rotates across them with a 1.2-second per-character pace.
+- `[INVARIANT]` Only one tell is assigned at a time. The next ordered job is
+  not released until the sender acknowledges the AO send call. A failed call
+  is retried up to five times; final failures and acknowledgements remain in
+  the queue data tree for diagnosis.
+- `[INVARIANT]` Banker clients advertise busy while an AO trade is open and do
+  not consume tell work until idle. A stale assignment returns to the pending
+  queue after 45 seconds.
+- `[INVARIANT]` Request/reply traffic whose answer returns to the sending toon,
+  currently the external alt-bot lookup, is pinned to Apcmanager. Ordinary
+  notices and replies may be sent by any available queue worker.
+- `[IMPLEMENTED]` Durable monotonic sequence numbers preserve enqueue order
+  independently of wall-clock corrections. Runtime inventory recognizes only
+  the queue's fixed directories, JSON records, and sequence file.
+- `[DEFERRED]` Flipper and Buddies do not own persistent AO sessions and are
+  not queue senders. They can be registered later if that lifecycle changes.
+- `[OPEN]` Kavey owns the authoritative Release build and live validation of
+  AO tell pacing, sender rotation, trade-busy exclusion, restart recovery, and
+  alt-bot reply ownership.

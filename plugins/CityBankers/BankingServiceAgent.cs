@@ -2174,11 +2174,11 @@ namespace CityBankers
         {
             if (string.IsNullOrWhiteSpace(playerName) || string.IsNullOrWhiteSpace(message))
                 return;
-            if (Client.Chat != null)
-                Client.Chat.SendPrivateMessage(
-                    playerName,
-                    CityBankersChatPalette.WhiteBaseMarkup(message),
-                    true);
+            TellQueueClient.Enqueue(
+                _settingsDir,
+                Client.CharacterName,
+                playerName,
+                CityBankersChatPalette.WhiteBaseMarkup(message));
             RuntimeStateStore.AppendActivity(
                 _settingsDir,
                 Client.CharacterName,

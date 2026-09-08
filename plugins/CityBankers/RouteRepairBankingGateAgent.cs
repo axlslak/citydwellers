@@ -89,12 +89,13 @@ namespace CityBankers
                     Logger.Information(
                         $"[CityBankers] ROUTE REPAIR GATE character={Client.CharacterName}: " + notice);
 
-                    if (IsCentralCharacter() && Client.Chat != null)
+                    if (IsCentralCharacter())
                     {
-                        Client.Chat.SendPrivateMessage(
+                        TellQueueClient.Enqueue(
+                            _settingsDir,
+                            Client.CharacterName,
                             TrustedOperators.BootstrapAdmin,
-                            notice,
-                            true);
+                            notice);
                     }
                 }
             }

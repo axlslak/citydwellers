@@ -28,6 +28,9 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\LoggingDefaults.cs">
       <Link>LoggingDefaults.cs</Link>
     </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\TellQueue.cs">
+      <Link>TellQueue.cs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>
