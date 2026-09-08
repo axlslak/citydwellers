@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 24,
-  "last_completed_session": 23,
-  "status": "in_progress",
+  "last_completed_session": 24,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T18:22:35Z",
-  "transaction": "session-24-central-tell-queue",
-  "base_commit": "43fd340dc6885330dd14a4b31bae7d04d178c07f",
-  "task": "Create one Manager-coordinated outbound AO tell queue for all persistent City Dwellers and CityBankers clients, assigning messages to fresh idle senders without outrunning AO chat limits.",
-  "resume_instruction": "Recover session-24-central-tell-queue. Preserve message order and donor-facing markup, route every Manager/Banker outbound tell through IPC, register only live clients, exclude busy traders, use per-sender pacing and acknowledgements, and keep Flipper/Buddies excluded while they have no AO session. The journal was repaired from b6ef665 before this BEGIN because commit 43fd340 contained a truncated journal blob; code was unaffected."
+  "status_changed_utc": "2026-09-08T18:52:19Z",
+  "transaction": null,
+  "base_commit": "9f668c27ba5239936c7e6ba88ce11ac15682e78f",
+  "task": "Owner build boundary: compile Release, then validate ordered tell delivery, round-robin sender use, banker trade-busy exclusion, restart recovery, and Apcmanager-owned alt lookup replies in live AO.",
+  "resume_instruction": "Cursor is idle. The centralized tell queue is published. Kavey owns compilation and live AO validation. If a build or runtime error appears, begin a focused repair transaction from 9f668c27 and preserve the queue's ordered single-assignment and required-sender contracts."
 }
