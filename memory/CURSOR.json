@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 25,
+  "current_session": 26,
   "last_completed_session": 25,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T21:34:21Z",
-  "transaction": null,
-  "base_commit": "1511645cb7e1502af2fb52a16004dcbf8964a66d",
-  "task": "Owner build boundary: rebuild Release after the CityManager tell-queue Client namespace repair, then continue live tell-queue validation.",
-  "resume_instruction": "Cursor is idle. The CS0103 Client errors in CityManager.TellQueue.cs are repaired and published. Kavey owns the confirming Release build. Treat the remaining CS0649 and CS0618 messages in the supplied log as pre-existing warnings unless a later build reports a new error."
+  "status_changed_utc": "2026-09-08T22:25:45Z",
+  "transaction": "session-26-banker-data-cutover",
+  "base_commit": "ddab4bbf631346813513a150759026cb6d7e5f0a",
+  "task": "Curate the owner's old Banker settings archive into a clean data-root migration ZIP and verify every integrated Banker runtime path resolves beneath executable-adjacent data.",
+  "resume_instruction": "Recover session-26-banker-data-cutover. Preserve current accounting and physical custody files, discard old configuration/readiness/completed repair/transient diagnostic debris from the supplied archive, flatten retained state for extraction directly into release\\data, correct any data-layout inventory mismatch found by static audit, validate JSON/archive structure, publish code changes, and return the cursor idle. Do not commit the private archive."
 }
