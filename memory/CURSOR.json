@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 25,
-  "last_completed_session": 24,
-  "status": "in_progress",
+  "last_completed_session": 25,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T21:32:21Z",
-  "transaction": "session-25-tell-queue-client-import",
-  "base_commit": "298de31f9352bdc6c9151b10b0cc25959ea775af",
-  "task": "Repair the CityManager tell-queue build failure caused by the new partial source file not importing AOSharp.Clientless for the Client API.",
-  "resume_instruction": "Recover session-25-tell-queue-client-import. Add only the missing AOSharp.Clientless namespace import to CityManager.TellQueue.cs, preserve queue behavior, run static checks, publish, and return the cursor to idle. Kavey owns the confirming Release build."
+  "status_changed_utc": "2026-09-08T21:34:21Z",
+  "transaction": null,
+  "base_commit": "1511645cb7e1502af2fb52a16004dcbf8964a66d",
+  "task": "Owner build boundary: rebuild Release after the CityManager tell-queue Client namespace repair, then continue live tell-queue validation.",
+  "resume_instruction": "Cursor is idle. The CS0103 Client errors in CityManager.TellQueue.cs are repaired and published. Kavey owns the confirming Release build. Treat the remaining CS0649 and CS0618 messages in the supplied log as pre-existing warnings unless a later build reports a new error."
 }
