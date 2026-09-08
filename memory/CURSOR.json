@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 18,
-  "last_completed_session": 17,
-  "status": "in_progress",
+  "last_completed_session": 18,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T07:01:40Z",
+  "completed_utc": "2026-09-08T07:38:47Z",
   "transaction": "session-18-unified-windows-service-host",
-  "base_commit": "5d8a96d7b39d0ff58dc598f6ebfe1b25dc945eca",
-  "task": "Build one interactive/service host for Manager, Flipper, and Buddies with network and trustworthy-time readiness gating.",
-  "resume_instruction": "Recover session-18-unified-windows-service-host. Preserve the completed portable runtime layout. Inspect host entry points and AOSharp AppDomain/process constraints, then implement one supervised executable, Windows service lifecycle, installation support, and a bounded network/time readiness gate. Do not rely on mapped drives in the service account."
+  "base_commit": "a89f6f022653e97e2729fbf840a811718c562901",
+  "task": "Kavey builds Release and validates the unified portable runtime, Windows service lifecycle, network-share startup, and trusted-time gate; then provide the third job.",
+  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Sessions 17 and 18 published the portable runtime and unified CityDwellers.exe service host. Review Kavey's authoritative Release/service results before fixing any build or runtime defect, or begin a fresh transaction for the owner's third job."
 }
