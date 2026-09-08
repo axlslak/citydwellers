@@ -13,7 +13,12 @@ AOSharp or AOSharp.Clientless source checkout.
 
 Open `citydwellers.sln`, select the `Release` configuration, and build the
 solution. Visual Studio restores the pinned dependencies from NuGet before it
-compiles the projects. Output is written to `bin\Release`.
+compiles the projects. All six projects write into one portable runtime root:
+
+- `release` for a Release build;
+- `debug` for a Debug build.
+
+There is no intermediate `bin` directory in either path.
 
 From a Visual Studio Developer PowerShell, the equivalent command is:
 
@@ -37,36 +42,79 @@ including the city controller used by Flipper.
 When the Flipper project is built, a C# bootstrap command compiled into
 `Flipper.exe` automatically downloads the matching files from the pinned
 AOSharp.Clientless source revision, verifies their SHA-256 hashes, caches them
-under `.dependencies`, and copies them to `bin\Release\GameData`. The first
+under `.dependencies`, and copies them to the runtime `GameData` directory. The first
 build therefore requires access to GitLab. Later builds reuse the verified
-cache, including after `bin\Release` is cleaned. No PowerShell script or other
+cache, including after the runtime output is cleaned. No PowerShell script or other
 external helper is used.
 
-Both `.dependencies` and `bin\Release` are disposable. Deleting either is safe;
-the next build downloads or copies the files again as needed. No separate
-AOSharp.Clientless checkout or manual `GameData` copy is required.
+The build copies GameData to `release\GameData` or `debug\GameData`. The
+`.dependencies` cache and compiled/static files in the runtime root are
+reproducible. Do not delete the administrator JSON files or the `data`
+directory when cleaning a live runtime.
 
-## Settings
+## Portable runtime layout
 
-City Dwellers keeps credentials and persistent runtime state in the ignored
-`settings` directory at the repository root. Cleaning or replacing
-`bin\Release` therefore does not remove the bot configuration, administrator
-list, membership cache, cloak history, or raid state.
+The output directory is the complete City Dwellers runtime and is independent
+of the Git checkout after it has been built. It may be a normal directory or a
+Windows directory link to durable storage.
 
-On first run, Manager, Flipper, and Buddies create the `settings` directory and
-their respective configuration templates if they do not exist. Each program
+```text
+release\
+  Manager.exe
+  Flipper.exe
+  Buddies.exe
+  CityManager.dll
+  CityFlipper.dll
+  CityBuddies.dll
+  manager.json
+  flipper.json
+  buddies.json
+  GameData\
+  NavMeshes\
+  data\
+```
+
+The three JSON files beside the executables are administrator settings. They
+contain the information an administrator must supply for the services to work.
+Every cache, state file, database, generated list, request/result marker, log,
+diagnostic dump, and navigation trace created by City Dwellers lives under
+`data`.
+
+On first start from the new repository-relative output, City Dwellers
+conservatively imports an existing repository `settings` directory and mutable
+files from the old `bin\Release` or `bin\Debug` directory. It copies a file only
+when its new destination does not exist; it never deletes or overwrites the old
+installation. Once the new runtime is verified, the old directories are no
+longer used.
+
+For an interactive Windows account that already has `Y:` connected, the
+runtime directory can be redirected before building:
+
+```bat
+mklink /D release Y:\CityDwellers\release
+```
+
+Use `/D`, not `/J`, for a network target. Junctions are for local filesystem
+targets; directory symbolic links can target a mapped drive or UNC path. A
+Windows service should use a UNC-backed link and a service account that has
+share access because drive-letter mappings belong to an interactive logon and
+normally are not visible to services.
+
+## Settings and data
+
+On first run, Manager, Flipper, and Buddies create their respective
+configuration templates beside the executables if they do not exist. Each program
 prints the exact file to edit and waits for ENTER before exiting. Fill in the
 `user1`, `pass1`, and `char1` example values, then start the program again. The
 programs reject unchanged examples before attempting to log in.
 
-`cityflipper-cache.json` remains beside the Release executables because it is
-disposable cached observation data. It is safe to delete with `bin\Release` and
-should not be preserved in `settings`. The Flipper result, toggle-request, and
-buddy-ready files are also short-lived process-coordination files and remain in
-the disposable output directory.
+Examples of bot-owned files under `data` include `adminlist.json`,
+`banlist.json`, `memberlist.json`, `alts.json`, cloak and raid state,
+`cityflipper-cache.json`, process-coordination markers, diagnostic logs and
+dumps, and `NavigationTraces`.
 
 Plugin entries may be simple filenames because all Release assemblies share
-`bin\Release`:
+the same runtime root:
 
 ```json
 "Plugins": ["CityManager.dll"],
@@ -76,7 +124,7 @@ Plugin entries may be simple filenames because all Release assemblies share
 `Bot` belongs in `manager.json`. Set it to the character name of the bot that
 answers `alts <character>` tells, or leave it `null` to disable external alt
 lookups. Existing Manager configurations receive the missing optional field on
-their next start. Manager stores the last good answers in `settings\alts.json`,
+their next start. Manager stores the last good answers in `data\alts.json`,
 refreshes administrator identities after 24 hours, and keeps using the cache if
 the alt bot is unavailable.
 

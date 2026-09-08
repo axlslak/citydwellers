@@ -624,8 +624,30 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 ## Current task / next work
 
-Kavey builds and live-tests the organization-output resilience and restart
-change.
+`[IMPLEMENTED 2026-09-08]` The six legacy projects now emit into a single
+repository-relative `release` or `debug` runtime root; no project writes
+through a `bin` directory. Administrator configuration (`manager.json`,
+`flipper.json`, and `buddies.json`) is executable-adjacent. All bot-owned
+mutable state, caches, generated lists, process markers, diagnostics, and
+navigation traces are rooted beneath `data`.
+
+`[IMPLEMENTED 2026-09-08]` First start from the new repository-relative
+runtime conservatively copies the old repository `settings` content and loose
+mutable files from `bin\Release`/`bin\Debug`. Existing destinations win and
+legacy files are never deleted, so rollback remains possible.
+
+`[DECISION 2026-09-08]` The runtime root is portable and must not depend on a
+Git checkout after deployment. It may be redirected to durable storage with a
+Windows directory symbolic link. A future Windows service must not rely on an
+interactive user's mapped drive; its service identity needs direct access to
+the network location.
+
+`[OPEN]` Replace the three manually launched hosts with one City Dwellers
+executable that can run interactively or as a Windows service and explicitly
+waits for usable network/time readiness before starting AO clients.
+
+Earlier pending owner verification remains for the organization-output
+resilience and restart change:
 
 1. Start Manager normally and verify an org help or status reply uses the
    observed channel directly.

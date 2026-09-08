@@ -859,3 +859,37 @@ This transaction does not change the fixed 30-second cloak recovery retry
 policy. Console timestamps continue to include their explicit numeric local
 offset for correlation. Kavey owns build and live verification; no
 assistant-side build or AO runtime test was run.
+
+
+## 2026-09-08 — Portable runtime root and settings/data boundary
+
+Kavey needs City Dwellers to survive unreliable staging machines. Binaries,
+administrator configuration, and bot state therefore need one durable,
+relocatable runtime rather than a repository-bound `bin\Release` plus a
+separate repository `settings` directory.
+
+`[IMPLEMENTED]` Every executable and plugin project now emits directly into
+the repository-relative `release` or `debug` directory. The generic `bin`
+ignore was removed and explicit portable runtime paths remain ignored.
+
+`[DECISION]` The executable directory is the settings location.
+`manager.json`, `flipper.json`, and `buddies.json` are the only
+administrator-supplied settings files and remain beside the executables.
+Bot-owned mutable files now live beneath `data`, including lists, caches,
+cloak/raid/membership state, coordination markers, diagnostics, dumps, and
+navigation traces. `GameData` and `NavMeshes` remain static runtime assets.
+
+`[IMPLEMENTED]` A conservative first-run bridge copies the old repository
+`settings` content and mutable files from old `bin` outputs into the new
+layout. It never overwrites a new destination and never deletes legacy files.
+After migration, runtime path resolution uses only the executable directory
+and is independent of Git.
+
+`[OPERATIONAL]` Windows mapped drive letters are scoped to logon sessions and
+must not be assumed visible to a service. A network-backed service deployment
+needs a UNC-capable directory symbolic link and a service identity with share
+permissions; this constraint belongs to the upcoming unified-host/service
+design.
+
+No assistant-side build or AO runtime test was run. Kavey owns the Visual
+Studio Release build and migration verification.

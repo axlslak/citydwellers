@@ -50,9 +50,9 @@ namespace CityManager
         {
             lock (_membershipSync)
             {
-                _memberListPath = Path.Combine(_settingsDir, "memberlist.json");
+                _memberListPath = Path.Combine(_dataDir, "memberlist.json");
                 _membershipStatePath =
-                    Path.Combine(_settingsDir, "citymanager-membership-state.json");
+                    Path.Combine(_dataDir, "citymanager-membership-state.json");
                 _membershipShuttingDown = false;
                 _membershipFetchInFlight = false;
                 _nextMembershipTickUtc = DateTime.MinValue;

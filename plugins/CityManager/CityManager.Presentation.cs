@@ -770,7 +770,7 @@ namespace CityManager
             {
                 try
                 {
-                    string directory = Path.Combine(_settingsDir, "diagnostic-dumps");
+                    string directory = Path.Combine(_dataDir, "diagnostic-dumps");
                     Directory.CreateDirectory(directory);
                     string filename =
                         "apcmanager-dump-" +

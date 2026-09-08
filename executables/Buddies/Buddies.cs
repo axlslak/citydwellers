@@ -62,6 +62,7 @@ public class PluginLoader
 
     private static Config _config;
     private static string _baseDir;
+    private static string _dataDir;
     private static long _nextStartSequence;
     private static Timer _leaseTimer;
     private static volatile bool _stopping;
@@ -73,7 +74,10 @@ public class PluginLoader
         string settingsDirectory;
         string settingsError;
 
-        if (!SettingsPaths.TryEnsureDirectory(out settingsDirectory, out settingsError))
+        if (!SettingsPaths.TryEnsureDirectories(
+                out settingsDirectory,
+                out _dataDir,
+                out settingsError))
         {
             StopForConfiguration(settingsError);
             Environment.Exit(1);
@@ -1890,14 +1894,14 @@ public class PluginLoader
     private static string GetReadyPath(string character)
     {
         return Path.Combine(
-            _baseDir,
+            _dataDir,
             $"citybuddies-ready-{character}.ready");
     }
 
     private static string GetPositionPath(string character)
     {
         return Path.Combine(
-            _baseDir,
+            _dataDir,
             $"citybuddies-position-{character}.json");
     }
 
@@ -1958,7 +1962,7 @@ public class PluginLoader
     private static string GetHomeDirectivePath(string character)
     {
         return Path.Combine(
-            _baseDir,
+            _dataDir,
             $"citybuddies-home-{character}.json");
     }
 
@@ -2148,7 +2152,7 @@ public class PluginLoader
             string traceSuffix =
                 string.IsNullOrWhiteSpace(snapshot.NavigationTraceFile)
                     ? string.Empty
-                    : $" Trace: NavigationTraces\\{snapshot.NavigationTraceFile}";
+                    : $" Trace: data\\NavigationTraces\\{snapshot.NavigationTraceFile}";
             Console.WriteLine(
                 $"Home navigation {terminalState} for {candidate.Character}: " +
                 $"{detail ?? "no detail"}{traceSuffix}");

@@ -1,2674 +1,1 @@
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Globalization;
-using System.IO;
-using System.IO.Pipes;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using AOSharp.Clientless;
-using AOSharp.Clientless.Chat;
-using AOSharp.Clientless.Logging;
-using AOSharp.Common.GameData;
-using Newtonsoft.Json;
-using SmokeLounge.AOtomation.Messaging.GameData;
-using SmokeLounge.AOtomation.Messaging.Messages;
-using SmokeLounge.AOtomation.Messaging.Messages.ChatMessages;
-using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
-using CityDwellers.Shared;
-
-namespace CityManager
-{
-    public partial class CityManager : ClientlessPluginEntry
-    {
-        private const int ProvisionalCloakDownSeconds = 3600;
-        private const string FlipperPipeName = "citydwellers-flipper";
-        private const string BuddiesPipeName = "citydwellers-buddies";
-        private const int WorkerConnectTimeoutMs = 1000;
-        private const int BuddySnapshotFreshSeconds = 15;
-        private const int GuestLookupTimeoutMs = 5000;
-        private const string OrgChannelName = "Athen Paladins";
-        private const string CommandPrefix = "#";
-        private const string DeveloperCharacter = "Kavem";
-        private const int DiagnosticHistoryLimit = 500;
-        private const long DiagnosticLogRotateBytes = 2L * 1024L * 1024L;
-
-        private static readonly HashSet<string> PublicCommands =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "help",
-                "cloak",
-                "status",
-                "leave",
-                "join",
-                "alts",
-                "raid",
-                "raidassist",
-                "cancel"
-            };
-
-        private static readonly HashSet<string> AdminCommands =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                "invite",
-                "kick",
-                "wakeup",
-                "sleep",
-                "spinup",
-                "spindown",
-                "positions",
-                "home",
-                "recoverraid",
-                "adminlist",
-                "admin",
-                "memberlist",
-                "member",
-                "ban",
-                "unban",
-                "dump",
-                "restart"
-            };
-
-        private readonly object _stateSync = new object();
-        private readonly object _devSync = new object();
-        private readonly Queue<string> _diagnosticHistory = new Queue<string>();
-        private readonly Stopwatch _managerUptime = Stopwatch.StartNew();
-        private readonly DateTime _managerStartedUtc = DateTime.UtcNow;
-
-        private string _settingsDir;
-        private string _statePath;
-        private string _eventsPath;
-        private string _diagnosticLogPath;
-        private bool _charInPlay;
-
-        private readonly object _orgOutputSync = new object();
-        private object _lastOrgChannelId;
-        private string _lastOrgChannelName;
-        private DateTime? _lastOrgChannelObservedUtc;
-        private bool _orgOutboundDegraded;
-        private string _orgOutboundDetail = "not tested since startup";
-        private DateTime? _lastOrgOutboundAttemptUtc;
-
-        private bool _devInviteSent;
-        private bool _devChannelConfirmed;
-        private DateTime _nextDevLookupUtc = DateTime.MinValue;
-
-        private CloakStatus _status = CloakStatus.Unknown;
-        private int _shieldTimerInSeconds;
-        private DateTime? _lastObservedUtc;
-        private DateTime? _lastChangedUtc;
-        private DateTime? _canRaiseAtUtc;
-        private bool _raiseDueLogged;
-        private bool _raiseTimeIsProvisional;
-        private string _observationSource = "Unknown";
-
-        public override void Init(string pluginDir)
-        {
-            string settingsError;
-            if (!SettingsPaths.TryEnsureDirectory(out _settingsDir, out settingsError))
-            {
-                Logger.Error(settingsError);
-                return;
-            }
-
-            _statePath = Path.Combine(_settingsDir, "citymanager-cloak-state.json");
-            _eventsPath = Path.Combine(_settingsDir, "citymanager-cloak-events.jsonl");
-            _diagnosticLogPath = Path.Combine(_settingsDir, "citymanager-diagnostics.log");
-
-            Logger.Information($"CityManager initialized. Settings directory: {_settingsDir}");
-            AdminListStore.Initialize(_settingsDir);
-            BanListStore.Initialize(_settingsDir);
-            DevTrace(
-                $"ADMIN LIST initialized file=adminlist.json " +
-                $"count={AdminListStore.Snapshot().Count}.");
-            InitializeMembership();
-            InitializeAlts();
-            LoadState();
-            InitializeRaidCoordinator();
-            OrgRankAuthorizer.Initialize();
-            CityRaidAutomation.Initialize(
-                _status,
-                _lastObservedUtc,
-                _canRaiseAtUtc,
-                _observationSource,
-                ApplyCloakRecoveryObservation);
-            Client.MessageReceived += MessageReceived;
-        }
-
-        public override void Teardown()
-        {
-            try
-            {
-                Client.MessageReceived -= MessageReceived;
-                CityRaidAutomation.Shutdown();
-                OrgRankAuthorizer.Shutdown();
-                ShutdownRaidCoordinator();
-                ShutdownAlts();
-                ShutdownMembership();
-
-                if (Client.Chat != null)
-                {
-                    Client.Chat.PrivateMessageReceived -= HandlePrivateMessage;
-                    Client.Chat.GroupMessageReceived -= HandleGroupMessage;
-                    Client.Chat.PrivateGroupMessageReceived -= HandlePrivateGroupMessage;
-                }
-
-                Client.OnUpdate -= Tick;
-                SaveState();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"CityManager teardown error: {ex}");
-            }
-        }
-
-        private void MessageReceived(object sender, Message e)
-        {
-            try
-            {
-                if (e?.Body == null || e.Body.PacketType != PacketType.N3Message)
-                    return;
-
-                var n3Message = (N3Message)e.Body;
-
-                if (n3Message.N3MessageType == N3MessageType.AOTransportSignal)
-                {
-                    var signal = (AOTransportSignalMessage)e.Body;
-                    if (signal.Action == AOSignalAction.CloakInfo)
-                        HandleCloakInfo((CloakInfo)signal.TransportSignalMessage);
-                    return;
-                }
-
-                if (n3Message.N3MessageType == N3MessageType.CharInPlay)
-                {
-                    var charInPlay = (CharInPlayMessage)e.Body;
-                    if (charInPlay.Identity.Instance == Client.LocalDynelId)
-                        OnCharInPlay();
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"CityManager message error: {ex}");
-                DevTrace($"ERROR manager message: {ex.Message}");
-            }
-        }
-
-        private void OnCharInPlay()
-        {
-            if (_charInPlay)
-                return;
-
-            _charInPlay = true;
-            Logger.Information("CityManager is in play and observing cloak packets, tells, org chat, and guest private chat.");
-
-            BeginMembershipAfterInPlay();
-            BeginAltsAfterInPlay();
-
-            Client.Chat.PrivateMessageReceived += HandlePrivateMessage;
-            Client.Chat.GroupMessageReceived += HandleGroupMessage;
-            Client.Chat.PrivateGroupMessageReceived += HandlePrivateGroupMessage;
-            Client.OnUpdate += Tick;
-
-            DevTrace("MANAGER online. Dev telemetry initialized.");
-            ResumeRaidCoordinatorAfterInPlay();
-            _nextDevLookupUtc = DateTime.UtcNow;
-            TryInviteDeveloper();
-        }
-
-        private void HandlePrivateMessage(object sender, PrivateMessage msg)
-        {
-            try
-            {
-                if (msg == null || string.IsNullOrWhiteSpace(msg.Message))
-                    return;
-
-                if (TryHandleAltsBotTell(msg))
-                    return;
-
-                var stringIgnores = new List<string>
-                {
-                    "You have been auto-invited to the private channel.",
-                    "Unknown",
-                    "AnarchyOnline",
-                    "Reconnecting you to",
-                    "Darknet",
-                    "<"
-                };
-
-                if (stringIgnores.Any(i => msg.Message.Contains(i)))
-                    return;
-
-                string commandText;
-                if (!TryExtractTellCommand(msg.Message, out commandText))
-                {
-                    Logger.Information($"TELL CHAT {msg.SenderName}: {msg.Message}");
-                    return;
-                }
-
-                Logger.Information($"TELL COMMAND {msg.SenderName}: {msg.Message}");
-
-                ProcessCommand(
-                    msg.SenderName,
-                    commandText,
-                    ReplyTarget.ForTell(msg.SenderId));
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Error handling private message: {ex}");
-                DevTrace($"ERROR tell handler: {ex.Message}");
-            }
-        }
-
-        private void HandleGroupMessage(object sender, GroupMsg msg)
-        {
-            try
-            {
-                if (msg == null || string.IsNullOrWhiteSpace(msg.Message))
-                    return;
-
-                string cityMessage =
-                    CityExtendedMessageParser.DecodeOrOriginal(msg.Message);
-
-                if (!string.Equals(cityMessage, msg.Message, StringComparison.Ordinal))
-                    DevTrace($"CITY DECODED: {cityMessage}");
-
-                if (TryHandleCloakAnnouncement(msg, cityMessage))
-                    return;
-
-                if (!IsOrganizationChannel(msg.ChannelId, msg.ChannelName))
-                    return;
-
-                RememberOrganizationChannel(msg.ChannelId, msg.ChannelName);
-                ObserveAltPresenceAnnouncement(msg.SenderName, msg.Message);
-                ObserveOrganizationMembershipMessage(cityMessage);
-                ObserveRaidCityMessage(cityMessage, msg.ChannelId);
-
-                string text = msg.Message.TrimStart();
-                bool isCommand = text.StartsWith(CommandPrefix, StringComparison.Ordinal);
-
-                if (!isCommand)
-                {
-                    if (string.Equals(msg.SenderName, "<Unknown>", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(msg.SenderName, "Unknown", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Logger.Information(
-                            $"ORG SYSTEM [{msg.ChannelName}] {msg.SenderName}: {msg.Message}");
-                        DevTrace($"CITY RAW: {cityMessage}");
-                    }
-
-                    return;
-                }
-
-                Logger.Information(
-                    $"ORG COMMAND [{msg.ChannelName}] {msg.SenderName}: {msg.Message}");
-
-                string commandText = text.Substring(CommandPrefix.Length).TrimStart();
-
-                ProcessCommand(
-                    msg.SenderName,
-                    commandText,
-                    ReplyTarget.ForOrg(msg.SenderId, msg.ChannelId, msg.ChannelName));
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Error handling group message: {ex}");
-                DevTrace($"ERROR org handler: {ex.Message}");
-            }
-        }
-
-        private void HandlePrivateGroupMessage(object sender, PrivateGroupMsg msg)
-        {
-            try
-            {
-                if (msg == null || string.IsNullOrWhiteSpace(msg.Message) || Client.Chat == null)
-                    return;
-
-                if (msg.ChannelId != Client.Chat.CharId)
-                    return;
-
-                // AO echoes our own private-channel messages back to us. They are not commands.
-                if (msg.SenderId == Client.Chat.CharId)
-                    return;
-
-                // Any incoming guest-channel traffic proves the diagnostic channel
-                // is live. Confirm it without treating ordinary chatter as commands.
-                ConfirmDevChannel();
-
-                string text = msg.Message.TrimStart();
-                if (!text.StartsWith(CommandPrefix, StringComparison.Ordinal))
-                {
-                    Logger.Information($"GUEST CHAT {msg.SenderName}: {msg.Message}");
-                    return;
-                }
-
-                string commandText = text.Substring(CommandPrefix.Length).TrimStart();
-
-                if (string.IsNullOrWhiteSpace(commandText))
-                    return;
-
-                Logger.Information($"GUEST COMMAND {msg.SenderName}: {msg.Message}");
-
-                ProcessCommand(
-                    msg.SenderName,
-                    commandText,
-                    ReplyTarget.ForGuest(msg.SenderId, msg.ChannelId));
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Error handling private group message: {ex}");
-                DevTrace($"ERROR guest handler: {ex.Message}");
-            }
-        }
-
-        private bool TryHandleCloakAnnouncement(GroupMsg msg, string messageText)
-        {
-            const string cloakOffSuffix = " turned the cloaking device in your city off.";
-            const string cloakOnSuffix = " turned the cloaking device in your city on.";
-
-            if (messageText.EndsWith(cloakOffSuffix, StringComparison.OrdinalIgnoreCase))
-            {
-                string actor = messageText.Substring(0, messageText.Length - cloakOffSuffix.Length).Trim();
-                ObserveRaidCloakLowered(actor);
-                HandleCloakAnnouncement(CloakStatus.Disabled, actor, msg.ChannelName, msg.Message);
-                return true;
-            }
-
-            if (messageText.EndsWith(cloakOnSuffix, StringComparison.OrdinalIgnoreCase))
-            {
-                string actor = messageText.Substring(0, messageText.Length - cloakOnSuffix.Length).Trim();
-                HandleCloakAnnouncement(CloakStatus.Enabled, actor, msg.ChannelName, msg.Message);
-                return true;
-            }
-
-            return false;
-        }
-
-        private bool TryExtractTellCommand(string rawText, out string commandText)
-        {
-            commandText = null;
-
-            if (string.IsNullOrWhiteSpace(rawText))
-                return false;
-
-            string text = rawText.Trim();
-            if (text.StartsWith(CommandPrefix, StringComparison.Ordinal))
-            {
-                commandText = text.Substring(CommandPrefix.Length).TrimStart();
-                return !string.IsNullOrWhiteSpace(commandText);
-            }
-
-            string[] parts = text.Split(
-                new[] { ' ' },
-                StringSplitOptions.RemoveEmptyEntries);
-
-            if (parts.Length == 0)
-                return false;
-
-            string command = parts[0].ToLowerInvariant();
-            bool hasCommandShape =
-                ((command == "cloak" ||
-                  command == "status" ||
-                  command == "leave" ||
-                  command == "join" ||
-                  command == "adminlist" ||
-                  command == "memberlist" ||
-                  command == "positions" ||
-                  command == "dump" ||
-                  command == "restart") && parts.Length == 1) ||
-                (command == "help" && parts.Length <= 3) ||
-                (command == "home" &&
-                 (parts.Length == 1 || parts.Length == 2)) ||
-                (command == "alts" && HasTellAltsCommandShape(parts)) ||
-                (command == "raid" && HasTellRaidCommandShape(parts)) ||
-                (command == "raidassist" &&
-                 (parts.Length == 3 ||
-                  (parts.Length == 4 &&
-                   string.Equals(parts[1], "level", StringComparison.OrdinalIgnoreCase)))) ||
-                (command == "cancel" && (parts.Length == 1 || parts.Length == 2)) ||
-                (command == "recoverraid" && parts.Length == 5) ||
-                (command == "admin" && parts.Length == 3 &&
-                 (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
-                  IsRemoveVerb(parts[1]))) ||
-                (command == "member" && parts.Length == 3 &&
-                 (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
-                  IsRemoveVerb(parts[1]))) ||
-                ((command == "ban" || command == "unban") && parts.Length == 2) ||
-                ((command == "invite" ||
-                  command == "kick" ||
-                  command == "sleep" ||
-                  command == "spindown") && parts.Length == 2) ||
-                ((command == "wakeup" ||
-                  command == "spinup") && parts.Length == 3);
-
-            if (!hasCommandShape)
-                return false;
-
-            commandText = text;
-            return true;
-        }
-
-        private bool IsKnownCommand(string command)
-        {
-            return PublicCommands.Contains(command ?? string.Empty) ||
-                   AdminCommands.Contains(command ?? string.Empty);
-        }
-
-        private void ProcessCommand(string senderName, string rawCommand, ReplyTarget replyTarget)
-        {
-            if (string.IsNullOrWhiteSpace(rawCommand))
-                return;
-
-            string[] parts = rawCommand.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0)
-                return;
-
-            string command = parts[0].ToLowerInvariant();
-            DevTrace($"COMMAND {replyTarget.Kind} {senderName}: {rawCommand}");
-
-            bool isAdmin = IsAdministrator(senderName);
-
-            if (!isAdmin &&
-                !string.Equals(command, "leave", StringComparison.OrdinalIgnoreCase) &&
-                IsBanned(senderName))
-            {
-                DevTrace(
-                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: banned.");
-                Reply(replyTarget, "You are banned from this bot.");
-                return;
-            }
-
-            if (!IsCommandSourceAuthorized(
-                    senderName,
-                    command,
-                    parts,
-                    replyTarget,
-                    isAdmin))
-            {
-                DevTrace(
-                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: not a bot member.");
-                Reply(replyTarget, "You are not a member of this bot.");
-                return;
-            }
-
-            if (!IsKnownCommand(command))
-            {
-                DevTrace($"COMMAND UNKNOWN {replyTarget.Kind} {senderName}: {command}");
-                Reply(replyTarget, UnknownCommandMessage(replyTarget));
-                return;
-            }
-
-            if (string.Equals(command, "cloak", StringComparison.OrdinalIgnoreCase) &&
-                !isAdmin &&
-                !replyTarget.IsOrg &&
-                !replyTarget.IsGuest)
-            {
-                DevTrace(
-                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: cloak requires org or guest chat.");
-                Reply(replyTarget, "Use #cloak in organization or guest chat.");
-                return;
-            }
-
-            if (string.Equals(command, "raid", StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessRaidCommand(senderName, parts, replyTarget, isAdmin);
-                return;
-            }
-
-            if (string.Equals(command, "raidassist", StringComparison.OrdinalIgnoreCase))
-            {
-                ProcessRaidAssistCommand(senderName, parts, replyTarget, isAdmin);
-                return;
-            }
-
-            if (AdminCommands.Contains(command) && !isAdmin)
-            {
-                Logger.Warning(
-                    $"Ignoring admin command '{command}' from unauthorized sender {senderName}.");
-                DevTrace(
-                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: {command} is admin-only.");
-                Reply(replyTarget, "You are not authorized to use that command.");
-                return;
-            }
-
-            switch (command)
-            {
-                case "help":
-                    ProcessHelpCommand(parts, replyTarget, isAdmin);
-                    break;
-
-                case "cloak":
-                    BeginFlipperProbe(replyTarget);
-                    break;
-
-                case "status":
-                    BeginServiceStatus(replyTarget);
-                    break;
-
-                case "alts":
-                    ProcessAltsCommand(senderName, parts, replyTarget, isAdmin);
-                    break;
-
-                case "leave":
-                    if (parts.Length != 1)
-                    {
-                        Reply(replyTarget, Usage(replyTarget, "leave"));
-                        break;
-                    }
-
-                    LeaveGuestChannel(senderName, replyTarget);
-                    break;
-
-                case "join":
-                    if (parts.Length != 1)
-                    {
-                        Reply(replyTarget, Usage(replyTarget, "join"));
-                        break;
-                    }
-
-                    JoinGuestChannel(senderName, replyTarget);
-                    break;
-
-                case "invite":
-                {
-                    if (parts.Length != 2)
-                    {
-                        Reply(replyTarget, Usage(replyTarget, "invite [character]"));
-                        break;
-                    }
-
-                    BeginGuestChannelAction(replyTarget, parts[1], false);
-                    break;
-                }
-
-                case "kick":
-                {
-                    if (parts.Length != 2)
-                    {
-                        Reply(replyTarget, Usage(replyTarget, "kick [character]"));
-                        break;
-                    }
-
-                    BeginGuestChannelAction(replyTarget, parts[1], true);
-                    break;
-                }
-
-                case "wakeup":
-                {
-                    int level;
-                    int index;
-                    if (parts.Length != 3 ||
-                        !int.TryParse(parts[1], out level) ||
-                        !int.TryParse(parts[2], out index))
-                    {
-                        Reply(replyTarget, Usage(replyTarget, "wakeup [level] [index]"));
-                        break;
-                    }
-
-                    BeginBuddiesCommand(replyTarget, "wakeup", level, index);
-                    break;
-                }
-
-                case "sleep":
-                {
-                    int index;
-                    if (parts.Length != 2 || !int.TryParse(parts[1], out index))
-                    {
-                        Reply(replyTarget, Usage(replyTarget, "sleep [index]"));
-                        break;
-                    }
-
-                    BeginBuddiesCommand(replyTarget, "sleep", null, index);
-                    break;
-                }
-
-                case "spinup":
-                {
-                    int level;
-                    int count;
-                    if (parts.Length != 3 ||
-                        !int.TryParse(parts[1], out level) ||
-                        !int.TryParse(parts[2], out count) ||
-                        level <= 0 ||
-                        count <= 0)
-                    {
-                        Reply(replyTarget, Usage(replyTarget, "spinup [level] [count]"));
-                        break;
-                    }
-
-                    BeginBuddiesCommand(replyTarget, "spinup", level, count);
-                    break;
-                }
-
-                case "spindown":
-                {
-                    int count;
-                    if (parts.Length != 2 ||
-                        !int.TryParse(parts[1], out count) ||
-                        count <= 0)
-                    {
-                        Reply(replyTarget, Usage(replyTarget, "spindown [count]"));
-                        break;
-                    }
-
-                    BeginBuddiesCommand(replyTarget, "spindown", null, count);
-                    break;
-                }
-
-                case "positions":
-                    if (parts.Length != 1)
-                    {
-                        Reply(replyTarget, Usage(replyTarget, "positions"));
-                        break;
-                    }
-
-                    BeginBuddyPositions(replyTarget);
-                    break;
-
-                case "home":
-                {
-                    if (parts.Length > 2)
-                    {
-                        Reply(replyTarget, Usage(replyTarget, "home [level|all|status]"));
-                        break;
-                    }
-
-                    if (parts.Length == 2 &&
-                        string.Equals(parts[1], "status", StringComparison.OrdinalIgnoreCase))
-                    {
-                        BeginHomeCommand(replyTarget, null, true);
-                        break;
-                    }
-
-                    int? homeLevel = null;
-                    if (parts.Length == 2 &&
-                        !string.Equals(parts[1], "all", StringComparison.OrdinalIgnoreCase))
-                    {
-                        int parsedLevel;
-                        if (!int.TryParse(parts[1], out parsedLevel))
-                        {
-                            Reply(replyTarget, Usage(replyTarget, "home [level|all|status]"));
-                            break;
-                        }
-
-                        homeLevel = parsedLevel;
-                    }
-
-                    BeginHomeCommand(replyTarget, homeLevel, false);
-                    break;
-                }
-
-                case "cancel":
-                    ProcessRaidCancel(senderName, parts, replyTarget, isAdmin);
-                    break;
-
-                case "recoverraid":
-                    ProcessRaidRecovery(senderName, parts, replyTarget);
-                    break;
-
-                case "adminlist":
-                    ProcessAdminListCommand(senderName, parts, replyTarget);
-                    break;
-
-                case "admin":
-                    ProcessAdminCommand(senderName, parts, replyTarget);
-                    break;
-
-                case "memberlist":
-                    ProcessMemberListCommand(senderName, parts, replyTarget);
-                    break;
-
-                case "member":
-                    ProcessMemberCommand(senderName, parts, replyTarget);
-                    break;
-
-                case "ban":
-                    ProcessBanCommand(senderName, parts, replyTarget, false);
-                    break;
-
-                case "unban":
-                    ProcessBanCommand(senderName, parts, replyTarget, true);
-                    break;
-
-                case "dump":
-                    BeginDiagnosticDump(senderName, parts, replyTarget);
-                    break;
-
-                case "restart":
-                    BeginManagerRestart(senderName, parts, replyTarget);
-                    break;
-            }
-        }
-
-        private string UnknownCommandMessage(ReplyTarget target)
-        {
-            return target.RequiresPrefix
-                ? "No such command. Try #help."
-                : "No such command. Try help.";
-        }
-
-        private string Usage(ReplyTarget target, string syntax)
-        {
-            return $"Usage: {(target.RequiresPrefix ? CommandPrefix : string.Empty)}{syntax}";
-        }
-
-        private void BeginFlipperProbe(ReplyTarget target)
-        {
-            if (TryReplyRaidFlipperReservation(target))
-                return;
-
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                try
-                {
-                    // A cloak query can be queued just before raid-start CT
-                    // handling begins. Recheck here so that it cannot take the
-                    // one Flipper login away from the raid-start operation.
-                    if (TryReplyRaidFlipperReservation(target))
-                        return;
-
-                    var request = new WorkerRequest
-                    {
-                        Id = Guid.NewGuid().ToString("N"),
-                        Command = "observe"
-                    };
-
-                    string shortId = ShortId(request.Id);
-                    Logger.Information($"IPC -> Flipper {request.Id}: observe");
-                    DevTrace($"FLIPPER -> observe [{shortId}]");
-
-                    WorkerResponse response = SendWorkerRequest(
-                        FlipperPipeName,
-                        request,
-                        WorkerConnectTimeoutMs);
-
-                    if (!response.Ok)
-                    {
-                        Logger.Warning($"IPC <- Flipper {request.Id}: FAIL {response.Message}");
-                        DevTrace($"FLIPPER FAIL [{shortId}]: {response.Message}");
-
-                        Reply(target, CloakPresentation.Unavailable());
-
-                        return;
-                    }
-
-                    if (response.ObservedUtc.HasValue &&
-                        UtcTimestamp.IsFuture(
-                            response.ObservedUtc.Value,
-                            DateTime.UtcNow))
-                    {
-                        string invalidTime =
-                            UtcTimestamp.Normalize(response.ObservedUtc.Value).ToString("O");
-                        Logger.Warning(
-                            $"IPC <- Flipper {request.Id}: rejected future " +
-                            $"observation {invalidTime}.");
-                        DevTrace(
-                            $"FLIPPER FAIL [{shortId}]: rejected future-dated " +
-                            $"cache observation {invalidTime}.");
-                        Reply(target, CloakPresentation.Unavailable());
-                        return;
-                    }
-
-                    ApplyFlipperObservation(response);
-
-                    string reply = CloakPresentation.Build(
-                        response.CloakState,
-                        response.ShieldTimerInSeconds,
-                        response.ControllerCharge,
-                        response.Cached,
-                        response.ObservedUtc);
-
-                    string chargeText = response.ControllerCharge.HasValue
-                        ? $"{response.ControllerCharge.Value * 100:F1}%"
-                        : "unknown";
-                    string rawTimerText = response.ShieldTimerInSeconds.HasValue
-                        ? $"{response.ShieldTimerInSeconds.Value}s"
-                        : "unknown";
-                    string sourceText = response.Cached
-                        ? $"cache observed={response.ObservedUtc:O}"
-                        : "fresh";
-
-                    string diagnosticReply =
-                        $"Cloak = {response.CloakState ?? "Unknown"}. " +
-                        $"Raw shield timer = {rawTimerText}. Charge = {chargeText}. Source = {sourceText}.";
-
-                    Logger.Information($"IPC <- Flipper {request.Id}: {diagnosticReply}");
-                    DevTrace($"FLIPPER OK [{shortId}]: {diagnosticReply}");
-
-                    Reply(target, reply);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"Flipper IPC failed: {ex.Message}");
-                    DevTrace($"FLIPPER ERROR: {ex.Message}");
-
-                    Reply(target, CloakPresentation.Unavailable());
-                }
-            });
-        }
-
-        private string BuildCloakStatusSummary()
-        {
-            lock (_stateSync)
-            {
-                string source = string.IsNullOrWhiteSpace(_observationSource)
-                    ? "Unknown"
-                    : _observationSource;
-                string observed = _lastObservedUtc.HasValue
-                    ? $", observed {FormatDuration(DateTime.UtcNow - _lastObservedUtc.Value)} ago"
-                    : string.Empty;
-
-                if (_status == CloakStatus.Disabled && _canRaiseAtUtc.HasValue)
-                {
-                    string due = _canRaiseAtUtc.Value > DateTime.UtcNow
-                        ? $", enable due in {FormatDuration(_canRaiseAtUtc.Value - DateTime.UtcNow)}"
-                        : ", enable is due";
-
-                    return $"Cloak = Disabled via {source}{observed}{due}";
-                }
-
-                return $"Cloak = {_status} via {source}{observed}";
-            }
-        }
-
-        private WorkerLinkStatus PingWorker(string workerName, string pipeName)
-        {
-            var request = new WorkerRequest
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                Command = "ping"
-            };
-
-            try
-            {
-                Logger.Information($"IPC -> {workerName} {request.Id}: ping");
-
-                WorkerResponse response = SendWorkerRequest(
-                    pipeName,
-                    request,
-                    WorkerConnectTimeoutMs);
-
-                if (!string.Equals(response.Id, request.Id, StringComparison.Ordinal))
-                {
-                    return WorkerLinkStatus.Unusable(
-                        $"response id mismatch ({response.Id ?? "missing"})");
-                }
-
-                if (!response.Ok)
-                    return WorkerLinkStatus.Unusable(response.Message ?? "ping failed");
-
-                return WorkerLinkStatus.Usable(response.Message ?? "ping succeeded");
-            }
-            catch (Exception ex)
-            {
-                return WorkerLinkStatus.Unusable(ex.Message);
-            }
-        }
-
-        private void BeginBuddiesCommand(ReplyTarget target, string command, int? level, int index)
-        {
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                try
-                {
-                    var request = new WorkerRequest
-                    {
-                        Id = Guid.NewGuid().ToString("N"),
-                        Command = command,
-                        Level = level,
-                        Index = index,
-                        Purpose =
-                            string.Equals(command, "wakeup", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(command, "spinup", StringComparison.OrdinalIgnoreCase)
-                                ? "demo"
-                                : null,
-                        LeaseSeconds =
-                            string.Equals(command, "wakeup", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(command, "spinup", StringComparison.OrdinalIgnoreCase)
-                                ? GeneralBuddySafetyLeaseSeconds
-                                : (int?)null
-                    };
-
-                    bool usesCount =
-                        string.Equals(command, "spinup", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(command, "spindown", StringComparison.OrdinalIgnoreCase);
-
-                    string quantity = usesCount
-                        ? $"count={index}"
-                        : $"index={index}";
-
-                    string shortId = ShortId(request.Id);
-                    Logger.Information(
-                        $"IPC -> Buddies {request.Id}: {command} level={level} {quantity}");
-
-                    DevTrace(
-                        level.HasValue
-                            ? $"BUDDIES -> {command} level={level.Value} {quantity} " +
-                              $"purpose={request.Purpose ?? "manual"} " +
-                              $"lease={request.LeaseSeconds?.ToString() ?? "none"}s [{shortId}]"
-                            : $"BUDDIES -> {command} {quantity} [{shortId}]");
-
-                    WorkerResponse response = SendWorkerRequest(
-                        BuddiesPipeName,
-                        request,
-                        WorkerConnectTimeoutMs);
-
-                    Logger.Information(
-                        $"IPC <- Buddies {request.Id}: {(response.Ok ? "OK" : "FAIL")} {response.Message}");
-
-                    DevTrace(
-                        $"BUDDIES {(response.Ok ? "OK" : "FAIL")} [{shortId}]: {response.Message}");
-
-                    Reply(target, response.Ok
-                        ? $"Buddies: {response.Message}"
-                        : $"Buddies failed: {response.Message}");
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"Buddies IPC failed: {ex.Message}");
-                    DevTrace($"BUDDIES ERROR: {ex.Message}");
-
-                    Reply(target, $"Buddies service unavailable: {ex.Message}");
-                }
-            });
-        }
-
-        private void BeginBuddyPositions(ReplyTarget target)
-        {
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                var request = new WorkerRequest
-                {
-                    Id = Guid.NewGuid().ToString("N"),
-                    Command = "positions"
-                };
-
-                string shortId = ShortId(request.Id);
-
-                try
-                {
-                    DevTrace($"BUDDY POSITIONS -> snapshot [{shortId}]");
-
-                    WorkerResponse response = SendWorkerRequest(
-                        BuddiesPipeName,
-                        request,
-                        WorkerConnectTimeoutMs);
-
-                    if (!string.Equals(response.Id, request.Id, StringComparison.Ordinal))
-                    {
-                        throw new IOException(
-                            $"Buddies response id mismatch ({response.Id ?? "missing"}).");
-                    }
-
-                    if (!response.Ok)
-                    {
-                        DevTrace(
-                            $"BUDDY POSITIONS FAIL [{shortId}]: {response.Message}");
-                        Reply(
-                            target,
-                            $"Buddies position check failed: {response.Message ?? "unknown error"}");
-                        return;
-                    }
-
-                    List<BuddyPositionSnapshot> positions =
-                        response.Positions == null
-                            ? new List<BuddyPositionSnapshot>()
-                            : response.Positions
-                                .Where(position => position != null)
-                                .ToList();
-                    DateTime now = DateTime.UtcNow;
-                    int reporting = positions.Count(position => HasPositionReport(position));
-                    int fresh = positions.Count(position => IsFreshPositionReport(position, now));
-                    int inPlay = positions.Count(position => position.InPlay);
-                    int dead = positions.Count(position => position.Dead);
-
-                    DevTrace(
-                        $"BUDDY POSITIONS OK [{shortId}]: active={positions.Count} " +
-                        $"reporting={reporting} fresh={fresh} inplay={inPlay} dead={dead}.");
-                    RecordBuddyPositionsForDump(positions, now);
-
-                    string window = BuildBuddyPositionWindow(positions, now);
-                    Reply(
-                        target,
-                        $"Buddy positions: {positions.Count} active, {reporting} reporting, " +
-                        $"{inPlay} in play, {dead} dead. {window}");
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"Buddies position IPC failed: {ex.Message}");
-                    DevTrace($"BUDDY POSITIONS ERROR [{shortId}]: {ex.Message}");
-                    Reply(target, $"Buddies position check unavailable: {ex.Message}");
-                }
-            });
-        }
-
-        private void BeginHomeCommand(
-            ReplyTarget target,
-            int? level,
-            bool statusOnly)
-        {
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                var request = new WorkerRequest
-                {
-                    Id = Guid.NewGuid().ToString("N"),
-                    Command = statusOnly ? "homestatus" : "home",
-                    Level = level
-                };
-
-                string shortId = ShortId(request.Id);
-
-                try
-                {
-                    DevTrace(
-                        statusOnly
-                            ? $"BUDDY HOME -> status [{shortId}]"
-                            : $"BUDDY HOME -> level=" +
-                              $"{(level.HasValue ? level.Value.ToString() : "all")} " +
-                              $"[{shortId}]");
-
-                    WorkerResponse response = SendWorkerRequest(
-                        BuddiesPipeName,
-                        request,
-                        WorkerConnectTimeoutMs);
-
-                    DevTrace(
-                        $"BUDDY HOME {(response.Ok ? "OK" : "FAIL")} " +
-                        $"[{shortId}]: {response.Message}");
-                    Reply(
-                        target,
-                        response.Ok
-                            ? $"Buddies: {response.Message}"
-                            : $"Buddies failed: {response.Message}");
-
-                    if (!statusOnly &&
-                        response.Ok &&
-                        !string.IsNullOrWhiteSpace(response.HomeJobId))
-                    {
-                        string homeJobId = response.HomeJobId;
-                        ThreadPool.QueueUserWorkItem(
-                            __ => MonitorHomeCompletion(target, homeJobId));
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"Buddies home IPC failed: {ex.Message}");
-                    DevTrace($"BUDDY HOME ERROR [{shortId}]: {ex.Message}");
-                    Reply(target, $"Buddies home service unavailable: {ex.Message}");
-                }
-            });
-        }
-
-        private void MonitorHomeCompletion(ReplyTarget target, string homeJobId)
-        {
-            var timeout = Stopwatch.StartNew();
-            int consecutiveFailures = 0;
-
-            while (timeout.Elapsed < TimeSpan.FromHours(2))
-            {
-                Thread.Sleep(5000);
-
-                var request = new WorkerRequest
-                {
-                    Id = Guid.NewGuid().ToString("N"),
-                    Command = "homestatus"
-                };
-
-                try
-                {
-                    WorkerResponse response = SendWorkerRequest(
-                        BuddiesPipeName,
-                        request,
-                        WorkerConnectTimeoutMs);
-                    consecutiveFailures = 0;
-
-                    if (!response.Ok)
-                        continue;
-
-                    if (!string.Equals(
-                            response.HomeJobId,
-                            homeJobId,
-                            StringComparison.Ordinal))
-                    {
-                        Reply(
-                            target,
-                            "Buddies home reporting changed to another job; " +
-                            "use #home status for the current result.");
-                        return;
-                    }
-
-                    if (response.HomeRunning)
-                        continue;
-
-                    DevTrace(
-                        $"BUDDY HOME COMPLETE [{ShortId(homeJobId)}]: " +
-                        response.Message);
-                    Reply(target, "Buddies: " + response.Message);
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    consecutiveFailures++;
-                    if (consecutiveFailures < 3)
-                        continue;
-
-                    DevTrace(
-                        $"BUDDY HOME MONITOR ERROR [{ShortId(homeJobId)}]: " +
-                        ex.Message);
-                    Reply(
-                        target,
-                        "Buddies home completion reporting became unavailable; " +
-                        "use #home status to check it later.");
-                    return;
-                }
-            }
-
-            Reply(
-                target,
-                "Buddies home completion reporting timed out; " +
-                "use #home status for the retained result.");
-        }
-
-        private string BuildBuddyPositionWindow(
-            IList<BuddyPositionSnapshot> positions,
-            DateTime now)
-        {
-            var body = new StringBuilder();
-            body.Append("<font color='#89D2E8'>City Dwellers Positions</font>\n\n");
-
-            if (positions.Count == 0)
-            {
-                body.Append("No City Dwellers-owned buddies are active.\n");
-            }
-            else
-            {
-                foreach (BuddyPositionSnapshot position in positions)
-                {
-                    bool reported = HasPositionReport(position);
-                    bool fresh = IsFreshPositionReport(position, now);
-                    string color = position.Dead
-                        ? "#FF5050"
-                        : reported && fresh && position.InPlay
-                            ? "#00DE42"
-                            : "#F79410";
-                    string age = reported
-                        ? FormatSnapshotAge(position, now)
-                        : "never";
-
-                    body.Append(
-                        $"<font color='{color}'>{SafeRaidText(position.Character ?? "unknown")}</font> " +
-                        $"(level {position.Level?.ToString() ?? "?"}, index {position.Index?.ToString() ?? "?"})\n");
-                    body.Append(
-                        $"  state: {(position.InPlay ? "in play" : "not in play")}, " +
-                        $"dead: {(position.Dead ? "yes" : "no")}, observed: {age}\n");
-                    body.Append(
-                        $"  playfield: {position.PlayfieldId?.ToString() ?? "?"} " +
-                        $"{SafeRaidText(position.PlayfieldName ?? "unknown")}\n");
-                    body.Append($"  position: {FormatPosition(position)}\n");
-                    body.Append($"  heading: {FormatHeading(position)}\n");
-                    body.Append(
-                        $"  health: {position.Health?.ToString() ?? "?"}/" +
-                        $"{position.MaxHealth?.ToString() ?? "?"}\n");
-                    body.Append(
-                        $"  run speed: {position.RunSpeed?.ToString() ?? "?"}\n");
-
-                    if (!string.IsNullOrWhiteSpace(position.NavigationTraceFile))
-                    {
-                        body.Append(
-                            $"  navigation trace: " +
-                            $"{SafeRaidText(position.NavigationTraceFile)} " +
-                            $"(event {position.NavigationTraceSequence?.ToString() ?? "?"})\n");
-                    }
-
-                    string lastMovementCommand = SafeRaidText(
-                        FormatMovementRecord(
-                            position.LastMovementCommandAction,
-                            position.LastMovementCommandUtc,
-                            position.LastMovementCommandX,
-                            position.LastMovementCommandY,
-                            position.LastMovementCommandZ,
-                            null,
-                            now));
-                    string lastMovementEcho = SafeRaidText(
-                        FormatMovementRecord(
-                            position.LastMovementObservationAction,
-                            position.LastMovementObservationUtc,
-                            position.LastMovementObservationX,
-                            position.LastMovementObservationY,
-                            position.LastMovementObservationZ,
-                            position.LastMovementObservationDeltaTime,
-                            now));
-                    body.Append(
-                        $"  last movement command: {lastMovementCommand}\n");
-                    body.Append(
-                        $"  last movement echo: {lastMovementEcho}\n");
-
-                    if (!string.IsNullOrWhiteSpace(position.HomeState))
-                    {
-                        body.Append(
-                            $"  home: {SafeRaidText(position.HomeState)}" +
-                            (position.HomeDistance.HasValue
-                                ? $", distance: {position.HomeDistance.Value:F2}m"
-                                : string.Empty) +
-                            "\n");
-
-                        if (!string.IsNullOrWhiteSpace(position.HomeDetail))
-                            body.Append(
-                                $"  home detail: {SafeRaidText(position.HomeDetail)}\n");
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(position.Error))
-                        body.Append($"  error: {SafeRaidText(position.Error)}\n");
-
-                    body.Append("\n");
-                }
-            }
-
-            body.Append(
-                "Position reports are observational unless an administrator or " +
-                "raid preparation started a home job.");
-            return $"<a href=\"text://{body}\">Click here to open window</a>";
-        }
-
-        private void RecordBuddyPositionsForDump(
-            IList<BuddyPositionSnapshot> positions,
-            DateTime now)
-        {
-            for (int index = 0; index < positions.Count; index++)
-            {
-                RecordDiagnostic(
-                    "BUDDY POSITION SNAPSHOT: " +
-                    BuildBuddyPositionTelemetry(positions[index], now));
-            }
-        }
-
-        private string BuildBuddyPositionTelemetry(
-            BuddyPositionSnapshot position,
-            DateTime now)
-        {
-            string age = HasPositionReport(position)
-                ? FormatSnapshotAgeSeconds(position, now)
-                : "unknown";
-            string error = string.IsNullOrWhiteSpace(position.Error)
-                ? "none"
-                : position.Error.Replace("|", "/").Replace("\r", " ").Replace("\n", " ");
-            string homeDetail = string.IsNullOrWhiteSpace(position.HomeDetail)
-                ? "none"
-                : position.HomeDetail.Replace("|", "/").Replace("\r", " ").Replace("\n", " ");
-            string lastMovementCommand = FormatMovementRecord(
-                position.LastMovementCommandAction,
-                position.LastMovementCommandUtc,
-                position.LastMovementCommandX,
-                position.LastMovementCommandY,
-                position.LastMovementCommandZ,
-                null,
-                now);
-            string lastMovementEcho = FormatMovementRecord(
-                position.LastMovementObservationAction,
-                position.LastMovementObservationUtc,
-                position.LastMovementObservationX,
-                position.LastMovementObservationY,
-                position.LastMovementObservationZ,
-                position.LastMovementObservationDeltaTime,
-                now);
-
-            return
-                $"{position.Character ?? "unknown"} level={position.Level?.ToString() ?? "?"} " +
-                $"index={position.Index?.ToString() ?? "?"} inplay={position.InPlay} " +
-                $"dead={position.Dead} pf={position.PlayfieldId?.ToString() ?? "?"} " +
-                $"name='{position.PlayfieldName ?? "unknown"}' pos={FormatPosition(position)} " +
-                $"heading={FormatHeading(position)} hp={position.Health?.ToString() ?? "?"}/" +
-                $"{position.MaxHealth?.ToString() ?? "?"} " +
-                $"runSpeed={position.RunSpeed?.ToString() ?? "?"} age={age} " +
-                $"home={position.HomeState ?? "none"} " +
-                $"homeDistance={(position.HomeDistance.HasValue ? position.HomeDistance.Value.ToString("0.00", CultureInfo.InvariantCulture) : "?")} " +
-                $"trace='{position.NavigationTraceFile ?? "none"}' " +
-                $"traceSeq={position.NavigationTraceSequence?.ToString() ?? "?"} " +
-                $"cmd='{lastMovementCommand}' " +
-                $"echo='{lastMovementEcho}' " +
-                $"homeDetail='{homeDetail}' error='{error}'";
-        }
-
-        private static string FormatMovementRecord(
-            string action,
-            DateTime? utc,
-            float? x,
-            float? y,
-            float? z,
-            int? packetDeltaTime,
-            DateTime now)
-        {
-            if (string.IsNullOrWhiteSpace(action))
-                return "none";
-
-            string age = utc.HasValue
-                ? FormatObservedAgeMilliseconds(utc.Value, now)
-                : "?";
-            string delta = packetDeltaTime.HasValue
-                ? $" dt={packetDeltaTime.Value}"
-                : string.Empty;
-            return
-                $"{action}@{FormatVector3(x, y, z)} age={age}{delta}";
-        }
-
-        private static string FormatVector3(float? x, float? y, float? z)
-        {
-            return x.HasValue && y.HasValue && z.HasValue
-                ? $"({FormatCoordinate(x)},{FormatCoordinate(y)},{FormatCoordinate(z)})"
-                : "unknown";
-        }
-
-        private static bool HasPositionReport(BuddyPositionSnapshot position)
-        {
-            return position != null && position.ObservedUtc != default(DateTime);
-        }
-
-        private static bool IsFreshPositionReport(
-            BuddyPositionSnapshot position,
-            DateTime now)
-        {
-            TimeSpan age;
-            return HasPositionReport(position) &&
-                   UtcTimestamp.TryGetAge(
-                       position.ObservedUtc,
-                       now,
-                       out age) &&
-                   age <= TimeSpan.FromSeconds(BuddySnapshotFreshSeconds);
-        }
-
-        private string FormatSnapshotAge(
-            BuddyPositionSnapshot position,
-            DateTime now)
-        {
-            TimeSpan age;
-            return UtcTimestamp.TryGetAge(
-                       position.ObservedUtc,
-                       now,
-                       out age)
-                ? FormatDuration(age) + " ago"
-                : "invalid future timestamp";
-        }
-
-        private static string FormatSnapshotAgeSeconds(
-            BuddyPositionSnapshot position,
-            DateTime now)
-        {
-            TimeSpan age;
-            if (!UtcTimestamp.TryGetAge(
-                    position.ObservedUtc,
-                    now,
-                    out age))
-            {
-                return "invalid-future";
-            }
-
-            return ((int)Math.Min(
-                int.MaxValue,
-                age.TotalSeconds)).ToString() + "s";
-        }
-
-        private static string FormatObservedAgeMilliseconds(
-            DateTime observedUtc,
-            DateTime nowUtc)
-        {
-            TimeSpan age;
-            if (!UtcTimestamp.TryGetAge(observedUtc, nowUtc, out age))
-                return "invalid-future";
-
-            return ((int)Math.Min(
-                int.MaxValue,
-                age.TotalMilliseconds)).ToString() + "ms";
-        }
-
-        private static string FormatPosition(BuddyPositionSnapshot position)
-        {
-            return position != null &&
-                   position.PositionAvailable &&
-                   position.PositionX.HasValue &&
-                   position.PositionY.HasValue &&
-                   position.PositionZ.HasValue
-                ? $"({FormatCoordinate(position.PositionX)}," +
-                  $"{FormatCoordinate(position.PositionY)}," +
-                  $"{FormatCoordinate(position.PositionZ)})"
-                : "unknown";
-        }
-
-        private static string FormatHeading(BuddyPositionSnapshot position)
-        {
-            return position != null &&
-                   position.HeadingAvailable &&
-                   position.HeadingX.HasValue &&
-                   position.HeadingY.HasValue &&
-                   position.HeadingZ.HasValue &&
-                   position.HeadingW.HasValue
-                ? $"({FormatCoordinate(position.HeadingX)}," +
-                  $"{FormatCoordinate(position.HeadingY)}," +
-                  $"{FormatCoordinate(position.HeadingZ)}," +
-                  $"{FormatCoordinate(position.HeadingW)})"
-                : "unknown";
-        }
-
-        private static string FormatCoordinate(float? value)
-        {
-            return value.HasValue
-                ? value.Value.ToString("0.000", CultureInfo.InvariantCulture)
-                : "?";
-        }
-
-        private WorkerResponse SendWorkerRequest(string pipeName, WorkerRequest request, int connectTimeoutMs)
-        {
-            using (var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.None))
-            {
-                pipe.Connect(connectTimeoutMs);
-
-                var reader = new StreamReader(pipe);
-                var writer = new StreamWriter(pipe) { AutoFlush = true };
-
-                writer.WriteLine(JsonConvert.SerializeObject(request));
-                string line = reader.ReadLine();
-
-                if (string.IsNullOrWhiteSpace(line))
-                    throw new IOException($"Worker '{pipeName}' closed without a response.");
-
-                WorkerResponse response = JsonConvert.DeserializeObject<WorkerResponse>(line);
-                if (response == null)
-                    throw new IOException($"Worker '{pipeName}' returned invalid JSON.");
-
-                return response;
-            }
-        }
-
-        private void Reply(ReplyTarget target, string text)
-        {
-            try
-            {
-                if (target.IsGuest)
-                {
-                    SendGuestMessage(text);
-                    return;
-                }
-
-                if (target.IsOrg)
-                {
-                    if (TrySendOrgMessage(target, text))
-                        return;
-
-                    string warning =
-                        "<font color='#F79410'>Organization output is degraded.</font> " +
-                        "This reply was delivered privately. " + text;
-                    Logger.Warning(
-                        "Unable to send command reply in the originating org channel; " +
-                        "falling back to the command issuer's tell.");
-                    DevTrace(
-                        "ORG SEND FALLBACK -> tell sender=" + target.SenderId +
-                        " channel=" + (target.ChannelName ?? "unknown") + ".");
-
-                    if (target.SenderId != 0)
-                        Client.SendPrivateMessage(target.SenderId, warning);
-                    return;
-                }
-
-                Client.SendPrivateMessage(target.SenderId, text);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Failed sending command reply: {ex}");
-                DevTrace($"ERROR reply: {ex.Message}");
-            }
-        }
-
-        private void RememberOrganizationChannel(int channelId, string channelName)
-        {
-            lock (_orgOutputSync)
-            {
-                _lastOrgChannelId = channelId;
-                _lastOrgChannelName = channelName;
-                _lastOrgChannelObservedUtc = DateTime.UtcNow;
-            }
-        }
-
-        private bool TrySendOrgMessage(ReplyTarget target, string text)
-        {
-            object channelId = target != null ? target.ChannelId : null;
-            string channelName = target != null ? target.ChannelName : null;
-
-            lock (_orgOutputSync)
-            {
-                if (channelId == null)
-                    channelId = _lastOrgChannelId;
-                if (string.IsNullOrWhiteSpace(channelName))
-                    channelName = _lastOrgChannelName;
-                _lastOrgOutboundAttemptUtc = DateTime.UtcNow;
-            }
-
-            string directDetail;
-            if (TrySendDirectGroupMessage(channelId, text, out directDetail))
-            {
-                SetOrgOutboundHealth(
-                    false,
-                    "direct channel delivery via " +
-                    (channelName ?? "remembered organization channel") +
-                    " (" + directDetail + ")");
-                Logger.Information(
-                    "Org reply sent directly to observed channel " +
-                    (channelName ?? "unknown") + ".");
-                return true;
-            }
-
-            if (Client.OrgId > 0)
-            {
-                try
-                {
-                    Client.SendOrgMessage(text);
-                    SetOrgOutboundHealth(
-                        false,
-                        "Client.SendOrgMessage using LocalPlayer organization stat");
-                    Logger.Information(
-                        "Org reply submitted through AOSharp.Clientless.Client.SendOrgMessage.");
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    directDetail += "; SendOrgMessage threw " + ex.Message;
-                }
-            }
-            else
-            {
-                directDetail += "; LocalPlayer organization stat is unavailable";
-            }
-
-            SetOrgOutboundHealth(true, directDetail);
-            Logger.Warning("Organization reply unavailable: " + directDetail);
-            DevTrace("ORG SEND DEGRADED: " + directDetail);
-            return false;
-        }
-
-        private bool TrySendDirectGroupMessage(
-            object channelId,
-            string text,
-            out string detail)
-        {
-            detail = "no observed channel id";
-            if (channelId == null)
-                return false;
-
-            try
-            {
-                int observedChannelId = Convert.ToInt32(
-                    channelId,
-                    CultureInfo.InvariantCulture);
-                if (observedChannelId <= 0)
-                {
-                    detail = "observed channel id is invalid";
-                    return false;
-                }
-
-                Client.Send(
-                    new GroupMsgMessage
-                    {
-                        MessageType = GroupMessageType.Org,
-                        ChannelId = observedChannelId,
-                        Text = text
-                    });
-
-                detail =
-                    "Client.Send(GroupMsgMessage Org, channel " +
-                    observedChannelId + ")";
-                return true;
-            }
-            catch (Exception ex)
-            {
-                detail = "raw org-channel send failed: " + ex.Message;
-                return false;
-            }
-        }
-
-        private void SetOrgOutboundHealth(bool degraded, string detail)
-        {
-            lock (_orgOutputSync)
-            {
-                _orgOutboundDegraded = degraded;
-                _orgOutboundDetail = string.IsNullOrWhiteSpace(detail)
-                    ? "no detail"
-                    : detail;
-            }
-        }
-
-        private string BuildOrgOutboundStatusSummary()
-        {
-            lock (_orgOutputSync)
-            {
-                string observed = _lastOrgChannelObservedUtc.HasValue
-                    ? ", channel observed " +
-                      FormatDuration(DateTime.UtcNow - _lastOrgChannelObservedUtc.Value) +
-                      " ago"
-                    : ", no org channel observed since startup";
-                string attempted = _lastOrgOutboundAttemptUtc.HasValue
-                    ? ", last send attempt " +
-                      FormatDuration(DateTime.UtcNow - _lastOrgOutboundAttemptUtc.Value) +
-                      " ago"
-                    : ", no send attempted since startup";
-
-                return (_orgOutboundDegraded ? "degraded" : "ready") +
-                       " â€” " + _orgOutboundDetail + observed + attempted;
-            }
-        }
-
-        private bool IsOrgOutboundDegraded()
-        {
-            lock (_orgOutputSync)
-                return _orgOutboundDegraded;
-        }
-
-        private void BeginManagerRestart(
-            string senderName,
-            string[] parts,
-            ReplyTarget target)
-        {
-            if (parts.Length != 1)
-            {
-                Reply(target, Usage(target, "restart"));
-                return;
-            }
-
-            string executablePath;
-            string workingDirectory;
-            try
-            {
-                executablePath = Process.GetCurrentProcess().MainModule.FileName;
-                workingDirectory = Path.GetDirectoryName(executablePath);
-            }
-            catch (Exception ex)
-            {
-                Reply(target, "Manager restart is unavailable: " + ex.Message);
-                DevTrace("RESTART PREPARE ERROR actor=" + senderName + ": " + ex.Message);
-                return;
-            }
-
-            Reply(
-                target,
-                "<font color='#F79410'>Manager restart accepted.</font> " +
-                "Apcmanager will disconnect and return in a few seconds.");
-            RecordDiagnostic(
-                "RESTART requested by " + senderName +
-                "; executable=" + executablePath + ".");
-            SaveState();
-
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                try
-                {
-                    string escapedExecutable = executablePath.Replace("'", "''");
-                    string escapedDirectory =
-                        (workingDirectory ?? string.Empty).Replace("'", "''");
-                    string command =
-                        "Start-Sleep -Seconds 2; " +
-                        "Start-Process -FilePath '" + escapedExecutable + "' " +
-                        "-WorkingDirectory '" + escapedDirectory + "'";
-
-                    Process.Start(
-                        new ProcessStartInfo
-                        {
-                            FileName = "powershell.exe",
-                            Arguments =
-                                "-NoProfile -NonInteractive -WindowStyle Hidden " +
-                                "-Command \"" + command + "\"",
-                            UseShellExecute = false,
-                            CreateNoWindow = true,
-                            WorkingDirectory = workingDirectory
-                        });
-
-                    Thread.Sleep(750);
-                    Environment.Exit(0);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error("Manager restart failed: " + ex);
-                    DevTrace("RESTART ERROR actor=" + senderName + ": " + ex.Message);
-                    Reply(target, "Manager restart failed: " + ex.Message);
-                }
-            });
-        }
-
-        private void JoinGuestChannel(string senderName, ReplyTarget target)
-        {
-            if (Client.Chat == null || target.SenderId == 0)
-            {
-                Reply(target, "Guest channel invite is unavailable right now.");
-                DevTrace($"GUEST join failed for {senderName}: chat or sender id unavailable.");
-                return;
-            }
-
-            try
-            {
-                Client.Chat.InvitePrivateGroup(target.SenderId);
-                Reply(target, "Guest channel invite sent.");
-
-                Logger.Information(
-                    $"Guest private-channel join invite sent to {senderName} ({target.SenderId}).");
-                DevTrace($"GUEST join invite sent to {senderName} ({target.SenderId}).");
-            }
-            catch (Exception ex)
-            {
-                Reply(target, $"Guest channel invite failed: {ex.Message}");
-                Logger.Warning($"Guest private-channel join failed: {ex.Message}");
-                DevTrace($"GUEST join error for {senderName}: {ex.Message}");
-            }
-        }
-
-        private void LeaveGuestChannel(string senderName, ReplyTarget target)
-        {
-            if (Client.Chat == null || target.SenderId == 0)
-            {
-                Reply(target, "Unable to leave the guest channel right now.");
-                DevTrace($"GUEST leave failed for {senderName}: chat or sender id unavailable.");
-                return;
-            }
-
-            try
-            {
-                // A guest-channel reply must be queued before the kick packet or
-                // the departing user will not see it. Tells and org replies can
-                // safely be sent after the kick.
-                if (target.IsGuest)
-                    Reply(target, "You have left Apcmanager's guest channel.");
-
-                SendPrivateGroupKick(target.SenderId);
-
-                if (!target.IsGuest)
-                    Reply(target, "You have left Apcmanager's guest channel.");
-
-                Logger.Information(
-                    $"Guest private-channel leave sent for {senderName} ({target.SenderId}).");
-                DevTrace($"GUEST leave sent for {senderName} ({target.SenderId}).");
-            }
-            catch (Exception ex)
-            {
-                Reply(target, $"Unable to leave the guest channel: {ex.Message}");
-                Logger.Warning($"Guest private-channel leave failed: {ex.Message}");
-                DevTrace($"GUEST leave error for {senderName}: {ex.Message}");
-            }
-        }
-
-        private void BeginGuestChannelAction(
-            ReplyTarget target,
-            string characterName,
-            bool kick)
-        {
-            string normalizedName = NormalizeCharacterName(characterName);
-
-            if (string.IsNullOrWhiteSpace(normalizedName))
-            {
-                Reply(target, Usage(target, kick ? "kick [character]" : "invite [character]"));
-                DevTrace(kick ? "GUEST kick failed: missing character name." : "GUEST invite failed: missing character name.");
-                return;
-            }
-
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                try
-                {
-                    uint characterId;
-                    if (!TryResolveCharacterId(normalizedName, out characterId))
-                    {
-                        Reply(
-                            target,
-                            $"Unable to {(kick ? "kick" : "invite")} {normalizedName}: character lookup failed.");
-                        DevTrace(
-                            $"GUEST {(kick ? "kick" : "invite")} failed: could not resolve {normalizedName}.");
-                        return;
-                    }
-
-                    if (Client.Chat == null)
-                    {
-                        Reply(target, "Guest channel action failed: chat is unavailable.");
-                        DevTrace($"GUEST {(kick ? "kick" : "invite")} failed: chat is unavailable.");
-                        return;
-                    }
-
-                    if (characterId == Client.Chat.CharId)
-                    {
-                        Reply(target, "Apcmanager cannot invite or kick itself.");
-                        DevTrace("GUEST action refused: Apcmanager cannot invite or kick itself.");
-                        return;
-                    }
-
-                    if (kick)
-                    {
-                        SendPrivateGroupKick(characterId);
-                        Reply(target, $"{normalizedName} was kicked from the guest channel.");
-                        Logger.Information($"Guest private-channel kick sent for {normalizedName} ({characterId}).");
-                        DevTrace($"GUEST kick sent: {normalizedName}.");
-                    }
-                    else
-                    {
-                        Client.Chat.InvitePrivateGroup(characterId);
-                        Reply(target, $"Guest channel invite sent to {normalizedName}.");
-                        Logger.Information($"Guest private-channel invite sent to {normalizedName} ({characterId}).");
-                        DevTrace($"GUEST invite sent: {normalizedName}.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Reply(
-                        target,
-                        $"Guest channel {(kick ? "kick" : "invite")} failed: {ex.Message}");
-                    Logger.Warning($"Guest private-channel action failed: {ex.Message}");
-                    DevTrace($"GUEST {(kick ? "kick" : "invite")} error: {ex.Message}");
-                }
-            });
-        }
-
-        private bool TryResolveCharacterId(string characterName, out uint characterId)
-        {
-            characterId = 0;
-
-            if (Client.Chat == null)
-                return false;
-
-            try
-            {
-                if (Client.Chat.NameToIdMap.TryGetValue(characterName, out characterId))
-                    return true;
-
-                Client.Chat.RequestCharacterId(characterName);
-            }
-            catch
-            {
-                return false;
-            }
-
-            var timeout = Stopwatch.StartNew();
-
-            while (timeout.ElapsedMilliseconds < GuestLookupTimeoutMs)
-            {
-                Thread.Sleep(50);
-
-                try
-                {
-                    if (Client.Chat != null &&
-                        Client.Chat.NameToIdMap.TryGetValue(characterName, out characterId))
-                    {
-                        return true;
-                    }
-                }
-                catch
-                {
-                }
-            }
-
-            return false;
-        }
-
-        private string NormalizeCharacterName(string characterName)
-        {
-            string value = (characterName ?? string.Empty).Trim();
-            if (value.Length == 0)
-                return string.Empty;
-
-            if (value.Length == 1)
-                return value.ToUpperInvariant();
-
-            return char.ToUpperInvariant(value[0]) + value.Substring(1).ToLowerInvariant();
-        }
-
-        private void SendPrivateGroupKick(uint characterId)
-        {
-            if (Client.Chat == null)
-                return;
-
-            // AO chat client packet 51 (0x0033): private-group owner kicks one player.
-            // Header is big-endian packet id + payload length, followed by the uint32 character id.
-            byte[] packet = new byte[8];
-            packet[0] = 0x00;
-            packet[1] = 0x33;
-            packet[2] = 0x00;
-            packet[3] = 0x04;
-            packet[4] = (byte)(characterId >> 24);
-            packet[5] = (byte)(characterId >> 16);
-            packet[6] = (byte)(characterId >> 8);
-            packet[7] = (byte)characterId;
-
-            Client.Chat.Send(packet);
-        }
-
-        private void TryInviteDeveloper()
-        {
-            if (_devInviteSent || Client.Chat == null)
-                return;
-
-            DateTime now = DateTime.UtcNow;
-            if (now < _nextDevLookupUtc)
-                return;
-
-            uint developerId;
-            if (!Client.Chat.NameToIdMap.TryGetValue(DeveloperCharacter, out developerId))
-            {
-                try
-                {
-                    Client.Chat.RequestCharacterId(DeveloperCharacter);
-                    _nextDevLookupUtc = now.AddSeconds(2);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"Developer lookup failed: {ex.Message}");
-                    _nextDevLookupUtc = now.AddSeconds(5);
-                }
-
-                return;
-            }
-
-            try
-            {
-                Client.Chat.InvitePrivateGroup(developerId);
-                _devInviteSent = true;
-                Logger.Information($"Dev private-channel invite sent to {DeveloperCharacter} ({developerId}).");
-                DevTrace($"DEV invite sent to {DeveloperCharacter}.");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"Dev private-channel invite failed: {ex.Message}");
-                _nextDevLookupUtc = now.AddSeconds(5);
-            }
-        }
-
-        private void ConfirmDevChannel()
-        {
-            bool newlyConfirmed = false;
-
-            lock (_devSync)
-            {
-                if (!_devChannelConfirmed)
-                {
-                    _devChannelConfirmed = true;
-                    newlyConfirmed = true;
-                }
-            }
-
-            if (newlyConfirmed)
-            {
-                SendGuestMessage(
-                    "<font color='#89D2E8'>[Manager]</font> " +
-                    "<font color='#00DE42'>Live diagnostics connected.</font> " +
-                    "Earlier events were kept on disk; use <font color='#F79410'>#dump</font> " +
-                    "instead of receiving a backlog.");
-            }
-        }
-
-        private void DevTrace(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return;
-
-            RecordDiagnostic(text);
-
-            bool confirmed;
-            lock (_devSync)
-                confirmed = _devChannelConfirmed;
-
-            if (confirmed)
-                SendGuestMessage(FormatLiveDiagnostic(text));
-        }
-
-        private void RecordDiagnostic(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return;
-
-            string line = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture) +
-                          " | " + SanitizeDiagnosticText(text);
-
-            lock (_devSync)
-            {
-                while (_diagnosticHistory.Count >= DiagnosticHistoryLimit)
-                    _diagnosticHistory.Dequeue();
-
-                _diagnosticHistory.Enqueue(line);
-                AppendDiagnosticLineLocked(line);
-            }
-
-            Logger.Information("DIAGNOSTIC " + SanitizeDiagnosticText(text));
-        }
-
-        private void AppendDiagnosticLineLocked(string line)
-        {
-            if (string.IsNullOrWhiteSpace(_diagnosticLogPath))
-                return;
-
-            try
-            {
-                if (File.Exists(_diagnosticLogPath) &&
-                    new FileInfo(_diagnosticLogPath).Length >= DiagnosticLogRotateBytes)
-                {
-                    string previous = _diagnosticLogPath + ".previous";
-                    if (File.Exists(previous))
-                        File.Delete(previous);
-                    File.Move(_diagnosticLogPath, previous);
-                }
-
-                File.AppendAllText(_diagnosticLogPath, line + Environment.NewLine);
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning("Unable to append Manager diagnostic log: " + ex.Message);
-            }
-        }
-
-        private static string SanitizeDiagnosticText(string text)
-        {
-            return (text ?? string.Empty)
-                .Replace("\r", " ")
-                .Replace("\n", " ")
-                .Trim();
-        }
-
-        private string FormatLiveDiagnostic(string text)
-        {
-            string safe = EscapeBlobText(SanitizeDiagnosticText(text));
-            string color = "#89D2E8";
-
-            if (safe.IndexOf("ERROR", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                safe.IndexOf("FAIL", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                safe.IndexOf("DENIED", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                color = "#FF5050";
-            }
-            else if (safe.IndexOf(" OK", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     safe.IndexOf("COMPLETE", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     safe.IndexOf("ENABLED", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                color = "#00DE42";
-            }
-            else if (safe.IndexOf("DUE", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     safe.IndexOf("DISABLED", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                color = "#F79410";
-            }
-
-            return "<font color='#89D2E8'>[Manager]</font> " +
-                   "<font color='" + color + "'>" + safe + "</font>";
-        }
-
-        private void SendGuestMessage(string text)
-        {
-            try
-            {
-                if (Client.Chat == null)
-                    return;
-
-                Client.Chat.SendPrivateGroupMessage(Client.Chat.CharId, text);
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"Dev private-channel send failed: {ex.Message}");
-            }
-        }
-
-        private string ShortId(string id)
-        {
-            if (string.IsNullOrEmpty(id))
-                return "no-id";
-
-            return id.Length <= 8 ? id : id.Substring(0, 8);
-        }
-
-        private void HandleCloakAnnouncement(
-            CloakStatus newStatus,
-            string actor,
-            string channelName,
-            string rawMessage)
-        {
-            DateTime now = DateTime.UtcNow;
-            CloakStatus previousStatus = _status;
-
-            _status = newStatus;
-            _lastObservedUtc = now;
-            _lastChangedUtc = now;
-            _observationSource = "OrgChat.CloakAnnouncement";
-            _raiseDueLogged = false;
-
-            if (newStatus == CloakStatus.Disabled)
-            {
-                _shieldTimerInSeconds = 0;
-                _canRaiseAtUtc = now.AddSeconds(ProvisionalCloakDownSeconds);
-                _raiseTimeIsProvisional = true;
-                Logger.Warning($"CLOAK LOWERED announced at {now:O}. Actor={actor}. Provisional Flipper check={_canRaiseAtUtc:O}.");
-                DevTrace($"CITY cloak DISABLED by {actor}; provisional check in 1h.");
-            }
-            else
-            {
-                _shieldTimerInSeconds = 0;
-                _canRaiseAtUtc = null;
-                _raiseTimeIsProvisional = false;
-                Logger.Warning($"CLOAK RAISED announced at {now:O}. Actor={actor}.");
-                DevTrace($"CITY cloak ENABLED by {actor}.");
-            }
-
-            AppendCloakEvent(
-                previousStatus,
-                newStatus,
-                now,
-                null,
-                _canRaiseAtUtc,
-                newStatus == CloakStatus.Disabled ? "cloak_off_announcement" : "cloak_on_announcement",
-                "OrgChat.CloakAnnouncement",
-                actor,
-                channelName,
-                rawMessage);
-
-            SaveState();
-        }
-
-        private void HandleCloakInfo(CloakInfo cloakInfo)
-        {
-            DateTime now = DateTime.UtcNow;
-            CloakStatus previousStatus = _status;
-            bool previousKnown = previousStatus != CloakStatus.Unknown;
-            bool stateChanged = previousKnown && previousStatus != cloakInfo.CloakState;
-
-            _status = cloakInfo.CloakState;
-            _shieldTimerInSeconds = cloakInfo.ShieldTimerInSeconds;
-            _lastObservedUtc = now;
-            _observationSource = "AOTransportSignal.CloakInfo";
-
-            if (_status == CloakStatus.Disabled)
-            {
-                _canRaiseAtUtc = now.AddSeconds(Math.Max(0, _shieldTimerInSeconds));
-                _raiseDueLogged = false;
-                _raiseTimeIsProvisional = false;
-            }
-            else
-            {
-                _canRaiseAtUtc = null;
-                _raiseDueLogged = false;
-                _raiseTimeIsProvisional = false;
-            }
-
-            if (stateChanged)
-            {
-                _lastChangedUtc = now;
-                AppendCloakEvent(
-                    previousStatus,
-                    _status,
-                    now,
-                    _shieldTimerInSeconds,
-                    _canRaiseAtUtc,
-                    "state_change",
-                    "AOTransportSignal.CloakInfo",
-                    null,
-                    null,
-                    null);
-                Logger.Warning($"CloakInfo changed {previousStatus} -> {_status} at {now:O}. Server timer={_shieldTimerInSeconds}s.");
-                DevTrace($"CITY CloakInfo changed {previousStatus} -> {_status}; timer={_shieldTimerInSeconds}s.");
-            }
-            else if (!previousKnown)
-            {
-                Logger.Information($"Initial cloak observation: {_status}, timer={_shieldTimerInSeconds}s at {now:O}.");
-                DevTrace($"CITY initial cloak={_status}; timer={_shieldTimerInSeconds}s.");
-            }
-
-            SaveState();
-        }
-
-        private void ApplyFlipperObservation(WorkerResponse response)
-        {
-            // CT charge belongs to Manager's shared raid state, regardless of
-            // which Manager command requested the Flipper observation.
-            ApplyRaidControllerObservation(response);
-
-            CloakStatus parsedStatus;
-            if (!Enum.TryParse(response.CloakState, true, out parsedStatus))
-            {
-                Logger.Warning($"Flipper returned unknown cloak state '{response.CloakState}'.");
-                DevTrace($"FLIPPER WARN: unknown cloak state '{response.CloakState}'.");
-                return;
-            }
-
-            DateTime now = DateTime.UtcNow;
-
-            lock (_stateSync)
-            {
-                CloakStatus previousStatus = _status;
-
-                _status = parsedStatus;
-                _shieldTimerInSeconds = response.ShieldTimerInSeconds ?? 0;
-                _lastObservedUtc = UtcTimestamp.Normalize(response.ObservedUtc) ?? now;
-                _observationSource = response.Cached ? "Flipper.Cache" : "Flipper.Probe";
-                _raiseTimeIsProvisional = false;
-                _raiseDueLogged = false;
-
-                _canRaiseAtUtc = _status == CloakStatus.Disabled
-                    ? now.AddSeconds(Math.Max(0, _shieldTimerInSeconds))
-                    : (DateTime?)null;
-
-                if (previousStatus != CloakStatus.Unknown && previousStatus != _status)
-                    _lastChangedUtc = now;
-
-                AppendCloakEvent(
-                    previousStatus,
-                    _status,
-                    now,
-                    response.ShieldTimerInSeconds,
-                    _canRaiseAtUtc,
-                    response.Cached ? "flipper_cache" : "flipper_probe",
-                    _observationSource,
-                    response.Character,
-                    null,
-                    response.Message);
-
-                SaveState();
-            }
-
-            CityRaidAutomation.ObserveConfirmedState(
-                _status,
-                _lastObservedUtc,
-                _canRaiseAtUtc,
-                _observationSource);
-        }
-
-        private void ApplyCloakRecoveryObservation(
-            CloakStatus status,
-            int? shieldTimerInSeconds,
-            DateTime? observedUtc,
-            bool cached,
-            string message)
-        {
-            ApplyFlipperObservation(
-                new WorkerResponse
-                {
-                    Ok = true,
-                    CloakState = status.ToString(),
-                    ShieldTimerInSeconds = shieldTimerInSeconds,
-                    ObservedUtc = observedUtc,
-                    Cached = cached,
-                    Message = message,
-                    Character = "Apcflipper"
-                });
-        }
-
-        private void Tick(object sender, double e)
-        {
-            TryInviteDeveloper();
-            TickMembership();
-            TickAlts();
-            TickRaidCoordinator();
-
-            if (_status != CloakStatus.Disabled || !_canRaiseAtUtc.HasValue || _raiseDueLogged)
-                return;
-
-            if (DateTime.UtcNow < _canRaiseAtUtc.Value)
-                return;
-
-            _raiseDueLogged = true;
-            string message = _raiseTimeIsProvisional
-                ? $"CLOAK CHECK IS NOW DUE. Provisional time reached at {_canRaiseAtUtc.Value:O}."
-                : $"CLOAK RAISE IS NOW DUE. Server-derived earliest raise time was {_canRaiseAtUtc.Value:O}.";
-
-            Logger.Warning(message);
-            SaveState();
-        }
-
-        private string FormatDuration(TimeSpan value)
-        {
-            int totalSeconds = Math.Max(0, (int)Math.Ceiling(value.TotalSeconds));
-            int hours = totalSeconds / 3600;
-            int minutes = (totalSeconds % 3600) / 60;
-            int seconds = totalSeconds % 60;
-
-            if (hours > 0)
-                return $"{hours}h {minutes}m {seconds}s";
-            if (minutes > 0)
-                return $"{minutes}m {seconds}s";
-            return $"{seconds}s";
-        }
-
-        private void LoadState()
-        {
-            try
-            {
-                PersistedCloakState state = null;
-                if (File.Exists(_statePath))
-                {
-                    try
-                    {
-                        state = JsonConvert.DeserializeObject<PersistedCloakState>(
-                            File.ReadAllText(_statePath));
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning(
-                            $"Persisted cloak snapshot is unreadable; " +
-                            $"falling back to the event log: {ex.Message}");
-                    }
-                }
-
-                if (state != null)
-                {
-                    _status = state.Status;
-                    _shieldTimerInSeconds = state.ShieldTimerInSeconds;
-                    _lastObservedUtc = UtcTimestamp.Normalize(state.LastObservedUtc);
-                    _lastChangedUtc = UtcTimestamp.Normalize(state.LastChangedUtc);
-                    _canRaiseAtUtc = UtcTimestamp.Normalize(state.CanRaiseAtUtc);
-                    _raiseDueLogged = state.RaiseDueLogged;
-                    _raiseTimeIsProvisional = state.RaiseTimeIsProvisional;
-                    _observationSource = state.ObservationSource ?? "Unknown";
-
-                    if (_lastObservedUtc.HasValue &&
-                        UtcTimestamp.IsFuture(
-                            _lastObservedUtc.Value,
-                            DateTime.UtcNow))
-                    {
-                        Logger.Warning(
-                            $"Discarding future-dated persisted cloak state " +
-                            $"observation {_lastObservedUtc.Value:O}.");
-                        _status = CloakStatus.Unknown;
-                        _shieldTimerInSeconds = 0;
-                        _lastObservedUtc = null;
-                        _lastChangedUtc = null;
-                        _canRaiseAtUtc = null;
-                        _raiseDueLogged = false;
-                        _raiseTimeIsProvisional = false;
-                        _observationSource = "InvalidFutureTimestamp";
-                    }
-                }
-
-                CloakEventRecord latestEvent = LoadLatestCloakEvent();
-                if (latestEvent != null)
-                    latestEvent.OccurredUtc =
-                        UtcTimestamp.Normalize(latestEvent.OccurredUtc);
-
-                if (latestEvent != null &&
-                    UtcTimestamp.IsFuture(
-                        latestEvent.OccurredUtc,
-                        DateTime.UtcNow))
-                {
-                    Logger.Warning(
-                        $"Ignoring future-dated cloak event " +
-                        $"{latestEvent.OccurredUtc:O} while restoring state.");
-                    latestEvent = null;
-                }
-
-                if (latestEvent != null &&
-                    (!_lastObservedUtc.HasValue ||
-                     latestEvent.OccurredUtc > _lastObservedUtc.Value))
-                {
-                    _status = latestEvent.NewStatus;
-                    _shieldTimerInSeconds = latestEvent.ShieldTimerInSeconds ?? 0;
-                    _lastObservedUtc = latestEvent.OccurredUtc;
-                    _lastChangedUtc = latestEvent.OccurredUtc;
-                    _canRaiseAtUtc = latestEvent.CanRaiseAtUtc;
-                    _raiseDueLogged = false;
-                    _raiseTimeIsProvisional =
-                        string.Equals(
-                            latestEvent.EventType,
-                            "cloak_off_announcement",
-                            StringComparison.OrdinalIgnoreCase);
-                    _observationSource = latestEvent.Source ?? "PersistedEventLog";
-                }
-
-                if (state == null && latestEvent == null)
-                {
-                    Logger.Information("No persisted cloak state found; starting Unknown.");
-                    return;
-                }
-
-                Logger.Information(
-                    $"Restored cloak state: {_status}, lastObserved={_lastObservedUtc:O}, " +
-                    $"canRaiseAt={_canRaiseAtUtc:O}, provisional={_raiseTimeIsProvisional}, source={_observationSource}.");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Failed loading persisted cloak state: {ex}");
-            }
-        }
-
-        private CloakEventRecord LoadLatestCloakEvent()
-        {
-            if (!File.Exists(_eventsPath))
-                return null;
-
-            CloakEventRecord latest = null;
-
-            foreach (string line in File.ReadLines(_eventsPath))
-            {
-                if (string.IsNullOrWhiteSpace(line))
-                    continue;
-
-                try
-                {
-                    CloakEventRecord candidate =
-                        JsonConvert.DeserializeObject<CloakEventRecord>(line);
-
-                    if (candidate != null &&
-                        (latest == null || candidate.OccurredUtc > latest.OccurredUtc))
-                    {
-                        latest = candidate;
-                    }
-                }
-                catch
-                {
-                    // Keep scanning: a partially written final line must not hide
-                    // earlier authoritative events.
-                }
-            }
-
-            return latest;
-        }
-
-        private void SaveState()
-        {
-            try
-            {
-                var state = new PersistedCloakState
-                {
-                    Status = _status,
-                    ShieldTimerInSeconds = _shieldTimerInSeconds,
-                    LastObservedUtc = _lastObservedUtc,
-                    LastChangedUtc = _lastChangedUtc,
-                    CanRaiseAtUtc = _canRaiseAtUtc,
-                    RaiseDueLogged = _raiseDueLogged,
-                    RaiseTimeIsProvisional = _raiseTimeIsProvisional,
-                    ObservationSource = _observationSource
-                };
-
-                string tempPath = _statePath + ".tmp";
-                File.WriteAllText(tempPath, JsonConvert.SerializeObject(state, Formatting.Indented));
-
-                if (File.Exists(_statePath))
-                    File.Delete(_statePath);
-                File.Move(tempPath, _statePath);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Failed saving cloak state: {ex}");
-                DevTrace($"ERROR save state: {ex.Message}");
-            }
-        }
-
-        private void AppendCloakEvent(
-            CloakStatus previousStatus,
-            CloakStatus newStatus,
-            DateTime occurredUtc,
-            int? shieldTimerInSeconds,
-            DateTime? canRaiseAtUtc,
-            string eventType,
-            string source,
-            string actor,
-            string channelName,
-            string rawMessage)
-        {
-            try
-            {
-                var record = new CloakEventRecord
-                {
-                    OccurredUtc = occurredUtc,
-                    PreviousStatus = previousStatus,
-                    NewStatus = newStatus,
-                    ShieldTimerInSeconds = shieldTimerInSeconds,
-                    CanRaiseAtUtc = canRaiseAtUtc,
-                    EventType = eventType,
-                    Source = source,
-                    Actor = actor,
-                    ChannelName = channelName,
-                    RawMessage = rawMessage
-                };
-
-                File.AppendAllText(_eventsPath, JsonConvert.SerializeObject(record) + Environment.NewLine);
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Failed appending cloak event: {ex}");
-                DevTrace($"ERROR append cloak event: {ex.Message}");
-            }
-        }
-
-        private enum ReplyKind
-        {
-            Tell,
-            Org,
-            Guest
-        }
-
-        private class ReplyTarget
-        {
-            public ReplyKind Kind;
-            public uint SenderId;
-            public object ChannelId;
-            public string ChannelName;
-
-            public bool IsOrg => Kind == ReplyKind.Org;
-            public bool IsGuest => Kind == ReplyKind.Guest;
-            public bool RequiresPrefix => Kind != ReplyKind.Tell;
-
-            public static ReplyTarget ForTell(uint senderId)
-            {
-                return new ReplyTarget
-                {
-                    Kind = ReplyKind.Tell,
-                    SenderId = senderId
-                };
-            }
-
-            public static ReplyTarget ForOrg(uint senderId, object channelId, string channelName)
-            {
-                return new ReplyTarget
-                {
-                    Kind = ReplyKind.Org,
-                    SenderId = senderId,
-                    ChannelId = channelId,
-                    ChannelName = channelName
-                };
-            }
-
-            public static ReplyTarget ForGuest(uint senderId, object channelId)
-            {
-                return new ReplyTarget
-                {
-                    Kind = ReplyKind.Guest,
-                    SenderId = senderId,
-                    ChannelId = channelId,
-                    ChannelName = "Apcmanager private"
-                };
-            }
-        }
-
-        private class PersistedCloakState
-        {
-            public CloakStatus Status { get; set; }
-            public int ShieldTimerInSeconds { get; set; }
-            public DateTime? LastObservedUtc { get; set; }
-            public DateTime? LastChangedUtc { get; set; }
-            public DateTime? CanRaiseAtUtc { get; set; }
-            public bool RaiseDueLogged { get; set; }
-            public bool RaiseTimeIsProvisional { get; set; }
-            public string ObservationSource { get; set; }
-        }
-
-        private class CloakEventRecord
-        {
-            public DateTime OccurredUtc { get; set; }
-            public CloakStatus PreviousStatus { get; set; }
-            public CloakStatus NewStatus { get; set; }
-            public int? ShieldTimerInSeconds { get; set; }
-            public DateTime? CanRaiseAtUtc { get; set; }
-            public string EventType { get; set; }
-            public string Source { get; set; }
-            public string Actor { get; set; }
-            public string ChannelName { get; set; }
-            public string RawMessage { get; set; }
-        }
-
-        private class WorkerRequest
-        {
-            public string Id;
-            public string Command;
-            public int? TimeoutSeconds;
-            public int? Level;
-            public int? Index;
-            public List<int> Indexes;
-            public string Purpose;
-            public int? LeaseSeconds;
-            public bool Home;
-            public bool LogoutAfterHome;
-        }
-
-        private class WorkerResponse
-        {
-            public string Id;
-            public bool Ok;
-            public string Message;
-            public string Character;
-            public string CloakState;
-            public int? ShieldTimerInSeconds;
-            public float? ControllerCharge;
-            public int? Level;
-            public int? Index;
-            public List<string> Characters;
-            public List<int> Indexes;
-            public int? Count;
-            public bool Cached;
-            public DateTime? ObservedUtc;
-            public bool ActionSent;
-            public List<BuddyPositionSnapshot> Positions;
-            public string HomeJobId;
-            public bool HomeRunning;
-            public int HomeAttempted;
-            public int HomeStarted;
-            public int HomeTerminal;
-            public int HomeReached;
-            public int HomeStopped;
-            public List<string> HomeFailures;
-        }
-
-        private class WorkerLinkStatus
-        {
-            public bool IsUsable;
-            public string Detail;
-
-            public string PublicText => IsUsable
-                ? "linked/usable"
-                : "not linked/unusable";
-
-            public string DiagnosticText =>
-                $"{PublicText} ({Detail ?? "no detail"})";
-
-            public static WorkerLinkStatus Usable(string detail)
-            {
-                return new WorkerLinkStatus
-                {
-                    IsUsable = true,
-                    Detail = detail
-                };
-            }
-
-            public static WorkerLinkStatus Unusable(string detail)
-            {
-                return new WorkerLinkStatus
-                {
-                    IsUsable = false,
-                    Detail = detail
-                };
-            }
-        }
-    }
-}
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíß~ıİ:-jZ.¶›­–)Ş³WW6–ær7—7FVÓ°§W6–ær7—7FVÒä6öÆÆV7F–öç2ävVæW&–3°§W6–ær7—7FVÒäF–væ÷7F–73°§W6–ær7—7FVÒävÆö&Æ—¦F–öã°§W6–ær7—7FVÒä”ó°§W6–ær7—7FVÒä”òå—W3°§W6–ær7—7FVÒäÆ–ç°§W6–ær7—7FVÒåFW‡C°§W6–ær7—7FVÒåF‡&VF–æs°§W6–ærõ6†'ä6Æ–VçFÆW73°§W6–ærõ6†'ä6Æ–VçFÆW72ä6†C°§W6–ærõ6†'ä6Æ–VçFÆW72äÆövv–æs°§W6–ærõ6†'ä6öÖÖöâävÖTFF°§W6–æræWwFöç6ögBä§6öã°§W6–ær6Öö¶TÆ÷VævRä÷FöÖF–öâäÖW76v–ærävÖTFF°§W6–ær6Öö¶TÆ÷VævRä÷FöÖF–öâäÖW76v–æräÖW76vW3°§W6–ær6Öö¶TÆ÷VævRä÷FöÖF–öâäÖW76v–æräÖW76vW2ä6†DÖW76vW3°§W6–ær6Öö¶TÆ÷VævRä÷FöÖF–öâäÖW76v–æräÖW76vW2äã4ÖW76vW3°§W6–ær6—G”GvVÆÆW'2å6†&VC° ¦æÖW76R6—G”ÖævW §°¢V&Æ–2'F–Â6Æ726—G”ÖævW"¢6Æ–VçFÆW75ÇVv–äVçG'¢°¢&—fFR6öç7B–çB&÷f—6–öæÄ6Æö´F÷vå6V6öæG2Ò3c°¢&—fFR6öç7B7G&–ærfÆ—W%—TæÖRÒ&6—G–GvVÆÆW'2ÖfÆ—W"#°¢&—fFR6öç7B7G&–ær'VFF–W5—TæÖRÒ&6—G–GvVÆÆW'2Ö'VFF–W2#°¢&—fFR6öç7B–çBv÷&¶W$6öææV7EF–ÖV÷WD×2Ò°¢&—fFR6öç7B–çB'VFG•6æ6†÷Dg&W6…6V6öæG2ÒS°¢&—fFR6öç7B–çBwVW7DÆöö·WF–ÖV÷WD×2ÒS°¢&—fFR6öç7B7G&–ær÷&t6†ææVÄæÖRÒ$F†VâÆF–ç2#°¢&—fFR6öç7B7G&–ær6öÖÖæE&Vf—‚Ò"2#°¢&—fFR6öç7B7G&–ærFWfVÆ÷W$6†&7FW"Ò$¶fVÒ#°¢&—fFR6öç7B–çBF–væ÷7F–4†—7F÷'”Æ–Ö—BÒS°¢&—fFR6öç7BÆöærF–væ÷7F–4Æöu&÷FFT'—FW2Ò$Â¢#DÂ¢#DÃ° ¢&—fFR7FF–2&VFöæÇ’†6…6WCÇ7G&–æsâV&Æ–46öÖÖæG2Ğ¢æWr†6…6WCÇ7G&–æsâ…7G&–æt6ö×&W"ä÷&F–æÄ–væ÷&T66R¢°¢&†VÇ"À¢&6Æö²"À¢'7FGW2"À¢&ÆVfR"À¢&¦ö–â"À¢&ÇG2"À¢'&–B"À¢'&–F76—7B"À¢&6æ6VÂ ¢Ó° ¢&—fFR7FF–2&VFöæÇ’†6…6WCÇ7G&–æsâFÖ–ä6öÖÖæG2Ğ¢æWr†6…6WCÇ7G&–æsâ…7G&–æt6ö×&W"ä÷&F–æÄ–væ÷&T66R¢°¢&–çf—FR"À¢&¶–6²"À¢'v¶WW"À¢'6ÆVW"À¢'7–çW"À¢'7–æF÷vâ"À¢'÷6—F–öç2"À¢&†öÖR"À¢'&V6÷fW'&–B"À¢&FÖ–æÆ—7B"À¢&FÖ–â"À¢&ÖVÖ&W&Æ—7B"À¢&ÖVÖ&W""À¢&&â"À¢'Væ&â"À¢&GV×"À¢'&W7F'B ¢Ó° ¢&—fFR&VFöæÇ’ö&¦V7B÷7FFU7–æ2ÒæWrö&¦V7B‚“°¢&—fFR&VFöæÇ’ö&¦V7BöFWe7–æ2ÒæWrö&¦V7B‚“°¢&—fFR&VFöæÇ’VWVSÇ7G&–æsâöF–væ÷7F–4†—7F÷'’ÒæWrVWVSÇ7G&–æsâ‚“°¢&—fFR&VFöæÇ’7F÷vF6‚öÖævW%WF–ÖRÒ7F÷vF6‚å7F'DæWr‚“°¢&—fFR&VFöæÇ’FFUF–ÖRöÖævW%7F'FVEWF2ÒFFUF–ÖRåWF4æ÷s° ¢&—fFR7G&–ær÷6WGF–æw4F—#°¢&—fFR7G&–æröFFF—#°¢&—fFR7G&–ær÷7FFUFƒ°¢&—fFR7G&–æröWfVçG5Fƒ°¢&—fFR7G&–æröF–væ÷7F–4ÆöuFƒ°¢&—fFR&ööÂö6†$–åÆ“° ¢&—fFR&VFöæÇ’ö&¦V7Bö÷&t÷WGWE7–æ2ÒæWrö&¦V7B‚“°¢&—fFRö&¦V7BöÆ7D÷&t6†ææVÄ–C°¢&—fFR7G&–æröÆ7D÷&t6†ææVÄæÖS°¢&—fFRFFUF–ÖSòöÆ7D÷&t6†ææVÄö'6W'fVEWF3°¢&—fFR&ööÂö÷&t÷WF&÷VæDFVw&FVC°¢&—fFR7G&–ærö÷&t÷WF&÷VæDFWF–ÂÒ&æ÷BFW7FVB6–æ6R7F'GW#°¢&—fFRFFUF–ÖSòöÆ7D÷&t÷WF&÷VæDGFV×EWF3° ¢&—fFR&ööÂöFWd–çf—FU6VçC°¢&—fFR&ööÂöFWd6†ææVÄ6öæf—&ÖVC°¢&—fFRFFUF–ÖRöæW‡DFWdÆöö·WWF2ÒFFUF–ÖRäÖ–åfÇVS° ¢&—fFR6Æöµ7FGW2÷7FGW2Ò6Æöµ7FGW2åVæ¶æ÷vã°¢&—fFR–çB÷6†–VÆEF–ÖW$–å6V6öæG3°¢&—fFRFFUF–ÖSòöÆ7Dö'6W'fVEWF3°¢&—fFRFFUF–ÖSòöÆ7D6†ævVEWF3°¢&—fFRFFUF–ÖSòö6å&—6TEWF3°¢&—fFR&ööÂ÷&—6TGVTÆövvVC°¢&—fFR&ööÂ÷&—6UF–ÖT—5&÷f—6–öæÃ°¢&—fFR7G&–æröö'6W'fF–öå6÷W&6RÒ%Væ¶æ÷vâ#° ¢V&Æ–2÷fW'&–FRfö–B–æ—B‡7G&–ærÇVv–äF—"¢°¢7G&–ær6WGF–æw4W'&÷#°¢–b‚6WGF–æw5F‡2åG'”Vç7W&TF—&V7F÷&–W2€¢÷WB÷6WGF–æw4F—"À¢÷WBöFFF—"À¢÷WB6WGF–æw4W'&÷"’¢°¢ÆövvW"äW'&÷"‡6WGF–æw4W'&÷"“°¢&WGW&ã°¢Ğ ¢÷7FFUF‚ÒF‚ä6öÖ&–æR…öFFF—"Â&6—G–ÖævW"Ö6Æö²×7FFRæ§6öâ"“°¢öWfVçG5F‚ÒF‚ä6öÖ&–æR…öFFF—"Â&6—G–ÖævW"Ö6Æö²ÖWfVçG2æ§6öæÂ"“°¢öF–væ÷7F–4ÆöuF‚ÒF‚ä6öÖ&–æR…öFFF—"Â&6—G–ÖævW"ÖF–væ÷7F–72æÆör"“° ¢ÆövvW"ä–æf÷&ÖF–öâ‚B$6—G”ÖævW"6WGF–æw3¢µ÷6WGF–æw4F—'Ò"“°¢ÆövvW"ä–æf÷&ÖF–öâ‚B$6—G”ÖævW"FF¢µöFFF—'Ò"“°¢FÖ–äÆ—7E7F÷&Rä–æ—F–Æ—¦R…öFFF—"“°¢&äÆ—7E7F÷&Rä–æ—F–Æ—¦R…öFFF—"“°¢FWeG&6R€¢B$DÔ”âÄ•5B–æ—F–Æ—¦VBf–ÆSÖFÖ–æÆ—7Bæ§6öâ"°¢B&6÷VçC×´FÖ–äÆ—7E7F÷&Rå6æ6†÷B‚’ä6÷VçGÒâ"“°¢–æ—F–Æ—¦TÖVÖ&W'6†—‚“°¢–æ—F–Æ—¦TÇG2‚“°¢ÆöE7FFR‚“°¢–æ—F–Æ—¦U&–D6ö÷&F–æF÷"‚“°¢÷&u&æ´WF†÷&—¦W"ä–æ—F–Æ—¦R‚“°¢6—G•&–DWFöÖF–öâä–æ—F–Æ—¦R€¢÷7FGW2À¢öÆ7Dö'6W'fVEWF2À¢ö6å&—6TEWF2À¢öö'6W'fF–öå6÷W&6RÀ¢Ç”6Æöµ&V6÷fW'”ö'6W'fF–öâ“°¢6Æ–VçBäÖW76vU&V6V—fVB³ÒÖW76vU&V6V—fVC°¢Ğ ¢V&Æ–2÷fW'&–FRfö–BFV&F÷vâ‚¢°¢G'¢°¢6Æ–VçBäÖW76vU&V6V—fVBÓÒÖW76vU&V6V—fVC°¢6—G•&–DWFöÖF–öâå6‡WFF÷vâ‚“°¢÷&u&æ´WF†÷&—¦W"å6‡WFF÷vâ‚“°¢6‡WFF÷vå&–D6ö÷&F–æF÷"‚“°¢6‡WFF÷väÇG2‚“°¢6‡WFF÷väÖVÖ&W'6†—‚“° ¢–b„6Æ–VçBä6†BÒçVÆÂ¢°¢6Æ–VçBä6†Bå&—fFTÖW76vU&V6V—fVBÓÒ†æFÆU&—fFTÖW76vS°¢6Æ–VçBä6†Bäw&÷WÖW76vU&V6V—fVBÓÒ†æFÆTw&÷WÖW76vS°¢6Æ–VçBä6†Bå&—fFTw&÷WÖW76vU&V6V—fVBÓÒ†æFÆU&—fFTw&÷WÖW76vS°¢Ğ ¢6Æ–VçBäöåWFFRÓÒF–6³°¢6fU7FFR‚“°¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢ÆövvW"äW'&÷"‚B$6—G”ÖævW"FV&F÷vâW'&÷#¢¶W‡Ò"“°¢Ğ¢Ğ ¢&—fFRfö–BÖW76vU&V6V—fVB†ö&¦V7B6VæFW"ÂÖW76vRR¢°¢G'¢°¢–b†Sòä&öG’ÓÒçVÆÂÇÂRä&öG’å6¶WEG—RÒ6¶WEG—Räã4ÖW76vR¢&WGW&ã° ¢f"ã4ÖW76vRÒ„ã4ÖW76vR–Rä&öG“° ¢–b†ã4ÖW76vRäã4ÖW76vUG—RÓÒã4ÖW76vUG—RäõG&ç7÷'E6–væÂ¢°¢f"6–væÂÒ„õG&ç7÷'E6–væÄÖW76vR–Rä&öG“°¢–b‡6–væÂä7F–öâÓÒõ6–væÄ7F–öâä6Æö´–æfò¢†æFÆT6Æö´–æfò‚„6Æö´–æfò—6–væÂåG&ç7÷'E6–væÄÖW76vR“°¢&WGW&ã°¢Ğ ¢–b†ã4ÖW76vRäã4ÖW76vUG—RÓÒã4ÖW76vUG—Rä6†$–åÆ’¢°¢f"6†$–åÆ’Ò„6†$–åÆ”ÖW76vR–Rä&öG“°¢–b†6†$–åÆ’ä–FVçF—G’ä–ç7Fæ6RÓÒ6Æ–VçBäÆö6ÄG–æVÄ–B¢öä6†$–åÆ’‚“°¢Ğ¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢ÆövvW"äW'&÷"‚B$6—G”ÖævW"ÖW76vRW'&÷#¢¶W‡Ò"“°¢FWeG&6R‚B$U%$õ"ÖævW"ÖW76vS¢¶W‚äÖW76vWÒ"“°¢Ğ¢Ğ ¢&—fFRfö–Böä6†$–åÆ’‚¢°¢–b…ö6†$–åÆ’¢&WGW&ã° ¢ö6†$–åÆ’ÒG'VS°¢ÆövvW"ä–æf÷&ÖF–öâ‚$6—G”ÖævW"—2–âÆ’æBö'6W'f–ær6Æö²6¶WG2ÂFVÆÇ2Â÷&r6†BÂæBwVW7B&—fFR6†Bâ"“° ¢&Vv–äÖVÖ&W'6†—gFW$–åÆ’‚“°¢&Vv–äÇG4gFW$–åÆ’‚“° ¢6Æ–VçBä6†Bå&—fFTÖW76vU&V6V—fVB³Ò†æFÆU&—fFTÖW76vS°¢6Æ–VçBä6†Bäw&÷WÖW76vU&V6V—fVB³Ò†æFÆTw&÷WÖW76vS°¢6Æ–VçBä6†Bå&—fFTw&÷WÖW76vU&V6V—fVB³Ò†æFÆU&—fFTw&÷WÖW76vS°¢6Æ–VçBäöåWFFR³ÒF–6³° ¢FWeG&6R‚$ÔätU"öæÆ–æRâFWbFVÆVÖWG'’–æ—F–Æ—¦VBâ"“°¢&W7VÖU&–D6ö÷&F–æF÷$gFW$–åÆ’‚“°¢öæW‡DFWdÆöö·WWF2ÒFFUF–ÖRåWF4æ÷s°¢G'”–çf—FTFWfVÆ÷W"‚“°¢Ğ ¢&—fFRfö–B†æFÆU&—fFTÖW76vR†ö&¦V7B6VæFW"Â&—fFTÖW76vR×6r¢°¢G'¢°¢–b†×6rÓÒçVÆÂÇÂ7G&–ærä—4çVÆÄ÷%v†—FU76R†×6räÖW76vR’¢&WGW&ã° ¢–b…G'”†æFÆTÇG4&÷EFVÆÂ†×6r’¢&WGW&ã° ¢f"7G&–æt–væ÷&W2ÒæWrÆ—7CÇ7G&–æsà¢°¢%–÷R†fR&VVâWFòÖ–çf—FVBFòF†R&—fFR6†ææVÂâ"À¢%Væ¶æ÷vâ"À¢$æ&6‡”öæÆ–æR"À¢%&V6öææV7F–ær–÷RFò"À¢$F&¶æWB"À¢#Â ¢Ó° ¢–b‡7G&–æt–væ÷&W2äç’†’Óâ×6räÖW76vRä6öçF–ç2†’’’¢&WGW&ã° ¢7G&–ær6öÖÖæEFW‡C°¢–b‚G'”W‡G&7EFVÆÄ6öÖÖæB†×6räÖW76vRÂ÷WB6öÖÖæEFW‡B’¢°¢ÆövvW"ä–æf÷&ÖF–öâ‚B%DTÄÂ4„B¶×6rå6VæFW$æÖWÓ¢¶×6räÖW76vWÒ"“°¢&WGW&ã°¢Ğ ¢ÆövvW"ä–æf÷&ÖF–öâ‚B%DTÄÂ4ôÔÔäB¶×6rå6VæFW$æÖWÓ¢¶×6räÖW76vWÒ"“° ¢&ö6W746öÖÖæB€¢×6rå6VæFW$æÖRÀ¢6öÖÖæEFW‡BÀ¢&WÇ•F&vWBäf÷%FVÆÂ†×6rå6VæFW$–B’“°¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢ÆövvW"äW'&÷"‚B$W'&÷"†æFÆ–ær&—fFRÖW76vS¢¶W‡Ò"“°¢FWeG&6R‚B$U%$õ"FVÆÂ†æFÆW#¢¶W‚äÖW76vWÒ"“°¢Ğ¢Ğ ¢&—fFRfö–B†æFÆTw&÷WÖW76vR†ö&¦V7B6VæFW"Âw&÷W×6r×6r¢°¢G'¢°¢–b†×6rÓÒçVÆÂÇÂ7G&–ærä—4çVÆÄ÷%v†—FU76R†×6räÖW76vR’¢&WGW&ã° ¢7G&–ær6—G”ÖW76vRĞ¢6—G”W‡FVæFVDÖW76vU'6W"äFV6öFT÷$÷&–v–æÂ†×6räÖW76vR“° ¢–b‚7G&–æräWVÇ2†6—G”ÖW76vRÂ×6räÖW76vRÂ7G&–æt6ö×&—6öâä÷&F–æÂ’¢FWeG&6R‚B$4•E’DT4ôDTC¢¶6—G”ÖW76vWÒ"“° ¢–b…G'”†æFÆT6Æö´ææ÷Væ6VÖVçB†×6rÂ6—G”ÖW76vR’¢&WGW&ã° ¢–b‚—4÷&væ—¦F–öä6†ææVÂ†×6rä6†ææVÄ–BÂ×6rä6†ææVÄæÖR’¢&WGW&ã° ¢&VÖVÖ&W$÷&væ—¦F–öä6†ææVÂ†×6rä6†ææVÄ–BÂ×6rä6†ææVÄæÖR“°¢ö'6W'fTÇE&W6Væ6Tææ÷Væ6VÖVçB†×6rå6VæFW$æÖRÂ×6räÖW76vR“°¢ö'6W'fT÷&væ—¦F–öäÖVÖ&W'6†—ÖW76vR†6—G”ÖW76vR“°¢ö'6W'fU&–D6—G”ÖW76vR†6—G”ÖW76vRÂ×6rä6†ææVÄ–B“° ¢7G&–ærFW‡BÒ×6räÖW76vRåG&–Õ7F'B‚“°¢&ööÂ—46öÖÖæBÒFW‡Bå7F'G5v—F‚„6öÖÖæE&Vf—‚Â7G&–æt6ö×&—6öâä÷&F–æÂ“° ¢–b‚—46öÖÖæB¢°¢–b‡7G&–æräWVÇ2†×6rå6VæFW$æÖRÂ#ÅVæ¶æ÷vãâ"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’ÇÀ¢7G&–æräWVÇ2†×6rå6VæFW$æÖRÂ%Væ¶æ÷vâ"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’¢°¢ÆövvW"ä–æf÷&ÖF–öâ€¢B$õ$r5•5DTÒ·¶×6rä6†ææVÄæÖWÕÒ¶×6rå6VæFW$æÖWÓ¢¶×6räÖW76vWÒ"“°¢FWeG&6R‚B$4•E’$s¢¶6—G”ÖW76vWÒ"“°¢Ğ ¢&WGW&ã°¢Ğ ¢ÆövvW"ä–æf÷&ÖF–öâ€¢B$õ$r4ôÔÔäB·¶×6rä6†ææVÄæÖWÕÒ¶×6rå6VæFW$æÖWÓ¢¶×6räÖW76vWÒ"“° ¢7G&–ær6öÖÖæEFW‡BÒFW‡Bå7V'7G&–ær„6öÖÖæE&Vf—‚äÆVæwF‚’åG&–Õ7F'B‚“° ¢&ö6W746öÖÖæB€¢×6rå6VæFW$æÖRÀ¢6öÖÖæEFW‡BÀ¢&WÇ•F&vWBäf÷$÷&r†×6rå6VæFW$–BÂ×6rä6†ææVÄ–BÂ×6rä6†ææVÄæÖR’“°¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢ÆövvW"äW'&÷"‚B$W'&÷"†æFÆ–ærw&÷WÖW76vS¢¶W‡Ò"“°¢FWeG&6R‚B$U%$õ"÷&r†æFÆW#¢¶W‚äÖW76vWÒ"“°¢Ğ¢Ğ ¢&—fFRfö–B†æFÆU&—fFTw&÷WÖW76vR†ö&¦V7B6VæFW"Â&—fFTw&÷W×6r×6r¢°¢G'¢°¢–b†×6rÓÒçVÆÂÇÂ7G&–ærä—4çVÆÄ÷%v†—FU76R†×6räÖW76vR’ÇÂ6Æ–VçBä6†BÓÒçVÆÂ¢&WGW&ã° ¢–b†×6rä6†ææVÄ–BÒ6Æ–VçBä6†Bä6†$–B¢&WGW&ã° ¢òòòV6†öW2÷W"÷vâ&—fFRÖ6†ææVÂÖW76vW2&6²FòW2âF†W’&Ræ÷B6öÖÖæG2à¢–b†×6rå6VæFW$–BÓÒ6Æ–VçBä6†Bä6†$–B¢&WGW&ã° ¢òòç’–æ6öÖ–ærwVW7BÖ6†ææVÂG&ff–2&÷fW2F†RF–væ÷7F–26†ææVÀ¢òò—2Æ—fRâ6öæf—&Ò—Bv—F†÷WBG&VF–ær÷&F–æ'’6†GFW"26öÖÖæG2à¢6öæf—&ÔFWd6†ææVÂ‚“° ¢7G&–ærFW‡BÒ×6räÖW76vRåG&–Õ7F'B‚“°¢–b‚FW‡Bå7F'G5v—F‚„6öÖÖæE&Vf—‚Â7G&–æt6ö×&—6öâä÷&F–æÂ’¢°¢ÆövvW"ä–æf÷&ÖF–öâ‚B$uTU5B4„B¶×6rå6VæFW$æÖWÓ¢¶×6räÖW76vWÒ"“°¢&WGW&ã°¢Ğ ¢7G&–ær6öÖÖæEFW‡BÒFW‡Bå7V'7G&–ær„6öÖÖæE&Vf—‚äÆVæwF‚’åG&–Õ7F'B‚“° ¢–b‡7G&–ærä—4çVÆÄ÷%v†—FU76R†6öÖÖæEFW‡B’¢&WGW&ã° ¢ÆövvW"ä–æf÷&ÖF–öâ‚B$uTU5B4ôÔÔäB¶×6rå6VæFW$æÖWÓ¢¶×6räÖW76vWÒ"“° ¢&ö6W746öÖÖæB€¢×6rå6VæFW$æÖRÀ¢6öÖÖæEFW‡BÀ¢&WÇ•F&vWBäf÷$wVW7B†×6rå6VæFW$–BÂ×6rä6†ææVÄ–B’“°¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢ÆövvW"äW'&÷"‚B$W'&÷"†æFÆ–ær&—fFRw&÷WÖW76vS¢¶W‡Ò"“°¢FWeG&6R‚B$U%$õ"wVW7B†æFÆW#¢¶W‚äÖW76vWÒ"“°¢Ğ¢Ğ ¢&—fFR&ööÂG'”†æFÆT6Æö´ææ÷Væ6VÖVçB„w&÷W×6r×6rÂ7G&–ærÖW76vUFW‡B¢°¢6öç7B7G&–ær6Æö´öfe7Vff—‚Ò"GW&æVBF†R6Æö¶–ærFWf–6R–â–÷W"6—G’öfbâ#°¢6öç7B7G&–ær6Æö´öå7Vff—‚Ò"GW&æVBF†R6Æö¶–ærFWf–6R–â–÷W"6—G’öââ#° ¢–b†ÖW76vUFW‡BäVæG5v—F‚†6Æö´öfe7Vff—‚Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’¢°¢7G&–ær7F÷"ÒÖW76vUFW‡Bå7V'7G&–ærƒÂÖW76vUFW‡BäÆVæwF‚Ò6Æö´öfe7Vff—‚äÆVæwF‚’åG&–Ò‚“°¢ö'6W'fU&–D6Æö´Æ÷vW&VB†7F÷"“°¢†æFÆT6Æö´ææ÷Væ6VÖVçB„6Æöµ7FGW2äF—6&ÆVBÂ7F÷"Â×6rä6†ææVÄæÖRÂ×6räÖW76vR“°¢&WGW&âG'VS°¢Ğ ¢–b†ÖW76vUFW‡BäVæG5v—F‚†6Æö´öå7Vff—‚Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’¢°¢7G&–ær7F÷"ÒÖW76vUFW‡Bå7V'7G&–ærƒÂÖW76vUFW‡BäÆVæwF‚Ò6Æö´öå7Vff—‚äÆVæwF‚’åG&–Ò‚“°¢†æFÆT6Æö´ææ÷Væ6VÖVçB„6Æöµ7FGW2äVæ&ÆVBÂ7F÷"Â×6rä6†ææVÄæÖRÂ×6räÖW76vR“°¢&WGW&âG'VS°¢Ğ ¢&WGW&âfÇ6S°¢Ğ ¢&—fFR&ööÂG'”W‡G&7EFVÆÄ6öÖÖæB‡7G&–ær&uFW‡BÂ÷WB7G&–ær6öÖÖæEFW‡B¢°¢6öÖÖæEFW‡BÒçVÆÃ° ¢–b‡7G&–ærä—4çVÆÄ÷%v†—FU76R‡&uFW‡B’¢&WGW&âfÇ6S° ¢7G&–ærFW‡BÒ&uFW‡BåG&–Ò‚“°¢–b‡FW‡Bå7F'G5v—F‚„6öÖÖæE&Vf—‚Â7G&–æt6ö×&—6öâä÷&F–æÂ’¢°¢6öÖÖæEFW‡BÒFW‡Bå7V'7G&–ær„6öÖÖæE&Vf—‚äÆVæwF‚’åG&–Õ7F'B‚“°¢&WGW&â7G&–ærä—4çVÆÄ÷%v†—FU76R†6öÖÖæEFW‡B“°¢Ğ ¢7G&–æuµÒ'G2ÒFW‡Bå7Æ—B€¢æWuµÒ²rrÒÀ¢7G&–æu7Æ—D÷F–öç2å&VÖ÷fTV×G”VçG&–W2“° ¢–b‡'G2äÆVæwF‚ÓÒ¢&WGW&âfÇ6S° ¢7G&–ær6öÖÖæBÒ'G5³ÒåFôÆ÷vW$–çf&–çB‚“°¢&ööÂ†46öÖÖæE6†RĞ¢‚†6öÖÖæBÓÒ&6Æö²"ÇÀ¢6öÖÖæBÓÒ'7FGW2"ÇÀ¢6öÖÖæBÓÒ&ÆVfR"ÇÀ¢6öÖÖæBÓÒ&¦ö–â"ÇÀ¢6öÖÖæBÓÒ&FÖ–æÆ—7B"ÇÀ¢6öÖÖæBÓÒ&ÖVÖ&W&Æ—7B"ÇÀ¢6öÖÖæBÓÒ'÷6—F–öç2"ÇÀ¢6öÖÖæBÓÒ&GV×"ÇÀ¢6öÖÖæBÓÒ'&W7F'B"’bb'G2äÆVæwF‚ÓÒ’ÇÀ¢†6öÖÖæBÓÒ&†VÇ"bb'G2äÆVæwF‚ÃÒ2’ÇÀ¢†6öÖÖæBÓÒ&†öÖR"b`¢‡'G2äÆVæwF‚ÓÒÇÂ'G2äÆVæwF‚ÓÒ"’’ÇÀ¢†6öÖÖæBÓÒ&ÇG2"bb†5FVÆÄÇG46öÖÖæE6†R‡'G2’’ÇÀ¢†6öÖÖæBÓÒ'&–B"bb†5FVÆÅ&–D6öÖÖæE6†R‡'G2’’ÇÀ¢†6öÖÖæBÓÒ'&–F76—7B"b`¢‡'G2äÆVæwF‚ÓÒ2ÇÀ¢‡'G2äÆVæwF‚ÓÒBb`¢7G&–æräWVÇ2‡'G5³ÒÂ&ÆWfVÂ"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’’’’ÇÀ¢†6öÖÖæBÓÒ&6æ6VÂ"bb‡'G2äÆVæwF‚ÓÒÇÂ'G2äÆVæwF‚ÓÒ"’’ÇÀ¢†6öÖÖæBÓÒ'&V6÷fW'&–B"bb'G2äÆVæwF‚ÓÒR’ÇÀ¢†6öÖÖæBÓÒ&FÖ–â"bb'G2äÆVæwF‚ÓÒ2b`¢‡7G&–æräWVÇ2‡'G5³ÒÂ&FB"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’ÇÀ¢—5&VÖ÷fUfW&"‡'G5³Ò’’’ÇÀ¢†6öÖÖæBÓÒ&ÖVÖ&W""bb'G2äÆVæwF‚ÓÒ2b`¢‡7G&–æräWVÇ2‡'G5³ÒÂ&FB"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’ÇÀ¢—5&VÖ÷fUfW&"‡'G5³Ò’’’ÇÀ¢‚†6öÖÖæBÓÒ&&â"ÇÂ6öÖÖæBÓÒ'Væ&â"’bb'G2äÆVæwF‚ÓÒ"’ÇÀ¢‚†6öÖÖæBÓÒ&–çf—FR"ÇÀ¢6öÖÖæBÓÒ&¶–6²"ÇÀ¢6öÖÖæBÓÒ'6ÆVW"ÇÀ¢6öÖÖæBÓÒ'7–æF÷vâ"’bb'G2äÆVæwF‚ÓÒ"’ÇÀ¢‚†6öÖÖæBÓÒ'v¶WW"ÇÀ¢6öÖÖæBÓÒ'7–çW"’bb'G2äÆVæwF‚ÓÒ2“° ¢–b‚†46öÖÖæE6†R¢&WGW&âfÇ6S° ¢6öÖÖæEFW‡BÒFW‡C°¢&WGW&âG'VS°¢Ğ ¢&—fFR&ööÂ—4¶æ÷vä6öÖÖæB‡7G&–ær6öÖÖæB¢°¢&WGW&âV&Æ–46öÖÖæG2ä6öçF–ç2†6öÖÖæBóò7G&–æräV×G’’ÇÀ¢FÖ–ä6öÖÖæG2ä6öçF–ç2†6öÖÖæBóò7G&–æräV×G’“°¢Ğ ¢&—fFRfö–B&ö6W746öÖÖæB‡7G&–ær6VæFW$æÖRÂ7G&–ær&t6öÖÖæBÂ&WÇ•F&vWB&WÇ•F&vWB¢°¢–b‡7G&–ærä—4çVÆÄ÷%v†—FU76R‡&t6öÖÖæB’¢&WGW&ã° ¢7G&–æuµÒ'G2Ò&t6öÖÖæBå7Æ—B†æWuµÒ²rrÒÂ7G&–æu7Æ—D÷F–öç2å&VÖ÷fTV×G”VçG&–W2“°¢–b‡'G2äÆVæwF‚ÓÒ¢&WGW&ã° ¢7G&–ær6öÖÖæBÒ'G5³ÒåFôÆ÷vW$–çf&–çB‚“°¢FWeG&6R‚B$4ôÔÔäB·&WÇ•F&vWBä¶–æGÒ·6VæFW$æÖWÓ¢·&t6öÖÖæGÒ"“° ¢&ööÂ—4FÖ–âÒ—4FÖ–æ—7G&F÷"‡6VæFW$æÖR“° ¢–b‚—4FÖ–âb`¢7G&–æräWVÇ2†6öÖÖæBÂ&ÆVfR"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’b`¢—4&ææVB‡6VæFW$æÖR’¢°¢FWeG&6R€¢B$4ôÔÔäBDTä”TB·&WÇ•F&vWBä¶–æGÒ·6VæFW$æÖWÓ¢&ææVBâ"“°¢&WÇ’‡&WÇ•F&vWBÂ%–÷R&R&ææVBg&öÒF†—2&÷Bâ"“°¢&WGW&ã°¢Ğ ¢–b‚—46öÖÖæE6÷W&6TWF†÷&—¦VB€¢6VæFW$æÖRÀ¢6öÖÖæBÀ¢'G2À¢&WÇ•F&vWBÀ¢—4FÖ–â’¢°¢FWeG&6R€¢B$4ôÔÔäBDTä”TB·&WÇ•F&vWBä¶–æGÒ·6VæFW$æÖWÓ¢æ÷B&÷BÖVÖ&W"â"“°¢&WÇ’‡&WÇ•F&vWBÂ%–÷R&Ræ÷BÖVÖ&W"öbF†—2&÷Bâ"“°¢&WGW&ã°¢Ğ ¢–b‚—4¶æ÷vä6öÖÖæB†6öÖÖæB’¢°¢FWeG&6R‚B$4ôÔÔäBTä´äõtâ·&WÇ•F&vWBä¶–æGÒ·6VæFW$æÖWÓ¢¶6öÖÖæGÒ"“°¢&WÇ’‡&WÇ•F&vWBÂVæ¶æ÷vä6öÖÖæDÖW76vR‡&WÇ•F&vWB’“°¢&WGW&ã°¢Ğ ¢–b‡7G&–æräWVÇ2†6öÖÖæBÂ&6Æö²"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’b`¢—4FÖ–âb`¢&WÇ•F&vWBä—4÷&rb`¢&WÇ•F&vWBä—4wVW7B¢°¢FWeG&6R€¢B$4ôÔÔäBDTä”TB·&WÇ•F&vWBä¶–æGÒ·6VæFW$æÖWÓ¢6Æö²&WV—&W2÷&r÷"wVW7B6†Bâ"“°¢&WÇ’‡&WÇ•F&vWBÂ%W6R66Æö²–â÷&væ—¦F–öâ÷"wVW7B6†Bâ"“°¢&WGW&ã°¢Ğ ¢–b‡7G&–æräWVÇ2†6öÖÖæBÂ'&–B"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’¢°¢&ö6W75&–D6öÖÖæB‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWBÂ—4FÖ–â“°¢&WGW&ã°¢Ğ ¢–b‡7G&–æräWVÇ2†6öÖÖæBÂ'&–F76—7B"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’¢°¢&ö6W75&–D76—7D6öÖÖæB‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWBÂ—4FÖ–â“°¢&WGW&ã°¢Ğ ¢–b„FÖ–ä6öÖÖæG2ä6öçF–ç2†6öÖÖæB’bb—4FÖ–â¢°¢ÆövvW"åv&æ–ær€¢B$–væ÷&–ærFÖ–â6öÖÖæBw¶6öÖÖæGÒrg&öÒVæWF†÷&—¦VB6VæFW"·6VæFW$æÖWÒâ"“°¢FWeG&6R€¢B$4ôÔÔäBDTä”TB·&WÇ•F&vWBä¶–æGÒ·6VæFW$æÖWÓ¢¶6öÖÖæGÒ—2FÖ–âÖöæÇ’â"“°¢&WÇ’‡&WÇ•F&vWBÂ%–÷R&Ræ÷BWF†÷&—¦VBFòW6RF†B6öÖÖæBâ"“°¢&WGW&ã°¢Ğ ¢7v—F6‚†6öÖÖæB¢°¢66R&†VÇ# ¢&ö6W74†VÇ6öÖÖæB‡'G2Â&WÇ•F&vWBÂ—4FÖ–â“°¢'&V³° ¢66R&6Æö²# ¢&Vv–äfÆ—W%&ö&R‡&WÇ•F&vWB“°¢'&V³° ¢66R'7FGW2# ¢&Vv–å6W'f–6U7FGW2‡&WÇ•F&vWB“°¢'&V³° ¢66R&ÇG2# ¢&ö6W74ÇG46öÖÖæB‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWBÂ—4FÖ–â“°¢'&V³° ¢66R&ÆVfR# ¢–b‡'G2äÆVæwF‚Ò¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ&ÆVfR"’“°¢'&V³°¢Ğ ¢ÆVfTwVW7D6†ææVÂ‡6VæFW$æÖRÂ&WÇ•F&vWB“°¢'&V³° ¢66R&¦ö–â# ¢–b‡'G2äÆVæwF‚Ò¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ&¦ö–â"’“°¢'&V³°¢Ğ ¢¦ö–äwVW7D6†ææVÂ‡6VæFW$æÖRÂ&WÇ•F&vWB“°¢'&V³° ¢66R&–çf—FR# ¢°¢–b‡'G2äÆVæwF‚Ò"¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ&–çf—FR¶6†&7FW%Ò"’“°¢'&V³°¢Ğ ¢&Vv–äwVW7D6†ææVÄ7F–öâ‡&WÇ•F&vWBÂ'G5³ÒÂfÇ6R“°¢'&V³°¢Ğ ¢66R&¶–6²# ¢°¢–b‡'G2äÆVæwF‚Ò"¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ&¶–6²¶6†&7FW%Ò"’“°¢'&V³°¢Ğ ¢&Vv–äwVW7D6†ææVÄ7F–öâ‡&WÇ•F&vWBÂ'G5³ÒÂG'VR“°¢'&V³°¢Ğ ¢66R'v¶WW# ¢°¢–çBÆWfVÃ°¢–çB–æFWƒ°¢–b‡'G2äÆVæwF‚Ò2ÇÀ¢–çBåG'•'6R‡'G5³ÒÂ÷WBÆWfVÂ’ÇÀ¢–çBåG'•'6R‡'G5³%ÒÂ÷WB–æFW‚’¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ'v¶WW¶ÆWfVÅÒ¶–æFW…Ò"’“°¢'&V³°¢Ğ ¢&Vv–ä'VFF–W46öÖÖæB‡&WÇ•F&vWBÂ'v¶WW"ÂÆWfVÂÂ–æFW‚“°¢'&V³°¢Ğ ¢66R'6ÆVW# ¢°¢–çB–æFWƒ°¢–b‡'G2äÆVæwF‚Ò"ÇÂ–çBåG'•'6R‡'G5³ÒÂ÷WB–æFW‚’¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ'6ÆVW¶–æFW…Ò"’“°¢'&V³°¢Ğ ¢&Vv–ä'VFF–W46öÖÖæB‡&WÇ•F&vWBÂ'6ÆVW"ÂçVÆÂÂ–æFW‚“°¢'&V³°¢Ğ ¢66R'7–çW# ¢°¢–çBÆWfVÃ°¢–çB6÷VçC°¢–b‡'G2äÆVæwF‚Ò2ÇÀ¢–çBåG'•'6R‡'G5³ÒÂ÷WBÆWfVÂ’ÇÀ¢–çBåG'•'6R‡'G5³%ÒÂ÷WB6÷VçB’ÇÀ¢ÆWfVÂÃÒÇÀ¢6÷VçBÃÒ¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ'7–çW¶ÆWfVÅÒ¶6÷VçEÒ"’“°¢'&V³°¢Ğ ¢&Vv–ä'VFF–W46öÖÖæB‡&WÇ•F&vWBÂ'7–çW"ÂÆWfVÂÂ6÷VçB“°¢'&V³°¢Ğ ¢66R'7–æF÷vâ# ¢°¢–çB6÷VçC°¢–b‡'G2äÆVæwF‚Ò"ÇÀ¢–çBåG'•'6R‡'G5³ÒÂ÷WB6÷VçB’ÇÀ¢6÷VçBÃÒ¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ'7–æF÷vâ¶6÷VçEÒ"’“°¢'&V³°¢Ğ ¢&Vv–ä'VFF–W46öÖÖæB‡&WÇ•F&vWBÂ'7–æF÷vâ"ÂçVÆÂÂ6÷VçB“°¢'&V³°¢Ğ ¢66R'÷6—F–öç2# ¢–b‡'G2äÆVæwF‚Ò¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ'÷6—F–öç2"’“°¢'&V³°¢Ğ ¢&Vv–ä'VFG•÷6—F–öç2‡&WÇ•F&vWB“°¢'&V³° ¢66R&†öÖR# ¢°¢–b‡'G2äÆVæwF‚â"¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ&†öÖR¶ÆWfVÇÆÆÇÇ7FGW5Ò"’“°¢'&V³°¢Ğ ¢–b‡'G2äÆVæwF‚ÓÒ"b`¢7G&–æräWVÇ2‡'G5³ÒÂ'7FGW2"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’¢°¢&Vv–ä†öÖT6öÖÖæB‡&WÇ•F&vWBÂçVÆÂÂG'VR“°¢'&V³°¢Ğ ¢–çCò†öÖTÆWfVÂÒçVÆÃ°¢–b‡'G2äÆVæwF‚ÓÒ"b`¢7G&–æräWVÇ2‡'G5³ÒÂ&ÆÂ"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’¢°¢–çB'6VDÆWfVÃ°¢–b‚–çBåG'•'6R‡'G5³ÒÂ÷WB'6VDÆWfVÂ’¢°¢&WÇ’‡&WÇ•F&vWBÂW6vR‡&WÇ•F&vWBÂ&†öÖR¶ÆWfVÇÆÆÇÇ7FGW5Ò"’“°¢'&V³°¢Ğ ¢†öÖTÆWfVÂÒ'6VDÆWfVÃ°¢Ğ ¢&Vv–ä†öÖT6öÖÖæB‡&WÇ•F&vWBÂ†öÖTÆWfVÂÂfÇ6R“°¢'&V³°¢Ğ ¢66R&6æ6VÂ# ¢&ö6W75&–D6æ6VÂ‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWBÂ—4FÖ–â“°¢'&V³° ¢66R'&V6÷fW'&–B# ¢&ö6W75&–E&V6÷fW'’‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWB“°¢'&V³° ¢66R&FÖ–æÆ—7B# ¢&ö6W74FÖ–äÆ—7D6öÖÖæB‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWB“°¢'&V³° ¢66R&FÖ–â# ¢&ö6W74FÖ–ä6öÖÖæB‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWB“°¢'&V³° ¢66R&ÖVÖ&W&Æ—7B# ¢&ö6W74ÖVÖ&W$Æ—7D6öÖÖæB‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWB“°¢'&V³° ¢66R&ÖVÖ&W"# ¢&ö6W74ÖVÖ&W$6öÖÖæB‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWB“°¢'&V³° ¢66R&&â# ¢&ö6W74&ä6öÖÖæB‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWBÂfÇ6R“°¢'&V³° ¢66R'Væ&â# ¢&ö6W74&ä6öÖÖæB‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWBÂG'VR“°¢'&V³° ¢66R&GV×# ¢&Vv–äF–væ÷7F–4GV×‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWB“°¢'&V³° ¢66R'&W7F'B# ¢&Vv–äÖævW%&W7F'B‡6VæFW$æÖRÂ'G2Â&WÇ•F&vWB“°¢'&V³°¢Ğ¢Ğ ¢&—fFR7G&–ærVæ¶æ÷vä6öÖÖæDÖW76vR…&WÇ•F&vWBF&vWB¢°¢&WGW&âF&vWBå&WV—&W5&Vf—€¢ò$æò7V6‚6öÖÖæBâG'’6†VÇâ ¢¢$æò7V6‚6öÖÖæBâG'’†VÇâ#°¢Ğ ¢&—fFR7G&–ærW6vR…&WÇ•F&vWBF&vWBÂ7G&–ær7–çF‚¢°¢&WGW&âB%W6vS¢²‡F&vWBå&WV—&W5&Vf—‚ò6öÖÖæE&Vf—‚¢7G&–æräV×G’—×·7–çF‡Ò#°¢Ğ ¢&—fFRfö–B&Vv–äfÆ—W%&ö&R…&WÇ•F&vWBF&vWB¢°¢–b…G'•&WÇ•&–DfÆ—W%&W6W'fF–öâ‡F&vWB’¢&WGW&ã° ¢F‡&VEööÂåVWVUW6W%v÷&´—FVÒ…òÓà¢°¢G'¢°¢òò6Æö²VW'’6â&RVWVVB§W7B&Vf÷&R&–B×7F'B5@¢òò†æFÆ–ær&Vv–ç2â&V6†V6²†W&R6òF†B—B6ææ÷BF¶RF†P¢òòöæRfÆ—W"Æöv–âv’g&öÒF†R&–B×7F'B÷W&F–öâà¢–b…G'•&WÇ•&–DfÆ—W%&W6W'fF–öâ‡F&vWB’¢&WGW&ã° ¢f"&WVW7BÒæWrv÷&¶W%&WVW7@¢°¢–BÒwV–BäæWtwV–B‚’åFõ7G&–ær‚$â"’À¢6öÖÖæBÒ&ö'6W'fR ¢Ó° ¢7G&–ær6†÷'D–BÒ6†÷'D–B‡&WVW7Bä–B“°¢ÆövvW"ä–æf÷&ÖF–öâ‚B$•2ÓâfÆ—W"·&WVW7Bä–GÓ¢ö'6W'fR"“°¢FWeG&6R‚B$dÄ•U"Óâö'6W'fR··6†÷'D–GÕÒ"“° ¢v÷&¶W%&W7öç6R&W7öç6RÒ6VæEv÷&¶W%&WVW7B€¢fÆ—W%—TæÖRÀ¢&WVW7BÀ¢v÷&¶W$6öææV7EF–ÖV÷WD×2“° ¢–b‚&W7öç6Räö²¢°¢ÆövvW"åv&æ–ær‚B$•2ÂÒfÆ—W"·&WVW7Bä–GÓ¢d”Â·&W7öç6RäÖW76vWÒ"“°¢FWeG&6R‚B$dÄ•U"d”Â··6†÷'D–GÕÓ¢·&W7öç6RäÖW76vWÒ"“° ¢&WÇ’‡F&vWBÂ6Æöµ&W6VçFF–öâåVæf–Æ&ÆR‚’“° ¢&WGW&ã°¢Ğ ¢–b‡&W7öç6Räö'6W'fVEWF2ä†5fÇVRb`¢WF5F–ÖW7F×ä—4gWGW&R€¢&W7öç6Räö'6W'fVEWF2åfÇVRÀ¢FFUF–ÖRåWF4æ÷r’¢°¢7G&–ær–çfÆ–EF–ÖRĞ¢WF5F–ÖW7F×äæ÷&ÖÆ—¦R‡&W7öç6Räö'6W'fVEWF2åfÇVR’åFõ7G&–ær‚$ò"“°¢ÆövvW"åv&æ–ær€¢B$•2ÂÒfÆ—W"·&WVW7Bä–GÓ¢&V¦V7FVBgWGW&R"°¢B&ö'6W'fF–öâ¶–çfÆ–EF–ÖWÒâ"“°¢FWeG&6R€¢B$dÄ•U"d”Â··6†÷'D–GÕÓ¢&V¦V7FVBgWGW&RÖFFVB"°¢B&66†Rö'6W'fF–öâ¶–çfÆ–EF–ÖWÒâ"“°¢&WÇ’‡F&vWBÂ6Æöµ&W6VçFF–öâåVæf–Æ&ÆR‚’“°¢&WGW&ã°¢Ğ ¢Ç”fÆ—W$ö'6W'fF–öâ‡&W7öç6R“° ¢7G&–ær&WÇ’Ò6Æöµ&W6VçFF–öâä'V–ÆB€¢&W7öç6Rä6Æöµ7FFRÀ¢&W7öç6Rå6†–VÆEF–ÖW$–å6V6öæG2À¢&W7öç6Rä6öçG&öÆÆW$6†&vRÀ¢&W7öç6Rä66†VBÀ¢&W7öç6Räö'6W'fVEWF2“° ¢7G&–ær6†&vUFW‡BÒ&W7öç6Rä6öçG&öÆÆW$6†&vRä†5fÇVP¢òB'·&W7öç6Rä6öçG&öÆÆW$6†&vRåfÇVR¢¤cÒR ¢¢'Væ¶æ÷vâ#°¢7G&–ær&uF–ÖW%FW‡BÒ&W7öç6Rå6†–VÆEF–ÖW$–å6V6öæG2ä†5fÇVP¢òB'·&W7öç6Rå6†–VÆEF–ÖW$–å6V6öæG2åfÇVW×2 ¢¢'Væ¶æ÷vâ#°¢7G&–ær6÷W&6UFW‡BÒ&W7öç6Rä66†V@¢òB&66†Rö'6W'fVC×·&W7öç6Räö'6W'fVEWF3¤÷Ò ¢¢&g&W6‚#° ¢7G&–ærF–væ÷7F–5&WÇ’Ğ¢B$6Æö²Ò·&W7öç6Rä6Æöµ7FFRóò%Væ¶æ÷vâ'Òâ"°¢B%&r6†–VÆBF–ÖW"Ò·&uF–ÖW%FW‡GÒâ6†&vRÒ¶6†&vUFW‡GÒâ6÷W&6RÒ·6÷W&6UFW‡GÒâ#° ¢ÆövvW"ä–æf÷&ÖF–öâ‚B$•2ÂÒfÆ—W"·&WVW7Bä–GÓ¢¶F–væ÷7F–5&WÇ—Ò"“°¢FWeG&6R‚B$dÄ•U"ô²··6†÷'D–GÕÓ¢¶F–væ÷7F–5&WÇ—Ò"“° ¢&WÇ’‡F&vWBÂ&WÇ’“°¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢ÆövvW"åv&æ–ær‚B$fÆ—W"•2f–ÆVC¢¶W‚äÖW76vWÒ"“°¢FWeG&6R‚B$dÄ•U"U%$õ#¢¶W‚äÖW76vWÒ"“° ¢&WÇ’‡F&vWBÂ6Æöµ&W6VçFF–öâåVæf–Æ&ÆR‚’“°¢Ğ¢Ò“°¢Ğ ¢&—fFR7G&–ær'V–ÆD6Æöµ7FGW57VÖÖ'’‚¢°¢Æö6²…÷7FFU7–æ2¢°¢7G&–ær6÷W&6RÒ7G&–ærä—4çVÆÄ÷%v†—FU76R…öö'6W'fF–öå6÷W&6R¢ò%Væ¶æ÷vâ ¢¢öö'6W'fF–öå6÷W&6S°¢7G&–ærö'6W'fVBÒöÆ7Dö'6W'fVEWF2ä†5fÇVP¢òB"Âö'6W'fVB´f÷&ÖDGW&F–öâ„FFUF–ÖRåWF4æ÷rÒöÆ7Dö'6W'fVEWF2åfÇVR—Òvò ¢¢7G&–æräV×G“° ¢–b…÷7FGW2ÓÒ6Æöµ7FGW2äF—6&ÆVBbbö6å&—6TEWF2ä†5fÇVR¢°¢7G&–ærGVRÒö6å&—6TEWF2åfÇVRâFFUF–ÖRåWF4æ÷p¢òB"ÂVæ&ÆRGVR–â´f÷&ÖDGW&F–öâ…ö6å&—6TEWF2åfÇVRÒFFUF–ÖRåWF4æ÷r—Ò ¢¢"ÂVæ&ÆR—2GVR#° ¢&WGW&âB$6Æö²ÒF—6&ÆVBf–·6÷W&6W×¶ö'6W'fVG×¶GVWÒ#°¢Ğ ¢&WGW&âB$6Æö²Òµ÷7FGW7Òf–·6÷W&6W×¶ö'6W'fVGÒ#°¢Ğ¢Ğ ¢&—fFRv÷&¶W$Æ–æµ7FGW2–æuv÷&¶W"‡7G&–ærv÷&¶W$æÖRÂ7G&–ær—TæÖR¢°¢f"&WVW7BÒæWrv÷&¶W%&WVW7@¢°¢–BÒwV–BäæWtwV–B‚’åFõ7G&–ær‚$â"’À¢6öÖÖæBÒ'–ær ¢Ó° ¢G'¢°¢ÆövvW"ä–æf÷&ÖF–öâ‚B$•2Óâ·v÷&¶W$æÖWÒ·&WVW7Bä–GÓ¢–ær"“° ¢v÷&¶W%&W7öç6R&W7öç6RÒ6VæEv÷&¶W%&WVW7B€¢—TæÖRÀ¢&WVW7BÀ¢v÷&¶W$6öææV7EF–ÖV÷WD×2“° ¢–b‚7G&–æräWVÇ2‡&W7öç6Rä–BÂ&WVW7Bä–BÂ7G&–æt6ö×&—6öâä÷&F–æÂ’¢°¢&WGW&âv÷&¶W$Æ–æµ7FGW2åVçW6&ÆR€¢B'&W7öç6R–BÖ—6ÖF6‚‡·&W7öç6Rä–Bóò&Ö—76–ær'Ò’"“°¢Ğ ¢–b‚&W7öç6Räö²¢&WGW&âv÷&¶W$Æ–æµ7FGW2åVçW6&ÆR‡&W7öç6RäÖW76vRóò'–ærf–ÆVB"“° ¢&WGW&âv÷&¶W$Æ–æµ7FGW2åW6&ÆR‡&W7öç6RäÖW76vRóò'–ær7V66VVFVB"“°¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢&WGW&âv÷&¶W$Æ–æµ7FGW2åVçW6&ÆR†W‚äÖW76vR“°¢Ğ¢Ğ ¢&—fFRfö–B&Vv–ä'VFF–W46öÖÖæB…&WÇ•F&vWBF&vWBÂ7G&–ær6öÖÖæBÂ–çCòÆWfVÂÂ–çB–æFW‚¢°¢F‡&VEööÂåVWVUW6W%v÷&´—FVÒ…òÓà¢°¢G'¢°¢f"&WVW7BÒæWrv÷&¶W%&WVW7@¢°¢–BÒwV–BäæWtwV–B‚’åFõ7G&–ær‚$â"’À¢6öÖÖæBÒ6öÖÖæBÀ¢ÆWfVÂÒÆWfVÂÀ¢–æFW‚Ò–æFW‚À¢W'÷6RĞ¢7G&–æräWVÇ2†6öÖÖæBÂ'v¶WW"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’ÇÀ¢7G&–æräWVÇ2†6öÖÖæBÂ'7–çW"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R¢ò&FVÖò ¢¢çVÆÂÀ¢ÆV6U6V6öæG2Ğ¢7G&–æräWVÇ2†6öÖÖæBÂ'v¶WW"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’ÇÀ¢7G&–æräWVÇ2†6öÖÖæBÂ'7–çW"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R¢òvVæW&Ä'VFG•6fWG”ÆV6U6V6öæG0¢¢†–çCò–çVÆÀ¢Ó° ¢&ööÂW6W46÷VçBĞ¢7G&–æräWVÇ2†6öÖÖæBÂ'7–çW"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R’ÇÀ¢7G&–æräWVÇ2†6öÖÖæBÂ'7–æF÷vâ"Â7G&–æt6ö×&—6öâä÷&F–æÄ–væ÷&T66R“° ¢7G&–ærVçF—G’ÒW6W46÷Vç@¢òB&6÷VçC×¶–æFW‡Ò ¢¢B&–æFWƒ×¶–æFW‡Ò#° ¢7G&–ær6†÷'D–BÒ6†÷'D–B‡&WVW7Bä–B“°¢ÆövvW"ä–æf÷&ÖF–öâ€¢B$•2Óâ'VFF–W2·&WVW7Bä–GÓ¢¶6öÖÖæGÒÆWfVÃ×¶ÆWfVÇÒ·VçF—G—Ò"“° ¢FWeG&6R€¢ÆWfVÂä†5fÇVP¢òB$%TDD”U2Óâ¶6öÖÖæGÒÆWfVÃ×¶ÆWfVÂåfÇVWÒ·VçF—G—Ò"°¢B'W'÷6S×·&WVW7BåW'÷6Róò&ÖçVÂ'Ò"°¢B&ÆV6S×·&WVW7BäÆV6U6V6öæG3òåFõ7G&–ær‚’óò&æöæR'×2··6†÷'D–GÕÒ ¢¢B$%TDD”U2Óâ¶6öÖÖæGÒ·VçF—G—Ò··6†÷'D–GÕÒ"“° ¢v÷&¶W%&W7öç6R&W7öç6RÒ6VæEv÷&¶W%&WVW7B€¢'VFF–W5—TæÖRÀ¢&WVW7BÀ¢v÷&¶W$6öææV7EF–ÖV÷WD×2“° ¢ÆövvW"ä–æf÷&ÖF–öâ€¢B$•2ÂÒ'VFF–W2·&WVW7Bä–GÓ¢²‡&W7öç6Räö²ò$ô²"¢$d”Â"—Ò·&W7öç6RäÖW76vWÒ"“° ¢FWeG&6R€¢B$%TDD”U2²‡&W7öç6Räö²ò$ô²"¢$d”Â"—Ò··6†÷'D–GÕÓ¢·&W7öç6RäÖW76vWÒ"“° ¢&WÇ’‡F&vWBÂ&W7öç6Räö°¢òB$'VFF–W3¢·&W7öç6RäÖW76vWÒ ¢¢B$'VFF–W2f–ÆVC¢·&W7öç6RäÖW76vWÒ"“°¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢ÆövvW"åv&æ–ær‚B$'VFF–W2•2f–ÆVC¢¶W‚äÖW76vWÒ"“°¢FWeG&6R‚B$%TDD”U2U%$õ#¢¶W‚äÖW76vWÒ"“° ¢&WÇ’‡F&vWBÂB$'VFF–W26W'f–6RVæf–Æ&ÆS¢¶W‚äÖW76vWÒ"“°¢Ğ¢Ò“°¢Ğ ¢&—fFRfö–B&Vv–ä'VFG•÷6—F–öç2…&WÇ•F&vWBF&vWB¢°¢F‡&VEööÂåVWVUW6W%v÷&´—FVÒ…òÓà¢°¢f"&WVW7BÒæWrv÷&¶W%&WVW7@¢°¢–BÒwV–BäæWtwV–B‚’åFõ7G&–ær‚$â"’À¢6öÖÖæBÒ'÷6—F–öç2 ¢Ó° ¢7G&–ær6†÷'D–BÒ6†÷'D–B‡&WVW7Bä–B“° ¢G'¢°¢FWeG&6R‚B$%TDE’õ4•D”ôå2Óâ6æ6†÷B··6†÷'D–GÕÒ"“° ¢v÷&¶W%&W7öç6R&W7öç6RÒ6VæEv÷&¶W%&WVW7B€¢'VFF–W5—TæÖRÀ¢&WVW7BÀ¢v÷&¶W$6öææV7EF–ÖV÷WD×2“° ¢–b‚7G&–æräWVÇ2‡&W7öç6Rä–BÂ&WVW7Bä–BÂ7G&–æt6ö×&—6öâä÷&F–æÂ’¢°¢F‡&÷ræWr”ôW†6WF–öâ€¢B$'VFF–W2&W7öç6R–BÖ—6ÖF6‚‡·&W7öç6Rä–Bóò&Ö—76–ær'Ò’â"“°¢Ğ ¢–b‚&W7öç6Räö²¢°¢FWeG&6R€¢B$%TDE’õ4•D”ôå2d”Â··6†÷'D–GÕÓ¢·&W7öç6RäÖW76vWÒ"“°¢&WÇ’€¢F&vWBÀ¢B$'VFF–W2÷6—F–öâ6†V6²f–ÆVC¢·&W7öç6RäÖW76vRóò'Væ¶æ÷vâW'&÷"'Ò"“°¢&WGW&ã°¢Ğ ¢Æ—7CÄ'VFG•÷6—F–öå6æ6†÷Câ÷6—F–öç2Ğ¢&W7öç6Rå÷6—F–öç2ÓÒçVÆÀ¢òæWrÆ—7CÄ'VFG•÷6—F–öå6æ6†÷Câ‚¢¢&W7öç6Rå÷6—F–öç0¢åv†W&R‡÷6—F–öâÓâ÷6—F–öâÒçVÆÂ¢åFôÆ—7B‚“°¢FFUF–ÖRæ÷rÒFFUF–ÖRåWF4æ÷s°¢–çB&W÷'F–ærÒ÷6—F–öç2ä6÷VçB‡÷6—F–öâÓâ†5÷6—F–öå&W÷'B‡÷6—F–öâ’“°¢–çBg&W6‚Ò÷6—F–öç2ä6÷VçB‡÷6—F–öâÓâ—4g&W6…÷6—F–öå&W÷'B‡÷6—F–öâÂæ÷r’“°¢–çB–åÆ’Ò÷6—F–öç2ä6÷VçB‡÷6—F–öâÓâ÷6—F–öâä–åÆ’“°¢–çBFVBÒ÷6—F–öç2ä6÷VçB‡÷6—F–öâÓâ÷6—F–öâäFVB“° ¢FWeG&6R€¢B$%TDE’õ4•D”ôå2ô²··6†÷'D–GÕÓ¢7F—fS×·÷6—F–öç2ä6÷VçGÒ"°¢B'&W÷'F–æs×·&W÷'F–æwÒg&W6ƒ×¶g&W6‡Ò–çÆ“×¶–åÆ—ÒFVC×¶FVGÒâ"“°¢&V6÷&D'VFG•÷6—F–öç4f÷$GV×‡÷6—F–öç2Âæ÷r“° ¢7G&–ærv–æF÷rÒ'V–ÆD'VFG•÷6—F–öåv–æF÷r‡÷6—F–öç2Âæ÷r“°¢&WÇ’€¢F&vWBÀ¢B$'VFG’÷6—F–öç3¢·÷6—F–öç2ä6÷VçGÒ7F—fRÂ·&W÷'F–æwÒ&W÷'F–ærÂ"°¢B'¶–åÆ—Ò–âÆ’Â¶FVGÒFVBâ·v–æF÷wÒ"“°¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢ÆövvW"åv&æ–ær‚B$'VFF–W2÷6—F–öâ•2f–ÆVC¢¶W‚äÖW76vWÒ"“°¢FWeG&6R‚B$%TDE’õ4•D”ôå2U%$õ"··6†÷'D–GÕÓ¢¶W‚äÖW76vWÒ"“°¢&WÇ’‡F&vWBÂB$'VFF–W2÷6—F–öâ6†V6²Væf–Æ&ÆS¢¶W‚äÖW76vWÒ"“°¢Ğ¢Ò“°¢Ğ ¢&—fFRfö–B&Vv–ä†öÖT6öÖÖæB€¢&WÇ•F&vWBF&vWBÀ¢–çCòÆWfVÂÀ¢&ööÂ7FGW4öæÇ’¢°¢F‡&VEööÂåVWVUW6W%v÷&´—FVÒ…òÓà¢°¢f"&WVW7BÒæWrv÷&¶W%&WVW7@¢°¢–BÒwV–BäæWtwV–B‚’åFõ7G&–ær‚$â"’À¢6öÖÖæBÒ7FGW4öæÇ’ò&†öÖW7FGW2"¢&†öÖR"À¢ÆWfVÂÒÆWfVÀ¢Ó° ¢7G&–ær6†÷'D–BÒ6†÷'D–B‡&WVW7Bä–B“° ¢G'¢°¢FWeG&6R€¢7FGW4öæÇ¢òB$%TDE’„ôÔRÓâ7FGW2··6†÷'D–GÕÒ ¢¢B$%TDE’„ôÔRÓâÆWfVÃÒ"°¢B'²†ÆWfVÂä†5fÇVRòÆWfVÂåfÇVRåFõ7G&–ær‚’¢&ÆÂ"—Ò"°¢B%··6†÷'D–GÕÒ"“° ¢v÷&¶W%&W7öç6R&W7öç6RÒ6VæEv÷&¶W%&WVW7B€¢'VFF–W5—TæÖRÀ¢&WVW7BÀ¢v÷&¶W$6öææV7EF–ÖV÷WD×2“° ¢FWeG&6R€¢B$%TDE’„ôÔR²‡&W7öç6Räö²ò$ô²"¢$d”Â"—Ò"°¢B%··6†÷'D–GÕÓ¢·&W7öç6RäÖW76vWÒ"“°¢&WÇ’€¢F&vWBÀ¢&W7öç6Räö°¢òB$'VFF–W3¢·&W7öç6RäÖW76vWÒ ¢¢B$'VFF–W2f–ÆVC¢·&W7öç6RäÖW76vWÒ"“° ¢–b‚7FGW4öæÇ’b`¢&W7öç6Räö²b`¢7G&–ærä—4çVÆÄ÷%v†—FU76R‡&W7öç6Rä†öÖT¦ö$–B’¢°¢7G&–ær†öÖT¦ö$–BÒ&W7öç6Rä†öÖT¦ö$–C°¢F‡&VEööÂåVWVUW6W%v÷&´—FVÒ€¢õòÓâÖöæ—F÷$†öÖT6ö×ÆWF–öâ‡F&vWBÂ†öÖT¦ö$–B’“°¢Ğ¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢ÆövvW"åv&æ–ær‚B$'VFF–W2†öÖR•2f–ÆVC¢¶W‚äÖW76vWÒ"“°¢FWeG&6R‚B$%TDE’„ôÔRU%$õ"··6†÷'D–GÕÓ¢¶W‚äÖW76vWÒ"“°¢&WÇ’‡F&vWBÂB$'VFF–W2†öÖR6W'f–6RVæf–Æ&ÆS¢¶W‚äÖW76vWÒ"“°¢Ğ¢Ò“°¢Ğ ¢&—fFRfö–BÖöæ—F÷$†öÖT6ö×ÆWF–öâ…&WÇ•F&vWBF&vWBÂ7G&–ær†öÖT¦ö$–B¢°¢f"F–ÖV÷WBÒ7F÷vF6‚å7F'DæWr‚“°¢–çB6öç6V7WF—fTf–ÇW&W2Ò° ¢v†–ÆR‡F–ÖV÷WBäVÆ6VBÂF–ÖU7âäg&öÔ†÷W'2ƒ"’¢°¢F‡&VBå6ÆVWƒS“° ¢f"&WVW7BÒæWrv÷&¶W%&WVW7@¢°¢–BÒwV–BäæWtwV–B‚’åFõ7G&–ær‚$â"’À¢6öÖÖæBÒ&†öÖW7FGW2 ¢Ó° ¢G'¢°¢v÷&¶W%&W7öç6R&W7öç6RÒ6VæEv÷&¶W%&WVW7B€¢'VFF–W5—TæÖRÀ¢&WVW7BÀ¢v÷&¶W$6öææV7EF–ÖV÷WD×2“°¢6öç6V7WF—fTf–ÇW&W2Ò° ¢–b‚&W7öç6Räö²¢6öçF–çVS° ¢–b‚7G&–æräWVÇ2€¢&W7öç6Rä†öÖT¦ö$–BÀ¢†öÖT¦ö$–BÀ¢7G&–æt6ö×&—6öâä÷&F–æÂ’¢°¢&WÇ’€¢F&vWBÀ¢$'VFF–W2†öÖR&W÷'F–ær6†ævVBFòæ÷F†W"¦ö#²"°¢'W6R6†öÖR7FGW2f÷"F†R7W'&VçB&W7VÇBâ"“°¢&WGW&ã°¢Ğ ¢–b‡&W7öç6Rä†öÖU'Vææ–ær¢6öçF–çVS° ¢FWeG&6R€¢B$%TDE’„ôÔR4ôÕÄUDR·µ6†÷'D–B††öÖT¦ö$–B—ÕÓ¢"°¢&W7öç6RäÖW76vR“°¢&WÇ’‡F&vWBÂ$'VFF–W3¢"²&W7öç6RäÖW76vR“°¢&WGW&ã°¢Ğ¢6F6‚„W†6WF–öâW‚¢°¢6öç6V7WF—fTf–ÇW&W2²³°¢–b†6öç6V7WF—fTf–ÇW&W2Â2¢6öçF–çVS° ¢FWeG&6R€¢B$%TDE’„ôÔRÔôä•Dõ"U%$õ"·µ6†÷'D–B††öÖT¦ö$–B—ÕÓ¢"°¢W‚äÖW76vR“°¢&WÇ’€¢F&vWBÀ¢$'VFF–W2†öÖR6ö×ÆWF–öâ&W÷'F–ær&V6ÖRVæf–Æ&ÆS²"°¢'W6R6†öÖR7FGW2Fò6†V6²—BÆFW"â"“°¢&WGW&ã°¢Ğ¢Ğ ¢&WÇ’€¢F&vWBÀ¢$'VFF–W2†öÖR6ö×ÆWF–öâ&W÷'F–ærF–ÖVB÷WC²"°¢'W6R6†öÖR7FGW2f÷"F†R&WF–æVB&W7VÇBâ"“°¢Ğ ¢&—fFR7G&–ær'V–ÆD'VFG•÷6—F–öåv–æF÷r€¢”Æ—7CÄ'VFG•÷6—F–öå6æ6†÷Câ÷6—F–öç2À¢FFUF–ÖRæ÷r¢°¢f"&öG’ÒæWr7G&–æt'V–ÆFW"‚“°¢&öG’äVæB‚#ÆföçB6öÆ÷#Òr3ƒ”C$S‚sä6—G’GvVÆÆW'=û÷{h‘éì¶»§q«^t€€€Á½Í¥Ñ¥½¸¹!•…‘¥¹h¹!…ÍY…±Õ”€˜˜(€€€€€€€€€€€€€€€€€€Á½Í¥Ñ¥½¸¹!•…‘¥¹\¹!…ÍY…±Õ”(€€€€€€€€€€€€€€€€ü€ˆ¡í½Éµ…Ñ½½É‘¥¹…Ñ”¡Á½Í¥Ñ¥½¸¹!•…‘¥¹`¥ô°ˆ€¬(€€€€€€€€€€€€€€€€€€‰í½Éµ…Ñ½½É‘¥¹…Ñ”¡Á½Í¥Ñ¥½¸¹!•…‘¥¹d¥ô°ˆ€¬(€€€€€€€€€€€€€€€€€€‰í½Éµ…Ñ½½É‘¥¹…Ñ”¡Á½Í¥Ñ¥½¸¹!•…‘¥¹h¥ô°ˆ€¬(€€€€€€€€€€€€€€€€€€‰í½Éµ…Ñ½½É‘¥¹…Ñ”¡Á½Í¥Ñ¥½¸¹!•…‘¥¹\¥ô¤ˆ(€€€€€€€€€€€€€€€€è€‰Õ¹­¹½İ¸ˆì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”ÍÑ…Ñ¥ŒÍÑÉ¥¹œ½Éµ…Ñ½½É‘¥¹…Ñ”¡™±½…ĞüÙ…±Õ”¤(€€€€€€€ì(€€€€€€€€€€€É•ÑÕÉ¸Ù…±Õ”¹!…ÍY…±Õ”(€€€€€€€€€€€€€€€€üÙ…±Õ”¹Y…±Õ”¹Q½MÑÉ¥¹œ ˆÀ¸ÀÀÀˆ°Õ±ÑÕÉ•%¹™¼¹%¹Ù…É¥…¹ÑÕ±ÑÕÉ”¤(€€€€€€€€€€€€€€€€è€ˆüˆì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”]½É­•ÉI•ÍÁ½¹Í”M•¹‘]½É­•ÉI•ÅÕ•ÍĞ¡ÍÑÉ¥¹œÁ¥Á•9…µ”°]½É­•ÉI•ÅÕ•ÍĞÉ•ÅÕ•ÍĞ°¥¹Ğ½¹¹•ÑQ¥µ•½ÕÑ5Ì¤(€€€€€€€ì(€€€€€€€€€€€ÕÍ¥¹œ€¡Ù…ÈÁ¥Á”€ô¹•Ü9…µ•‘A¥Á•±¥•¹ÑMÑÉ•…´ ˆ¸ˆ°Á¥Á•9…µ”°A¥Á•¥É•Ñ¥½¸¹%¹=ÕĞ°A¥Á•=ÁÑ¥½¹Ì¹9½¹”¤¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€Á¥Á”¹½¹¹•Ğ¡½¹¹•ÑQ¥µ•½ÕÑ5Ì¤ì((€€€€€€€€€€€€€€€Ù…ÈÉ•…‘•È€ô¹•ÜMÑÉ•…µI•…‘•È¡Á¥Á”¤ì(€€€€€€€€€€€€€€€Ù…ÈİÉ¥Ñ•È€ô¹•ÜMÑÉ•…µ]É¥Ñ•È¡Á¥Á”¤ìÕÑ½±ÕÍ €ôÑÉÕ”ôì((€€€€€€€€€€€€€€€İÉ¥Ñ•È¹]É¥Ñ•1¥¹”¡)Í½¹½¹Ù•ÉĞ¹M•É¥…±¥é•=‰©•Ğ¡É•ÅÕ•ÍĞ¤¤ì(€€€€€€€€€€€€€€€ÍÑÉ¥¹œ±¥¹”€ôÉ•…‘•È¹I•…‘1¥¹” ¤ì((€€€€€€€€€€€€€€€¥˜€¡ÍÑÉ¥¹œ¹%Í9Õ±±=É]¡¥Ñ•MÁ…”¡±¥¹”¤¤(€€€€€€€€€€€€€€€€€€€Ñ¡É½Ü¹•Ü%=á•ÁÑ¥½¸ ‰]½É­•È€íÁ¥Á•9…µ•ôœ±½Í•İ¥Ñ¡½ÕĞ„É•ÍÁ½¹Í”¸ˆ¤ì((€€€€€€€€€€€€€€€]½É­•ÉI•ÍÁ½¹Í”É•ÍÁ½¹Í”€ô)Í½¹½¹Ù•ÉĞ¹•Í•É¥…±¥é•=‰©•Ğñ]½É­•ÉI•ÍÁ½¹Í”ø¡±¥¹”¤ì(€€€€€€€€€€€€€€€¥˜€¡É•ÍÁ½¹Í”€ôô¹Õ±°¤(€€€€€€€€€€€€€€€€€€€Ñ¡É½Ü¹•Ü%=á•ÁÑ¥½¸ ‰]½É­•È€íÁ¥Á•9…µ•ôœÉ•ÑÕÉ¹•¥¹Ù…±¥)M=8¸ˆ¤ì((€€€€€€€€€€€€€€€É•ÑÕÉ¸É•ÍÁ½¹Í”ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥I•Á±ä¡I•Á±åQ…É•ĞÑ…É•Ğ°ÍÑÉ¥¹œÑ•áĞ¤(€€€€€€€ì(€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€¥˜€¡Ñ…É•Ğ¹%ÍÕ•ÍĞ¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€M•¹‘Õ•ÍÑ5•ÍÍ…”¡Ñ•áĞ¤ì(€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€¥˜€¡Ñ…É•Ğ¹%Í=Éœ¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€¥˜€¡QÉåM•¹‘=É5•ÍÍ…”¡Ñ…É•Ğ°Ñ•áĞ¤¤(€€€€€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì((€€€€€€€€€€€€€€€€€€€ÍÑÉ¥¹œİ…É¹¥¹œ€ô(€€€€€€€€€€€€€€€€€€€€€€€€ˆñ™½¹Ğ½±½ÈôœÜäĞÄÀœù=É…¹¥é…Ñ¥½¸½ÕÑÁÕĞ¥Ì‘•É…‘•¸ğ½™½¹Ğø€ˆ€¬(€€€€€€€€€€€€€€€€€€€€€€€€‰Q¡¥ÌÉ•Á±äİ…Ì‘•±¥Ù•É•ÁÉ¥Ù…Ñ•±ä¸€ˆ€¬Ñ•áĞì(€€€€€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ (€€€€€€€€€€€€€€€€€€€€€€€€‰U¹…‰±”Ñ¼Í•¹½µµ…¹É•Á±ä¥¸Ñ¡”½É¥¥¹…Ñ¥¹œ½Éœ¡…¹¹•°ì€ˆ€¬(€€€€€€€€€€€€€€€€€€€€€€€€‰™…±±¥¹œ‰…¬Ñ¼Ñ¡”½µµ…¹¥ÍÍÕ•ÈÌÑ•±°¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€•ÙQÉ…” (€€€€€€€€€€€€€€€€€€€€€€€€‰=IM911	,€´øÑ•±°Í•¹‘•Èôˆ€¬Ñ…É•Ğ¹M•¹‘•É%€¬(€€€€€€€€€€€€€€€€€€€€€€€€ˆ¡…¹¹•°ôˆ€¬€¡Ñ…É•Ğ¹¡…¹¹•±9…µ”€üü€‰Õ¹­¹½İ¸ˆ¤€¬€ˆ¸ˆ¤ì((€€€€€€€€€€€€€€€€€€€¥˜€¡Ñ…É•Ğ¹M•¹‘•É%€„ô€À¤(€€€€€€€€€€€€€€€€€€€€€€€±¥•¹Ğ¹M•¹‘AÉ¥Ù…Ñ•5•ÍÍ…”¡Ñ…É•Ğ¹M•¹‘•É%°İ…É¹¥¹œ¤ì(€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€±¥•¹Ğ¹M•¹‘AÉ¥Ù…Ñ•5•ÍÍ…”¡Ñ…É•Ğ¹M•¹‘•É%°Ñ•áĞ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€1½•È¹ÉÉ½È ‰…¥±•Í•¹‘¥¹œ½µµ…¹É•Á±äèí•áôˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰II=HÉ•Á±äèí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥I•µ•µ‰•É=É…¹¥é…Ñ¥½¹¡…¹¹•°¡¥¹Ğ¡…¹¹•±%°ÍÑÉ¥¹œ¡…¹¹•±9…µ”¤(€€€€€€€ì(€€€€€€€€€€€±½¬€¡}½É=ÕÑÁÕÑMå¹Œ¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€}±…ÍÑ=É¡…¹¹•±%€ô¡…¹¹•±%ì(€€€€€€€€€€€€€€€}±…ÍÑ=É¡…¹¹•±9…µ”€ô¡…¹¹•±9…µ”ì(€€€€€€€€€€€€€€€}±…ÍÑ=É¡…¹¹•±=‰Í•ÉÙ•‘UÑŒ€ô…Ñ•Q¥µ”¹UÑ9½Üì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”‰½½°QÉåM•¹‘=É5•ÍÍ…”¡I•Á±åQ…É•ĞÑ…É•Ğ°ÍÑÉ¥¹œÑ•áĞ¤(€€€€€€€ì(€€€€€€€€€€€½‰©•Ğ¡…¹¹•±%€ôÑ…É•Ğ€„ô¹Õ±°€üÑ…É•Ğ¹¡…¹¹•±%€è¹Õ±°ì(€€€€€€€€€€€ÍÑÉ¥¹œ¡…¹¹•±9…µ”€ôÑ…É•Ğ€„ô¹Õ±°€üÑ…É•Ğ¹¡…¹¹•±9…µ”€è¹Õ±°ì((€€€€€€€€€€€±½¬€¡}½É=ÕÑÁÕÑMå¹Œ¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€¥˜€¡¡…¹¹•±%€ôô¹Õ±°¤(€€€€€€€€€€€€€€€€€€€¡…¹¹•±%€ô}±…ÍÑ=É¡…¹¹•±%ì(€€€€€€€€€€€€€€€¥˜€¡ÍÑÉ¥¹œ¹%Í9Õ±±=É]¡¥Ñ•MÁ…”¡¡…¹¹•±9…µ”¤¤(€€€€€€€€€€€€€€€€€€€¡…¹¹•±9…µ”€ô}±…ÍÑ=É¡…¹¹•±9…µ”ì(€€€€€€€€€€€€€€€}±…ÍÑ=É=ÕÑ‰½Õ¹‘ÑÑ•µÁÑUÑŒ€ô…Ñ•Q¥µ”¹UÑ9½Üì(€€€€€€€€€€€ô((€€€€€€€€€€€ÍÑÉ¥¹œ‘¥É•Ñ•Ñ…¥°ì(€€€€€€€€€€€¥˜€¡QÉåM•¹‘¥É•ÑÉ½ÕÁ5•ÍÍ…”¡¡…¹¹•±%°Ñ•áĞ°½ÕĞ‘¥É•Ñ•Ñ…¥°¤¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€M•Ñ=É=ÕÑ‰½Õ¹‘!•…±Ñ  (€€€€€€€€€€€€€€€€€€€™…±Í”°(€€€€€€€€€€€€€€€€€€€€‰‘¥É•Ğ¡…¹¹•°‘•±¥Ù•ÉäÙ¥„€ˆ€¬(€€€€€€€€€€€€€€€€€€€€¡¡…¹¹•±9…µ”€üü€‰É•µ•µ‰•É•½É…¹¥é…Ñ¥½¸¡…¹¹•°ˆ¤€¬(€€€€€€€€€€€€€€€€€€€€ˆ€ ˆ€¬‘¥É•Ñ•Ñ…¥°€¬€ˆ¤ˆ¤ì(€€€€€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ (€€€€€€€€€€€€€€€€€€€€‰=ÉœÉ•Á±äÍ•¹Ğ‘¥É•Ñ±äÑ¼½‰Í•ÉÙ•¡…¹¹•°€ˆ€¬(€€€€€€€€€€€€€€€€€€€€¡¡…¹¹•±9…µ”€üü€‰Õ¹­¹½İ¸ˆ¤€¬€ˆ¸ˆ¤ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸ÑÉÕ”ì(€€€€€€€€€€€ô((€€€€€€€€€€€¥˜€¡±¥•¹Ğ¹=É%€ø€À¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ÑÉä(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€±¥•¹Ğ¹M•¹‘=É5•ÍÍ…”¡Ñ•áĞ¤ì(€€€€€€€€€€€€€€€€€€€M•Ñ=É=ÕÑ‰½Õ¹‘!•…±Ñ  (€€€€€€€€€€€€€€€€€€€€€€€™…±Í”°(€€€€€€€€€€€€€€€€€€€€€€€€‰±¥•¹Ğ¹M•¹‘=É5•ÍÍ…”ÕÍ¥¹œ1½…±A±…å•È½É…¹¥é…Ñ¥½¸ÍÑ…Ğˆ¤ì(€€€€€€€€€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ (€€€€€€€€€€€€€€€€€€€€€€€€‰=ÉœÉ•Á±äÍÕ‰µ¥ÑÑ•Ñ¡É½Õ =M¡…ÉÀ¹±¥•¹Ñ±•ÍÌ¹±¥•¹Ğ¹M•¹‘=É5•ÍÍ…”¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ÑÉÕ”ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€‘¥É•Ñ•Ñ…¥°€¬ô€ˆìM•¹‘=É5•ÍÍ…”Ñ¡É•Ü€ˆ€¬•à¹5•ÍÍ…”ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€ô(€€€€€€€€€€€•±Í”(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€‘¥É•Ñ•Ñ…¥°€¬ô€ˆì1½…±A±…å•È½É…¹¥é…Ñ¥½¸ÍÑ…Ğ¥ÌÕ¹…Ù…¥±…‰±”ˆì(€€€€€€€€€€€ô((€€€€€€€€€€€M•Ñ=É=ÕÑ‰½Õ¹‘!•…±Ñ ¡ÑÉÕ”°‘¥É•Ñ•Ñ…¥°¤ì(€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰=É…¹¥é…Ñ¥½¸É•Á±äÕ¹…Ù…¥±…‰±”è€ˆ€¬‘¥É•Ñ•Ñ…¥°¤ì(€€€€€€€€€€€•ÙQÉ…” ‰=IM9Iè€ˆ€¬‘¥É•Ñ•Ñ…¥°¤ì(€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”‰½½°QÉåM•¹‘¥É•ÑÉ½ÕÁ5•ÍÍ…” (€€€€€€€€€€€½‰©•Ğ¡…¹¹•±%°(€€€€€€€€€€€ÍÑÉ¥¹œÑ•áĞ°(€€€€€€€€€€€½ÕĞÍÑÉ¥¹œ‘•Ñ…¥°¤(€€€€€€€ì(€€€€€€€€€€€‘•Ñ…¥°€ô€‰¹¼½‰Í•ÉÙ•¡…¹¹•°¥ˆì(€€€€€€€€€€€¥˜€¡¡…¹¹•±%€ôô¹Õ±°¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì((€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€¥¹Ğ½‰Í•ÉÙ•‘¡…¹¹•±%€ô½¹Ù•ÉĞ¹Q½%¹ĞÌÈ (€€€€€€€€€€€€€€€€€€€¡…¹¹•±%°(€€€€€€€€€€€€€€€€€€€Õ±ÑÕÉ•%¹™¼¹%¹Ù…É¥…¹ÑÕ±ÑÕÉ”¤ì(€€€€€€€€€€€€€€€¥˜€¡½‰Í•ÉÙ•‘¡…¹¹•±%€ğô€À¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€‘•Ñ…¥°€ô€‰½‰Í•ÉÙ•¡…¹¹•°¥¥Ì¥¹Ù…±¥ˆì(€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€±¥•¹Ğ¹M•¹ (€€€€€€€€€€€€€€€€€€€¹•ÜÉ½ÕÁ5Í5•ÍÍ…”(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€5•ÍÍ…•QåÁ”€ôÉ½ÕÁ5•ÍÍ…•QåÁ”¹=Éœ°(€€€€€€€€€€€€€€€€€€€€€€€¡…¹¹•±%€ô½‰Í•ÉÙ•‘¡…¹¹•±%°(€€€€€€€€€€€€€€€€€€€€€€€Q•áĞ€ôÑ•áĞ(€€€€€€€€€€€€€€€€€€€ô¤ì((€€€€€€€€€€€€€€€‘•Ñ…¥°€ô(€€€€€€€€€€€€€€€€€€€€‰±¥•¹Ğ¹M•¹¡É½ÕÁ5Í5•ÍÍ…”=Éœ°¡…¹¹•°€ˆ€¬(€€€€€€€€€€€€€€€€€€€½‰Í•ÉÙ•‘¡…¹¹•±%€¬€ˆ¤ˆì(€€€€€€€€€€€€€€€É•ÑÕÉ¸ÑÉÕ”ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€‘•Ñ…¥°€ô€‰É…Ü½Éœµ¡…¹¹•°Í•¹™…¥±•è€ˆ€¬•à¹5•ÍÍ…”ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥M•Ñ=É=ÕÑ‰½Õ¹‘!•…±Ñ ¡‰½½°‘•É…‘•°ÍÑÉ¥¹œ‘•Ñ…¥°¤(€€€€€€€ì(€€€€€€€€€€€±½¬€¡}½É=ÕÑÁÕÑMå¹Œ¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€}½É=ÕÑ‰½Õ¹‘•É…‘•€ô‘•É…‘•ì(€€€€€€€€€€€€€€€}½É=ÕÑ‰½Õ¹‘•Ñ…¥°€ôÍÑÉ¥¹œ¹%Í9Õ±±=É]¡¥Ñ•MÁ…”¡‘•Ñ…¥°¤(€€€€€€€€€€€€€€€€€€€€ü€‰¹¼‘•Ñ…¥°ˆ(€€€€€€€€€€€€€€€€€€€€è‘•Ñ…¥°ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”ÍÑÉ¥¹œ	Õ¥±‘=É=ÕÑ‰½Õ¹‘MÑ…ÑÕÍMÕµµ…Éä ¤(€€€€€€€ì(€€€€€€€€€€€±½¬€¡}½É=ÕÑÁÕÑMå¹Œ¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ÍÑÉ¥¹œ½‰Í•ÉÙ•€ô}±…ÍÑ=É¡…¹¹•±=‰Í•ÉÙ•‘UÑŒ¹!…ÍY…±Õ”(€€€€€€€€€€€€€€€€€€€€ü€ˆ°¡…¹¹•°½‰Í•ÉÙ•€ˆ€¬(€€€€€€€€€€€€€€€€€€€€€½Éµ…ÑÕÉ…Ñ¥½¸¡…Ñ•Q¥µ”¹UÑ9½Ü€´}±…ÍÑ=É¡…¹¹•±=‰Í•ÉÙ•‘UÑŒ¹Y…±Õ”¤€¬(€€€€€€€€€€€€€€€€€€€€€€ˆ…¼ˆ(€€€€€€€€€€€€€€€€€€€€è€ˆ°¹¼½Éœ¡…¹¹•°½‰Í•ÉÙ•Í¥¹”ÍÑ…ÉÑÕÀˆì(€€€€€€€€€€€€€€€ÍÑÉ¥¹œ…ÑÑ•µÁÑ•€ô}±…ÍÑ=É=ÕÑ‰½Õ¹‘ÑÑ•µÁÑUÑŒ¹!…ÍY…±Õ”(€€€€€€€€€€€€€€€€€€€€ü€ˆ°±…ÍĞÍ•¹…ÑÑ•µÁĞ€ˆ€¬(€€€€€€€€€€€€€€€€€€€€€½Éµ…ÑÕÉ…Ñ¥½¸¡…Ñ•Q¥µ”¹UÑ9½Ü€´}±…ÍÑ=É=ÕÑ‰½Õ¹‘ÑÑ•µÁÑUÑŒ¹Y…±Õ”¤€¬(€€€€€€€€€€€€€€€€€€€€€€ˆ…¼ˆ(€€€€€€€€€€€€€€€€€€€€è€ˆ°¹¼Í•¹…ÑÑ•µÁÑ•Í¥¹”ÍÑ…ÉÑÕÀˆì((€€€€€€€€€€€€€€€É•ÑÕÉ¸€¡}½É=ÕÑ‰½Õ¹‘•É…‘•€ü€‰‘•É…‘•ˆ€è€‰É•…‘äˆ¤€¬(€€€€€€€€€€€€€€€€€€€€€€€ˆƒŠP€ˆ€¬}½É=ÕÑ‰½Õ¹‘•Ñ…¥°€¬½‰Í•ÉÙ•€¬…ÑÑ•µÁÑ•ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”‰½½°%Í=É=ÕÑ‰½Õ¹‘•É…‘• ¤(€€€€€€€ì(€€€€€€€€€€€±½¬€¡}½É=ÕÑÁÕÑMå¹Œ¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸}½É=ÕÑ‰½Õ¹‘•É…‘•ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥	•¥¹5…¹…•ÉI•ÍÑ…ÉĞ (€€€€€€€€€€€ÍÑÉ¥¹œÍ•¹‘•É9…µ”°(€€€€€€€€€€€ÍÑÉ¥¹mtÁ…ÉÑÌ°(€€€€€€€€€€€I•Á±åQ…É•ĞÑ…É•Ğ¤(€€€€€€€ì(€€€€€€€€€€€¥˜€¡Á…ÉÑÌ¹1•¹Ñ €„ô€Ä¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°UÍ…”¡Ñ…É•Ğ°€‰É•ÍÑ…ÉĞˆ¤¤ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€ô((€€€€€€€€€€€ÍÑÉ¥¹œ•á•ÕÑ…‰±•A…Ñ ì(€€€€€€€€€€€ÍÑÉ¥¹œİ½É­¥¹¥É•Ñ½Éäì(€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€•á•ÕÑ…‰±•A…Ñ €ôAÉ½•ÍÌ¹•ÑÕÉÉ•¹ÑAÉ½•ÍÌ ¤¹5…¥¹5½‘Õ±”¹¥±•9…µ”ì(€€€€€€€€€€€€€€€İ½É­¥¹¥É•Ñ½Éä€ôA…Ñ ¹•Ñ¥É•Ñ½Éå9…µ”¡•á•ÕÑ…‰±•A…Ñ ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰5…¹…•ÈÉ•ÍÑ…ÉĞ¥ÌÕ¹…Ù…¥±…‰±”è€ˆ€¬•à¹5•ÍÍ…”¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰IMQIPAIAIII=H…Ñ½Èôˆ€¬Í•¹‘•É9…µ”€¬€ˆè€ˆ€¬•à¹5•ÍÍ…”¤ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€ô((€€€€€€€€€€€I•Á±ä (€€€€€€€€€€€€€€€Ñ…É•Ğ°(€€€€€€€€€€€€€€€€ˆñ™½¹Ğ½±½ÈôœÜäĞÄÀœù5…¹…•ÈÉ•ÍÑ…ÉĞ…•ÁÑ•¸ğ½™½¹Ğø€ˆ€¬(€€€€€€€€€€€€€€€€‰Áµ…¹…•Èİ¥±°‘¥Í½¹¹•Ğ…¹É•ÑÕÉ¸¥¸„™•ÜÍ•½¹‘Ì¸ˆ¤ì(€€€€€€€€€€€I•½É‘¥…¹½ÍÑ¥Œ (€€€€€€€€€€€€€€€€‰IMQIPÉ•ÅÕ•ÍÑ•‰ä€ˆ€¬Í•¹‘•É9…µ”€¬(€€€€€€€€€€€€€€€€ˆì•á•ÕÑ…‰±”ôˆ€¬•á•ÕÑ…‰±•A…Ñ €¬€ˆ¸ˆ¤ì(€€€€€€€€€€€M…Ù•MÑ…Ñ” ¤ì((€€€€€€€€€€€Q¡É•…‘A½½°¹EÕ•Õ•UÍ•É]½É­%Ñ•´¡|€ôø(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ÑÉä(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€ÍÑÉ¥¹œ•Í…Á•‘á•ÕÑ…‰±”€ô•á•ÕÑ…‰±•A…Ñ ¹I•Á±…” ˆœˆ°€ˆœœˆ¤ì(€€€€€€€€€€€€€€€€€€€ÍÑÉ¥¹œ•Í…Á•‘¥É•Ñ½Éä€ô(€€€€€€€€€€€€€€€€€€€€€€€€¡İ½É­¥¹¥É•Ñ½Éä€üüÍÑÉ¥¹œ¹µÁÑä¤¹I•Á±…” ˆœˆ°€ˆœœˆ¤ì(€€€€€€€€€€€€€€€€€€€ÍÑÉ¥¹œ½µµ…¹€ô(€€€€€€€€€€€€€€€€€€€€€€€€‰MÑ…ÉĞµM±••À€µM•½¹‘Ì€Èì€ˆ€¬(€€€€€€€€€€€€€€€€€€€€€€€€‰MÑ…ÉĞµAÉ½•ÍÌ€µ¥±•A…Ñ €œˆ€¬•Í…Á•‘á•ÕÑ…‰±”€¬€ˆœ€ˆ€¬(€€€€€€€€€€€€€€€€€€€€€€€€ˆµ]½É­¥¹¥É•Ñ½Éä€œˆ€¬•Í…Á•‘¥É•Ñ½Éä€¬€ˆœˆì((€€€€€€€€€€€€€€€€€€€AÉ½•ÍÌ¹MÑ…ÉĞ (€€€€€€€€€€€€€€€€€€€€€€€¹•ÜAÉ½•ÍÍMÑ…ÉÑ%¹™¼(€€€€€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€€€€€¥±•9…µ”€ô€‰Á½İ•ÉÍ¡•±°¹•á”ˆ°(€€€€€€€€€€€€€€€€€€€€€€€€€€€ÉÕµ•¹ÑÌ€ô(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ˆµ9½AÉ½™¥±”€µ9½¹%¹Ñ•É…Ñ¥Ù”€µ]¥¹‘½İMÑå±”!¥‘‘•¸€ˆ€¬(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ˆµ½µµ…¹pˆˆ€¬½µµ…¹€¬€‰pˆˆ°(€€€€€€€€€€€€€€€€€€€€€€€€€€€UÍ•M¡•±±á•ÕÑ”€ô™…±Í”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€É•…Ñ•9½]¥¹‘½Ü€ôÑÉÕ”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€]½É­¥¹¥É•Ñ½Éä€ôİ½É­¥¹¥É•Ñ½Éä(€€€€€€€€€€€€€€€€€€€€€€€ô¤ì((€€€€€€€€€€€€€€€€€€€Q¡É•…¹M±••À ÜÔÀ¤ì(€€€€€€€€€€€€€€€€€€€¹Ù¥É½¹µ•¹Ğ¹á¥Ğ À¤ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€1½•È¹ÉÉ½È ‰5…¹…•ÈÉ•ÍÑ…ÉĞ™…¥±•è€ˆ€¬•à¤ì(€€€€€€€€€€€€€€€€€€€•ÙQÉ…” ‰IMQIPII=H…Ñ½Èôˆ€¬Í•¹‘•É9…µ”€¬€ˆè€ˆ€¬•à¹5•ÍÍ…”¤ì(€€€€€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰5…¹…•ÈÉ•ÍÑ…ÉĞ™…¥±•è€ˆ€¬•à¹5•ÍÍ…”¤ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€ô¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥)½¥¹Õ•ÍÑ¡…¹¹•°¡ÍÑÉ¥¹œÍ•¹‘•É9…µ”°I•Á±åQ…É•ĞÑ…É•Ğ¤(€€€€€€€ì(€€€€€€€€€€€¥˜€¡±¥•¹Ğ¹¡…Ğ€ôô¹Õ±°ñğÑ…É•Ğ¹M•¹‘•É%€ôô€À¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰Õ•ÍĞ¡…¹¹•°¥¹Ù¥Ñ”¥ÌÕ¹…Ù…¥±…‰±”É¥¡Ğ¹½Ü¸ˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMP©½¥¸™…¥±•™½ÈíÍ•¹‘•É9…µ•ôè¡…Ğ½ÈÍ•¹‘•È¥Õ¹…Ù…¥±…‰±”¸ˆ¤ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€ô((€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€±¥•¹Ğ¹¡…Ğ¹%¹Ù¥Ñ•AÉ¥Ù…Ñ•É½ÕÀ¡Ñ…É•Ğ¹M•¹‘•É%¤ì(€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰Õ•ÍĞ¡…¹¹•°¥¹Ù¥Ñ”Í•¹Ğ¸ˆ¤ì((€€€€€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ (€€€€€€€€€€€€€€€€€€€€‰Õ•ÍĞÁÉ¥Ù…Ñ”µ¡…¹¹•°©½¥¸¥¹Ù¥Ñ”Í•¹ĞÑ¼íÍ•¹‘•É9…µ•ô€¡íÑ…É•Ğ¹M•¹‘•É%‘ô¤¸ˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMP©½¥¸¥¹Ù¥Ñ”Í•¹ĞÑ¼íÍ•¹‘•É9…µ•ô€¡íÑ…É•Ğ¹M•¹‘•É%‘ô¤¸ˆ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰Õ•ÍĞ¡…¹¹•°¥¹Ù¥Ñ”™…¥±•èí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰Õ•ÍĞÁÉ¥Ù…Ñ”µ¡…¹¹•°©½¥¸™…¥±•èí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMP©½¥¸•ÉÉ½È™½ÈíÍ•¹‘•É9…µ•ôèí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥1•…Ù•Õ•ÍÑ¡…¹¹•°¡ÍÑÉ¥¹œÍ•¹‘•É9…µ”°I•Á±åQ…É•ĞÑ…É•Ğ¤(€€€€€€€ì(€€€€€€€€€€€¥˜€¡±¥•¹Ğ¹¡…Ğ€ôô¹Õ±°ñğÑ…É•Ğ¹M•¹‘•É%€ôô€À¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰U¹…‰±”Ñ¼±•…Ù”Ñ¡”Õ•ÍĞ¡…¹¹•°É¥¡Ğ¹½Ü¸ˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMP±•…Ù”™…¥±•™½ÈíÍ•¹‘•É9…µ•ôè¡…Ğ½ÈÍ•¹‘•È¥Õ¹…Ù…¥±…‰±”¸ˆ¤ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€ô((€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€¼¼Õ•ÍĞµ¡…¹¹•°É•Á±äµÕÍĞ‰”ÅÕ•Õ•‰•™½É”Ñ¡”­¥¬Á…­•Ğ½È(€€€€€€€€€€€€€€€€¼¼Ñ¡”‘•Á…ÉÑ¥¹œÕÍ•Èİ¥±°¹½ĞÍ•”¥Ğ¸Q•±±Ì…¹½ÉœÉ•Á±¥•Ì…¸(€€€€€€€€€€€€€€€€¼¼Í…™•±ä‰”Í•¹Ğ…™Ñ•ÈÑ¡”­¥¬¸(€€€€€€€€€€€€€€€¥˜€¡Ñ…É•Ğ¹%ÍÕ•ÍĞ¤(€€€€€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰e½Ô¡…Ù”±•™ĞÁµ…¹…•ÈÌÕ•ÍĞ¡…¹¹•°¸ˆ¤ì((€€€€€€€€€€€€€€€M•¹‘AÉ¥Ù…Ñ•É½ÕÁ-¥¬¡Ñ…É•Ğ¹M•¹‘•É%¤ì((€€€€€€€€€€€€€€€¥˜€ …Ñ…É•Ğ¹%ÍÕ•ÍĞ¤(€€€€€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰e½Ô¡…Ù”±•™ĞÁµ…¹…•ÈÌÕ•ÍĞ¡…¹¹•°¸ˆ¤ì((€€€€€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ (€€€€€€€€€€€€€€€€€€€€‰Õ•ÍĞÁÉ¥Ù…Ñ”µ¡…¹¹•°±•…Ù”Í•¹Ğ™½ÈíÍ•¹‘•É9…µ•ô€¡íÑ…É•Ğ¹M•¹‘•É%‘ô¤¸ˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMP±•…Ù”Í•¹Ğ™½ÈíÍ•¹‘•É9…µ•ô€¡íÑ…É•Ğ¹M•¹‘•É%‘ô¤¸ˆ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰U¹…‰±”Ñ¼±•…Ù”Ñ¡”Õ•ÍĞ¡…¹¹•°èí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰Õ•ÍĞÁÉ¥Ù…Ñ”µ¡…¹¹•°±•…Ù”™…¥±•èí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMP±•…Ù”•ÉÉ½È™½ÈíÍ•¹‘•É9…µ•ôèí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥	•¥¹Õ•ÍÑ¡…¹¹•±Ñ¥½¸ (€€€€€€€€€€€I•Á±åQ…É•ĞÑ…É•Ğ°(€€€€€€€€€€€ÍÑÉ¥¹œ¡…É…Ñ•É9…µ”°(€€€€€€€€€€€‰½½°­¥¬¤(€€€€€€€ì(€€€€€€€€€€€ÍÑÉ¥¹œ¹½Éµ…±¥é•‘9…µ”€ô9½Éµ…±¥é•¡…É…Ñ•É9…µ”¡¡…É…Ñ•É9…µ”¤ì((€€€€€€€€€€€¥˜€¡ÍÑÉ¥¹œ¹%Í9Õ±±=É]¡¥Ñ•MÁ…”¡¹½Éµ…±¥é•‘9…µ”¤¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°UÍ…”¡Ñ…É•Ğ°­¥¬€ü€‰­¥¬m¡…É…Ñ•Étˆ€è€‰¥¹Ù¥Ñ”m¡…É…Ñ•Étˆ¤¤ì(€€€€€€€€€€€€€€€•ÙQÉ…”¡­¥¬€ü€‰UMP­¥¬™…¥±•èµ¥ÍÍ¥¹œ¡…É…Ñ•È¹…µ”¸ˆ€è€‰UMP¥¹Ù¥Ñ”™…¥±•èµ¥ÍÍ¥¹œ¡…É…Ñ•È¹…µ”¸ˆ¤ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€ô((€€€€€€€€€€€Q¡É•…‘A½½°¹EÕ•Õ•UÍ•É]½É­%Ñ•´¡|€ôø(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ÑÉä(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€Õ¥¹Ğ¡…É…Ñ•É%ì(€€€€€€€€€€€€€€€€€€€¥˜€ …QÉåI•Í½±Ù•¡…É…Ñ•É%¡¹½Éµ…±¥é•‘9…µ”°½ÕĞ¡…É…Ñ•É%¤¤(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€I•Á±ä (€€€€€€€€€€€€€€€€€€€€€€€€€€€Ñ…É•Ğ°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€‰U¹…‰±”Ñ¼ì¡­¥¬€ü€‰­¥¬ˆ€è€‰¥¹Ù¥Ñ”ˆ¥ôí¹½Éµ…±¥é•‘9…µ•ôè¡…É…Ñ•È±½½­ÕÀ™…¥±•¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€•ÙQÉ…” (€€€€€€€€€€€€€€€€€€€€€€€€€€€€‰UMPì¡­¥¬€ü€‰­¥¬ˆ€è€‰¥¹Ù¥Ñ”ˆ¥ô™…¥±•è½Õ±¹½ĞÉ•Í½±Ù”í¹½Éµ…±¥é•‘9…µ•ô¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€€€€€¥˜€¡±¥•¹Ğ¹¡…Ğ€ôô¹Õ±°¤(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰Õ•ÍĞ¡…¹¹•°…Ñ¥½¸™…¥±•è¡…Ğ¥ÌÕ¹…Ù…¥±…‰±”¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMPì¡­¥¬€ü€‰­¥¬ˆ€è€‰¥¹Ù¥Ñ”ˆ¥ô™…¥±•è¡…Ğ¥ÌÕ¹…Ù…¥±…‰±”¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€€€€€¥˜€¡¡…É…Ñ•É%€ôô±¥•¹Ğ¹¡…Ğ¹¡…É%¤(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰Áµ…¹…•È…¹¹½Ğ¥¹Ù¥Ñ”½È­¥¬¥ÑÍ•±˜¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMP…Ñ¥½¸É•™ÕÍ•èÁµ…¹…•È…¹¹½Ğ¥¹Ù¥Ñ”½È­¥¬¥ÑÍ•±˜¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€€€€€¥˜€¡­¥¬¤(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€M•¹‘AÉ¥Ù…Ñ•É½ÕÁ-¥¬¡¡…É…Ñ•É%¤ì(€€€€€€€€€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰í¹½Éµ…±¥é•‘9…µ•ôİ…Ì­¥­•™É½´Ñ¡”Õ•ÍĞ¡…¹¹•°¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ ‰Õ•ÍĞÁÉ¥Ù…Ñ”µ¡…¹¹•°­¥¬Í•¹Ğ™½Èí¹½Éµ…±¥é•‘9…µ•ô€¡í¡…É…Ñ•É%‘ô¤¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMP­¥¬Í•¹Ğèí¹½Éµ…±¥é•‘9…µ•ô¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€€€€€•±Í”(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€±¥•¹Ğ¹¡…Ğ¹%¹Ù¥Ñ•AÉ¥Ù…Ñ•É½ÕÀ¡¡…É…Ñ•É%¤ì(€€€€€€€€€€€€€€€€€€€€€€€I•Á±ä¡Ñ…É•Ğ°€‰Õ•ÍĞ¡…¹¹•°¥¹Ù¥Ñ”Í•¹ĞÑ¼í¹½Éµ…±¥é•‘9…µ•ô¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ ‰Õ•ÍĞÁÉ¥Ù…Ñ”µ¡…¹¹•°¥¹Ù¥Ñ”Í•¹ĞÑ¼í¹½Éµ…±¥é•‘9…µ•ô€¡í¡…É…Ñ•É%‘ô¤¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMP¥¹Ù¥Ñ”Í•¹Ğèí¹½Éµ…±¥é•‘9…µ•ô¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€I•Á±ä (€€€€€€€€€€€€€€€€€€€€€€€Ñ…É•Ğ°(€€€€€€€€€€€€€€€€€€€€€€€€‰Õ•ÍĞ¡…¹¹•°ì¡­¥¬€ü€‰­¥¬ˆ€è€‰¥¹Ù¥Ñ”ˆ¥ô™…¥±•èí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰Õ•ÍĞÁÉ¥Ù…Ñ”µ¡…¹¹•°…Ñ¥½¸™…¥±•èí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€€€€€€€€€•ÙQÉ…” ‰UMPì¡­¥¬€ü€‰­¥¬ˆ€è€‰¥¹Ù¥Ñ”ˆ¥ô•ÉÉ½Èèí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€ô¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”‰½½°QÉåI•Í½±Ù•¡…É…Ñ•É%¡ÍÑÉ¥¹œ¡…É…Ñ•É9…µ”°½ÕĞÕ¥¹Ğ¡…É…Ñ•É%¤(€€€€€€€ì(€€€€€€€€€€€¡…É…Ñ•É%€ô€Àì((€€€€€€€€€€€¥˜€¡±¥•¹Ğ¹¡…Ğ€ôô¹Õ±°¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì((€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€¥˜€¡±¥•¹Ğ¹¡…Ğ¹9…µ•Q½%‘5…À¹QÉå•ÑY…±Õ”¡¡…É…Ñ•É9…µ”°½ÕĞ¡…É…Ñ•É%¤¤(€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ÑÉÕ”ì((€€€€€€€€€€€€€€€±¥•¹Ğ¹¡…Ğ¹I•ÅÕ•ÍÑ¡…É…Ñ•É%¡¡…É…Ñ•É9…µ”¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ (€€€€€€€€€€€ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€€€€€ô((€€€€€€€€€€€Ù…ÈÑ¥µ•½ÕĞ€ôMÑ½Áİ…Ñ ¹MÑ…ÉÑ9•Ü ¤ì((€€€€€€€€€€€İ¡¥±”€¡Ñ¥µ•½ÕĞ¹±…ÁÍ•‘5¥±±¥Í•½¹‘Ì€ğÕ•ÍÑ1½½­ÕÁQ¥µ•½ÕÑ5Ì¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€Q¡É•…¹M±••À ÔÀ¤ì((€€€€€€€€€€€€€€€ÑÉä(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€¥˜€¡±¥•¹Ğ¹¡…Ğ€„ô¹Õ±°€˜˜(€€€€€€€€€€€€€€€€€€€€€€€±¥•¹Ğ¹¡…Ğ¹9…µ•Q½%‘5…À¹QÉå•ÑY…±Õ”¡¡…É…Ñ•É9…µ”°½ÕĞ¡…É…Ñ•É%¤¤(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ÑÉÕ”ì(€€€€€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€…Ñ (€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€ô((€€€€€€€€€€€É•ÑÕÉ¸™…±Í”ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”ÍÑÉ¥¹œ9½Éµ…±¥é•¡…É…Ñ•É9…µ”¡ÍÑÉ¥¹œ¡…É…Ñ•É9…µ”¤(€€€€€€€ì(€€€€€€€€€€€ÍÑÉ¥¹œÙ…±Õ”€ô€¡¡…É…Ñ•É9…µ”€üüÍÑÉ¥¹œ¹µÁÑä¤¹QÉ¥´ ¤ì(€€€€€€€€€€€¥˜€¡Ù…±Õ”¹1•¹Ñ €ôô€À¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸ÍÑÉ¥¹œ¹µÁÑäì((€€€€€€€€€€€¥˜€¡Ù…±Õ”¹1•¹Ñ €ôô€Ä¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸Ù…±Õ”¹Q½UÁÁ•É%¹Ù…É¥…¹Ğ ¤ì((€€€€€€€€€€€É•ÑÕÉ¸¡…È¹Q½UÁÁ•É%¹Ù…É¥…¹Ğ¡Ù…±Õ•lÁt¤€¬Ù…±Õ”¹MÕ‰ÍÑÉ¥¹œ Ä¤¹Q½1½İ•É%¹Ù…É¥…¹Ğ ¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥M•¹‘AÉ¥Ù…Ñ•É½ÕÁ-¥¬¡Õ¥¹Ğ¡…É…Ñ•É%¤(€€€€€€€ì(€€€€€€€€€€€¥˜€¡±¥•¹Ğ¹¡…Ğ€ôô¹Õ±°¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì((€€€€€€€€€€€€¼¼<¡…Ğ±¥•¹ĞÁ…­•Ğ€ÔÄ€ ÁàÀÀÌÌ¤èÁÉ¥Ù…Ñ”µÉ½ÕÀ½İ¹•È­¥­Ì½¹”Á±…å•È¸(€€€€€€€€€€€€¼¼!•…‘•È¥Ì‰¥œµ•¹‘¥…¸Á…­•Ğ¥€¬Á…å±½…±•¹Ñ °™½±±½İ•‰äÑ¡”Õ¥¹ĞÌÈ¡…É…Ñ•È¥¸(€€€€€€€€€€€‰åÑ•mtÁ…­•Ğ€ô¹•Ü‰åÑ•látì(€€€€€€€€€€€Á…­•ÑlÁt€ô€ÁàÀÀì(€€€€€€€€€€€Á…­•ÑlÅt€ô€ÁàÌÌì(€€€€€€€€€€€Á…­•ÑlÉt€ô€ÁàÀÀì(€€€€€€€€€€€Á…­•ÑlÍt€ô€ÁàÀĞì(€€€€€€€€€€€Á…­•ÑlÑt€ô€¡‰åÑ”¤¡¡…É…Ñ•É%€øø€ÈĞ¤ì(€€€€€€€€€€€Á…­•ÑlÕt€ô€¡‰åÑ”¤¡¡…É…Ñ•É%€øø€ÄØ¤ì(€€€€€€€€€€€Á…­•ÑlÙt€ô€¡‰åÑ”¤¡¡…É…Ñ•É%€øø€à¤ì(€€€€€€€€€€€Á…­•Ñlİt€ô€¡‰åÑ”¥¡…É…Ñ•É%ì((€€€€€€€€€€€±¥•¹Ğ¹¡…Ğ¹M•¹¡Á…­•Ğ¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥QÉå%¹Ù¥Ñ••Ù•±½Á•È ¤(€€€€€€€ì(€€€€€€€€€€€¥˜€¡}‘•Ù%¹Ù¥Ñ•M•¹Ğñğ±¥•¹Ğ¹¡…Ğ€ôô¹Õ±°¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì((€€€€€€€€€€€…Ñ•Q¥µ”¹½Ü€ô…Ñ•Q¥µ”¹UÑ9½Üì(€€€€€€€€€€€¥˜€¡¹½Ü€ğ}¹•áÑ•Ù1½½­ÕÁUÑŒ¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì((€€€€€€€€€€€Õ¥¹Ğ‘•Ù•±½Á•É%ì(€€€€€€€€€€€¥˜€ …±¥•¹Ğ¹¡…Ğ¹9…µ•Q½%‘5…À¹QÉå•ÑY…±Õ”¡•Ù•±½Á•É¡…É…Ñ•È°½ÕĞ‘•Ù•±½Á•É%¤¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€ÑÉä(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€±¥•¹Ğ¹¡…Ğ¹I•ÅÕ•ÍÑ¡…É…Ñ•É%¡•Ù•±½Á•É¡…É…Ñ•È¤ì(€€€€€€€€€€€€€€€€€€€}¹•áÑ•Ù1½½­ÕÁUÑŒ€ô¹½Ü¹‘‘M•½¹‘Ì È¤ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰•Ù•±½Á•È±½½­ÕÀ™…¥±•èí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€€€€€€€€€}¹•áÑ•Ù1½½­ÕÁUÑŒ€ô¹½Ü¹‘‘M•½¹‘Ì Ô¤ì(€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€ô((€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€±¥•¹Ğ¹¡…Ğ¹%¹Ù¥Ñ•AÉ¥Ù…Ñ•É½ÕÀ¡‘•Ù•±½Á•É%¤ì(€€€€€€€€€€€€€€€}‘•Ù%¹Ù¥Ñ•M•¹Ğ€ôÑÉÕ”ì(€€€€€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ ‰•ØÁÉ¥Ù…Ñ”µ¡…¹¹•°¥¹Ù¥Ñ”Í•¹ĞÑ¼í•Ù•±½Á•É¡…É…Ñ•Éô€¡í‘•Ù•±½Á•É%‘ô¤¸ˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰X¥¹Ù¥Ñ”Í•¹ĞÑ¼í•Ù•±½Á•É¡…É…Ñ•Éô¸ˆ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰•ØÁÉ¥Ù…Ñ”µ¡…¹¹•°¥¹Ù¥Ñ”™…¥±•èí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€€€€€}¹•áÑ•Ù1½½­ÕÁUÑŒ€ô¹½Ü¹‘‘M•½¹‘Ì Ô¤ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥½¹™¥Éµ•Ù¡…¹¹•° ¤(€€€€€€€ì(€€€€€€€€€€€‰½½°¹•İ±å½¹™¥Éµ•€ô™…±Í”ì((€€€€€€€€€€€±½¬€¡}‘•ÙMå¹Œ¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€¥˜€ …}‘•Ù¡…¹¹•±½¹™¥Éµ•¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€}‘•Ù¡…¹¹•±½¹™¥Éµ•€ôÑÉÕ”ì(€€€€€€€€€€€€€€€€€€€¹•İ±å½¹™¥Éµ•€ôÑÉÕ”ì(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€ô((€€€€€€€€€€€¥˜€¡¹•İ±å½¹™¥Éµ•¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€M•¹‘Õ•ÍÑ5•ÍÍ…” (€€€€€€€€€€€€€€€€€€€€ˆñ™½¹Ğ½±½ÈôœŒàåÉàœùm5…¹…•Étğ½™½¹Ğø€ˆ€¬(€€€€€€€€€€€€€€€€€€€€ˆñ™½¹Ğ½±½ÈôœŒÀÁĞÈœù1¥Ù”‘¥…¹½ÍÑ¥Ì½¹¹•Ñ•¸ğ½™½¹Ğø€ˆ€¬(€€€€€€€€€€€€€€€€€€€€‰…É±¥•È•Ù•¹ÑÌİ•É”­•ÁĞ½¸‘¥Í¬ìÕÍ”€ñ™½¹Ğ½±½ÈôœÜäĞÄÀœø‘ÕµÀğ½™½¹Ğø€ˆ€¬(€€€€€€€€€€€€€€€€€€€€‰¥¹ÍÑ•…½˜É••¥Ù¥¹œ„‰…­±½œ¸ˆ¤ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥•ÙQÉ…”¡ÍÑÉ¥¹œÑ•áĞ¤(€€€€€€€ì(€€€€€€€€€€€¥˜€¡ÍÑÉ¥¹œ¹%Í9Õ±±=É]¡¥Ñ•MÁ…”¡Ñ•áĞ¤¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì((€€€€€€€€€€€I•½É‘¥…¹½ÍÑ¥Œ¡Ñ•áĞ¤ì((€€€€€€€€€€€‰½½°½¹™¥Éµ•ì(€€€€€€€€€€€±½¬€¡}‘•ÙMå¹Œ¤(€€€€€€€€€€€€€€€½¹™¥Éµ•€ô}‘•Ù¡…¹¹•±½¹™¥Éµ•ì((€€€€€€€€€€€¥˜€¡½¹™¥Éµ•¤(€€€€€€€€€€€€€€€M•¹‘Õ•ÍÑ5•ÍÍ…”¡½Éµ…Ñ1¥Ù•¥…¹½ÍÑ¥Œ¡Ñ•áĞ¤¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥I•½É‘¥…¹½ÍÑ¥Œ¡ÍÑÉ¥¹œÑ•áĞ¤(€€€€€€€ì(€€€€€€€€€€€¥˜€¡ÍÑÉ¥¹œ¹%Í9Õ±±=É]¡¥Ñ•MÁ…”¡Ñ•áĞ¤¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì((€€€€€€€€€€€ÍÑÉ¥¹œ±¥¹”€ô…Ñ•Q¥µ”¹UÑ9½Ü¹Q½MÑÉ¥¹œ ‰<ˆ°Õ±ÑÕÉ•%¹™¼¹%¹Ù…É¥…¹ÑÕ±ÑÕÉ”¤€¬(€€€€€€€€€€€€€€€€€€€€€€€€€€ˆğ€ˆ€¬M…¹¥Ñ¥é•¥…¹½ÍÑ¥Q•áĞ¡Ñ•áĞ¤ì((€€€€€€€€€€€±½¬€¡}‘•ÙMå¹Œ¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€İ¡¥±”€¡}‘¥…¹½ÍÑ¥!¥ÍÑ½Éä¹½Õ¹Ğ€øô¥…¹½ÍÑ¥!¥ÍÑ½Éå1¥µ¥Ğ¤(€€€€€€€€€€€€€€€€€€€}‘¥…¹½ÍÑ¥!¥ÍÑ½Éä¹•ÅÕ•Õ” ¤ì((€€€€€€€€€€€€€€€}‘¥…¹½ÍÑ¥!¥ÍÑ½Éä¹¹ÅÕ•Õ”¡±¥¹”¤ì(€€€€€€€€€€€€€€€ÁÁ•¹‘¥…¹½ÍÑ¥1¥¹•1½­•¡±¥¹”¤ì(€€€€€€€€€€€ô((€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ ‰%9=MQ%€ˆ€¬M…¹¥Ñ¥é•¥…¹½ÍÑ¥Q•áĞ¡Ñ•áĞ¤¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥ÁÁ•¹‘¥…¹½ÍÑ¥1¥¹•1½­•¡ÍÑÉ¥¹œ±¥¹”¤(€€€€€€€ì(€€€€€€€€€€€¥˜€¡ÍÑÉ¥¹œ¹%Í9Õ±±=É]¡¥Ñ•MÁ…”¡}‘¥…¹½ÍÑ¥1½A…Ñ ¤¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì((€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€¥˜€¡¥±”¹á¥ÍÑÌ¡}‘¥…¹½ÍÑ¥1½A…Ñ ¤€˜˜(€€€€€€€€€€€€€€€€€€€¹•Ü¥±•%¹™¼¡}‘¥…¹½ÍÑ¥1½A…Ñ ¤¹1•¹Ñ €øô¥…¹½ÍÑ¥1½I½Ñ…Ñ•	åÑ•Ì¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€ÍÑÉ¥¹œÁÉ•Ù¥½ÕÌ€ô}‘¥…¹½ÍÑ¥1½A…Ñ €¬€ˆ¹ÁÉ•Ù¥½ÕÌˆì(€€€€€€€€€€€€€€€€€€€¥˜€¡¥±”¹á¥ÍÑÌ¡ÁÉ•Ù¥½ÕÌ¤¤(€€€€€€€€€€€€€€€€€€€€€€€¥±”¹•±•Ñ”¡ÁÉ•Ù¥½ÕÌ¤ì(€€€€€€€€€€€€€€€€€€€¥±”¹5½Ù”¡}‘¥…¹½ÍÑ¥1½A…Ñ °ÁÉ•Ù¥½ÕÌ¤ì(€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€¥±”¹ÁÁ•¹‘±±Q•áĞ¡}‘¥…¹½ÍÑ¥1½A…Ñ °±¥¹”€¬¹Ù¥É½¹µ•¹Ğ¹9•İ1¥¹”¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰U¹…‰±”Ñ¼…ÁÁ•¹5…¹…•È‘¥…¹½ÍÑ¥Œ±½œè€ˆ€¬•à¹5•ÍÍ…”¤ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”ÍÑ…Ñ¥ŒÍÑÉ¥¹œM…¹¥Ñ¥é•¥…¹½ÍÑ¥Q•áĞ¡ÍÑÉ¥¹œÑ•áĞ¤(€€€€€€€ì(€€€€€€€€€€€É•ÑÕÉ¸€¡Ñ•áĞ€üüÍÑÉ¥¹œ¹µÁÑä¤(€€€€€€€€€€€€€€€€¹I•Á±…” ‰qÈˆ°€ˆ€ˆ¤(€€€€€€€€€€€€€€€€¹I•Á±…” ‰q¸ˆ°€ˆ€ˆ¤(€€€€€€€€€€€€€€€€¹QÉ¥´ ¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”ÍÑÉ¥¹œ½Éµ…Ñ1¥Ù•¥…¹½ÍÑ¥Œ¡ÍÑÉ¥¹œÑ•áĞ¤(€€€€€€€ì(€€€€€€€€€€€ÍÑÉ¥¹œÍ…™”€ôÍ…Á•	±½‰Q•áĞ¡M…¹¥Ñ¥é•¥…¹½ÍÑ¥Q•áĞ¡Ñ•áĞ¤¤ì(€€€€€€€€€€€ÍÑÉ¥¹œ½±½È€ô€ˆŒàåÉàˆì((€€€€€€€€€€€¥˜€¡Í…™”¹%¹‘•á=˜ ‰II=Hˆ°MÑÉ¥¹½µÁ…É¥Í½¸¹=É‘¥¹…±%¹½É•…Í”¤€øô€Àñğ(€€€€€€€€€€€€€€€Í…™”¹%¹‘•á=˜ ‰%0ˆ°MÑÉ¥¹½µÁ…É¥Í½¸¹=É‘¥¹…±%¹½É•…Í”¤€øô€Àñğ(€€€€€€€€€€€€€€€Í…™”¹%¹‘•á=˜ ‰9%ˆ°MÑÉ¥¹½µÁ…É¥Í½¸¹=É‘¥¹…±%¹½É•…Í”¤€øô€À¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€½±½È€ô€ˆÔÀÔÀˆì(€€€€€€€€€€€ô(€€€€€€€€€€€•±Í”¥˜€¡Í…™”¹%¹‘•á=˜ ˆ=,ˆ°MÑÉ¥¹½µÁ…É¥Í½¸¹=É‘¥¹…±%¹½É•…Í”¤€øô€Àñğ(€€€€€€€€€€€€€€€€€€€€Í…™”¹%¹‘•á=˜ ‰=5A1Qˆ°MÑÉ¥¹½µÁ…É¥Í½¸¹=É‘¥¹…±%¹½É•…Í”¤€øô€Àñğ(€€€€€€€€€€€€€€€€€€€€Í…™”¹%¹‘•á=˜ ‰9	1ˆ°MÑÉ¥¹½µÁ…É¥Í½¸¹=É‘¥¹…±%¹½É•…Í”¤€øô€À¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€½±½È€ô€ˆŒÀÁĞÈˆì(€€€€€€€€€€€ô(€€€€€€€€€€€•±Í”¥˜€¡Í…™”¹%¹‘•á=˜ ‰Uˆ°MÑÉ¥¹½µÁ…É¥Í½¸¹=É‘¥¹…±%¹½É•…Í”¤€øô€Àñğ(€€€€€€€€€€€€€€€€€€€€Í…™”¹%¹‘•á=˜ ‰%M	1ˆ°MÑÉ¥¹½µÁ…É¥Í½¸¹=É‘¥¹…±%¹½É•…Í”¤€øô€À¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€½±½È€ô€ˆÜäĞÄÀˆì(€€€€€€€€€€€ô((€€€€€€€€€€€É•ÑÕÉ¸€ˆñ™½¹Ğ½±½ÈôœŒàåÉàœùm5…¹…•Étğ½™½¹Ğø€ˆ€¬(€€€€€€€€€€€€€€€€€€€ˆñ™½¹Ğ½±½Èôœˆ€¬½±½È€¬€ˆœøˆ€¬Í…™”€¬€ˆğ½™½¹Ğøˆì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥M•¹‘Õ•ÍÑ5•ÍÍ…”¡ÍÑÉ¥¹œÑ•áĞ¤(€€€€€€€ì(€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€¥˜€¡±¥•¹Ğ¹¡…Ğ€ôô¹Õ±°¤(€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì((€€€€€€€€€€€€€€€±¥•¹Ğ¹¡…Ğ¹M•¹‘AÉ¥Ù…Ñ•É½ÕÁ5•ÍÍ…”¡±¥•¹Ğ¹¡…Ğ¹¡…É%°Ñ•áĞ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰•ØÁÉ¥Ù…Ñ”µ¡…¹¹•°Í•¹™…¥±•èí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”ÍÑÉ¥¹œM¡½ÉÑ%¡ÍÑÉ¥¹œ¥¤(€€€€€€€ì(€€€€€€€€€€€¥˜€¡ÍÑÉ¥¹œ¹%Í9Õ±±=ÉµÁÑä¡¥¤¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸€‰¹¼µ¥ˆì((€€€€€€€€€€€É•ÑÕÉ¸¥¹1•¹Ñ €ğô€à€ü¥€è¥¹MÕ‰ÍÑÉ¥¹œ À°€à¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥!…¹‘±•±½…­¹¹½Õ¹•µ•¹Ğ (€€€€€€€€€€€±½…­MÑ…ÑÕÌ¹•İMÑ…ÑÕÌ°(€€€€€€€€€€€ÍÑÉ¥¹œ…Ñ½È°(€€€€€€€€€€€ÍÑÉ¥¹œ¡…¹¹•±9…µ”°(€€€€€€€€€€€ÍÑÉ¥¹œÉ…İ5•ÍÍ…”¤(€€€€€€€ì(€€€€€€€€€€€…Ñ•Q¥µ”¹½Ü€ô…Ñ•Q¥µ”¹UÑ9½Üì(€€€€€€€€€€€±½…­MÑ…ÑÕÌÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ€ô}ÍÑ…ÑÕÌì((€€€€€€€€€€€}ÍÑ…ÑÕÌ€ô¹•İMÑ…ÑÕÌì(€€€€€€€€€€€}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ€ô¹½Üì(€€€€€€€€€€€}±…ÍÑ¡…¹•‘UÑŒ€ô¹½Üì(€€€€€€€€€€€}½‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”€ô€‰=É¡…Ğ¹±½…­¹¹½Õ¹•µ•¹Ğˆì(€€€€€€€€€€€}É…¥Í•Õ•1½•€ô™…±Í”ì((€€€€€€€€€€€¥˜€¡¹•İMÑ…ÑÕÌ€ôô±½…­MÑ…ÑÕÌ¹¥Í…‰±•¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€ô€Àì(€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ€ô¹½Ü¹‘‘M•½¹‘Ì¡AÉ½Ù¥Í¥½¹…±±½…­½İ¹M•½¹‘Ì¤ì(€€€€€€€€€€€€€€€}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°€ôÑÉÕ”ì(€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰1=,1=]I…¹¹½Õ¹•…Ğí¹½Üé=ô¸Ñ½Èõí…Ñ½Éô¸AÉ½Ù¥Í¥½¹…°±¥ÁÁ•È¡•¬õí}…¹I…¥Í•ÑUÑŒé=ô¸ˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰%Qd±½…¬%M	1‰äí…Ñ½ÉôìÁÉ½Ù¥Í¥½¹…°¡•¬¥¸€Å ¸ˆ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€•±Í”(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€ô€Àì(€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ€ô¹Õ±°ì(€€€€€€€€€€€€€€€}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°€ô™…±Í”ì(€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰1=,I%M…¹¹½Õ¹•…Ğí¹½Üé=ô¸Ñ½Èõí…Ñ½Éô¸ˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰%Qd±½…¬9	1‰äí…Ñ½Éô¸ˆ¤ì(€€€€€€€€€€€ô((€€€€€€€€€€€ÁÁ•¹‘±½…­Ù•¹Ğ (€€€€€€€€€€€€€€€ÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ°(€€€€€€€€€€€€€€€¹•İMÑ…ÑÕÌ°(€€€€€€€€€€€€€€€¹½Ü°(€€€€€€€€€€€€€€€¹Õ±°°(€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ°(€€€€€€€€€€€€€€€¹•İMÑ…ÑÕÌ€ôô±½…­MÑ…ÑÕÌ¹¥Í…‰±•€ü€‰±½…­}½™™}…¹¹½Õ¹•µ•¹Ğˆ€è€‰±½…­}½¹}…¹¹½Õ¹•µ•¹Ğˆ°(€€€€€€€€€€€€€€€€‰=É¡…Ğ¹±½…­¹¹½Õ¹•µ•¹Ğˆ°(€€€€€€€€€€€€€€€…Ñ½È°(€€€€€€€€€€€€€€€¡…¹¹•±9…µ”°(€€€€€€€€€€€€€€€É…İ5•ÍÍ…”¤ì((€€€€€€€€€€€M…Ù•MÑ…Ñ” ¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥!…¹‘±•±½…­%¹™¼¡±½…­%¹™¼±½…­%¹™¼¤(€€€€€€€ì(€€€€€€€€€€€…Ñ•Q¥µ”¹½Ü€ô…Ñ•Q¥µ”¹UÑ9½Üì(€€€€€€€€€€€±½…­MÑ…ÑÕÌÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ€ô}ÍÑ…ÑÕÌì(€€€€€€€€€€€‰½½°ÁÉ•Ù¥½ÕÍ-¹½İ¸€ôÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ€„ô±½…­MÑ…ÑÕÌ¹U¹­¹½İ¸ì(€€€€€€€€€€€‰½½°ÍÑ…Ñ•¡…¹•€ôÁÉ•Ù¥½ÕÍ-¹½İ¸€˜˜ÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ€„ô±½…­%¹™¼¹±½…­MÑ…Ñ”ì((€€€€€€€€€€€}ÍÑ…ÑÕÌ€ô±½…­%¹™¼¹±½…­MÑ…Ñ”ì(€€€€€€€€€€€}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€ô±½…­%¹™¼¹M¡¥•±‘Q¥µ•É%¹M•½¹‘Ìì(€€€€€€€€€€€}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ€ô¹½Üì(€€€€€€€€€€€}½‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”€ô€‰=QÉ…¹ÍÁ½ÉÑM¥¹…°¹±½…­%¹™¼ˆì((€€€€€€€€€€€¥˜€¡}ÍÑ…ÑÕÌ€ôô±½…­MÑ…ÑÕÌ¹¥Í…‰±•¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ€ô¹½Ü¹‘‘M•½¹‘Ì¡5…Ñ ¹5…à À°}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì¤¤ì(€€€€€€€€€€€€€€€}É…¥Í•Õ•1½•€ô™…±Í”ì(€€€€€€€€€€€€€€€}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°€ô™…±Í”ì(€€€€€€€€€€€ô(€€€€€€€€€€€•±Í”(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ€ô¹Õ±°ì(€€€€€€€€€€€€€€€}É…¥Í•Õ•1½•€ô™…±Í”ì(€€€€€€€€€€€€€€€}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°€ô™…±Í”ì(€€€€€€€€€€€ô((€€€€€€€€€€€¥˜€¡ÍÑ…Ñ•¡…¹•¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€}±…ÍÑ¡…¹•‘UÑŒ€ô¹½Üì(€€€€€€€€€€€€€€€ÁÁ•¹‘±½…­Ù•¹Ğ (€€€€€€€€€€€€€€€€€€€ÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ°(€€€€€€€€€€€€€€€€€€€}ÍÑ…ÑÕÌ°(€€€€€€€€€€€€€€€€€€€¹½Ü°(€€€€€€€€€€€€€€€€€€€}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì°(€€€€€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ°(€€€€€€€€€€€€€€€€€€€€‰ÍÑ…Ñ•}¡…¹”ˆ°(€€€€€€€€€€€€€€€€€€€€‰=QÉ…¹ÍÁ½ÉÑM¥¹…°¹±½…­%¹™¼ˆ°(€€€€€€€€€€€€€€€€€€€¹Õ±°°(€€€€€€€€€€€€€€€€€€€¹Õ±°°(€€€€€€€€€€€€€€€€€€€¹Õ±°¤ì(€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰±½…­%¹™¼¡…¹•íÁÉ•Ù¥½ÕÍMÑ…ÑÕÍô€´øí}ÍÑ…ÑÕÍô…Ğí¹½Üé=ô¸M•ÉÙ•ÈÑ¥µ•Èõí}Í¡¥•±‘Q¥µ•É%¹M•½¹‘ÍõÌ¸ˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰%Qd±½…­%¹™¼¡…¹•íÁÉ•Ù¥½ÕÍMÑ…ÑÕÍô€´øí}ÍÑ…ÑÕÍôìÑ¥µ•Èõí}Í¡¥•±‘Q¥µ•É%¹M•½¹‘ÍõÌ¸ˆ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€•±Í”¥˜€ …ÁÉ•Ù¥½ÕÍ-¹½İ¸¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ ‰%¹¥Ñ¥…°±½…¬½‰Í•ÉÙ…Ñ¥½¸èí}ÍÑ…ÑÕÍô°Ñ¥µ•Èõí}Í¡¥•±‘Q¥µ•É%¹M•½¹‘ÍõÌ…Ğí¹½Üé=ô¸ˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰%Qd¥¹¥Ñ¥…°±½…¬õí}ÍÑ…ÑÕÍôìÑ¥µ•Èõí}Í¡¥•±‘Q¥µ•É%¹M•½¹‘ÍõÌ¸ˆ¤ì(€€€€€€€€€€€ô((€€€€€€€€€€€M…Ù•MÑ…Ñ” ¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥ÁÁ±å±¥ÁÁ•É=‰Í•ÉÙ…Ñ¥½¸¡]½É­•ÉI•ÍÁ½¹Í”É•ÍÁ½¹Í”¤(€€€€€€€ì(€€€€€€€€€€€€¼¼P¡…É”‰•±½¹ÌÑ¼5…¹…•ÈÌÍ¡…É•É…¥ÍÑ…Ñ”°É•…É‘±•ÍÌ½˜(€€€€€€€€€€€€¼¼İ¡¥ 5…¹…•È½µµ…¹É•ÅÕ•ÍÑ•Ñ¡”±¥ÁÁ•È½‰Í•ÉÙ…Ñ¥½¸¸(€€€€€€€€€€€ÁÁ±åI…¥‘½¹ÑÉ½±±•É=‰Í•ÉÙ…Ñ¥½¸¡É•ÍÁ½¹Í”¤ì((€€€€€€€€€€€±½…­MÑ…ÑÕÌÁ…ÉÍ•‘MÑ…ÑÕÌì(€€€€€€€€€€€¥˜€ …¹Õ´¹QÉåA…ÉÍ”¡É•ÍÁ½¹Í”¹±½…­MÑ…Ñ”°ÑÉÕ”°½ÕĞÁ…ÉÍ•‘MÑ…ÑÕÌ¤¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ ‰±¥ÁÁ•ÈÉ•ÑÕÉ¹•Õ¹­¹½İ¸±½…¬ÍÑ…Ñ”€íÉ•ÍÁ½¹Í”¹±½…­MÑ…Ñ•ôœ¸ˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰1%AAH]I8èÕ¹­¹½İ¸±½…¬ÍÑ…Ñ”€íÉ•ÍÁ½¹Í”¹±½…­MÑ…Ñ•ôœ¸ˆ¤ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€ô((€€€€€€€€€€€…Ñ•Q¥µ”¹½Ü€ô…Ñ•Q¥µ”¹UÑ9½Üì((€€€€€€€€€€€±½¬€¡}ÍÑ…Ñ•Må¹Œ¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€±½…­MÑ…ÑÕÌÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ€ô}ÍÑ…ÑÕÌì((€€€€€€€€€€€€€€€}ÍÑ…ÑÕÌ€ôÁ…ÉÍ•‘MÑ…ÑÕÌì(€€€€€€€€€€€€€€€}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€ôÉ•ÍÁ½¹Í”¹M¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€üü€Àì(€€€€€€€€€€€€€€€}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ€ôUÑQ¥µ•ÍÑ…µÀ¹9½Éµ…±¥é”¡É•ÍÁ½¹Í”¹=‰Í•ÉÙ•‘UÑŒ¤€üü¹½Üì(€€€€€€€€€€€€€€€}½‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”€ôÉ•ÍÁ½¹Í”¹…¡•€ü€‰±¥ÁÁ•È¹…¡”ˆ€è€‰±¥ÁÁ•È¹AÉ½‰”ˆì(€€€€€€€€€€€€€€€}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°€ô™…±Í”ì(€€€€€€€€€€€€€€€}É…¥Í•Õ•1½•€ô™…±Í”ì((€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ€ô}ÍÑ…ÑÕÌ€ôô±½…­MÑ…ÑÕÌ¹¥Í…‰±•(€€€€€€€€€€€€€€€€€€€€ü¹½Ü¹‘‘M•½¹‘Ì¡5…Ñ ¹5…à À°}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì¤¤(€€€€€€€€€€€€€€€€€€€€è€¡…Ñ•Q¥µ”ü¥¹Õ±°ì((€€€€€€€€€€€€€€€¥˜€¡ÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ€„ô±½…­MÑ…ÑÕÌ¹U¹­¹½İ¸€˜˜ÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ€„ô}ÍÑ…ÑÕÌ¤(€€€€€€€€€€€€€€€€€€€}±…ÍÑ¡…¹•‘UÑŒ€ô¹½Üì((€€€€€€€€€€€€€€€ÁÁ•¹‘±½…­Ù•¹Ğ (€€€€€€€€€€€€€€€€€€€ÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ°(€€€€€€€€€€€€€€€€€€€}ÍÑ…ÑÕÌ°(€€€€€€€€€€€€€€€€€€€¹½Ü°(€€€€€€€€€€€€€€€€€€€É•ÍÁ½¹Í”¹M¡¥•±‘Q¥µ•É%¹M•½¹‘Ì°(€€€€€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ°(€€€€€€€€€€€€€€€€€€€É•ÍÁ½¹Í”¹…¡•€ü€‰™±¥ÁÁ•É}…¡”ˆ€è€‰™±¥ÁÁ•É}ÁÉ½‰”ˆ°(€€€€€€€€€€€€€€€€€€€}½‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”°(€€€€€€€€€€€€€€€€€€€É•ÍÁ½¹Í”¹¡…É…Ñ•È°(€€€€€€€€€€€€€€€€€€€¹Õ±°°(€€€€€€€€€€€€€€€€€€€É•ÍÁ½¹Í”¹5•ÍÍ…”¤ì((€€€€€€€€€€€€€€€M…Ù•MÑ…Ñ” ¤ì(€€€€€€€€€€€ô((€€€€€€€€€€€¥ÑåI…¥‘ÕÑ½µ…Ñ¥½¸¹=‰Í•ÉÙ•½¹™¥Éµ•‘MÑ…Ñ” (€€€€€€€€€€€€€€€}ÍÑ…ÑÕÌ°(€€€€€€€€€€€€€€€}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ°(€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ°(€€€€€€€€€€€€€€€}½‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥ÁÁ±å±½…­I•½Ù•Éå=‰Í•ÉÙ…Ñ¥½¸ (€€€€€€€€€€€±½…­MÑ…ÑÕÌÍÑ…ÑÕÌ°(€€€€€€€€€€€¥¹ĞüÍ¡¥•±‘Q¥µ•É%¹M•½¹‘Ì°(€€€€€€€€€€€…Ñ•Q¥µ”ü½‰Í•ÉÙ•‘UÑŒ°(€€€€€€€€€€€‰½½°…¡•°(€€€€€€€€€€€ÍÑÉ¥¹œµ•ÍÍ…”¤(€€€€€€€ì(€€€€€€€€€€€ÁÁ±å±¥ÁÁ•É=‰Í•ÉÙ…Ñ¥½¸ (€€€€€€€€€€€€€€€¹•Ü]½É­•ÉI•ÍÁ½¹Í”(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€=¬€ôÑÉÕ”°(€€€€€€€€€€€€€€€€€€€±½…­MÑ…Ñ”€ôÍÑ…ÑÕÌ¹Q½MÑÉ¥¹œ ¤°(€€€€€€€€€€€€€€€€€€€M¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€ôÍ¡¥•±‘Q¥µ•É%¹M•½¹‘Ì°(€€€€€€€€€€€€€€€€€€€=‰Í•ÉÙ•‘UÑŒ€ô½‰Í•ÉÙ•‘UÑŒ°(€€€€€€€€€€€€€€€€€€€…¡•€ô…¡•°(€€€€€€€€€€€€€€€€€€€5•ÍÍ…”€ôµ•ÍÍ…”°(€€€€€€€€€€€€€€€€€€€¡…É…Ñ•È€ô€‰Á™±¥ÁÁ•Èˆ(€€€€€€€€€€€€€€€ô¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥Q¥¬¡½‰©•ĞÍ•¹‘•È°‘½Õ‰±””¤(€€€€€€€ì(€€€€€€€€€€€QÉå%¹Ù¥Ñ••Ù•±½Á•È ¤ì(€€€€€€€€€€€Q¥­5•µ‰•ÉÍ¡¥À ¤ì(€€€€€€€€€€€Q¥­±ÑÌ ¤ì(€€€€€€€€€€€Q¥­I…¥‘½½É‘¥¹…Ñ½È ¤ì((€€€€€€€€€€€¥˜€¡}ÍÑ…ÑÕÌ€„ô±½…­MÑ…ÑÕÌ¹¥Í…‰±•ñğ€…}…¹I…¥Í•ÑUÑŒ¹!…ÍY…±Õ”ñğ}É…¥Í•Õ•1½•¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì((€€€€€€€€€€€¥˜€¡…Ñ•Q¥µ”¹UÑ9½Ü€ğ}…¹I…¥Í•ÑUÑŒ¹Y…±Õ”¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸ì((€€€€€€€€€€€}É…¥Í•Õ•1½•€ôÑÉÕ”ì(€€€€€€€€€€€ÍÑÉ¥¹œµ•ÍÍ…”€ô}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°(€€€€€€€€€€€€€€€€ü€‰1=,!,%L9=\U¸AÉ½Ù¥Í¥½¹…°Ñ¥µ”É•…¡•…Ğí}…¹I…¥Í•ÑUÑŒ¹Y…±Õ”é=ô¸ˆ(€€€€€€€€€€€€€€€€è€‰1=,I%M%L9=\U¸M•ÉÙ•Èµ‘•É¥Ù••…É±¥•ÍĞÉ…¥Í”Ñ¥µ”İ…Ìí}…¹I…¥Í•ÑUÑŒ¹Y…±Õ”é=ô¸ˆì((€€€€€€€€€€€1½•È¹]…É¹¥¹œ¡µ•ÍÍ…”¤ì(€€€€€€€€€€€M…Ù•MÑ…Ñ” ¤ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”ÍÑÉ¥¹œ½Éµ…ÑÕÉ…Ñ¥½¸¡Q¥µ•MÁ…¸Ù…±Õ”¤(€€€€€€€ì(€€€€€€€€€€€¥¹ĞÑ½Ñ…±M•½¹‘Ì€ô5…Ñ ¹5…à À°€¡¥¹Ğ¥5…Ñ ¹•¥±¥¹œ¡Ù…±Õ”¹Q½Ñ…±M•½¹‘Ì¤¤ì(€€€€€€€€€€€¥¹Ğ¡½ÕÉÌ€ôÑ½Ñ…±M•½¹‘Ì€¼€ÌØÀÀì(€€€€€€€€€€€¥¹Ğµ¥¹ÕÑ•Ì€ô€¡Ñ½Ñ…±M•½¹‘Ì€”€ÌØÀÀ¤€¼€ØÀì(€€€€€€€€€€€¥¹ĞÍ•½¹‘Ì€ôÑ½Ñ…±M•½¹‘Ì€”€ØÀì((€€€€€€€€€€€¥˜€¡¡½ÕÉÌ€ø€À¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸€‰í¡½ÕÉÍõ íµ¥¹ÕÑ•Íõ´íÍ•½¹‘ÍõÌˆì(€€€€€€€€€€€¥˜€¡µ¥¹ÕÑ•Ì€ø€À¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸€‰íµ¥¹ÕÑ•Íõ´íÍ•½¹‘ÍõÌˆì(€€€€€€€€€€€É•ÑÕÉ¸€‰íÍ•½¹‘ÍõÌˆì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥1½…‘MÑ…Ñ” ¤(€€€€€€€ì(€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€A•ÉÍ¥ÍÑ•‘±½…­MÑ…Ñ”ÍÑ…Ñ”€ô¹Õ±°ì(€€€€€€€€€€€€€€€¥˜€¡¥±”¹á¥ÍÑÌ¡}ÍÑ…Ñ•A…Ñ ¤¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€ÑÉä(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€ÍÑ…Ñ”€ô)Í½¹½¹Ù•ÉĞ¹•Í•É¥…±¥é•=‰©•ĞñA•ÉÍ¥ÍÑ•‘±½…­MÑ…Ñ”ø (€€€€€€€€€€€€€€€€€€€€€€€€€€€¥±”¹I•…‘±±Q•áĞ¡}ÍÑ…Ñ•A…Ñ ¤¤ì(€€€€€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ (€€€€€€€€€€€€€€€€€€€€€€€€€€€€‰A•ÉÍ¥ÍÑ•±½…¬Í¹…ÁÍ¡½Ğ¥ÌÕ¹É•…‘…‰±”ì€ˆ€¬(€€€€€€€€€€€€€€€€€€€€€€€€€€€€‰™…±±¥¹œ‰…¬Ñ¼Ñ¡”•Ù•¹Ğ±½œèí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€¥˜€¡ÍÑ…Ñ”€„ô¹Õ±°¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€}ÍÑ…ÑÕÌ€ôÍÑ…Ñ”¹MÑ…ÑÕÌì(€€€€€€€€€€€€€€€€€€€}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€ôÍÑ…Ñ”¹M¡¥•±‘Q¥µ•É%¹M•½¹‘Ìì(€€€€€€€€€€€€€€€€€€€}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ€ôUÑQ¥µ•ÍÑ…µÀ¹9½Éµ…±¥é”¡ÍÑ…Ñ”¹1…ÍÑ=‰Í•ÉÙ•‘UÑŒ¤ì(€€€€€€€€€€€€€€€€€€€}±…ÍÑ¡…¹•‘UÑŒ€ôUÑQ¥µ•ÍÑ…µÀ¹9½Éµ…±¥é”¡ÍÑ…Ñ”¹1…ÍÑ¡…¹•‘UÑŒ¤ì(€€€€€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ€ôUÑQ¥µ•ÍÑ…µÀ¹9½Éµ…±¥é”¡ÍÑ…Ñ”¹…¹I…¥Í•ÑUÑŒ¤ì(€€€€€€€€€€€€€€€€€€€}É…¥Í•Õ•1½•€ôÍÑ…Ñ”¹I…¥Í•Õ•1½•ì(€€€€€€€€€€€€€€€€€€€}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°€ôÍÑ…Ñ”¹I…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°ì(€€€€€€€€€€€€€€€€€€€}½‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”€ôÍÑ…Ñ”¹=‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”€üü€‰U¹­¹½İ¸ˆì((€€€€€€€€€€€€€€€€€€€¥˜€¡}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ¹!…ÍY…±Õ”€˜˜(€€€€€€€€€€€€€€€€€€€€€€€UÑQ¥µ•ÍÑ…µÀ¹%ÍÕÑÕÉ” (€€€€€€€€€€€€€€€€€€€€€€€€€€€}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ¹Y…±Õ”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€…Ñ•Q¥µ”¹UÑ9½Ü¤¤(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ (€€€€€€€€€€€€€€€€€€€€€€€€€€€€‰¥Í…É‘¥¹œ™ÕÑÕÉ”µ‘…Ñ•Á•ÉÍ¥ÍÑ•±½…¬ÍÑ…Ñ”€ˆ€¬(€€€€€€€€€€€€€€€€€€€€€€€€€€€€‰½‰Í•ÉÙ…Ñ¥½¸í}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ¹Y…±Õ”é=ô¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€€€€€}ÍÑ…ÑÕÌ€ô±½…­MÑ…ÑÕÌ¹U¹­¹½İ¸ì(€€€€€€€€€€€€€€€€€€€€€€€}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€ô€Àì(€€€€€€€€€€€€€€€€€€€€€€€}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ€ô¹Õ±°ì(€€€€€€€€€€€€€€€€€€€€€€€}±…ÍÑ¡…¹•‘UÑŒ€ô¹Õ±°ì(€€€€€€€€€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ€ô¹Õ±°ì(€€€€€€€€€€€€€€€€€€€€€€€}É…¥Í•Õ•1½•€ô™…±Í”ì(€€€€€€€€€€€€€€€€€€€€€€€}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°€ô™…±Í”ì(€€€€€€€€€€€€€€€€€€€€€€€}½‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”€ô€‰%¹Ù…±¥‘ÕÑÕÉ•Q¥µ•ÍÑ…µÀˆì(€€€€€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€±½…­Ù•¹ÑI•½É±…Ñ•ÍÑÙ•¹Ğ€ô1½…‘1…Ñ•ÍÑ±½…­Ù•¹Ğ ¤ì(€€€€€€€€€€€€€€€¥˜€¡±…Ñ•ÍÑÙ•¹Ğ€„ô¹Õ±°¤(€€€€€€€€€€€€€€€€€€€±…Ñ•ÍÑÙ•¹Ğ¹=ÕÉÉ•‘UÑŒ€ô(€€€€€€€€€€€€€€€€€€€€€€€UÑQ¥µ•ÍÑ…µÀ¹9½Éµ…±¥é”¡±…Ñ•ÍÑÙ•¹Ğ¹=ÕÉÉ•‘UÑŒ¤ì((€€€€€€€€€€€€€€€¥˜€¡±…Ñ•ÍÑÙ•¹Ğ€„ô¹Õ±°€˜˜(€€€€€€€€€€€€€€€€€€€UÑQ¥µ•ÍÑ…µÀ¹%ÍÕÑÕÉ” (€€€€€€€€€€€€€€€€€€€€€€€±…Ñ•ÍÑÙ•¹Ğ¹=ÕÉÉ•‘UÑŒ°(€€€€€€€€€€€€€€€€€€€€€€€…Ñ•Q¥µ”¹UÑ9½Ü¤¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€1½•È¹]…É¹¥¹œ (€€€€€€€€€€€€€€€€€€€€€€€€‰%¹½É¥¹œ™ÕÑÕÉ”µ‘…Ñ•±½…¬•Ù•¹Ğ€ˆ€¬(€€€€€€€€€€€€€€€€€€€€€€€€‰í±…Ñ•ÍÑÙ•¹Ğ¹=ÕÉÉ•‘UÑŒé=ôİ¡¥±”É•ÍÑ½É¥¹œÍÑ…Ñ”¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€±…Ñ•ÍÑÙ•¹Ğ€ô¹Õ±°ì(€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€¥˜€¡±…Ñ•ÍÑÙ•¹Ğ€„ô¹Õ±°€˜˜(€€€€€€€€€€€€€€€€€€€€ …}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ¹!…ÍY…±Õ”ñğ(€€€€€€€€€€€€€€€€€€€€±…Ñ•ÍÑÙ•¹Ğ¹=ÕÉÉ•‘UÑŒ€ø}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ¹Y…±Õ”¤¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€}ÍÑ…ÑÕÌ€ô±…Ñ•ÍÑÙ•¹Ğ¹9•İMÑ…ÑÕÌì(€€€€€€€€€€€€€€€€€€€}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€ô±…Ñ•ÍÑÙ•¹Ğ¹M¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€üü€Àì(€€€€€€€€€€€€€€€€€€€}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ€ô±…Ñ•ÍÑÙ•¹Ğ¹=ÕÉÉ•‘UÑŒì(€€€€€€€€€€€€€€€€€€€}±…ÍÑ¡…¹•‘UÑŒ€ô±…Ñ•ÍÑÙ•¹Ğ¹=ÕÉÉ•‘UÑŒì(€€€€€€€€€€€€€€€€€€€}…¹I…¥Í•ÑUÑŒ€ô±…Ñ•ÍÑÙ•¹Ğ¹…¹I…¥Í•ÑUÑŒì(€€€€€€€€€€€€€€€€€€€}É…¥Í•Õ•1½•€ô™…±Í”ì(€€€€€€€€€€€€€€€€€€€}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°€ô(€€€€€€€€€€€€€€€€€€€€€€€ÍÑÉ¥¹œ¹ÅÕ…±Ì (€€€€€€€€€€€€€€€€€€€€€€€€€€€±…Ñ•ÍÑÙ•¹Ğ¹Ù•¹ÑQåÁ”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€‰±½…­}½™™}…¹¹½Õ¹•µ•¹Ğˆ°(€€€€€€€€€€€€€€€€€€€€€€€€€€€MÑÉ¥¹½µÁ…É¥Í½¸¹=É‘¥¹…±%¹½É•…Í”¤ì(€€€€€€€€€€€€€€€€€€€}½‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”€ô±…Ñ•ÍÑÙ•¹Ğ¹M½ÕÉ”€üü€‰A•ÉÍ¥ÍÑ•‘Ù•¹Ñ1½œˆì(€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€¥˜€¡ÍÑ…Ñ”€ôô¹Õ±°€˜˜±…Ñ•ÍÑÙ•¹Ğ€ôô¹Õ±°¤(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ ‰9¼Á•ÉÍ¥ÍÑ•±½…¬ÍÑ…Ñ”™½Õ¹ìÍÑ…ÉÑ¥¹œU¹­¹½İ¸¸ˆ¤ì(€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸ì(€€€€€€€€€€€€€€€ô((€€€€€€€€€€€€€€€1½•È¹%¹™½Éµ…Ñ¥½¸ (€€€€€€€€€€€€€€€€€€€€‰I•ÍÑ½É•±½…¬ÍÑ…Ñ”èí}ÍÑ…ÑÕÍô°±…ÍÑ=‰Í•ÉÙ•õí}±…ÍÑ=‰Í•ÉÙ•‘UÑŒé=ô°€ˆ€¬(€€€€€€€€€€€€€€€€€€€€‰…¹I…¥Í•Ğõí}…¹I…¥Í•ÑUÑŒé=ô°ÁÉ½Ù¥Í¥½¹…°õí}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…±ô°Í½ÕÉ”õí}½‰Í•ÉÙ…Ñ¥½¹M½ÕÉ•ô¸ˆ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€1½•È¹ÉÉ½È ‰…¥±•±½…‘¥¹œÁ•ÉÍ¥ÍÑ•±½…¬ÍÑ…Ñ”èí•áôˆ¤ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”±½…­Ù•¹ÑI•½É1½…‘1…Ñ•ÍÑ±½…­Ù•¹Ğ ¤(€€€€€€€ì(€€€€€€€€€€€¥˜€ …¥±”¹á¥ÍÑÌ¡}•Ù•¹ÑÍA…Ñ ¤¤(€€€€€€€€€€€€€€€É•ÑÕÉ¸¹Õ±°ì((€€€€€€€€€€€±½…­Ù•¹ÑI•½É±…Ñ•ÍĞ€ô¹Õ±°ì((€€€€€€€€€€€™½É•… €¡ÍÑÉ¥¹œ±¥¹”¥¸¥±”¹I•…‘1¥¹•Ì¡}•Ù•¹ÑÍA…Ñ ¤¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€¥˜€¡ÍÑÉ¥¹œ¹%Í9Õ±±=É]¡¥Ñ•MÁ…”¡±¥¹”¤¤(€€€€€€€€€€€€€€€€€€€½¹Ñ¥¹Õ”ì((€€€€€€€€€€€€€€€ÑÉä(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€±½…­Ù•¹ÑI•½É…¹‘¥‘…Ñ”€ô(€€€€€€€€€€€€€€€€€€€€€€€)Í½¹½¹Ù•ÉĞ¹•Í•É¥…±¥é•=‰©•Ğñ±½…­Ù•¹ÑI•½Éø¡±¥¹”¤ì((€€€€€€€€€€€€€€€€€€€¥˜€¡…¹‘¥‘…Ñ”€„ô¹Õ±°€˜˜(€€€€€€€€€€€€€€€€€€€€€€€€¡±…Ñ•ÍĞ€ôô¹Õ±°ñğ…¹‘¥‘…Ñ”¹=ÕÉÉ•‘UÑŒ€ø±…Ñ•ÍĞ¹=ÕÉÉ•‘UÑŒ¤¤(€€€€€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€€€€±…Ñ•ÍĞ€ô…¹‘¥‘…Ñ”ì(€€€€€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€€€€€…Ñ (€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€€¼¼-••ÀÍ…¹¹¥¹œè„Á…ÉÑ¥…±±äİÉ¥ÑÑ•¸™¥¹…°±¥¹”µÕÍĞ¹½Ğ¡¥‘”(€€€€€€€€€€€€€€€€€€€€¼¼•…É±¥•È…ÕÑ¡½É¥Ñ…Ñ¥Ù”•Ù•¹ÑÌ¸(€€€€€€€€€€€€€€€ô(€€€€€€€€€€€ô((€€€€€€€€€€€É•ÑÕÉ¸±…Ñ•ÍĞì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥M…Ù•MÑ…Ñ” ¤(€€€€€€€ì(€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€Ù…ÈÍÑ…Ñ”€ô¹•ÜA•ÉÍ¥ÍÑ•‘±½…­MÑ…Ñ”(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€MÑ…ÑÕÌ€ô}ÍÑ…ÑÕÌ°(€€€€€€€€€€€€€€€€€€€M¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€ô}Í¡¥•±‘Q¥µ•É%¹M•½¹‘Ì°(€€€€€€€€€€€€€€€€€€€1…ÍÑ=‰Í•ÉÙ•‘UÑŒ€ô}±…ÍÑ=‰Í•ÉÙ•‘UÑŒ°(€€€€€€€€€€€€€€€€€€€1…ÍÑ¡…¹•‘UÑŒ€ô}±…ÍÑ¡…¹•‘UÑŒ°(€€€€€€€€€€€€€€€€€€€…¹I…¥Í•ÑUÑŒ€ô}…¹I…¥Í•ÑUÑŒ°(€€€€€€€€€€€€€€€€€€€I…¥Í•Õ•1½•€ô}É…¥Í•Õ•1½•°(€€€€€€€€€€€€€€€€€€€I…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°€ô}É…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°°(€€€€€€€€€€€€€€€€€€€=‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”€ô}½‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”(€€€€€€€€€€€€€€€ôì((€€€€€€€€€€€€€€€ÍÑÉ¥¹œÑ•µÁA…Ñ €ô}ÍÑ…Ñ•A…Ñ €¬€ˆ¹ÑµÀˆì(€€€€€€€€€€€€€€€¥±”¹]É¥Ñ•±±Q•áĞ¡Ñ•µÁA…Ñ °)Í½¹½¹Ù•ÉĞ¹M•É¥…±¥é•=‰©•Ğ¡ÍÑ…Ñ”°½Éµ…ÑÑ¥¹œ¹%¹‘•¹Ñ•¤¤ì((€€€€€€€€€€€€€€€¥˜€¡¥±”¹á¥ÍÑÌ¡}ÍÑ…Ñ•A…Ñ ¤¤(€€€€€€€€€€€€€€€€€€€¥±”¹•±•Ñ”¡}ÍÑ…Ñ•A…Ñ ¤ì(€€€€€€€€€€€€€€€¥±”¹5½Ù”¡Ñ•µÁA…Ñ °}ÍÑ…Ñ•A…Ñ ¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€1½•È¹ÉÉ½È ‰…¥±•Í…Ù¥¹œ±½…¬ÍÑ…Ñ”èí•áôˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰II=HÍ…Ù”ÍÑ…Ñ”èí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”Ù½¥ÁÁ•¹‘±½…­Ù•¹Ğ (€€€€€€€€€€€±½…­MÑ…ÑÕÌÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ°(€€€€€€€€€€€±½…­MÑ…ÑÕÌ¹•İMÑ…ÑÕÌ°(€€€€€€€€€€€…Ñ•Q¥µ”½ÕÉÉ•‘UÑŒ°(€€€€€€€€€€€¥¹ĞüÍ¡¥•±‘Q¥µ•É%¹M•½¹‘Ì°(€€€€€€€€€€€…Ñ•Q¥µ”ü…¹I…¥Í•ÑUÑŒ°(€€€€€€€€€€€ÍÑÉ¥¹œ•Ù•¹ÑQåÁ”°(€€€€€€€€€€€ÍÑÉ¥¹œÍ½ÕÉ”°(€€€€€€€€€€€ÍÑÉ¥¹œ…Ñ½È°(€€€€€€€€€€€ÍÑÉ¥¹œ¡…¹¹•±9…µ”°(€€€€€€€€€€€ÍÑÉ¥¹œÉ…İ5•ÍÍ…”¤(€€€€€€€ì(€€€€€€€€€€€ÑÉä(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€Ù…ÈÉ•½É€ô¹•Ü±½…­Ù•¹ÑI•½É(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€=ÕÉÉ•‘UÑŒ€ô½ÕÉÉ•‘UÑŒ°(€€€€€€€€€€€€€€€€€€€AÉ•Ù¥½ÕÍMÑ…ÑÕÌ€ôÁÉ•Ù¥½ÕÍMÑ…ÑÕÌ°(€€€€€€€€€€€€€€€€€€€9•İMÑ…ÑÕÌ€ô¹•İMÑ…ÑÕÌ°(€€€€€€€€€€€€€€€€€€€M¡¥•±‘Q¥µ•É%¹M•½¹‘Ì€ôÍ¡¥•±‘Q¥µ•É%¹M•½¹‘Ì°(€€€€€€€€€€€€€€€€€€€…¹I…¥Í•ÑUÑŒ€ô…¹I…¥Í•ÑUÑŒ°(€€€€€€€€€€€€€€€€€€€Ù•¹ÑQåÁ”€ô•Ù•¹ÑQåÁ”°(€€€€€€€€€€€€€€€€€€€M½ÕÉ”€ôÍ½ÕÉ”°(€€€€€€€€€€€€€€€€€€€Ñ½È€ô…Ñ½È°(€€€€€€€€€€€€€€€€€€€¡…¹¹•±9…µ”€ô¡…¹¹•±9…µ”°(€€€€€€€€€€€€€€€€€€€I…İ5•ÍÍ…”€ôÉ…İ5•ÍÍ…”(€€€€€€€€€€€€€€€ôì((€€€€€€€€€€€€€€€¥±”¹ÁÁ•¹‘±±Q•áĞ¡}•Ù•¹ÑÍA…Ñ °)Í½¹½¹Ù•ÉĞ¹M•É¥…±¥é•=‰©•Ğ¡É•½É¤€¬¹Ù¥É½¹µ•¹Ğ¹9•İ1¥¹”¤ì(€€€€€€€€€€€ô(€€€€€€€€€€€…Ñ €¡á•ÁÑ¥½¸•à¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€1½•È¹ÉÉ½È ‰…¥±•…ÁÁ•¹‘¥¹œ±½…¬•Ù•¹Ğèí•áôˆ¤ì(€€€€€€€€€€€€€€€•ÙQÉ…” ‰II=H…ÁÁ•¹±½…¬•Ù•¹Ğèí•à¹5•ÍÍ…•ôˆ¤ì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”•¹Õ´I•Á±å-¥¹(€€€€€€€ì(€€€€€€€€€€€Q•±°°(€€€€€€€€€€€=Éœ°(€€€€€€€€€€€Õ•ÍĞ(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”±…ÍÌI•Á±åQ…É•Ğ(€€€€€€€ì(€€€€€€€€€€€ÁÕ‰±¥ŒI•Á±å-¥¹-¥¹ì(€€€€€€€€€€€ÁÕ‰±¥ŒÕ¥¹ĞM•¹‘•É%ì(€€€€€€€€€€€ÁÕ‰±¥Œ½‰©•Ğ¡…¹¹•±%ì(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ¡…¹¹•±9…µ”ì((€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°%Í=Éœ€ôø-¥¹€ôôI•Á±å-¥¹¹=Éœì(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°%ÍÕ•ÍĞ€ôø-¥¹€ôôI•Á±å-¥¹¹Õ•ÍĞì(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°I•ÅÕ¥É•ÍAÉ•™¥à€ôø-¥¹€„ôI•Á±å-¥¹¹Q•±°ì((€€€€€€€€€€€ÁÕ‰±¥ŒÍÑ…Ñ¥ŒI•Á±åQ…É•Ğ½ÉQ•±°¡Õ¥¹ĞÍ•¹‘•É%¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸¹•ÜI•Á±åQ…É•Ğ(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€-¥¹€ôI•Á±å-¥¹¹Q•±°°(€€€€€€€€€€€€€€€€€€€M•¹‘•É%€ôÍ•¹‘•É%(€€€€€€€€€€€€€€€ôì(€€€€€€€€€€€ô((€€€€€€€€€€€ÁÕ‰±¥ŒÍÑ…Ñ¥ŒI•Á±åQ…É•Ğ½É=Éœ¡Õ¥¹ĞÍ•¹‘•É%°½‰©•Ğ¡…¹¹•±%°ÍÑÉ¥¹œ¡…¹¹•±9…µ”¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸¹•ÜI•Á±åQ…É•Ğ(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€-¥¹€ôI•Á±å-¥¹¹=Éœ°(€€€€€€€€€€€€€€€€€€€M•¹‘•É%€ôÍ•¹‘•É%°(€€€€€€€€€€€€€€€€€€€¡…¹¹•±%€ô¡…¹¹•±%°(€€€€€€€€€€€€€€€€€€€¡…¹¹•±9…µ”€ô¡…¹¹•±9…µ”(€€€€€€€€€€€€€€€ôì(€€€€€€€€€€€ô((€€€€€€€€€€€ÁÕ‰±¥ŒÍÑ…Ñ¥ŒI•Á±åQ…É•Ğ½ÉÕ•ÍĞ¡Õ¥¹ĞÍ•¹‘•É%°½‰©•Ğ¡…¹¹•±%¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸¹•ÜI•Á±åQ…É•Ğ(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€-¥¹€ôI•Á±å-¥¹¹Õ•ÍĞ°(€€€€€€€€€€€€€€€€€€€M•¹‘•É%€ôÍ•¹‘•É%°(€€€€€€€€€€€€€€€€€€€¡…¹¹•±%€ô¡…¹¹•±%°(€€€€€€€€€€€€€€€€€€€¡…¹¹•±9…µ”€ô€‰Áµ…¹…•ÈÁÉ¥Ù…Ñ”ˆ(€€€€€€€€€€€€€€€ôì(€€€€€€€€€€€ô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”±…ÍÌA•ÉÍ¥ÍÑ•‘±½…­MÑ…Ñ”(€€€€€€€ì(€€€€€€€€€€€ÁÕ‰±¥Œ±½…­MÑ…ÑÕÌMÑ…ÑÕÌì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹ĞM¡¥•±‘Q¥µ•É%¹M•½¹‘Ìì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥Œ…Ñ•Q¥µ”ü1…ÍÑ=‰Í•ÉÙ•‘UÑŒì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥Œ…Ñ•Q¥µ”ü1…ÍÑ¡…¹•‘UÑŒì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥Œ…Ñ•Q¥µ”ü…¹I…¥Í•ÑUÑŒì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°I…¥Í•Õ•1½•ì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°I…¥Í•Q¥µ•%ÍAÉ½Ù¥Í¥½¹…°ì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ=‰Í•ÉÙ…Ñ¥½¹M½ÕÉ”ì•ĞìÍ•Ğìô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”±…ÍÌ±½…­Ù•¹ÑI•½É(€€€€€€€ì(€€€€€€€€€€€ÁÕ‰±¥Œ…Ñ•Q¥µ”=ÕÉÉ•‘UÑŒì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥Œ±½…­MÑ…ÑÕÌAÉ•Ù¥½ÕÍMÑ…ÑÕÌì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥Œ±½…­MÑ…ÑÕÌ9•İMÑ…ÑÕÌì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹ĞüM¡¥•±‘Q¥µ•É%¹M•½¹‘Ìì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥Œ…Ñ•Q¥µ”ü…¹I…¥Í•ÑUÑŒì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œÙ•¹ÑQåÁ”ì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œM½ÕÉ”ì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œÑ½Èì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ¡…¹¹•±9…µ”ì•ĞìÍ•Ğìô(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œI…İ5•ÍÍ…”ì•ĞìÍ•Ğìô(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”±…ÍÌ]½É­•ÉI•ÅÕ•ÍĞ(€€€€€€€ì(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ%ì(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ½µµ…¹ì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹ĞüQ¥µ•½ÕÑM•½¹‘Ìì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğü1•Ù•°ì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğü%¹‘•àì(€€€€€€€€€€€ÁÕ‰±¥Œ1¥ÍĞñ¥¹Ğø%¹‘•á•Ìì(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œAÕÉÁ½Í”ì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğü1•…Í•M•½¹‘Ìì(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°!½µ”ì(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°1½½ÕÑ™Ñ•É!½µ”ì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”±…ÍÌ]½É­•ÉI•ÍÁ½¹Í”(€€€€€€€ì(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ%ì(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°=¬ì(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ5•ÍÍ…”ì(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ¡…É…Ñ•Èì(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ±½…­MÑ…Ñ”ì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹ĞüM¡¥•±‘Q¥µ•É%¹M•½¹‘Ìì(€€€€€€€€€€€ÁÕ‰±¥Œ™±½…Ğü½¹ÑÉ½±±•É¡…É”ì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğü1•Ù•°ì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğü%¹‘•àì(€€€€€€€€€€€ÁÕ‰±¥Œ1¥ÍĞñÍÑÉ¥¹œø¡…É…Ñ•ÉÌì(€€€€€€€€€€€ÁÕ‰±¥Œ1¥ÍĞñ¥¹Ğø%¹‘•á•Ìì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğü½Õ¹Ğì(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°…¡•ì(€€€€€€€€€€€ÁÕ‰±¥Œ…Ñ•Q¥µ”ü=‰Í•ÉÙ•‘UÑŒì(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°Ñ¥½¹M•¹Ğì(€€€€€€€€€€€ÁÕ‰±¥Œ1¥ÍĞñ	Õ‘‘åA½Í¥Ñ¥½¹M¹…ÁÍ¡½ĞøA½Í¥Ñ¥½¹Ìì(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ!½µ•)½‰%ì(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°!½µ•IÕ¹¹¥¹œì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğ!½µ•ÑÑ•µÁÑ•ì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğ!½µ•MÑ…ÉÑ•ì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğ!½µ•Q•Éµ¥¹…°ì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğ!½µ•I•…¡•ì(€€€€€€€€€€€ÁÕ‰±¥Œ¥¹Ğ!½µ•MÑ½ÁÁ•ì(€€€€€€€€€€€ÁÕ‰±¥Œ1¥ÍĞñÍÑÉ¥¹œø!½µ•…¥±ÕÉ•Ìì(€€€€€€€ô((€€€€€€€ÁÉ¥Ù…Ñ”±…ÍÌ]½É­•É1¥¹­MÑ…ÑÕÌ(€€€€€€€ì(€€€€€€€€€€€ÁÕ‰±¥Œ‰½½°%ÍUÍ…‰±”ì(€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ•Ñ…¥°ì((€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œAÕ‰±¥Q•áĞ€ôø%ÍUÍ…‰±”(€€€€€€€€€€€€€€€€ü€‰±¥¹­•½ÕÍ…‰±”ˆ(€€€€€€€€€€€€€€€€è€‰¹½Ğ±¥¹­•½Õ¹ÕÍ…‰±”ˆì((€€€€€€€€€€€ÁÕ‰±¥ŒÍÑÉ¥¹œ¥…¹½ÍÑ¥Q•áĞ€ôø(€€€€€€€€€€€€€€€€‰íAÕ‰±¥Q•áÑô€¡í•Ñ…¥°€üü€‰¹¼‘•Ñ…¥°‰ô¤ˆì((€€€€€€€€€€€ÁÕ‰±¥ŒÍÑ…Ñ¥Œ]½É­•É1¥¹­MÑ…ÑÕÌUÍ…‰±”¡ÍÑÉ¥¹œ‘•Ñ…¥°¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸¹•Ü]½É­•É1¥¹­MÑ…ÑÕÌ(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€%ÍUÍ…‰±”€ôÑÉÕ”°(€€€€€€€€€€€€€€€€€€€•Ñ…¥°€ô‘•Ñ…¥°(€€€€€€€€€€€€€€€ôì(€€€€€€€€€€€ô((€€€€€€€€€€€ÁÕ‰±¥ŒÍÑ…Ñ¥Œ]½É­•É1¥¹­MÑ…ÑÕÌU¹ÕÍ…‰±”¡ÍÑÉ¥¹œ‘•Ñ…¥°¤(€€€€€€€€€€€ì(€€€€€€€€€€€€€€€É•ÑÕÉ¸¹•Ü]½É­•É1¥¹­MÑ…ÑÕÌ(€€€€€€€€€€€€€€€ì(€€€€€€€€€€€€€€€€€€€%ÍUÍ…‰±”€ô™…±Í”°(€€€€€€€€€€€€€€€€€€€•Ñ…¥°€ô‘•Ñ…¥°(€€€€€€€€€€€€€€€ôì(€€€€€€€€€€€ô(€€€€€€€ô(€€€ô)ô(

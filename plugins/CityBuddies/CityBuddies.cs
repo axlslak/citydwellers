@@ -70,7 +70,7 @@ namespace CityBuddies
         private string _snapshotPath;
         private string _homeDirectivePath;
         private string _navmeshDirectory;
-        private string _pluginDirectory;
+        private string _dataDirectory;
         private string _navigationTracePath;
         private bool _readyWritten;
         private bool _inPlay;
@@ -126,16 +126,25 @@ namespace CityBuddies
         {
             PreloadStaticDynelData();
 
-            _pluginDirectory = pluginDir;
+            string settingsDirectory;
+            string settingsError;
+            if (!SettingsPaths.TryEnsureDirectories(
+                    out settingsDirectory,
+                    out _dataDirectory,
+                    out settingsError))
+            {
+                Logger.Error(settingsError);
+                return;
+            }
 
             _readyPath = Path.Combine(
-                pluginDir,
+                _dataDirectory,
                 $"citybuddies-ready-{Client.CharacterName}.ready");
             _snapshotPath = Path.Combine(
-                pluginDir,
+                _dataDirectory,
                 $"citybuddies-position-{Client.CharacterName}.json");
             _homeDirectivePath = Path.Combine(
-                pluginDir,
+                _dataDirectory,
                 $"citybuddies-home-{Client.CharacterName}.json");
             _navmeshDirectory = Path.Combine(pluginDir, "NavMeshes");
 
@@ -939,7 +948,7 @@ namespace CityBuddies
             try
             {
                 string traceDirectory = Path.Combine(
-                    _pluginDirectory,
+                    _dataDirectory,
                     "NavigationTraces");
                 Directory.CreateDirectory(traceDirectory);
 

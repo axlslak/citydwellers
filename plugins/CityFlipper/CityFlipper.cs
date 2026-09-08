@@ -22,7 +22,7 @@ namespace CityFlipper
         private const float MinimumRaidControllerCharge = 0.75f;
         private const double PostToggleConfirmationTimeoutMs = 8000.0;
 
-        private string _pluginDir;
+        private string _dataDirectory;
         private string _operationId;
         private string _cancelRequestPath;
 
@@ -75,25 +75,27 @@ namespace CityFlipper
 
         public override void Init(string pluginDir)
         {
-            _pluginDir = pluginDir;
             string settingsDirectory;
+            string dataDirectory;
             string settingsError;
-            if (SettingsPaths.TryEnsureDirectory(
+            if (SettingsPaths.TryEnsureDirectories(
                     out settingsDirectory,
+                    out dataDirectory,
                     out settingsError))
             {
+                _dataDirectory = dataDirectory;
                 _cancelRequestPath = Path.Combine(
-                    settingsDirectory,
+                    dataDirectory,
                     "cityflipper-cancel.request");
             }
             else
             {
-                Logger.Warning(
-                    $"Flipper cancellation checks are unavailable: {settingsError}");
+                Logger.Error(settingsError);
+                return;
             }
 
             string operationIdPath = Path.Combine(
-                _pluginDir,
+                _dataDirectory,
                 "cityflipper-operation.id");
 
             if (File.Exists(operationIdPath))
@@ -109,7 +111,7 @@ namespace CityFlipper
             }
 
             string toggleRequestPath = Path.Combine(
-                _pluginDir,
+                _dataDirectory,
                 "cityflipper-toggle.request");
 
             string requestedAction = null;
@@ -884,7 +886,9 @@ namespace CityFlipper
                     PostToggleCloakInfo = _postToggleCloakInfo
                 };
 
-                string resultPath = Path.Combine(_pluginDir, "cityflipper-result.json");
+                string resultPath = Path.Combine(
+                    _dataDirectory,
+                    "cityflipper-result.json");
                 string tempPath = resultPath + ".tmp";
 
                 string json = JsonConvert.SerializeObject(result, Formatting.Indented);

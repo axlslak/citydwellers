@@ -14,7 +14,8 @@ using CityDwellers.Shared;
 
 public class PluginLoader
 {
-    // Manager configuration lives in the repository's ignored settings directory.
+    // Manager configuration lives beside the executable in the portable
+    // runtime root. Bot-owned mutable files live under data.
 
     // Example config:
     //{

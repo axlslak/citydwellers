@@ -14,9 +14,9 @@ internal static class FlipperCacheStore
     private static long _freshSavedTimestamp;
     private static DateTime _freshObservedUtc;
 
-    public static void Initialize(string baseDirectory, int freshSeconds)
+    public static void Initialize(string dataDirectory, int freshSeconds)
     {
-        _cachePath = Path.Combine(baseDirectory, "cityflipper-cache.json");
+        _cachePath = Path.Combine(dataDirectory, "cityflipper-cache.json");
         _freshSeconds = freshSeconds > 0 ? freshSeconds : 60;
         _freshSavedTimestamp = 0;
         _freshObservedUtc = default(DateTime);

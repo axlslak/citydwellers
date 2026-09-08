@@ -22,6 +22,7 @@ public class FlipperLoader
     private static AccountInfo _account;
     private static string _baseDir;
     private static string _settingsDir;
+    private static string _dataDir;
     private static string _pluginPath;
     private static string _pluginDir;
     private static string _toggleRequestPath;
@@ -40,7 +41,10 @@ public class FlipperLoader
         _baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
         string settingsError;
-        if (!SettingsPaths.TryEnsureDirectory(out _settingsDir, out settingsError))
+        if (!SettingsPaths.TryEnsureDirectories(
+                out _settingsDir,
+                out _dataDir,
+                out settingsError))
         {
             StopForConfiguration(settingsError);
             Environment.Exit(1);
@@ -163,17 +167,17 @@ public class FlipperLoader
 
         _pluginDir = Path.GetDirectoryName(_pluginPath);
         _toggleRequestPath =
-            Path.Combine(_pluginDir, "cityflipper-toggle.request");
+            Path.Combine(_dataDir, "cityflipper-toggle.request");
         _operationIdPath =
-            Path.Combine(_pluginDir, "cityflipper-operation.id");
+            Path.Combine(_dataDir, "cityflipper-operation.id");
         _cancelRequestPath =
-            Path.Combine(_settingsDir, "cityflipper-cancel.request");
+            Path.Combine(_dataDir, "cityflipper-cancel.request");
 
         DeleteIfExists(_toggleRequestPath);
         DeleteIfExists(_operationIdPath);
 
         FlipperCacheStore.Initialize(
-            _baseDir,
+            _dataDir,
             _config.CacheFreshSeconds > 0 ? _config.CacheFreshSeconds : 60);
 
         return true;
@@ -692,7 +696,7 @@ public class FlipperLoader
         Console.WriteLine("--------------------------------------");
 
         string resultPath =
-            Path.Combine(_pluginDir, "cityflipper-result.json");
+            Path.Combine(_dataDir, "cityflipper-result.json");
         string tempPath = resultPath + ".tmp";
 
         DeleteIfExists(resultPath);

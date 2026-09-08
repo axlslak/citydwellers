@@ -75,7 +75,7 @@ namespace CityManager
         {
             lock (_altsSync)
             {
-                _altsPath = Path.Combine(_settingsDir, "alts.json");
+                _altsPath = Path.Combine(_dataDir, "alts.json");
                 _altsBotName = LoadAltBotName();
                 _altGroups.Clear();
                 _altToMain.Clear();
@@ -223,7 +223,7 @@ namespace CityManager
                 {
                     Reply(
                         target,
-                        "External alt lookup is disabled; set Bot in settings/manager.json first.");
+                        "External alt lookup is disabled; set Bot in manager.json beside the executable first.");
                     return;
                 }
 
@@ -351,7 +351,7 @@ namespace CityManager
             {
                 Reply(
                     target,
-                    cached + " External alt lookup is disabled; set Bot in settings/manager.json to enable it.");
+                    cached + " External alt lookup is disabled; set Bot in manager.json beside the executable to enable it.");
                 return;
             }
 

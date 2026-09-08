@@ -24,7 +24,7 @@
     AOSharp.Clientless 1.0.16 does not include its runtime GameData files in
     the NuGet package. Flipper needs those files to resolve the static City
     Controller dynel by name. Restore them once into an ignored repository
-    cache, then copy them beside each newly built Flipper executable. The
+    cache, then copy them into the selected portable runtime root. The
     bootstrap command is implemented inside Flipper.exe, so the build needs no
     shell script or separately installed helper.
   -->
