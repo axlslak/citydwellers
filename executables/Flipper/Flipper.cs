@@ -92,35 +92,15 @@ public class FlipperLoader
 
     private static bool LoadConfig()
     {
-        string configPath = SettingsPaths.GetFilePath(_settingsDir, "flipper.json");
-
-        if (!File.Exists(configPath))
+        string configPath = SettingsPaths.GetFilePath(_settingsDir, "citydwellers.json");
+        string configError;
+        if (!SettingsPaths.TryReadSettingsSection(
+                _settingsDir,
+                "Flipper",
+                out _config,
+                out configError))
         {
-            string templateError;
-            if (!SettingsPaths.TryCreateFile(
-                    configPath,
-                    BuildDefaultConfig(),
-                    out templateError))
-            {
-                StopForConfiguration(templateError);
-                return false;
-            }
-
-            StopForConfiguration(
-                $"Created a Flipper configuration template at '{configPath}'.\n" +
-                "The user1, pass1, and char1 values are examples and cannot log in. " +
-                "Replace them, then start CityDwellers again.");
-            return false;
-        }
-
-        try
-        {
-            string configText = File.ReadAllText(configPath);
-            _config = JsonConvert.DeserializeObject<Config>(configText);
-        }
-        catch (Exception ex)
-        {
-            StopForConfiguration($"Unable to read '{configPath}'.\n{ex}");
+            StopForConfiguration(configError);
             return false;
         }
 
@@ -181,27 +161,6 @@ public class FlipperLoader
             _config.CacheFreshSeconds > 0 ? _config.CacheFreshSeconds : 60);
 
         return true;
-    }
-
-    private static string BuildDefaultConfig()
-    {
-        var config = new Config
-        {
-            Accounts = new List<AccountInfo>
-            {
-                new AccountInfo
-                {
-                    Username = "user1",
-                    Password = "pass1",
-                    Character = "char1"
-                }
-            },
-            ProbeTimeoutMs = 20000,
-            DelayBetweenPassesMs = 5000,
-            CacheFreshSeconds = 60
-        };
-
-        return JsonConvert.SerializeObject(config, Formatting.Indented);
     }
 
     private static bool IsDefaultAccount(AccountInfo account)

@@ -9,16 +9,14 @@ using Serilog.Core;
 using AOSharp.Clientless;
 using System.IO;
 using AOSharp.Clientless.Common;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 using CityDwellers.Shared;
 
 public class ManagerHost
 {
-    // Manager configuration lives beside the executable in the portable
-    // runtime root. Bot-owned mutable files live under data.
+    // Manager configuration is the Manager section of citydwellers.json beside
+    // the executable. Bot-owned mutable files live under data.
 
-    // Example config:
+    // Example Manager section:
     //{
     //  "Accounts": [
     //    {
@@ -60,39 +58,15 @@ public class ManagerHost
             return 1;
         }
 
-        string configPath = SettingsPaths.GetFilePath(settingsDirectory, "manager.json");
-
-        if (!File.Exists(configPath))
-        {
-            string templateError;
-            if (!SettingsPaths.TryCreateFile(
-                    configPath,
-                    BuildDefaultConfig(),
-                    out templateError))
-            {
-                StopForConfiguration(templateError);
-                return 1;
-            }
-
-            StopForConfiguration(
-                $"Created a Manager configuration template at '{configPath}'.\n" +
-                "The user1, pass1, and char1 values are examples and cannot log in. " +
-                "Replace them, then start CityDwellers again.");
-            return 1;
-        }
-
         Config config;
-
-        try
+        string configError;
+        if (!SettingsPaths.TryReadSettingsSection(
+                settingsDirectory,
+                "Manager",
+                out config,
+                out configError))
         {
-            string configJson = File.ReadAllText(configPath);
-            config = JsonConvert.DeserializeObject<Config>(configJson);
-            TryAddMissingBotSetting(configPath, configJson);
-        }
-        catch (Exception ex)
-        {
-            StopForConfiguration(
-                $"Unable to read Manager configuration '{configPath}'.\n{ex}");
+            StopForConfiguration(configError);
             return 1;
         }
 
@@ -100,7 +74,7 @@ public class ManagerHost
         if (!TryValidateConfig(config, out validationError))
         {
             StopForConfiguration(
-                $"Manager configuration '{configPath}' is invalid.\n{validationError}");
+                $"The Manager section in citydwellers.json is invalid.\n{validationError}");
             return 1;
         }
 
@@ -168,54 +142,6 @@ public class ManagerHost
 
         error = null;
         return true;
-    }
-
-    private static string BuildDefaultConfig()
-    {
-        var config = new Config
-        {
-            Accounts = new List<AccountInfo>
-            {
-                new AccountInfo
-                {
-                    Username = "user1",
-                    Password = "pass1",
-                    Character = "char1"
-                }
-            },
-            Bot = null
-        };
-
-        return JsonConvert.SerializeObject(config, Formatting.Indented);
-    }
-
-    private static void TryAddMissingBotSetting(string configPath, string configJson)
-    {
-        try
-        {
-            JObject configuration = JObject.Parse(configJson);
-            bool hasBotSetting = configuration.Properties().Any(property =>
-                string.Equals(
-                    property.Name,
-                    "Bot",
-                    StringComparison.OrdinalIgnoreCase));
-            if (hasBotSetting)
-                return;
-
-            configuration["Bot"] = JValue.CreateNull();
-            string tempPath = configPath + ".tmp";
-            File.WriteAllText(tempPath, configuration.ToString(Formatting.Indented));
-            File.Delete(configPath);
-            File.Move(tempPath, configPath);
-            Console.WriteLine(
-                $"Added optional Bot setting to '{configPath}'. " +
-                "Leave it null or set it to an alt-service character such as Bobsan.");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine(
-                $"Warning: unable to add the optional Bot setting to '{configPath}': {ex.Message}");
-        }
     }
 
     private static bool IsDefaultAccount(AccountInfo account)

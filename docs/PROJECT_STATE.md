@@ -626,8 +626,9 @@ The first long conversation was titled `AOLite Config JSON Format`. A complete r
 
 `[IMPLEMENTED 2026-09-08]` The six legacy projects now emit into a single
 repository-relative `release` or `debug` runtime root; no project writes
-through a `bin` directory. Administrator configuration (`manager.json`,
-`flipper.json`, and `buddies.json`) is executable-adjacent. All bot-owned
+through a `bin` directory. At that stage, component administrator configuration
+was executable-adjacent in three files; Session 22 supersedes that layout with
+one `citydwellers.json`. All bot-owned
 mutable state, caches, generated lists, process markers, diagnostics, and
 navigation traces are rooted beneath `data`.
 
@@ -781,8 +782,8 @@ resilience and restart change:
 ## Unified portable host and service (2026-09-08)
 
 - `[IMPLEMENTED]` Release and Debug are self-contained runtime roots with no
-  `bin` layer. Administrator settings (`citydwellers.json`, `manager.json`,
-  `flipper.json`, and `buddies.json`) live beside the executable; bot-owned
+  `bin` layer. The sole administrator settings file, `citydwellers.json`, lives
+  beside the executable; bot-owned
   state, caches, coordination files, diagnostics, and logs live under `data`.
 - `[IMPLEMENTED]` The solution now builds four projects: three AO plugins and
   one `CityDwellers.exe`. Manager, Flipper, and Buddies are supervised
@@ -824,7 +825,7 @@ resilience and restart change:
   copies, chooses a winner, deletes, or moves an entry. Runtime behavior keeps
   using only the documented location.
 - `[IMPLEMENTED]` Runtime binaries, symbols, configuration artifacts,
-  `GameData`, and `NavMeshes` are distinguished from the four administrator
+  `GameData`, and `NavMeshes` are distinguished from the administrator
   JSON settings. Known mutable files and temporary/invalid preservation
   patterns are distinguished from alien data. `NavigationTraces` and
   `diagnostic-dumps` validate their generated child filename shapes.
@@ -855,11 +856,26 @@ resilience and restart change:
 - `[DECISION]` Plugin DLL paths are no longer administrator settings. Manager,
   Flipper, and Buddies each load their one fixed DLL from the unified runtime
   root: `CityManager.dll`, `CityFlipper.dll`, and `CityBuddies.dll`.
-- `[IMPLEMENTED]` New configuration templates omit `Plugins`; the config models
-  no longer consume it. Existing JSON may retain the obsolete property without
-  affecting resolution, but administrators should remove it.
+- `[IMPLEMENTED]` Plugin paths do not exist in administrator settings. Each
+  component loads its fixed sibling DLL from the unified runtime root.
 - `[INVARIANT]` An absolute or parent-relative legacy plugin path cannot divert
   a component into the old `settings` directory. A missing implied DLL is a
   clear startup configuration failure.
 - `[OPEN]` Kavey owns rebuild and live confirmation that all three plugins load
   from beside `CityDwellers.exe`.
+
+
+## Single administrator settings file (2026-09-08)
+
+- `[IMPLEMENTED]` `citydwellers.json` is the sole administrator settings file.
+  Its top level holds trusted-time settings and required `Manager`, `Flipper`,
+  and `Buddies` objects.
+- `[IMPLEMENTED]` Manager, Flipper, Buddies, and CityManager's alt-bot lookup
+  all read their settings from their named section of the same file.
+- `[IMPLEMENTED]` First startup creates one complete template and exits so no
+  component can create or select a competing settings file.
+- `[IMPLEMENTED]` `manager.json`, `flipper.json`, and `buddies.json` are ignored
+  and explicitly reported as obsolete by the runtime inventory.
+- `[PRIVATE HANDOFF]` Kavey's supplied legacy component settings are merged
+  into a separate untracked `citydwellers.json`; credentials are never stored
+  in Git.

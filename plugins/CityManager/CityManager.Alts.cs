@@ -150,33 +150,30 @@ namespace CityManager
 
         private string LoadAltBotName()
         {
-            string managerPath = Path.Combine(_settingsDir, "manager.json");
-            if (!File.Exists(managerPath))
-                return null;
-
-            try
+            AltBotConfig config;
+            string settingsError;
+            if (!SettingsPaths.TryReadSettingsSection(
+                    _settingsDir,
+                    "Manager",
+                    out config,
+                    out settingsError))
             {
-                AltBotConfig config = JsonConvert.DeserializeObject<AltBotConfig>(
-                    File.ReadAllText(managerPath));
-
-                string normalized;
-                string error;
-                if (config == null || string.IsNullOrWhiteSpace(config.Bot))
-                    return null;
-
-                if (!TryNormalizeAltName(config.Bot, out normalized, out error))
-                {
-                    Logger.Warning($"Manager Bot setting is invalid: {error}");
-                    return null;
-                }
-
-                return normalized;
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"Unable to read Manager Bot setting: {ex.Message}");
+                Logger.Warning(settingsError);
                 return null;
             }
+
+            string normalized;
+            string error;
+            if (config == null || string.IsNullOrWhiteSpace(config.Bot))
+                return null;
+
+            if (!TryNormalizeAltName(config.Bot, out normalized, out error))
+            {
+                Logger.Warning($"Manager Bot setting is invalid: {error}");
+                return null;
+            }
+
+            return normalized;
         }
 
         private bool HasTellAltsCommandShape(string[] parts)
@@ -223,7 +220,7 @@ namespace CityManager
                 {
                     Reply(
                         target,
-                        "External alt lookup is disabled; set Bot in manager.json beside the executable first.");
+                        "External alt lookup is disabled; set Manager.Bot in citydwellers.json first.");
                     return;
                 }
 
@@ -351,7 +348,7 @@ namespace CityManager
             {
                 Reply(
                     target,
-                    cached + " External alt lookup is disabled; set Bot in manager.json beside the executable to enable it.");
+                    cached + " External alt lookup is disabled; set Manager.Bot in citydwellers.json to enable it.");
                 return;
             }
 

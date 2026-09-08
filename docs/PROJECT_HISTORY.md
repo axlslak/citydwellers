@@ -872,9 +872,10 @@ separate repository `settings` directory.
 the repository-relative `release` or `debug` directory. The generic `bin`
 ignore was removed and explicit portable runtime paths remain ignored.
 
-`[DECISION]` The executable directory is the settings location.
-`manager.json`, `flipper.json`, and `buddies.json` are the only
-administrator-supplied settings files and remain beside the executables.
+`[DECISION]` The executable directory is the settings location. At that stage,
+`manager.json`, `flipper.json`, and `buddies.json` were the
+administrator-supplied component settings files beside the executables. Session
+22 later superseded them with one `citydwellers.json`.
 Bot-owned mutable files now live beneath `data`, including lists, caches,
 cloak/raid/membership state, coordination markers, diagnostics, dumps, and
 navigation traces. `GameData` and `NavMeshes` remain static runtime assets.
@@ -972,3 +973,16 @@ All three components now imply exactly one sibling DLL and ignore legacy
 `Plugins` JSON properties. New templates no longer emit the property. This
 closes the configuration path that allowed a current unified host to load old
 plugin code with obsolete path behavior.
+
+
+## 2026-09-08 — One settings file for the unified executable
+
+City Dwellers now has one administrator configuration surface. The existing
+trusted-time settings and the Manager, Flipper, and Buddies settings are all
+top-level parts of `citydwellers.json`. Every component reads only its own
+section from that file. The three old component JSON files are ignored and
+reported as obsolete, preventing copied credentials or stale values from
+silently competing with the active configuration.
+
+The owner's supplied component files were merged into a private, untracked
+`citydwellers.json` handoff. No usernames or passwords were added to Git.

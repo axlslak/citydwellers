@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 
+using Newtonsoft.Json.Linq;
+
 namespace CityDwellers.Shared
 {
     internal static class SettingsPaths
@@ -14,10 +16,15 @@ namespace CityDwellers.Shared
         private static readonly HashSet<string> AdministratorSettings =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
+                "citydwellers.json"
+            };
+
+        private static readonly HashSet<string> LegacyAdministratorSettings =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
                 "manager.json",
                 "flipper.json",
-                "buddies.json",
-                "citydwellers.json"
+                "buddies.json"
             };
 
         public static bool TryEnsureDirectories(
@@ -84,6 +91,47 @@ namespace CityDwellers.Shared
             return Path.Combine(dataDirectory, fileName);
         }
 
+        public static bool TryReadSettingsSection<T>(
+            string settingsDirectory,
+            string sectionName,
+            out T settings,
+            out string error)
+        {
+            settings = default(T);
+            string path = Path.Combine(settingsDirectory, "citydwellers.json");
+
+            if (!File.Exists(path))
+            {
+                error = $"The unified settings file was not found at '{path}'.";
+                return false;
+            }
+
+            try
+            {
+                JObject root = JObject.Parse(File.ReadAllText(path));
+                JToken section = root.GetValue(
+                    sectionName,
+                    StringComparison.OrdinalIgnoreCase);
+                if (section == null || section.Type == JTokenType.Null)
+                {
+                    error =
+                        $"'{path}' requires a '{sectionName}' settings section.";
+                    return false;
+                }
+
+                settings = section.ToObject<T>();
+                error = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error =
+                    $"Unable to read the '{sectionName}' section from " +
+                    $"'{path}'. {ex.Message}";
+                return false;
+            }
+        }
+
         public static bool TryCreateFile(
             string path,
             string contents,
@@ -115,6 +163,14 @@ namespace CityDwellers.Shared
                 string name = Path.GetFileName(file);
                 if (AdministratorSettings.Contains(name) || IsRuntimeArtifact(name))
                     continue;
+
+                if (LegacyAdministratorSettings.Contains(name))
+                {
+                    warnings.Add(
+                        $"Obsolete administrator setting in runtime root: '{name}'. " +
+                        "Its settings belong in citydwellers.json and this file is ignored.");
+                    continue;
+                }
 
                 warnings.Add(
                     IsBotDataFile(name)
@@ -156,6 +212,12 @@ namespace CityDwellers.Shared
                     warnings.Add(
                         $"Misplaced administrator setting in data: '{name}'. " +
                         $"It belongs beside CityDwellers.exe and is ignored here.");
+                }
+                else if (LegacyAdministratorSettings.Contains(name))
+                {
+                    warnings.Add(
+                        $"Obsolete administrator setting in data: '{name}'. " +
+                        "Its settings belong in citydwellers.json and this file is ignored.");
                 }
                 else if (IsRuntimeArtifact(name))
                 {
@@ -365,6 +427,9 @@ namespace CityDwellers.Shared
                 foreach (string file in Directory.GetFiles(legacySettings))
                 {
                     string name = Path.GetFileName(file);
+                    if (LegacyAdministratorSettings.Contains(name))
+                        continue;
+
                     string destination = AdministratorSettings.Contains(name)
                         ? Path.Combine(runtimeDirectory, name)
                         : Path.Combine(dataDirectory, name);

@@ -295,7 +295,9 @@ namespace CityDwellers.Host
                     path,
                     JsonConvert.SerializeObject(defaults, Formatting.Indented));
                 RuntimeLog.Write("Created unified host settings: " + path);
-                return defaults;
+                throw new InvalidDataException(
+                    "Created the complete citydwellers.json template. " +
+                    "Replace its example credentials, then start CityDwellers again.");
             }
 
             HostSettings settings = JsonConvert.DeserializeObject<HostSettings>(

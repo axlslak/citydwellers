@@ -66,16 +66,14 @@ release\
   CityFlipper.dll
   CityBuddies.dll
   citydwellers.json
-  manager.json
-  flipper.json
-  buddies.json
   GameData\
   NavMeshes\
   data\
 ```
 
-The four JSON files beside the executable are administrator settings. They
-contain the information an administrator must supply for the services to work.
+`citydwellers.json` is the one administrator settings file. It contains the
+trusted-time gate plus the Manager, Flipper, and Buddies sections needed for
+all services to work.
 Every cache, state file, database, generated list, request/result marker, log,
 diagnostic dump, and navigation trace created by City Dwellers lives under
 `data`.
@@ -116,11 +114,11 @@ normally are not visible to services.
 
 ## Settings and data
 
-On first run, City Dwellers creates `citydwellers.json` and the Manager,
-Flipper, and Buddies configuration templates beside the executable if they do
-not exist. It prints the exact file to edit and exits. Fill in the
-`user1`, `pass1`, and `char1` example values, then start the program again. The
-host rejects unchanged examples before attempting to log in.
+On first run, City Dwellers creates one complete `citydwellers.json` template
+beside the executable and exits. Fill in the `user1`, `pass1`, and `char1`
+example values in its `Manager`, `Flipper`, and `Buddies` sections, then start
+the program again. The host rejects unchanged examples before attempting to
+log in.
 
 Examples of bot-owned files under `data` include `adminlist.json`,
 `banlist.json`, `memberlist.json`, `alts.json`, cloak and raid state,
@@ -130,13 +128,11 @@ dumps, and `NavigationTraces`.
 Plugin DLLs are fixed parts of the unified runtime and are not administrator
 settings. Manager always loads `CityManager.dll`, Flipper always loads
 `CityFlipper.dll`, and Buddies always loads `CityBuddies.dll` from beside
-`CityDwellers.exe`. Remove obsolete `Plugins` properties from all three JSON
-files; legacy properties are ignored rather than followed.
+`CityDwellers.exe`. Plugin paths are not represented in `citydwellers.json`.
 
-`Bot` belongs in `manager.json`. Set it to the character name of the bot that
+`Manager.Bot` belongs in `citydwellers.json`. Set it to the character name of the bot that
 answers `alts <character>` tells, or leave it `null` to disable external alt
-lookups. Existing Manager configurations receive the missing optional field on
-their next start. Manager stores the last good answers in `data\alts.json`,
+lookups. Manager stores the last good answers in `data\alts.json`,
 refreshes administrator identities after 24 hours, and keeps using the cache if
 the alt bot is unavailable.
 
@@ -178,7 +174,7 @@ writable and obtains independent UTC from the NTP servers in
 `citydwellers.json`. If the system clock differs by more than the configured
 limit, it asks Windows Time to rediscover/resynchronize and continues waiting
 with monotonic retry timing. AO components never see the pre-gate untrusted
-clock. The default configuration is:
+clock. The trusted-time portion of the configuration is:
 
 ```json
 {
@@ -195,6 +191,11 @@ clock. The default configuration is:
   "WindowsResyncEverySeconds": 300
 }
 ```
+
+The same file also requires top-level `Manager`, `Flipper`, and `Buddies`
+objects. The obsolete `manager.json`, `flipper.json`, and `buddies.json` files
+are ignored and reported at startup so an administrator cannot accidentally
+maintain two competing copies of the same settings.
 
 If UDP port 123 is blocked at a location, change `NtpServers` to reachable NTP
 servers or deliberately set `RequireTrustedTime` to `false`. Disabling the gate

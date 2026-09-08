@@ -101,41 +101,17 @@ public class BuddiesHost
             return 1;
         }
 
-        string configPath = SettingsPaths.GetFilePath(settingsDirectory, "buddies.json");
-
-        if (!File.Exists(configPath))
+        string configError;
+        if (!SettingsPaths.TryReadSettingsSection(
+                settingsDirectory,
+                "Buddies",
+                out _config,
+                out configError))
         {
-            string templateError;
-            if (!SettingsPaths.TryCreateFile(
-                    configPath,
-                    BuildDefaultConfig(),
-                    out templateError))
-            {
-                StopForConfiguration(templateError);
-                return 1;
-            }
-
-            StopForConfiguration(
-                $"Created a Buddies configuration template at '{configPath}'.\n" +
-                "The user account prefix and pass1 password are examples and cannot log in. " +
-                "Replace them, then start CityDwellers again.");
+            StopForConfiguration(configError);
             return 1;
         }
 
-        try
-        {
-            string configText = File.ReadAllText(configPath);
-            _config = JsonConvert.DeserializeObject<Config>(configText);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Failed to load '{configPath}'.");
-            Console.WriteLine(ex);
-            StopForConfiguration("Correct buddies.json, then start CityDwellers again.");
-            return 1;
-        }
-
-        bool configChanged = false;
         if (_config != null &&
             !_config.ActiveLimit.HasValue &&
             _config.AccountCount > 0)
@@ -143,7 +119,6 @@ public class BuddiesHost
             _config.ActiveLimit = Math.Min(
                 AbsoluteMaxRaidBuddies,
                 _config.AccountCount);
-            configChanged = true;
         }
 
         if (_config != null &&
@@ -151,31 +126,12 @@ public class BuddiesHost
             _config.AccountCount > 0)
         {
             _config.MaxParallelLogins = Math.Min(4, _config.AccountCount);
-            configChanged = true;
         }
 
         if (!ValidateConfig(_config))
         {
-            StopForConfiguration($"Correct '{configPath}', then start CityDwellers again.");
+            StopForConfiguration("Correct the Buddies section in citydwellers.json, then start CityDwellers again.");
             return 1;
-        }
-
-        if (configChanged)
-        {
-            try
-            {
-                File.WriteAllText(
-                    configPath,
-                    JsonConvert.SerializeObject(_config, Formatting.Indented));
-                Console.WriteLine(
-                    $"Updated optional concurrency settings in '{configPath}'.");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(
-                    $"Unable to save optional concurrency settings to " +
-                    $"'{configPath}': {ex.Message}");
-            }
         }
 
         Console.WriteLine("======================================");
@@ -231,20 +187,6 @@ public class BuddiesHost
         return 0;
     }
 
-    private static string BuildDefaultConfig()
-    {
-        var config = new Config
-        {
-            AccountPrefix = "user",
-            AccountCount = 13,
-            ActiveLimit = 12,
-            MaxParallelLogins = 4,
-            Password = "pass1"
-        };
-
-        return JsonConvert.SerializeObject(config, Formatting.Indented);
-    }
-
     private static void StopForConfiguration(string message)
     {
         Console.WriteLine(message);
@@ -268,19 +210,19 @@ public class BuddiesHost
     {
         if (config == null)
         {
-            Console.WriteLine("buddies.json is empty or invalid.");
+            Console.WriteLine("The Buddies section in citydwellers.json is empty or invalid.");
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(config.AccountPrefix))
         {
-            Console.WriteLine("buddies.json requires AccountPrefix.");
+            Console.WriteLine("The Buddies section requires AccountPrefix.");
             return false;
         }
 
         if (config.AccountCount <= 0)
         {
-            Console.WriteLine("buddies.json requires AccountCount > 0.");
+            Console.WriteLine("The Buddies section requires AccountCount > 0.");
             return false;
         }
 
@@ -289,7 +231,7 @@ public class BuddiesHost
             config.ActiveLimit.Value > AbsoluteMaxRaidBuddies)
         {
             Console.WriteLine(
-                $"buddies.json requires ActiveLimit between 1 and " +
+                $"The Buddies section requires ActiveLimit between 1 and " +
                 $"{AbsoluteMaxRaidBuddies}.");
             return false;
         }
@@ -297,7 +239,7 @@ public class BuddiesHost
         if (config.ActiveLimit.Value > config.AccountCount)
         {
             Console.WriteLine(
-                "buddies.json ActiveLimit cannot exceed AccountCount.");
+                "The Buddies section ActiveLimit cannot exceed AccountCount.");
             return false;
         }
 
@@ -306,13 +248,13 @@ public class BuddiesHost
             config.MaxParallelLogins.Value > config.AccountCount)
         {
             Console.WriteLine(
-                "buddies.json MaxParallelLogins must be between 1 and AccountCount.");
+                "The Buddies section MaxParallelLogins must be between 1 and AccountCount.");
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(config.Password))
         {
-            Console.WriteLine("buddies.json requires Password.");
+            Console.WriteLine("The Buddies section requires Password.");
             return false;
         }
 
@@ -320,7 +262,7 @@ public class BuddiesHost
             string.Equals(config.Password, "pass1", StringComparison.Ordinal))
         {
             Console.WriteLine(
-                "buddies.json still contains the user/pass1 defaults. " +
+                "The Buddies section still contains the user/pass1 defaults. " +
                 "Replace them with the Buddies account prefix and password.");
             return false;
         }

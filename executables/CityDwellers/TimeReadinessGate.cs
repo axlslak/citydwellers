@@ -17,6 +17,9 @@ namespace CityDwellers.Host
         public int NtpTimeoutMilliseconds = 3000;
         public int RetrySeconds = 30;
         public int WindowsResyncEverySeconds = 300;
+        public global::ManagerHost.Config Manager;
+        public global::FlipperLoader.Config Flipper;
+        public global::BuddiesHost.Config Buddies;
 
         public static HostSettings CreateDefault()
         {
@@ -33,7 +36,43 @@ namespace CityDwellers.Host
                 MaximumClockSkewSeconds = 120,
                 NtpTimeoutMilliseconds = 3000,
                 RetrySeconds = 30,
-                WindowsResyncEverySeconds = 300
+                WindowsResyncEverySeconds = 300,
+                Manager = new global::ManagerHost.Config
+                {
+                    Accounts = new List<global::ManagerHost.AccountInfo>
+                    {
+                        new global::ManagerHost.AccountInfo
+                        {
+                            Username = "user1",
+                            Password = "pass1",
+                            Character = "char1"
+                        }
+                    },
+                    Bot = null
+                },
+                Flipper = new global::FlipperLoader.Config
+                {
+                    Accounts = new List<global::FlipperLoader.AccountInfo>
+                    {
+                        new global::FlipperLoader.AccountInfo
+                        {
+                            Username = "user1",
+                            Password = "pass1",
+                            Character = "char1"
+                        }
+                    },
+                    ProbeTimeoutMs = 20000,
+                    DelayBetweenPassesMs = 5000,
+                    CacheFreshSeconds = 60
+                },
+                Buddies = new global::BuddiesHost.Config
+                {
+                    AccountPrefix = "user",
+                    AccountCount = 13,
+                    ActiveLimit = 12,
+                    MaxParallelLogins = 4,
+                    Password = "pass1"
+                }
             };
         }
 
@@ -42,6 +81,15 @@ namespace CityDwellers.Host
             if (settings == null)
             {
                 error = "the file is empty";
+                return false;
+            }
+
+            if (settings.Manager == null ||
+                settings.Flipper == null ||
+                settings.Buddies == null)
+            {
+                error =
+                    "Manager, Flipper, and Buddies sections are all required";
                 return false;
             }
 
