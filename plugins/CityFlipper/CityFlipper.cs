@@ -835,7 +835,7 @@ namespace CityFlipper
             if (Interlocked.Exchange(ref _resultWriteScheduled, 1) != 0)
                 return;
 
-            // The result file is Flipper.exe's unload signal. Detach first, then
+            // The result file is the unified host's unload signal. Detach first, then
             // publish from a short deferred callback so the packet/update handler
             // that selected the result has returned before the AppDomain is torn
             // down.
@@ -897,13 +897,13 @@ namespace CityFlipper
 
                 Logger.Information(
                     $"Flipper observation complete after {_timer.Elapsed.TotalMilliseconds:F0} ms.");
-                Logger.Information("Waiting for Flipper.exe to unload client.");
+                Logger.Information("Waiting for the unified host to unload the Flipper client.");
 
                 if (File.Exists(resultPath))
                     File.Delete(resultPath);
 
-                // Expose the final file last. Flipper.exe may unload the child
-                // AppDomain as soon as this atomic rename becomes visible.
+                // Expose the final file last. The unified host may unload the
+                // child AppDomain as soon as this atomic rename becomes visible.
                 File.Move(tempPath, resultPath);
             }
             catch (Exception ex)

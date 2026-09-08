@@ -233,6 +233,9 @@ namespace CityDwellers.Host
         {
             settings = null;
 
+            SettingsPaths.BindRuntimeDirectoryToProcess(
+                AppDomain.CurrentDomain.BaseDirectory);
+
             string runtimeDirectory;
             string dataDirectory;
             string error;

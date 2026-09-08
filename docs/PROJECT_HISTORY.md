@@ -943,3 +943,19 @@ The requested policy was revised from deletion to warnings before
 implementation. No file is opened for selection, deleted, moved, or
 quarantined by the inventory check. The documented location remains the only
 location each subsystem reads.
+
+
+## 2026-09-08 — AOSharp child AppDomain path correction
+
+The first unified-host live run proved that process consolidation alone did
+not make `AppDomain.CurrentDomain.BaseDirectory` uniform. The coordinator used
+`release\data`, while CityManager explicitly logged the legacy repository
+`settings` path. CityFlipper repeatedly completed a controller observation,
+but its producer wrote through the child-domain path and the loader timed out
+waiting through the host path.
+
+The host now establishes the executable's absolute runtime root in
+process-scoped state before it starts Flipper, Buddies, or Manager. Every copy
+of the shared path resolver checks that state, so all child domains agree on
+the same settings and data directories regardless of plugin/AppDomain base.
+No retry interval or operation timeout changed.

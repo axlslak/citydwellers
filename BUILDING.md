@@ -88,6 +88,12 @@ between duplicate files. Only the copy in the documented location is used.
 The bot-owned `NavigationTraces` and `diagnostic-dumps` directories are also
 checked for unexpected contents.
 
+The unified host binds this runtime root at process scope before creating any
+AOSharp child AppDomain. Manager, Flipper, Buddies, and their plugins therefore
+resolve the same settings and `data` paths even when AOSharp assigns a different
+base directory to a child domain. Plugin location never changes the runtime
+root.
+
 On first start from the new repository-relative output, City Dwellers
 conservatively imports an existing repository `settings` directory and mutable
 files from the old `bin\Release` or `bin\Debug` directory. It copies a file only

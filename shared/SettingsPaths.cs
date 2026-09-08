@@ -8,6 +8,8 @@ namespace CityDwellers.Shared
     {
         private const string SolutionFileName = "citydwellers.sln";
         private const string DataDirectoryName = "data";
+        private const string RuntimeRootEnvironmentVariable =
+            "CITYDWELLERS_RUNTIME_ROOT";
 
         private static readonly HashSet<string> AdministratorSettings =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -42,6 +44,19 @@ namespace CityDwellers.Shared
                     ex.Message;
                 return false;
             }
+        }
+
+        public static void BindRuntimeDirectoryToProcess(string runtimeDirectory)
+        {
+            if (string.IsNullOrWhiteSpace(runtimeDirectory))
+                throw new ArgumentException(
+                    "The City Dwellers runtime directory cannot be empty.",
+                    nameof(runtimeDirectory));
+
+            Environment.SetEnvironmentVariable(
+                RuntimeRootEnvironmentVariable,
+                Path.GetFullPath(runtimeDirectory),
+                EnvironmentVariableTarget.Process);
         }
 
         public static bool TryEnsureDirectory(
@@ -321,6 +336,12 @@ namespace CityDwellers.Shared
 
         private static string GetRuntimeDirectory()
         {
+            string processRuntimeDirectory = Environment.GetEnvironmentVariable(
+                RuntimeRootEnvironmentVariable,
+                EnvironmentVariableTarget.Process);
+            if (!string.IsNullOrWhiteSpace(processRuntimeDirectory))
+                return Path.GetFullPath(processRuntimeDirectory);
+
             return Path.GetFullPath(AppDomain.CurrentDomain.BaseDirectory);
         }
 

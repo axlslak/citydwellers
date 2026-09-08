@@ -830,3 +830,21 @@ resilience and restart change:
   `diagnostic-dumps` validate their generated child filename shapes.
 - `[OPEN]` Kavey owns build confirmation and startup-log verification against
   the deliberately mixed deployment directories.
+
+
+## Cross-AppDomain runtime-root correction (2026-09-08)
+
+- `[VERIFIED-LIVE]` The unified host resolved `release\data`, but AOSharp child
+  AppDomains resolved the legacy repository `settings` directory. CityFlipper
+  completed its observation there while the loader waited in `release\data`,
+  causing repeated result timeouts.
+- `[IMPLEMENTED]` `CityDwellers.exe` now binds its own base directory into
+  process-scoped runtime state before any AOSharp component starts. Every
+  linked `SettingsPaths` copy reads that contract before considering its local
+  AppDomain base directory.
+- `[INVARIANT]` The fallback remains available for a plugin hosted outside the
+  unified executable. Flipper timeouts and the fixed 30-second cloak-recovery
+  cadence are unchanged.
+- `[OPEN]` Kavey owns the confirming Release build. Manager initialization and
+  Flipper result production/consumption must all report the same `release` and
+  `release\data` roots.
