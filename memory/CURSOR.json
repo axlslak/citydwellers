@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 23,
-  "last_completed_session": 22,
-  "status": "in_progress",
+  "last_completed_session": 23,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T16:47:12Z",
-  "transaction": "session-23-citybankers-host-import",
-  "base_commit": "9c020b1a5f365b599d8f23a7dbee1e2863ce103c",
-  "task": "Import current CityBankers into City Dwellers without redesign: CityDwellers.exe supervises the six banker domains, CityBankers.dll remains the implied plugin, and citydwellers.json gains the sole Bankers configuration section.",
-  "resume_instruction": "Recover session-23-citybankers-host-import. Preserve current CityBankers behavior and physical-state authority; adapt only host lifecycle, unified portable paths, and the one-file settings schema. Keep all credentials outside Git."
+  "status_changed_utc": "2026-09-08T17:31:52Z",
+  "transaction": null,
+  "base_commit": "b6ef6655bda06cf61f4db46ce7ad515a4ccf81d1",
+  "task": "Owner build and migration boundary: copy existing CityBankers physical/accounting state into the unified data layout before the first live CityDwellers.exe startup, then compile Release and validate one-process startup without changing live custody state.",
+  "resume_instruction": "Cursor is idle. Before any live run with stocked banker characters, follow docs/CITYBANKERS_IMPORT.md and copy the old banker data, ledger, logs, and history into the unified executable-adjacent data tree. Kavey owns compilation and live validation. The next code task is shared admin/member/alt integration after owner requirements."
 }
