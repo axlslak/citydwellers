@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 17,
+  "current_session": 18,
   "last_completed_session": 17,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "completed_utc": "2026-09-08T06:59:46Z",
-  "transaction": "session-17-portable-runtime-layout",
-  "base_commit": "8ad5c42a3bdb878a0343c1a857bb7a49deed5974",
-  "task": "Replace Manager, Flipper, and Buddies manual console startup with one City Dwellers executable that also runs as a Windows service after network/time readiness.",
-  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Session 17 published the portable release/debug runtime layout. Begin a separate transaction for the unified host and Windows service; preserve idle Flipper/Buddies semantics and do not trust mapped drive letters in a service session."
+  "status_changed_utc": "2026-09-08T07:01:40Z",
+  "transaction": "session-18-unified-windows-service-host",
+  "base_commit": "5d8a96d7b39d0ff58dc598f6ebfe1b25dc945eca",
+  "task": "Build one interactive/service host for Manager, Flipper, and Buddies with network and trustworthy-time readiness gating.",
+  "resume_instruction": "Recover session-18-unified-windows-service-host. Preserve the completed portable runtime layout. Inspect host entry points and AOSharp AppDomain/process constraints, then implement one supervised executable, Windows service lifecycle, installation support, and a bounded network/time readiness gate. Do not rely on mapped drives in the service account."
 }
