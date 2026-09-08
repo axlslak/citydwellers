@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 21,
+  "current_session": 22,
   "last_completed_session": 21,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T10:21:01Z",
-  "transaction": null,
-  "base_commit": "55692d398cda19f00541a08e4c8da6fe8c005d31",
-  "task": "Kavey removes obsolete Plugins properties from manager.json, flipper.json, and buddies.json, rebuilds Release, and confirms each component loads its fixed sibling DLL and Flipper returns its result.",
-  "resume_instruction": "No repository write is active. Start the next task with a new journal BEGIN and in-progress cursor. The unified host now ignores legacy Plugins JSON properties and loads CityManager.dll, CityFlipper.dll, and CityBuddies.dll beside CityDwellers.exe."
+  "status_changed_utc": "2026-09-08T10:28:11Z",
+  "transaction": "session-22-single-settings-file",
+  "base_commit": "9353e4dd1a668c25d5ea80986236df0d9f98b214",
+  "task": "Replace the four administrator JSON files with one citydwellers.json containing host, Manager, Flipper, and Buddies settings, and produce Kavey's merged private file from the supplied legacy settings.",
+  "resume_instruction": "Recover session-22-single-settings-file. Preserve all supplied account credentials outside Git. Make every component read its named section from citydwellers.json, make the host generate one complete template, report the old three JSON files as obsolete, update documentation, and deliver the merged private file without printing secrets."
 }
