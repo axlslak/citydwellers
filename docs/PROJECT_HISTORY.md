@@ -986,3 +986,38 @@ silently competing with the active configuration.
 
 The owner's supplied component files were merged into a private, untracked
 `citydwellers.json` handoff. No usernames or passwords were added to Git.
+
+
+## 2026-09-08 — CityBankers imported into the unified host
+
+Kavey established the new product boundary: CityBankers is a City Dwellers
+subsystem. The projects remain different in-game characters with different
+functions, but they no longer require separate executables or administrator
+configuration files.
+
+`[IMPLEMENTED]` The current compiled CityBankers runtime from sibling
+`main` at `eadf5a3dce028ba83f3930ce83f96b2e41f91137` was imported. The
+solution now builds `CityBankers.dll` beside the existing three plugins.
+`CityDwellers.exe` supervises the six banker client domains as a fourth
+component while preserving Central-first startup, banker readiness barriers,
+trade/storage behavior, and physical-state authority. No `Banker.exe` project
+or output was imported.
+
+`[IMPLEMENTED]` The sole `citydwellers.json` gained a required `Bankers`
+section using the former shared-password/six-role schema. The private handoff
+uses Kavey's supplied mappings, including the corrected Extermination login
+username, without committing credentials.
+
+`[IMPLEMENTED]` Imported banker code reads no `banker.json`. All banker
+mutable state and coordination artifacts resolve beneath the unified
+executable-adjacent `data` directory. The explicit physical audit is retained
+as `CityDwellers.exe bankers-bagaudit` and remains behind trusted-time
+readiness.
+
+`[DEFERRED]` Shared administrator, member, and alt semantics are intentionally
+not redesigned in this import. The first boundary is executable, lifecycle,
+configuration, and portable state location; functional sharing follows after
+Kavey's next requirements.
+
+No assistant-side compilation or live AO runtime test was run. Kavey owns the
+authoritative Release build and live one-process validation.

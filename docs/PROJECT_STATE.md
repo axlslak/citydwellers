@@ -28,9 +28,11 @@ This file is the compact restart image for a new development session. It is inte
 - `[INVARIANT]` Persistent memory stays distilled: retain decisions,
   invariants, evidence, hazards, and the exact resume point; omit nonessential
   conversation and repetitive command history.
-- `[CORRECTION 2026-09-01]` City Dwellers and CityBankers are separate sibling
-  repositories: `axlslak/citydwellers` and `axlslak/citybankers`. Never place
-  CityBankers recovery cards, state, history, or code in City Dwellers.
+- `[HISTORICAL]` City Dwellers and CityBankers began as separate sibling
+  repositories: `axlslak/citydwellers` and `axlslak/citybankers`.
+- `[DECISION 2026-09-08]` CityBankers runtime code is now intentionally
+  integrated into City Dwellers. CityBankers recovery cards, cursor, journal,
+  encrypted memories, and historical project records remain in the sibling repo.
 - `[INVARIANT]` City Dwellers Chat and Work sessions alternate on `master` and
   use this repository's `memory/CURSOR.json` as their writer lock. Kavey also
   guarantees that only one session writes across the two sibling repositories
@@ -785,8 +787,8 @@ resilience and restart change:
   `bin` layer. The sole administrator settings file, `citydwellers.json`, lives
   beside the executable; bot-owned
   state, caches, coordination files, diagnostics, and logs live under `data`.
-- `[IMPLEMENTED]` The solution now builds four projects: three AO plugins and
-  one `CityDwellers.exe`. Manager, Flipper, and Buddies are supervised
+- `[IMPLEMENTED]` Before the banker import, the solution built four projects:
+  three AO plugins and one `CityDwellers.exe`. Manager, Flipper, and Buddies are supervised
   in-process components; their separate console projects are gone.
 - `[INVARIANT]` Flipper remains logged out while idle and Buddies starts zero
   AO helpers while idle. Manager is the only persistent AO client. A component
@@ -854,14 +856,15 @@ resilience and restart change:
 ## Implied unified-runtime plugins (2026-09-08)
 
 - `[DECISION]` Plugin DLL paths are no longer administrator settings. Manager,
-  Flipper, and Buddies each load their one fixed DLL from the unified runtime
-  root: `CityManager.dll`, `CityFlipper.dll`, and `CityBuddies.dll`.
+  Flipper, Buddies, and Bankers each load their one fixed DLL from the unified
+  runtime root: `CityManager.dll`, `CityFlipper.dll`, `CityBuddies.dll`,
+  and `CityBankers.dll`.
 - `[IMPLEMENTED]` Plugin paths do not exist in administrator settings. Each
   component loads its fixed sibling DLL from the unified runtime root.
 - `[INVARIANT]` An absolute or parent-relative legacy plugin path cannot divert
   a component into the old `settings` directory. A missing implied DLL is a
   clear startup configuration failure.
-- `[OPEN]` Kavey owns rebuild and live confirmation that all three plugins load
+- `[OPEN]` Kavey owns rebuild and live confirmation that all four plugins load
   from beside `CityDwellers.exe`.
 
 
@@ -872,6 +875,8 @@ resilience and restart change:
   and `Buddies` objects.
 - `[IMPLEMENTED]` Manager, Flipper, Buddies, and CityManager's alt-bot lookup
   all read their settings from their named section of the same file.
+- `[IMPLEMENTED]` The required `Bankers` section now preserves the six-role
+  CityBankers account schema in that same file.
 - `[IMPLEMENTED]` First startup creates one complete template and exits so no
   component can create or select a competing settings file.
 - `[IMPLEMENTED]` `manager.json`, `flipper.json`, and `buddies.json` are ignored
@@ -879,3 +884,31 @@ resilience and restart change:
 - `[PRIVATE HANDOFF]` Kavey's supplied legacy component settings are merged
   into a separate untracked `citydwellers.json`; credentials are never stored
   in Git.
+
+
+## Integrated CityBankers runtime (2026-09-08)
+
+- `[IMPLEMENTED]` CityBankers `main` at
+  `eadf5a3dce028ba83f3930ce83f96b2e41f91137` is the imported behavior baseline.
+  Only compiled application/runtime sources were imported; sibling recovery
+  and historical records remain separate.
+- `[IMPLEMENTED]` The solution now builds one executable and four implied AO
+  plugin DLLs. `CityDwellers.exe` supervises Flipper, Buddies, Bankers, and
+  Manager. Bankers preserves Central-first startup and six client domains.
+- `[IMPLEMENTED]` `Banker.exe` is retired. Physical audit remains available as
+  `CityDwellers.exe bankers-bagaudit`, behind the same trusted-time gate.
+- `[IMPLEMENTED]` Banker settings come only from the required `Bankers` object
+  in `citydwellers.json`; no `banker.json` is created or read.
+- `[IMPLEMENTED]` Banker storage/stock/queue state, active ledger/index, event
+  ledger, history, logs, diagnostics, recovery handoffs, and baseline archives
+  all resolve beneath the unified `data` directory.
+- `[INVARIANT]` CityBankers physical AO inventory remains authoritative. Existing
+  state must be copied to the unified data layout before live startup when the
+  banker characters already hold stock; never initialize over real custody as
+  if it were an empty bank.
+- `[DEFERRED]` City Dwellers admins, members, and alts are not yet shared with
+  CityBankers. Kavem remains the imported bootstrap administrator until the
+  owner defines the next integration layer.
+- `[OPEN]` Kavey owns Release compilation, one-process startup/shutdown proof,
+  six-banker readiness, retained-state verification, and live donation/stock
+  checks.

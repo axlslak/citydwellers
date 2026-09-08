@@ -42,8 +42,12 @@ contain the password.
 7. Report the recovered state before making code changes unless the owner
    explicitly asked for an implementation in the same request.
 
-CityBankers is not recovered here. Its independent card is
+The integrated CityBankers runtime is recovered here as part of City Dwellers.
+Its pre-merge project history, memories, journal, and independent cursor remain
+in the sibling repository under the card
 `CITYBANKERS-RECOVER-V1 | REPO axlslak/citybankers | BRANCH main | READ RECOVERY.md | MEMORY PASSWORD FOLLOWS SEPARATELY`.
+Read that sibling recovery state when historical banker design context is needed;
+do not treat its idle cursor as a second writer lock for this repository.
 
 ## The Heaven Sent rule
 

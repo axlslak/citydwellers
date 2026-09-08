@@ -20,6 +20,7 @@ namespace CityDwellers.Host
         public global::ManagerHost.Config Manager;
         public global::FlipperLoader.Config Flipper;
         public global::BuddiesHost.Config Buddies;
+        public global::BankerLoader.BankerConfig Bankers;
 
         public static HostSettings CreateDefault()
         {
@@ -72,7 +73,32 @@ namespace CityDwellers.Host
                     ActiveLimit = 12,
                     MaxParallelLogins = 4,
                     Password = "pass1"
+                },
+                Bankers = new global::BankerLoader.BankerConfig
+                {
+                    Password = "pass1",
+                    MaxParallelLogins = 32,
+                    DiagnosticTimeoutMs = 30000,
+                    Roles = new Dictionary<string, global::BankerLoader.AccountMapping>
+                    {
+                        { "central", NewBankerPlaceholder("central") },
+                        { "artillery", NewBankerPlaceholder("artillery") },
+                        { "infantry", NewBankerPlaceholder("infantry") },
+                        { "control", NewBankerPlaceholder("control") },
+                        { "support", NewBankerPlaceholder("support") },
+                        { "extermination", NewBankerPlaceholder("extermination") }
+                    }
                 }
+            };
+        }
+
+        private static global::BankerLoader.AccountMapping NewBankerPlaceholder(
+            string role)
+        {
+            return new global::BankerLoader.AccountMapping
+            {
+                Username = "account-" + role,
+                Character = "character-" + role
             };
         }
 
@@ -86,10 +112,11 @@ namespace CityDwellers.Host
 
             if (settings.Manager == null ||
                 settings.Flipper == null ||
-                settings.Buddies == null)
+                settings.Buddies == null ||
+                settings.Bankers == null)
             {
                 error =
-                    "Manager, Flipper, and Buddies sections are all required";
+                    "Manager, Flipper, Buddies, and Bankers sections are all required";
                 return false;
             }
 

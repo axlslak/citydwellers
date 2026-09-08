@@ -24,7 +24,7 @@ namespace CityDwellers.Host
 
             RunSc(
                 "description " + ServiceName +
-                " \"Unified AO Manager, Flipper, and Buddies host\"");
+                " \"Unified AO Manager, Flipper, Buddies, and Bankers host\"");
 
             result = RunSc(
                 "failure " + ServiceName +

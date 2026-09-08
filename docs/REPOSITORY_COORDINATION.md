@@ -1,8 +1,10 @@
 # City Dwellers Repository Coordination
 
-City Dwellers lives in `axlslak/citydwellers` on `master`. CityBankers is a
-separate sibling repository, `axlslak/citybankers` on `main`. Do not put one
-project's recovery card, state, history, or application code into the other.
+City Dwellers lives in `axlslak/citydwellers` on `master`. CityBankers began
+as the separate sibling repository `axlslak/citybankers` on `main`.
+CityBankers runtime code is now deliberately imported into City Dwellers, while
+the sibling recovery card, cursor, journal, encrypted memories, and historical
+project records remain separate.
 
 Kavey permits sessions to share useful generic engineering knowledge and
 guarantees that only one GPT session will write across both repositories at a
@@ -47,7 +49,8 @@ next City Dwellers session exactly what to recover.
 | City Dwellers | `axlslak/citydwellers` | `master` | `CITYDWELLERS-RECOVER-V1` |
 | CityBankers | `axlslak/citybankers` | `main` | `CITYBANKERS-RECOVER-V1` |
 
-Validated generic ideas may be recorded in `docs/SHARED_ENGINEERING.md` and
-then deliberately adopted in the sibling repository. The receiving project
-must cite source evidence and verify compatibility. Never transfer credentials,
-private raw logs, private account data, or private third-party material.
+The integrated banker runtime baseline came from CityBankers `main` at
+`eadf5a3dce028ba83f3930ce83f96b2e41f91137`. New unified-runtime changes belong
+in City Dwellers unless Kavey explicitly requests a synchronized sibling
+change. Never transfer recovery files, credentials, private raw logs, private
+account data, or private third-party material between the repositories.

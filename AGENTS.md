@@ -21,9 +21,13 @@ Read `docs/REPOSITORY_COORDINATION.md` before making any change.
   `in_progress`, but it must remain read-only unless it is recovering that
   exact transaction.
 - `[OWNER-DIRECTION]` Kavey also guarantees one writer at a time across the
-  separate sibling repository `axlslak/citybankers`. That repository has its
-  own recovery key, branch, cursor, journal, state, and history. Never place
-  CityBankers recovery files or technical state in this repository.
+  sibling repository `axlslak/citybankers`. Its recovery key, cursor, journal,
+  encrypted memories, and historical project records remain separate and must
+  not be copied here.
+- `[DECISION]` CityBankers runtime code is now an integrated City Dwellers
+  subsystem. Its imported source and future unified-runtime changes live here;
+  the sibling repository remains the authoritative pre-import history and
+  recovery record unless Kavey explicitly requests another synchronized change.
 
 Before making a non-trivial change:
 

@@ -37,6 +37,9 @@ namespace CityDwellers.Host
             if (HasCommand(args, "flipper-toggle"))
                 return RunManualFlipper(true);
 
+            if (HasCommand(args, "bankers-bagaudit"))
+                return RunBankersBagAudit();
+
             if (args != null && args.Length > 0)
             {
                 PrintUsage();
@@ -86,6 +89,19 @@ namespace CityDwellers.Host
             }
         }
 
+        private static int RunBankersBagAudit()
+        {
+            using (var stop = new ManualResetEvent(false))
+            {
+                HostSettings settings;
+                if (!CityDwellersCoordinator.Prepare(stop, out settings))
+                    return 1;
+
+                BagAuditRunner.Run();
+                return Environment.ExitCode;
+            }
+        }
+
         private static bool HasCommand(string[] args, string expected)
         {
             return args != null &&
@@ -102,6 +118,7 @@ namespace CityDwellers.Host
             Console.WriteLine("  CityDwellers.exe uninstall-service");
             Console.WriteLine("  CityDwellers.exe flipper-probe");
             Console.WriteLine("  CityDwellers.exe flipper-toggle");
+            Console.WriteLine("  CityDwellers.exe bankers-bagaudit");
         }
     }
 
@@ -117,7 +134,8 @@ namespace CityDwellers.Host
             if (!Prepare(stop, out settings))
                 return stop.WaitOne(0) ? 0 : 1;
 
-            RuntimeLog.Write("Starting Flipper and Buddies idle services.");
+            RuntimeLog.Write(
+                "Starting Flipper and Buddies idle services plus the six CityBankers clients.");
 
             var components = new List<ComponentRunner>
             {
@@ -126,7 +144,10 @@ namespace CityDwellers.Host
                     () => FlipperLoader.Run(new string[0], stop, false)),
                 new ComponentRunner(
                     "Buddies",
-                    () => BuddiesHost.Run(new string[0], stop, false))
+                    () => BuddiesHost.Run(new string[0], stop, false)),
+                new ComponentRunner(
+                    "Bankers",
+                    () => BankerLoader.RunAll(stop, false))
             };
 
             foreach (ComponentRunner component in components)
@@ -164,6 +185,7 @@ namespace CityDwellers.Host
                     stop,
                     components[0].Completed,
                     components[1].Completed,
+                    components[2].Completed,
                     manager.Completed
                 };
 
@@ -203,14 +225,15 @@ namespace CityDwellers.Host
 
                     managerStop = new ManualResetEvent(false);
                     manager = StartManager(managerStop);
-                    RuntimeLog.Write("Manager restarted; Flipper and Buddies remained online.");
+                    RuntimeLog.Write(
+                        "Manager restarted; Flipper, Buddies, and Bankers remained online.");
                     continue;
                 }
 
                 if (signaled == WaitHandle.WaitTimeout)
                     continue;
 
-                ComponentRunner component = signaled == 3
+                ComponentRunner component = signaled == 4
                     ? manager
                     : components[signaled - 1];
                 RuntimeLog.Write(

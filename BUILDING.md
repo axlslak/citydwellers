@@ -13,7 +13,7 @@ AOSharp or AOSharp.Clientless source checkout.
 
 Open `citydwellers.sln`, select the `Release` configuration, and build the
 solution. Visual Studio restores the pinned dependencies from NuGet before it
-compiles the projects. The unified host and three plugins write into one
+compiles the projects. The unified host and four plugins write into one
 portable runtime root:
 
 - `release` for a Release build;
@@ -30,7 +30,7 @@ msbuild citydwellers.sln -restore -property:Configuration=Release
 If automatic restore has been disabled, right-click the solution and select
 **Restore NuGet Packages** before building.
 
-Dependency versions are maintained once for all four projects in
+Dependency versions are maintained once for all five projects in
 `Directory.Build.props`. Restored packages live in the developer's global NuGet
 cache rather than in this repository or at a hard-coded filesystem path.
 
@@ -65,6 +65,7 @@ release\
   CityManager.dll
   CityFlipper.dll
   CityBuddies.dll
+  CityBankers.dll
   citydwellers.json
   GameData\
   NavMeshes\
@@ -72,8 +73,8 @@ release\
 ```
 
 `citydwellers.json` is the one administrator settings file. It contains the
-trusted-time gate plus the Manager, Flipper, and Buddies sections needed for
-all services to work.
+trusted-time gate plus the Manager, Flipper, Buddies, and Bankers sections
+needed for all services to work.
 Every cache, state file, database, generated list, request/result marker, log,
 diagnostic dump, and navigation trace created by City Dwellers lives under
 `data`.
@@ -87,7 +88,8 @@ The bot-owned `NavigationTraces` and `diagnostic-dumps` directories are also
 checked for unexpected contents.
 
 The unified host binds this runtime root at process scope before creating any
-AOSharp child AppDomain. Manager, Flipper, Buddies, and their plugins therefore
+AOSharp child AppDomain. Manager, Flipper, Buddies, Bankers, and their plugins
+therefore
 resolve the same settings and `data` paths even when AOSharp assigns a different
 base directory to a child domain. Plugin location never changes the runtime
 root.
@@ -116,7 +118,8 @@ normally are not visible to services.
 
 On first run, City Dwellers creates one complete `citydwellers.json` template
 beside the executable and exits. Fill in the `user1`, `pass1`, and `char1`
-example values in its `Manager`, `Flipper`, and `Buddies` sections, then start
+example values in its `Manager`, `Flipper`, and `Buddies` sections, and replace
+the placeholder shared password and six role mappings in `Bankers`, then start
 the program again. The host rejects unchanged examples before attempting to
 log in.
 
@@ -127,8 +130,9 @@ dumps, and `NavigationTraces`.
 
 Plugin DLLs are fixed parts of the unified runtime and are not administrator
 settings. Manager always loads `CityManager.dll`, Flipper always loads
-`CityFlipper.dll`, and Buddies always loads `CityBuddies.dll` from beside
-`CityDwellers.exe`. Plugin paths are not represented in `citydwellers.json`.
+`CityFlipper.dll`, Buddies always loads `CityBuddies.dll`, and the banker
+clients always load `CityBankers.dll` from beside `CityDwellers.exe`. Plugin
+paths are not represented in `citydwellers.json`.
 
 `Manager.Bot` belongs in `citydwellers.json`. Set it to the character name of the bot that
 answers `alts <character>` tells, or leave it `null` to disable external alt
@@ -139,10 +143,11 @@ the alt bot is unavailable.
 ## Unified host and Windows service
 
 Run `CityDwellers.exe` for an interactive console. It starts the persistent
-Manager AO client and the idle Flipper and Buddies request services inside one
-supervised process. Flipper does not log its character in until it receives an
-operation; Buddies starts zero helper AO sessions until Manager requests them.
-Press ENTER or CTRL+C to stop all three components.
+Manager AO client, the idle Flipper and Buddies request services, and all six
+banker AO clients inside one supervised process. Flipper does not log its
+character in until it receives an operation; Buddies starts zero helper AO
+sessions until Manager requests them. Press ENTER or CTRL+C to stop every
+component.
 
 All console output is also written to `data\citydwellers.log`, including when
 the executable runs without a visible desktop. The log rotates at 10 MiB to
@@ -169,7 +174,7 @@ write permission on the UNC share. Do not configure a mapped drive letter in
 the service path or settings; mapped drives belong to interactive logon
 sessions.
 
-Before starting Manager, Flipper, or Buddies, the host verifies that `data` is
+Before starting Manager, Flipper, Buddies, or Bankers, the host verifies that `data` is
 writable and obtains independent UTC from the NTP servers in
 `citydwellers.json`. If the system clock differs by more than the configured
 limit, it asks Windows Time to rediscover/resynchronize and continues waiting

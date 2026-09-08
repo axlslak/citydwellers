@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{B172CA6F-B8E0-460B-A110-688355B17930}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>CityBankers</RootNamespace>
+    <AssemblyName>CityBankers</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <FileAlignment>512</FileAlignment>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>..\..\debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>..\..\release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="ActiveLedgerCoordinator.cs" />
+    <Compile Include="AllBankersReadinessBarrierAgent.cs" />
+    <Compile Include="AuditRecoveryHoldGuard.cs" />
+    <Compile Include="BagAuditAgent.cs" />
+    <Compile Include="BankingServiceAgent.cs" />
+    <Compile Include="CityBankers.cs" />
+    <Compile Include="InternalTradeHandshakeBridge.cs" />
+    <Compile Include="KavemChatBootstrap.cs" />
+    <Compile Include="LiveFullBagRescueAgent.cs" />
+    <Compile Include="OperationalAuditBaselineGuardAgent.cs" />
+    <Compile Include="PhysicalInventoryCensusV2Agent.cs" />
+    <Compile Include="PlayerDonationHandshakeBridge.cs" />
+    <Compile Include="PostLoginFailedBatchReconciliationAgent.cs" />
+    <Compile Include="PublicReadOnlyAndRecoveryAgent.cs" />
+    <Compile Include="RouteRepairAgent.cs" />
+    <Compile Include="RouteRepairExecutionGateAgent.cs" />
+    <Compile Include="RouteRepairReturnedBagCleanupAgent.cs" />
+    <Compile Include="RouteRepairBankingGateAgent.cs" />
+    <Compile Include="StartupWriteFrontWatchdogAgent.cs" />
+    <Compile Include="StaticDynelDataPreloader.cs" />
+    <Compile Include="StockCommandEngine.cs" />
+    <Compile Include="StorageBaselineCoordinator.cs" />
+    <Compile Include="StorageBaselineStateSeeder.cs" />
+    <Compile Include="StorageWriteFrontReconciliationAgent.cs" />
+    <Compile Include="WorkerStorageLayoutRecoveryAgent.cs" />
+    <Compile Include="WorkerSuccessQueueReconciliationAgent.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="..\..\bankers\shared\CityBankersChatPalette.cs"><Link>Shared\CityBankersChatPalette.cs</Link></Compile>
+    <Compile Include="..\..\bankers\shared\LoggingDefaults.cs"><Link>Shared\LoggingDefaults.cs</Link></Compile>
+    <Compile Include="..\..\bankers\shared\RuntimeState.cs"><Link>Shared\RuntimeState.cs</Link></Compile>
+    <Compile Include="..\..\bankers\shared\RuntimeStorageStateTransactions.cs"><Link>Shared\RuntimeStorageStateTransactions.cs</Link></Compile>
+    <Compile Include="..\..\bankers\shared\SettingsPaths.cs"><Link>Shared\SettingsPaths.cs</Link></Compile>
+    <Compile Include="..\..\bankers\shared\SymbiantCatalog.cs"><Link>Shared\SymbiantCatalog.cs</Link></Compile>
+    <Compile Include="..\..\bankers\shared\TrustedOperators.cs"><Link>Shared\TrustedOperators.cs</Link></Compile>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>

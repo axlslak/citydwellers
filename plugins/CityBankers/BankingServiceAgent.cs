@@ -1,0 +1,2348 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+
+using AOSharp.Clientless;
+using AOSharp.Clientless.Chat;
+using AOSharp.Clientless.Logging;
+using AOSharp.Common.GameData;
+using CityBankers.Shared;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+namespace CityBankers
+{
+    /// <summary>
+    /// First operational CityBankers service slice.
+    ///
+    /// Central accepts only the explicitly trusted bootstrap administrator, Kavem,
+    /// serializes completed donations into a persistent dispatch queue, and trades one
+    /// routed batch at a time to the configured storage worker. Workers accept only a
+    /// matching Central dispatch command and physically place received items into the
+    /// persisted bank-first bag topology.
+    /// </summary>
+    public class BankingServiceAgent : ClientlessPluginEntry
+    {
+        private string _settingsDir;
+        private ServiceConfig _config;
+        private string _role;
+        private string _centralCharacter;
+        private bool _isCentral;
+        private bool _enabled;
+        private DateTime _nextSlowTickUtc;
+        private string _lastImportedBaselineRunId;
+
+        // Central: Kavem -> Central donation state.
+        private bool _donationActive;
+        private Identity _donationPartner = Identity.None;
+        private string _donationPartnerName;
+        private string _donationDispositionPartnerName;
+        private string _donationTransactionId;
+        private DateTime _donationOpenedUtc;
+        private DateTime _donationLastChangeUtc;
+        private List<TransferItemState> _donationPreviousOffer = new List<TransferItemState>();
+        private List<TransferItemState> _donationSnapshot = new List<TransferItemState>();
+        private bool _donationAccepted;
+        private DonationCleanupState _donationCleanup;
+
+        // Central: Central -> worker serialized dispatch state.
+        private DispatchBatchState _activeBatch;
+        private Identity _activeWorkerIdentity = Identity.None;
+        private DateTime _activeBatchStartedUtc;
+        private bool _outgoingOpened;
+        private bool _outgoingItemsRequested;
+        private bool _outgoingAccepted;
+
+        // Worker: expected Central -> worker receive state.
+        private DispatchCommand _workerCommand;
+        private DateTime _workerTradeOpenedUtc;
+        private bool _workerAccepted;
+        private StorageJob _storageJob;
+
+        private enum StoragePhase
+        {
+            None,
+            FindBag,
+            MovingBagToInventory,
+            OpeningBag,
+            MovingItemIntoBag,
+            ReturningBag
+        }
+
+        public override void Init(string pluginDir)
+        {
+            string error;
+            if (!SettingsPaths.TryEnsureDirectory(out _settingsDir, out error))
+                throw new InvalidOperationException(error);
+
+            _config = LoadConfig();
+            if (_config == null || _config.Roles == null)
+            {
+                Logger.Warning("BANKING SERVICE disabled: the Bankers section could not be read.");
+                return;
+            }
+
+            RoleConfig central;
+            if (!TryGetRole("central", out central) ||
+                central == null ||
+                string.IsNullOrWhiteSpace(central.Character))
+            {
+                Logger.Warning("BANKING SERVICE disabled: Central mapping is unavailable.");
+                return;
+            }
+
+            _centralCharacter = central.Character;
+            _role = ResolveCurrentRole();
+            if (string.IsNullOrWhiteSpace(_role))
+            {
+                Logger.Warning(
+                    $"BANKING SERVICE disabled: {Client.CharacterName} is not mapped to a banker role.");
+                return;
+            }
+
+            _isCentral = string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase);
+            _enabled = true;
+            _nextSlowTickUtc = DateTime.UtcNow;
+
+            Trade.TradeOpened += OnTradeOpened;
+            Trade.TradeStatusChanged += OnTradeStatusChanged;
+            Client.OnUpdate += Tick;
+
+            if (_isCentral && Client.Chat != null)
+                Client.Chat.PrivateMessageReceived += OnPrivateMessage;
+
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                _role,
+                "BANKING SERVICE initialized. bootstrapAdmin=" +
+                TrustedOperators.BootstrapAdmin + "; role=" + _role + ".");
+
+            Logger.Information(
+                $"BANKING SERVICE initialized character={Client.CharacterName} role={_role} " +
+                $"central={_isCentral} trustedAdmin={TrustedOperators.BootstrapAdmin}.");
+        }
+
+        public override void Teardown()
+        {
+            if (!_enabled)
+                return;
+
+            Trade.TradeOpened -= OnTradeOpened;
+            Trade.TradeStatusChanged -= OnTradeStatusChanged;
+            Client.OnUpdate -= Tick;
+            if (_isCentral && Client.Chat != null)
+                Client.Chat.PrivateMessageReceived -= OnPrivateMessage;
+
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                _role,
+                "BANKING SERVICE teardown.");
+        }
+
+        private void Tick(object sender, double deltaTime)
+        {
+            if (!_enabled || !Client.InPlay)
+                return;
+
+            try
+            {
+                if (_isCentral)
+                {
+                    ImportFreshBaselineIfNeeded();
+                    TickDonation();
+                    TickDonationCleanup();
+                    TickDispatch();
+                }
+                else
+                {
+                    TickWorkerTrade();
+                    TickStorageJob();
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"BANKING SERVICE tick failed character={Client.CharacterName}: {ex}");
+                RuntimeStateStore.AppendActivity(
+                    _settingsDir,
+                    Client.CharacterName,
+                    _role,
+                    "ERROR tick: " + ex);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Trusted tell interface (Central only)
+        // ---------------------------------------------------------------------
+
+        private void OnPrivateMessage(object sender, PrivateMessage message)
+        {
+            if (!_isCentral || message == null)
+                return;
+
+            try
+            {
+                if (!TrustedOperators.IsTrustedAdmin(message.SenderName))
+                {
+                    RuntimeStateStore.AppendActivity(
+                        _settingsDir,
+                        Client.CharacterName,
+                        _role,
+                        "Ignored untrusted tell from " +
+                        (message.SenderName ?? "<unknown>") + ".");
+                    return;
+                }
+
+                string text = (message.Message ?? string.Empty).Trim();
+                RuntimeStateStore.AppendActivity(
+                    _settingsDir,
+                    Client.CharacterName,
+                    _role,
+                    "TELL <- Kavem: " + text);
+
+                string stockResponse;
+                if (StockCommandEngine.TryBuildResponse(
+                    text,
+                    RuntimeStateStore.LoadCurrentStock(_settingsDir),
+                    Client.CharacterName,
+                    out stockResponse))
+                {
+                    TellPlayer(message.SenderName, stockResponse);
+                    return;
+                }
+
+                string command = text.ToLowerInvariant();
+                if (command == "status")
+                {
+                    TellKavem(BuildStatusMessage());
+                    return;
+                }
+
+                if (command == "stock")
+                {
+                    TellKavem(BuildStockMessage());
+                    return;
+                }
+
+                if (command == "don" || command == "donor")
+                {
+                    ActiveLedgerState ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
+                    int donorCount = (ledger?.Items ?? new List<ActiveLedgerItem>())
+                        .Where(item => item != null && !string.IsNullOrWhiteSpace(item.From))
+                        .Select(item => item.From.Trim())
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Count();
+                    TellPlayer(message.SenderName, "CityBankers active donors: " + donorCount + ".");
+                    return;
+                }
+
+                if (command == "queue")
+                {
+                    TellKavem(BuildQueueMessage());
+                    return;
+                }
+
+                if (command == "bags")
+                {
+                    TellKavem(BuildBagMessage());
+                    return;
+                }
+
+                TellKavem(
+                    "CityBankers commands: status | stock | don | donor | queue | bags. " +
+                    "You are the bootstrap admin; your trades with Central are accepted under the current max-10 policy.");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"BANKING SERVICE tell handling failed: {ex}");
+            }
+        }
+
+        private string BuildStatusMessage()
+        {
+            StorageState storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            return
+                "CityBankers status: baseline=" +
+                (storage != null && !string.IsNullOrWhiteSpace(storage.BaselineRunId)
+                    ? storage.BaselineRunId
+                    : "MISSING") +
+                "; stock=" + (stock?.Items?.Count ?? 0) +
+                "; queue=" + (queue?.Batches?.Count ?? 0) +
+                "; trade=" + (Trade.IsTrading ? "open" : "idle") + ".";
+        }
+
+        private string BuildStockMessage()
+        {
+            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            List<StockItemState> items = stock?.Items ?? new List<StockItemState>();
+            string byRole = string.Join(
+                ", ",
+                new[] { "artillery", "infantry", "control", "support", "extermination" }
+                    .Select(role => role + "=" + items.Count(i => string.Equals(
+                        i.Role, role, StringComparison.OrdinalIgnoreCase))));
+            int misplaced = items.Count(i =>
+                !string.IsNullOrWhiteSpace(i.PhysicalRole) &&
+                !string.Equals(i.Role, i.PhysicalRole, StringComparison.OrdinalIgnoreCase));
+            return "CityBankers stock: total=" + items.Count + "; " + byRole +
+                "; misplaced=" + misplaced + ".";
+        }
+
+        private string BuildQueueMessage()
+        {
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            List<DispatchBatchState> batches = queue?.Batches ?? new List<DispatchBatchState>();
+            if (batches.Count == 0)
+                return "CityBankers queue: empty.";
+
+            return "CityBankers queue: " + string.Join(
+                ", ",
+                batches.Take(5).Select(b =>
+                    b.Role + "/" + (b.Items?.Count ?? 0) + "/" + b.Status)) +
+                (batches.Count > 5 ? " ..." : string.Empty) + ".";
+        }
+
+        private string BuildBagMessage()
+        {
+            StorageState state = RuntimeStateStore.LoadStorageState(_settingsDir);
+            if (state == null || state.Workers == null)
+                return "CityBankers bags: no authoritative operational baseline yet; run CityDwellers.exe bankers-bagaudit.";
+
+            return "CityBankers bags: " + string.Join(
+                ", ",
+                state.Workers.OrderBy(w => w.Role).Select(w =>
+                {
+                    int bags = w.Bags?.Count ?? 0;
+                    int used = w.Bags?.Sum(b => b.Items?.Count ?? 0) ?? 0;
+                    int free = w.Bags?.Sum(b => Math.Max(0, b.Capacity - (b.Items?.Count ?? 0))) ?? 0;
+                    return w.Role + "=" + bags + " bags/" + used + " used/" + free + " free";
+                })) + ".";
+        }
+
+        // ---------------------------------------------------------------------
+        // AO trade callbacks
+        // ---------------------------------------------------------------------
+
+        private void OnTradeOpened(Identity target)
+        {
+            if (!_enabled || !Client.InPlay)
+                return;
+
+            try
+            {
+                string targetName = FindPlayerName(target);
+                RuntimeStateStore.AppendActivity(
+                    _settingsDir,
+                    Client.CharacterName,
+                    _role,
+                    "TRADE OPEN target=" + (targetName ?? target.ToString()) + ".");
+
+                if (_isCentral)
+                {
+                    if (_activeBatch != null && target == _activeWorkerIdentity)
+                    {
+                        _outgoingOpened = true;
+                        _activeBatchStartedUtc = DateTime.UtcNow;
+                        TellKavem(
+                            "Dispatch trade opened: " + _activeBatch.Role +
+                            " batch " + ShortId(_activeBatch.BatchId) +
+                            " items=" + (_activeBatch.Items?.Count ?? 0) + ".");
+                        return;
+                    }
+
+                    if (HasUnresolvedDispatchWork())
+                    {
+                        TellPlayer(
+                            targetName,
+                            "CityBankers is finishing pending storage work. Please try your trade again when the queue is clear.");
+                        RuntimeStateStore.AppendActivity(
+                            _settingsDir,
+                            Client.CharacterName,
+                            _role,
+                            "QUEUE PRIORITY declined unrelated trade from " +
+                            (targetName ?? target.ToString()) + ".");
+                        Trade.Decline();
+                        return;
+                    }
+
+                    if (TrustedOperators.IsTrustedAdmin(targetName))
+                    {
+                        BeginDonation(target);
+                        return;
+                    }
+
+                    Logger.Warning(
+                        $"BANKING SERVICE declining untrusted trade on Central from " +
+                        $"{targetName ?? target.ToString()}.");
+                    Trade.Decline();
+                    return;
+                }
+
+                if (string.Equals(
+                    targetName,
+                    _centralCharacter,
+                    StringComparison.OrdinalIgnoreCase))
+                {
+                    BeginWorkerTrade(target);
+                    return;
+                }
+
+                Logger.Warning(
+                    $"BANKING SERVICE worker {Client.CharacterName} declining non-Central trade " +
+                    $"from {targetName ?? target.ToString()}.");
+                Trade.Decline();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"BANKING SERVICE TradeOpened handling failed: {ex}");
+                TryDeclineTrade();
+            }
+        }
+
+        private void OnTradeStatusChanged(Identity target, TradeStatus status)
+        {
+            if (!_enabled)
+                return;
+
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                _role,
+                "TRADE STATUS target=" + target + " status=" + status + ".");
+
+            try
+            {
+                if (status == TradeStatus.Accept && _isCentral && _donationActive)
+                {
+                    if (!Trade.IsTrading || Trade.CurrentTarget != _donationPartner)
+                        return;
+
+                    List<TransferItemState> offered = SnapshotTradeItems(Trade.TargetWindowCache.Items);
+                    if (!MatchesExpected(offered, _donationPreviousOffer))
+                    {
+                        List<TransferItemState> added = MultisetDifference(offered, _donationPreviousOffer);
+                        List<TransferItemState> removed = MultisetDifference(_donationPreviousOffer, offered);
+
+                        foreach (TransferItemState item in added)
+                            AnnounceDonationItemAdded(item);
+                        foreach (TransferItemState item in removed)
+                            AnnounceDonationItemRemoved(item);
+                        AnnounceDonationProgress(offered.Count);
+
+                        _donationPreviousOffer = new List<TransferItemState>(offered);
+                        _donationLastChangeUtc = DateTime.UtcNow;
+                        _donationAccepted = false;
+                    }
+
+                    if (offered.Count > ServicePolicy.MaxTradeItems)
+                    {
+                        RejectDonation(
+                            "More than " + ServicePolicy.MaxTradeItems +
+                            " items were offered; current CityBankers policy is max ten per trade.",
+                            offered);
+                        return;
+                    }
+
+                    string validationError;
+                    if (!ValidateDonationItems(offered, out validationError))
+                    {
+                        RejectDonation(validationError, offered);
+                        return;
+                    }
+
+                    if (offered.Count == 0)
+                    {
+                        RejectDonation("Empty donation trade cannot be accepted.", offered);
+                        return;
+                    }
+
+                    _donationSnapshot = new List<TransferItemState>(offered);
+                    _donationAccepted = true;
+                    RuntimeStateStore.AppendActivity(
+                        _settingsDir,
+                        Client.CharacterName,
+                        _role,
+                        "PLAYER DONATION ACCEPT snapshot ready items=" + offered.Count +
+                        "; bypassing 30-second edit timer and allowing immediate Confirm.");
+                    return;
+                }
+
+                if (status == TradeStatus.Confirm)
+                {
+                    if (_isCentral && _donationActive)
+                    {
+                        RuntimeStateStore.AppendActivity(
+                            _settingsDir,
+                            Client.CharacterName,
+                            _role,
+                            "PLAYER DONATION CONFIRM observed; BankingService did not echo Trade.Confirm().");
+                        return;
+                    }
+
+                    if (_isCentral && _activeBatch != null)
+                    {
+                        Trade.Confirm();
+                        return;
+                    }
+
+                    if (!_isCentral && _workerCommand != null)
+                    {
+                        Trade.Confirm();
+                        return;
+                    }
+                }
+
+                if (status == TradeStatus.Finished)
+                {
+                    if (_isCentral && _donationActive)
+                    {
+                        FinishDonation();
+                        return;
+                    }
+
+                    if (_isCentral && _activeBatch != null)
+                    {
+                        FinishOutgoingDispatchTrade();
+                        return;
+                    }
+
+                    if (!_isCentral && _workerCommand != null)
+                    {
+                        FinishWorkerReceiveTrade();
+                        return;
+                    }
+                }
+
+                if (status == TradeStatus.Declined)
+                {
+                    if (_isCentral && _donationActive)
+                    {
+                        TellDonationPartner("Donation trade declined/cancelled; nothing was recorded as received.");
+                        AppendTradeLedger("player_trade_declined", _donationTransactionId, null, null,
+                            "Kavem donation did not complete.", _donationSnapshot);
+                        ResetDonation();
+                        return;
+                    }
+
+                    if (_isCentral && _activeBatch != null)
+                    {
+                        FailActiveBatch(
+                            "Internal worker trade was declined. AO should have returned the offered items to Central inventory.");
+                        return;
+                    }
+
+                    if (!_isCentral && _workerCommand != null)
+                        FailWorkerCommand("Internal Central trade was declined before completion.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error($"BANKING SERVICE trade-status handling failed: {ex}");
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Player -> Central donation
+        // ---------------------------------------------------------------------
+
+        private void BeginDonation(Identity partner)
+        {
+            string partnerName = FindPlayerName(partner) ?? partner.ToString();
+            if (HasUnresolvedDispatchWork())
+            {
+                TellPlayer(
+                    partnerName,
+                    "CityBankers is finishing pending storage work; your new donation trade was declined. Please try again when the queue is clear.");
+                Trade.Decline();
+                return;
+            }
+
+            StorageState storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+            if (storage == null)
+            {
+                TellPlayer(
+                    partnerName,
+                    "CityBankers has no operational bag baseline yet. This trade is being declined safely.");
+                Trade.Decline();
+                return;
+            }
+
+            _donationActive = true;
+            _donationPartner = partner;
+            _donationPartnerName = partnerName;
+            _donationTransactionId = "don-" + Guid.NewGuid().ToString("N");
+            _donationOpenedUtc = DateTime.UtcNow;
+            _donationLastChangeUtc = _donationOpenedUtc;
+            _donationPreviousOffer = new List<TransferItemState>();
+            _donationSnapshot = new List<TransferItemState>();
+            _donationAccepted = false;
+
+            TellDonationPartner(
+                CityBankersChatPalette.DonationProgress(
+                    0,
+                    ServicePolicy.MaxTradeItems) +
+                "Trade opened. Add up to " + ServicePolicy.MaxTradeItems +
+                " managed symbiants. Take your time: Central waits for " +
+                ServicePolicy.DonationInactivitySeconds +
+                " seconds of unchanged trade contents before proceeding.");
+            AppendTradeLedger(
+                "player_trade_opened",
+                _donationTransactionId,
+                null,
+                null,
+                "Trusted Kavem donation trade opened.",
+                null);
+        }
+
+        private void TickDonation()
+        {
+            if (!_donationActive || !Trade.IsTrading)
+                return;
+
+            DispatchQueueState existingQueue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            if (existingQueue != null && existingQueue.Batches != null && existingQueue.Batches.Count > 0)
+            {
+                RejectDonation(
+                    "Central's storage queue became busy while this donation was open. Please retry after the queue clears.",
+                    SnapshotTradeItems(Trade.TargetWindowCache.Items));
+                return;
+            }
+
+            List<TransferItemState> offered = SnapshotTradeItems(Trade.TargetWindowCache.Items);
+            if (!MatchesExpected(offered, _donationPreviousOffer))
+            {
+                List<TransferItemState> added = MultisetDifference(offered, _donationPreviousOffer);
+                List<TransferItemState> removed = MultisetDifference(_donationPreviousOffer, offered);
+                foreach (TransferItemState item in added)
+                    AnnounceDonationItemAdded(item);
+                foreach (TransferItemState item in removed)
+                    AnnounceDonationItemRemoved(item);
+                AnnounceDonationProgress(offered.Count);
+                _donationPreviousOffer = new List<TransferItemState>(offered);
+                _donationLastChangeUtc = DateTime.UtcNow;
+                _donationAccepted = false;
+            }
+
+            if (offered.Count > ServicePolicy.MaxTradeItems)
+            {
+                RejectDonation(
+                    "More than " + ServicePolicy.MaxTradeItems +
+                    " items were offered; current CityBankers policy is max ten per trade.",
+                    offered);
+                return;
+            }
+
+            string validationError;
+            if (!ValidateDonationItems(offered, out validationError))
+            {
+                RejectDonation(validationError, offered);
+                return;
+            }
+
+            if (offered.Count == 0)
+            {
+                if ((DateTime.UtcNow - _donationOpenedUtc).TotalSeconds >=
+                    ServicePolicy.EmptyTradeTimeoutSeconds)
+                    RejectDonation("Empty donation trade timed out.", offered);
+                return;
+            }
+
+            if (_donationAccepted)
+                return;
+            if ((DateTime.UtcNow - _donationLastChangeUtc).TotalSeconds <
+                ServicePolicy.DonationInactivitySeconds)
+                return;
+
+            _donationSnapshot = offered;
+            _donationAccepted = true;
+            TellDonationPartner(
+                "Donation stable: accepting " + offered.Count +
+                " item(s). Complete/confirm the AO trade normally.");
+            Trade.Accept();
+        }
+
+        private bool ValidateDonationItems(List<TransferItemState> offered, out string error)
+        {
+            error = null;
+            foreach (TransferItemState item in offered)
+            {
+                string destination;
+                if (!SymbiantCatalog.TryGetDestinationRole(item.AoId, out destination))
+                {
+                    error =
+                        "Unmanaged item in donation: " + item.Name + " AOID=" + item.AoId +
+                        ". The entire trade is being declined safely.";
+                    return false;
+                }
+
+                if (string.Equals(destination, "central", StringComparison.OrdinalIgnoreCase))
+                {
+                    error =
+                        "Central-special symbiants are not physically assigned to a storage worker yet: " +
+                        item.Name + ". The entire trade is being declined safely.";
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void RejectDonation(string reason, List<TransferItemState> offered)
+        {
+            _donationSnapshot = offered ?? new List<TransferItemState>();
+            TellDonationPartner("Donation declined: " + reason);
+            AppendTradeLedger(
+                "player_trade_rejected",
+                _donationTransactionId,
+                null,
+                null,
+                reason,
+                _donationSnapshot);
+            TryDeclineTrade();
+            ResetDonation();
+        }
+
+        private void FinishDonation()
+        {
+            List<TransferItemState> received = _donationSnapshot != null
+                ? new List<TransferItemState>(_donationSnapshot)
+                : new List<TransferItemState>();
+            string transactionId = _donationTransactionId;
+            string donorName = _donationPartnerName;
+
+            AppendTradeLedger(
+                "player_trade_completed",
+                transactionId,
+                null,
+                null,
+                "AO server completed trusted Kavem donation; received items are now in Central normal inventory.",
+                received);
+
+            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            var projectedCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            List<TransferItemState> storeItems = new List<TransferItemState>();
+            List<TransferItemState> deleteItems = new List<TransferItemState>();
+            foreach (TransferItemState item in received)
+            {
+                string key = TemplateKey(item);
+                int count;
+                if (!projectedCounts.TryGetValue(key, out count))
+                    count = CountStoredCopies(stock, item);
+
+                if (count >= ServicePolicy.MaxStoredCopiesPerTemplate)
+                    deleteItems.Add(item);
+                else
+                {
+                    storeItems.Add(item);
+                    count++;
+                }
+                projectedCounts[key] = count;
+            }
+
+            ResetDonation();
+            _donationDispositionPartnerName = donorName;
+
+            if (deleteItems.Count > 0)
+            {
+                _donationCleanup = new DonationCleanupState
+                {
+                    TransactionId = transactionId,
+                    ReceivedCount = received.Count,
+                    StoreItems = storeItems,
+                    DeleteItems = deleteItems,
+                    DeleteIndex = 0,
+                    DeletedCount = 0
+                };
+                TellDonationPartner(
+                    "Donation received. " + deleteItems.Count +
+                    " item(s) exceed the ten-copy retention cap; Central will delete those excess copies and verify each deletion before dispatching the remaining " +
+                    storeItems.Count + " item(s).");
+                return;
+            }
+
+            QueueDonationForDispatch(transactionId, received.Count, storeItems, 0);
+        }
+
+        private void TickDonationCleanup()
+        {
+            if (!_isCentral || _donationCleanup == null)
+                return;
+
+            DonationCleanupState cleanup = _donationCleanup;
+            if (cleanup.PendingDelete != null)
+            {
+                List<Item> remaining = FindInventoryItems(cleanup.PendingDelete);
+                if (remaining.Count < cleanup.PendingBeforeCount)
+                {
+                    TransferItemState deleted = cleanup.PendingDelete;
+                    cleanup.DeletedCount++;
+                    cleanup.DeleteIndex++;
+                    cleanup.PendingDelete = null;
+                    cleanup.PendingBeforeCount = 0;
+                    cleanup.DeleteDeadlineUtc = DateTime.MinValue;
+                    RuntimeStateStore.AppendLedger(
+                        _settingsDir,
+                        new LedgerRecord
+                        {
+                            Utc = DateTime.UtcNow,
+                            Event = "donation_overcap_deleted",
+                            TransactionId = cleanup.TransactionId,
+                            Actor = Client.CharacterName,
+                            Role = "central",
+                            Character = Client.CharacterName,
+                            Source = "normal-inventory",
+                            Destination = "deleted",
+                            Message = "AO inventory state confirmed one excess copy disappeared after Item.Delete().",
+                            Items = new List<LedgerItem>
+                            {
+                                ToLedgerItem(deleted, "central", null, null, null)
+                            }
+                        });
+                    RuntimeStateStore.AppendActivity(
+                        _settingsDir,
+                        Client.CharacterName,
+                        _role,
+                        "DELETE VERIFIED one copy of " + deleted.Name + " QL" + deleted.Ql +
+                        " at exact-template retention cap.");
+                    return;
+                }
+
+                if (DateTime.UtcNow >= cleanup.DeleteDeadlineUtc)
+                    FailDonationCleanup(
+                        "AO did not confirm deletion of " + cleanup.PendingDelete.Name +
+                        " QL" + cleanup.PendingDelete.Ql + " before the verification timeout.");
+                return;
+            }
+
+            if (cleanup.DeleteIndex >= cleanup.DeleteItems.Count)
+            {
+                string transactionId = cleanup.TransactionId;
+                int receivedCount = cleanup.ReceivedCount;
+                int deletedCount = cleanup.DeletedCount;
+                List<TransferItemState> storeItems = new List<TransferItemState>(cleanup.StoreItems);
+                _donationCleanup = null;
+                QueueDonationForDispatch(transactionId, receivedCount, storeItems, deletedCount);
+                return;
+            }
+
+            TransferItemState expected = cleanup.DeleteItems[cleanup.DeleteIndex];
+            List<Item> matches = FindInventoryItems(expected);
+            if (matches.Count == 0)
+            {
+                FailDonationCleanup(
+                    "Refusing over-retention deletion because Central has no matching loose inventory copy of " +
+                    expected.Name + " QL" + expected.Ql + ".");
+                return;
+            }
+
+            cleanup.PendingDelete = expected;
+            cleanup.PendingBeforeCount = matches.Count;
+            cleanup.DeleteDeadlineUtc = DateTime.UtcNow.AddMilliseconds(
+                ServicePolicy.DeleteVerifyTimeoutMs);
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                _role,
+                "DELETE REQUESTED one of " + matches.Count + " matching loose copies of " +
+                expected.Name + " QL" + expected.Ql +
+                " because projected exact-template stock exceeds cap " +
+                ServicePolicy.MaxStoredCopiesPerTemplate + ".");
+            matches[0].Delete();
+        }
+
+        private void FailDonationCleanup(string error)
+        {
+            DonationCleanupState cleanup = _donationCleanup;
+            if (cleanup == null)
+                return;
+
+            List<TransferItemState> remainingOverflow = cleanup.DeleteItems
+                .Skip(cleanup.DeleteIndex)
+                .ToList();
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            AddDonationDispatchBatches(queue, cleanup.TransactionId, cleanup.StoreItems);
+            if (remainingOverflow.Count > 0)
+            {
+                queue.Batches.Add(new DispatchBatchState
+                {
+                    BatchId = "delete-hold-" + Guid.NewGuid().ToString("N"),
+                    TransactionId = cleanup.TransactionId,
+                    Role = "central-delete",
+                    Character = Client.CharacterName,
+                    Status = "failed",
+                    CreatedUtc = DateTime.UtcNow,
+                    UpdatedUtc = DateTime.UtcNow,
+                    AttemptCount = 1,
+                    LastError = error,
+                    Items = remainingOverflow
+                });
+            }
+            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+            RuntimeStateStore.AppendLedger(
+                _settingsDir,
+                new LedgerRecord
+                {
+                    Utc = DateTime.UtcNow,
+                    Event = "donation_overcap_delete_failed",
+                    TransactionId = cleanup.TransactionId,
+                    Actor = Client.CharacterName,
+                    Role = "central",
+                    Character = Client.CharacterName,
+                    Source = "normal-inventory",
+                    Destination = "central-delete-hold",
+                    Message = error +
+                        " Excess item(s) remain physical AO truth on Central; a failed queue hold prevents new player trades until reconciled.",
+                    Items = remainingOverflow.Select(item =>
+                        ToLedgerItem(item, "central", null, null, null)).ToList()
+                });
+            TellDonationPartner(
+                "DELETE FAILURE: " + error +
+                " The excess item remains on Central and is NOT being reported as deleted. Storeable items from this donation may continue through the queue, but a failed central-delete hold will block new donations until the physical state is reconciled.");
+            _donationDispositionPartnerName = null;
+            _donationCleanup = null;
+        }
+
+        private void QueueDonationForDispatch(
+            string transactionId,
+            int receivedCount,
+            List<TransferItemState> storeItems,
+            int deletedCount)
+        {
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            AddDonationDispatchBatches(queue, transactionId, storeItems);
+            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+            int queuedBatches = queue.Batches.Count(b =>
+                string.Equals(b.TransactionId, transactionId, StringComparison.Ordinal) &&
+                string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase));
+            AppendTradeLedger(
+                "donation_disposition_completed",
+                transactionId,
+                null,
+                null,
+                "Donation disposition complete: received=" + receivedCount +
+                ", store=" + (storeItems?.Count ?? 0) +
+                ", deleted=" + deletedCount +
+                ", queuedBatches=" + queuedBatches + ".",
+                storeItems);
+            TellDonationPartner(
+                "Donation completed: Central received " + receivedCount +
+                " item(s); " + (storeItems?.Count ?? 0) +
+                " queued for storage in " + queuedBatches +
+                " worker batch(es); " + deletedCount +
+                " excess item(s) deleted and verified.");
+            _donationDispositionPartnerName = null;
+        }
+
+        private void AddDonationDispatchBatches(
+            DispatchQueueState queue,
+            string transactionId,
+            IEnumerable<TransferItemState> items)
+        {
+            if (queue == null)
+                throw new InvalidOperationException("Dispatch queue state is unavailable.");
+
+            foreach (IGrouping<string, TransferItemState> group in
+                (items ?? Enumerable.Empty<TransferItemState>()).GroupBy(item =>
+                {
+                    string destination;
+                    return SymbiantCatalog.TryGetDestinationRole(item.AoId, out destination)
+                        ? destination
+                        : "unmanaged";
+                }, StringComparer.OrdinalIgnoreCase))
+            {
+                RoleConfig destination;
+                if (!TryGetRole(group.Key, out destination) ||
+                    destination == null ||
+                    string.IsNullOrWhiteSpace(destination.Character))
+                {
+                    AppendTradeLedger(
+                        "dispatch_not_queued",
+                        transactionId,
+                        null,
+                        group.Key,
+                        "No configured storage character for routed role; items remain safely on Central.",
+                        group.ToList());
+                    continue;
+                }
+
+                queue.Batches.Add(new DispatchBatchState
+                {
+                    BatchId = "batch-" + Guid.NewGuid().ToString("N"),
+                    TransactionId = transactionId,
+                    Role = group.Key,
+                    Character = destination.Character,
+                    Status = "queued",
+                    CreatedUtc = DateTime.UtcNow,
+                    UpdatedUtc = DateTime.UtcNow,
+                    AttemptCount = 0,
+                    Items = group.ToList()
+                });
+            }
+        }
+
+        private void ResetDonation()
+        {
+            _donationActive = false;
+            _donationPartner = Identity.None;
+            _donationPartnerName = null;
+            _donationTransactionId = null;
+            _donationOpenedUtc = DateTime.MinValue;
+            _donationLastChangeUtc = DateTime.MinValue;
+            _donationPreviousOffer.Clear();
+            _donationSnapshot.Clear();
+            _donationAccepted = false;
+        }
+
+        // ---------------------------------------------------------------------
+        // Central serialized dispatch queue
+        // ---------------------------------------------------------------------
+
+        private void TickDispatch()
+        {
+            if (!_isCentral || _donationActive || _donationCleanup != null)
+                return;
+
+            if (_activeBatch != null)
+            {
+                if (string.Equals(_activeBatch.Status, "transferred", StringComparison.OrdinalIgnoreCase))
+                {
+                    PollStorageResult();
+                    return;
+                }
+                if ((DateTime.UtcNow - _activeBatchStartedUtc).TotalSeconds >=
+                    ServicePolicy.TradeTimeoutSeconds)
+                {
+                    FailActiveBatch(
+                        "Internal worker trade timed out. Any incomplete outgoing AO trade is declined so offered items return to Central inventory.");
+                    return;
+                }
+                if (_outgoingOpened)
+                    TickOutgoingTrade();
+                return;
+            }
+
+            if (Trade.IsTrading)
+                return;
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            DispatchBatchState next = queue.Batches.FirstOrDefault(b =>
+                string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase));
+            if (next == null)
+                return;
+
+            PlayerChar worker = DynelManager.Players.FirstOrDefault(p =>
+                p != null && string.Equals(p.Name, next.Character, StringComparison.OrdinalIgnoreCase));
+            if (worker == null)
+                return;
+
+            List<Item> centralItems = FindDistinctInventoryItems(next.Items);
+            if (centralItems.Count != (next.Items?.Count ?? 0))
+            {
+                MarkBatchFailed(
+                    queue,
+                    next,
+                    "Expected routed item multiset is not present in Central normal inventory; refusing to guess across missing copies.");
+                return;
+            }
+
+            RuntimeStateStore.DeleteIfExists(
+                RuntimeStateStore.GetStorageResultPath(_settingsDir, next.Character));
+            RuntimeStateStore.DeleteIfExists(
+                RuntimeStateStore.GetDispatchCommandPath(_settingsDir, next.Character));
+            RuntimeStateStore.WriteDispatchCommand(
+                _settingsDir,
+                new DispatchCommand
+                {
+                    BatchId = next.BatchId,
+                    TransactionId = next.TransactionId,
+                    Role = next.Role,
+                    SourceCharacter = Client.CharacterName,
+                    DestinationCharacter = next.Character,
+                    CreatedUtc = DateTime.UtcNow,
+                    Items = next.Items != null
+                        ? new List<TransferItemState>(next.Items)
+                        : new List<TransferItemState>()
+                });
+            next.Status = "trading";
+            next.AttemptCount++;
+            next.UpdatedUtc = DateTime.UtcNow;
+            next.LastError = null;
+            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+            _activeBatch = next;
+            _activeWorkerIdentity = worker.Identity;
+            _activeBatchStartedUtc = DateTime.UtcNow;
+            _outgoingOpened = false;
+            _outgoingItemsRequested = false;
+            _outgoingAccepted = false;
+            AppendTradeLedger(
+                "dispatch_trade_opening",
+                next.TransactionId,
+                next.BatchId,
+                next.Role,
+                "Central opening serialized internal trade to " + next.Character + ".",
+                next.Items);
+            Trade.Open(worker.Identity);
+        }
+
+        private void TickOutgoingTrade()
+        {
+            if (_activeBatch == null || !Trade.IsTrading)
+                return;
+
+            if (!_outgoingItemsRequested)
+            {
+                List<Item> items = FindDistinctInventoryItems(_activeBatch.Items);
+                if (items.Count != (_activeBatch.Items?.Count ?? 0))
+                {
+                    FailActiveBatch(
+                        "Routed item multiset changed before it could be added to worker trade.");
+                    return;
+                }
+                foreach (Item item in items)
+                    Trade.AddItem(item.Slot);
+                _outgoingItemsRequested = true;
+                return;
+            }
+
+            if (_outgoingAccepted)
+                return;
+            List<TransferItemState> offered = SnapshotTradeItems(Trade.PlayerWindowCache.Items);
+            if (!MatchesExpected(offered, _activeBatch.Items))
+                return;
+            _outgoingAccepted = true;
+            Trade.Accept();
+        }
+
+        private void FinishOutgoingDispatchTrade()
+        {
+            if (_activeBatch == null)
+                return;
+
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            DispatchBatchState stored = FindBatch(queue, _activeBatch.BatchId);
+            if (stored != null)
+            {
+                stored.Status = "transferred";
+                stored.UpdatedUtc = DateTime.UtcNow;
+                RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                _activeBatch = stored;
+            }
+            else
+                _activeBatch.Status = "transferred";
+
+            AppendTradeLedger(
+                "dispatch_trade_completed",
+                _activeBatch.TransactionId,
+                _activeBatch.BatchId,
+                _activeBatch.Role,
+                "AO server completed Central -> " + _activeBatch.Character +
+                " trade. Waiting for physical storage result.",
+                _activeBatch.Items);
+            TellKavem(
+                "Dispatch transferred: " + _activeBatch.Role + " -> " +
+                _activeBatch.Character + "; waiting for bag placement.");
+            _activeWorkerIdentity = Identity.None;
+            _outgoingOpened = false;
+            _outgoingItemsRequested = false;
+            _outgoingAccepted = false;
+            _activeBatchStartedUtc = DateTime.UtcNow;
+        }
+
+        private void PollStorageResult()
+        {
+            if (_activeBatch == null)
+                return;
+            StorageBatchResult result = RuntimeStateStore.ReadStorageResult(
+                _settingsDir,
+                _activeBatch.Character);
+            if (result == null || !string.Equals(
+                    result.BatchId,
+                    _activeBatch.BatchId,
+                    StringComparison.Ordinal))
+                return;
+
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            DispatchBatchState stored = FindBatch(queue, _activeBatch.BatchId);
+            if (result.Success)
+            {
+                if (stored != null)
+                    queue.Batches.Remove(stored);
+                RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                AppendTradeLedger(
+                    "dispatch_stored",
+                    _activeBatch.TransactionId,
+                    _activeBatch.BatchId,
+                    _activeBatch.Role,
+                    "Worker confirmed physical placement of " + result.StoredCount +
+                    "/" + result.ExpectedCount + " item(s).",
+                    _activeBatch.Items);
+                TellKavem(
+                    "Stored: " + _activeBatch.Role + " worker " +
+                    _activeBatch.Character + " placed " + result.StoredCount +
+                    " item(s) into bags.");
+            }
+            else
+            {
+                if (stored != null)
+                {
+                    stored.Status = "failed";
+                    stored.LastError = result.Error;
+                    stored.UpdatedUtc = DateTime.UtcNow;
+                    RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                }
+                AppendTradeLedger(
+                    "dispatch_storage_failed",
+                    _activeBatch.TransactionId,
+                    _activeBatch.BatchId,
+                    _activeBatch.Role,
+                    result.Error,
+                    _activeBatch.Items);
+                TellKavem(
+                    "STORAGE FAILURE " + _activeBatch.Role + ": " + result.Error +
+                    " Items remain physical AO truth; inspect/reconcile before retrying.");
+            }
+            RuntimeStateStore.DeleteIfExists(
+                RuntimeStateStore.GetStorageResultPath(_settingsDir, _activeBatch.Character));
+            _activeBatch = null;
+            _activeWorkerIdentity = Identity.None;
+        }
+
+        private void FailActiveBatch(string error)
+        {
+            if (_activeBatch == null)
+                return;
+            TryDeclineTrade();
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            DispatchBatchState stored = FindBatch(queue, _activeBatch.BatchId);
+            if (stored != null)
+            {
+                stored.Status = "failed";
+                stored.LastError = error;
+                stored.UpdatedUtc = DateTime.UtcNow;
+                RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+            }
+            AppendTradeLedger(
+                "dispatch_failed",
+                _activeBatch.TransactionId,
+                _activeBatch.BatchId,
+                _activeBatch.Role,
+                error,
+                _activeBatch.Items);
+            TellKavem("Dispatch failure " + _activeBatch.Role + ": " + error);
+            RuntimeStateStore.DeleteIfExists(
+                RuntimeStateStore.GetDispatchCommandPath(_settingsDir, _activeBatch.Character));
+            _activeBatch = null;
+            _activeWorkerIdentity = Identity.None;
+            _outgoingOpened = false;
+            _outgoingItemsRequested = false;
+            _outgoingAccepted = false;
+        }
+
+        private void MarkBatchFailed(DispatchQueueState queue, DispatchBatchState batch, string error)
+        {
+            batch.Status = "failed";
+            batch.LastError = error;
+            batch.UpdatedUtc = DateTime.UtcNow;
+            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+            AppendTradeLedger(
+                "dispatch_failed",
+                batch.TransactionId,
+                batch.BatchId,
+                batch.Role,
+                error,
+                batch.Items);
+            TellKavem("Dispatch failure " + batch.Role + ": " + error);
+        }
+
+        // ---------------------------------------------------------------------
+        // Worker receive trade and physical placement
+        // ---------------------------------------------------------------------
+
+        private void BeginWorkerTrade(Identity centralIdentity)
+        {
+            if (_storageJob != null)
+            {
+                Trade.Decline();
+                TellKavem(
+                    "Worker " + Client.CharacterName +
+                    " declined a new Central trade because a prior storage batch is still active.");
+                return;
+            }
+
+            DispatchCommand command = RuntimeStateStore.ReadDispatchCommand(
+                _settingsDir,
+                Client.CharacterName);
+            if (command == null ||
+                !string.Equals(command.Role, _role, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(command.DestinationCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(command.SourceCharacter, _centralCharacter, StringComparison.OrdinalIgnoreCase))
+            {
+                Logger.Warning(
+                    $"BANKING SERVICE worker {Client.CharacterName} received Central trade " +
+                    "without a matching dispatch command; declining.");
+                Trade.Decline();
+                return;
+            }
+            _workerCommand = command;
+            _workerTradeOpenedUtc = DateTime.UtcNow;
+            _workerAccepted = false;
+            TellKavem(
+                "Worker trade opened: " + Client.CharacterName +
+                " expects " + (command.Items?.Count ?? 0) +
+                " " + _role + " item(s), batch " + ShortId(command.BatchId) + ".");
+        }
+
+        private void TickWorkerTrade()
+        {
+            if (_isCentral || _workerCommand == null || _storageJob != null || !Trade.IsTrading)
+                return;
+            if ((DateTime.UtcNow - _workerTradeOpenedUtc).TotalSeconds >= ServicePolicy.TradeTimeoutSeconds)
+            {
+                TryDeclineTrade();
+                FailWorkerCommand("Timed out waiting for expected Central trade contents.");
+                return;
+            }
+            if (_workerAccepted)
+                return;
+            List<TransferItemState> offered = SnapshotTradeItems(Trade.TargetWindowCache.Items);
+            if (offered.Count > (_workerCommand.Items?.Count ?? 0))
+            {
+                TryDeclineTrade();
+                FailWorkerCommand("Central trade offered more items than its dispatch command.");
+                return;
+            }
+            if (!MatchesExpected(offered, _workerCommand.Items) || offered.Count == 0)
+                return;
+            _workerAccepted = true;
+            Trade.Accept();
+        }
+
+        private void FinishWorkerReceiveTrade()
+        {
+            if (_workerCommand == null)
+                return;
+            DispatchCommand command = _workerCommand;
+            _workerCommand = null;
+            _workerAccepted = false;
+            RuntimeStateStore.DeleteIfExists(
+                RuntimeStateStore.GetDispatchCommandPath(_settingsDir, Client.CharacterName));
+            _storageJob = new StorageJob
+            {
+                Command = command,
+                Index = 0,
+                Phase = StoragePhase.FindBag,
+                PhaseStartedUtc = DateTime.UtcNow,
+                DeadlineUtc = DateTime.UtcNow.AddMilliseconds(ServicePolicy.ItemMoveTimeoutMs),
+                StoredCount = 0
+            };
+            AppendTradeLedger(
+                "worker_trade_completed",
+                command.TransactionId,
+                command.BatchId,
+                _role,
+                "Worker received " + (command.Items?.Count ?? 0) +
+                " item(s) from Central into normal inventory.",
+                command.Items);
+            TellKavem(
+                "Worker received: " + Client.CharacterName + " has " +
+                (command.Items?.Count ?? 0) + " item(s); starting physical bag placement.");
+        }
+
+        private void TickStorageJob()
+        {
+            if (_isCentral || _storageJob == null)
+                return;
+            try
+            {
+                if (_storageJob.Command == null || _storageJob.Command.Items == null)
+                {
+                    FailStorageJob("Storage command is empty.");
+                    return;
+                }
+                if (_storageJob.Index >= _storageJob.Command.Items.Count)
+                {
+                    CompleteStorageJob();
+                    return;
+                }
+                switch (_storageJob.Phase)
+                {
+                    case StoragePhase.FindBag: StartStorageItem(); break;
+                    case StoragePhase.MovingBagToInventory: ProcessStorageBagMoveToInventory(); break;
+                    case StoragePhase.OpeningBag: ProcessStorageBagOpen(); break;
+                    case StoragePhase.MovingItemIntoBag: ProcessItemMoveIntoBag(); break;
+                    case StoragePhase.ReturningBag: ProcessStorageBagReturn(); break;
+                    default: FailStorageJob("Invalid storage phase " + _storageJob.Phase + "."); break;
+                }
+            }
+            catch (Exception ex)
+            {
+                FailStorageJob("Storage exception: " + ex);
+            }
+        }
+
+        private void StartStorageItem()
+        {
+            StorageState state = RuntimeStateStore.LoadStorageState(_settingsDir);
+            if (state == null)
+            {
+                FailStorageJob("Persistent storage baseline/state is missing.");
+                return;
+            }
+            TransferItemState expected = _storageJob.Command.Items[_storageJob.Index];
+            Item inventoryItem = FindInventoryItem(expected);
+            if (inventoryItem == null)
+            {
+                if (DateTime.UtcNow < _storageJob.DeadlineUtc)
+                    return;
+                FailStorageJob(
+                    "Received item is not visible in worker normal inventory: " +
+                    expected.Name + " AOID=" + expected.AoId + ".");
+                return;
+            }
+            StorageBagState bag = RuntimeStateStore.FindNextFreeBag(state, _role, Client.CharacterName);
+            if (bag == null)
+            {
+                FailStorageJob("No persisted storage bag with a free inner slot remains.");
+                return;
+            }
+            _storageJob.Expected = expected;
+            _storageJob.ActualItemIdentity = IsUsableIdentity(inventoryItem.UniqueIdentity.ToString())
+                ? inventoryItem.UniqueIdentity.ToString()
+                : null;
+            _storageJob.Bag = bag;
+            _storageJob.BagLiveIdentity = null;
+            _storageJob.InnerSlot = -1;
+            if (string.Equals(bag.Source, "bank", StringComparison.OrdinalIgnoreCase))
+            {
+                Item liveBag = FindBankBagAtOuterSlot(bag.OuterSlotInstance);
+                if (liveBag == null)
+                {
+                    FailStorageJob(
+                        "Persisted bank bag is not present at expected outer slot " +
+                        bag.OuterSlotInstance + ". Physical AO state differs from baseline.");
+                    return;
+                }
+                _storageJob.BagLiveIdentity = liveBag.UniqueIdentity.ToString();
+                _storageJob.Phase = StoragePhase.MovingBagToInventory;
+                SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
+                liveBag.MoveToInventory();
+                return;
+            }
+            Item inventoryBag = FindInventoryBagAtOuterSlot(bag.OuterSlotInstance);
+            if (inventoryBag == null)
+            {
+                FailStorageJob(
+                    "Persisted inventory bag is not present at expected outer slot " +
+                    bag.OuterSlotInstance + ". Physical AO state differs from baseline.");
+                return;
+            }
+            _storageJob.BagLiveIdentity = inventoryBag.UniqueIdentity.ToString();
+            _storageJob.Phase = StoragePhase.OpeningBag;
+            SetStorageDeadline(ServicePolicy.BagOpenTimeoutMs);
+            inventoryBag.Use();
+        }
+
+        private void ProcessStorageBagMoveToInventory()
+        {
+            Item bag = FindInventoryBagByIdentity(_storageJob.BagLiveIdentity);
+            if (bag != null)
+            {
+                _storageJob.Phase = StoragePhase.OpeningBag;
+                SetStorageDeadline(ServicePolicy.BagOpenTimeoutMs);
+                bag.Use();
+                return;
+            }
+            if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
+                FailStorageJob(
+                    "Bank bag did not arrive in normal inventory before staging timeout; stopping before touching another bag.");
+        }
+
+        private void ProcessStorageBagOpen()
+        {
+            Container container = FindContainerByIdentity(_storageJob.BagLiveIdentity);
+            if (container != null && container.IsOpen)
+            {
+                Item item = FindInventoryItem(_storageJob.Expected);
+                if (item == null)
+                {
+                    FailStorageJob("Received item disappeared from normal inventory before bag insertion.");
+                    return;
+                }
+                if (container.IsFull)
+                {
+                    FailStorageJob(
+                        "Live bag is full even though persisted state expected free space. Reconcile before continuing.");
+                    return;
+                }
+                _storageJob.Phase = StoragePhase.MovingItemIntoBag;
+                SetStorageDeadline(ServicePolicy.ItemMoveTimeoutMs);
+                item.MoveToContainer(container);
+                return;
+            }
+            if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
+                FailStorageJob("Bag did not open/materialize before timeout.");
+        }
+
+        private void ProcessItemMoveIntoBag()
+        {
+            Container container = FindContainerByIdentity(_storageJob.BagLiveIdentity);
+            if (container != null && container.Items != null)
+            {
+                var occupiedInnerSlots = new HashSet<int>(
+                    (_storageJob.Bag?.Items ?? new List<StoredItemState>())
+                        .Where(item => item != null)
+                        .Select(item => item.InnerSlot));
+                Item observed = container.Items.FirstOrDefault(item =>
+                    MatchesItem(item, _storageJob.Expected, _storageJob.ActualItemIdentity) &&
+                    !occupiedInnerSlots.Contains(item.Slot.Instance & 0xFFFF));
+                if (observed != null)
+                {
+                    _storageJob.InnerSlot = observed.Slot.Instance & 0xFFFF;
+                    _storageJob.ObservedStoredItemIdentity = IsUsableIdentity(observed.UniqueIdentity.ToString())
+                        ? observed.UniqueIdentity.ToString()
+                        : null;
+                    _storageJob.BagHandle = container.Handle;
+                    if (string.Equals(_storageJob.Bag.Source, "bank", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Item liveBag = FindInventoryBagByIdentity(_storageJob.BagLiveIdentity);
+                        if (liveBag == null)
+                        {
+                            FailStorageJob(
+                                "Stored item is inside staged bank bag, but the bag is no longer visible in normal inventory for return.");
+                            return;
+                        }
+                        _storageJob.Phase = StoragePhase.ReturningBag;
+                        SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
+                        liveBag.MoveToBank();
+                        return;
+                    }
+                    CommitStoredItem();
+                    return;
+                }
+            }
+            if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
+                FailStorageJob("AO did not confirm the item in a newly occupied bag slot before timeout.");
+        }
+
+        private void ProcessStorageBagReturn()
+        {
+            Item bankBag = FindBankBagByIdentity(_storageJob.BagLiveIdentity);
+            if (bankBag != null)
+            {
+                if (bankBag.Slot.Instance != _storageJob.Bag.OuterSlotInstance)
+                {
+                    FailStorageJob(
+                        "Bank bag returned to unexpected outer slot " + bankBag.Slot.Instance +
+                        " instead of " + _storageJob.Bag.OuterSlotInstance +
+                        "; stopping for reconciliation.");
+                    return;
+                }
+                CommitStoredItem();
+                return;
+            }
+            if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
+                FailStorageJob("Staged bank bag did not return to bank before timeout.");
+        }
+
+        private void CommitStoredItem()
+        {
+            string error;
+            if (!RuntimeStateStore.RecordPlacement(
+                _settingsDir,
+                _storageJob.Command.TransactionId,
+                _role,
+                Client.CharacterName,
+                _storageJob.Bag.Source,
+                _storageJob.Bag.OuterSlotInstance,
+                _storageJob.BagLiveIdentity,
+                _storageJob.BagHandle,
+                _storageJob.Expected,
+                _storageJob.ObservedStoredItemIdentity,
+                _storageJob.InnerSlot,
+                out error))
+            {
+                FailStorageJob("AO placement succeeded but persistent state update failed: " + error);
+                return;
+            }
+            LedgerRecord record = new LedgerRecord
+            {
+                Utc = DateTime.UtcNow,
+                Event = "item_stored",
+                TransactionId = _storageJob.Command.TransactionId,
+                BatchId = _storageJob.Command.BatchId,
+                Actor = Client.CharacterName,
+                Role = _role,
+                Character = Client.CharacterName,
+                Source = "normal-inventory",
+                Destination =
+                    _storageJob.Bag.Source + ":" + _storageJob.Bag.OuterSlotInstance +
+                    "/inner:" + _storageJob.InnerSlot,
+                Message = "AO confirmed item inside storage bag and required bank-bag return was verified.",
+                Items = new List<LedgerItem>
+                {
+                    ToLedgerItem(
+                        _storageJob.Expected,
+                        _role,
+                        _storageJob.Bag.Source,
+                        _storageJob.Bag.OuterSlotInstance,
+                        _storageJob.InnerSlot)
+                }
+            };
+            RuntimeStateStore.AppendLedger(_settingsDir, record);
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                _role,
+                "STORED " + _storageJob.Expected.Name + " QL" + _storageJob.Expected.Ql +
+                " -> " + _storageJob.Bag.Source + ":" + _storageJob.Bag.OuterSlotInstance +
+                "/inner:" + _storageJob.InnerSlot + ".");
+            TellKavem(
+                "Stored " + _storageJob.Expected.Name + " QL" + _storageJob.Expected.Ql +
+                " on " + Client.CharacterName + " -> " + _storageJob.Bag.Source +
+                " bag " + _storageJob.Bag.OuterSlotInstance +
+                ", slot " + _storageJob.InnerSlot + ".");
+            _storageJob.StoredCount++;
+            _storageJob.Index++;
+            _storageJob.Expected = null;
+            _storageJob.Bag = null;
+            _storageJob.BagLiveIdentity = null;
+            _storageJob.ActualItemIdentity = null;
+            _storageJob.ObservedStoredItemIdentity = null;
+            _storageJob.InnerSlot = -1;
+            _storageJob.BagHandle = 0;
+            _storageJob.Phase = StoragePhase.FindBag;
+            SetStorageDeadline(ServicePolicy.ItemMoveTimeoutMs);
+        }
+
+        private void CompleteStorageJob()
+        {
+            StorageJob job = _storageJob;
+            RuntimeStateStore.WriteStorageResult(
+                _settingsDir,
+                new StorageBatchResult
+                {
+                    BatchId = job.Command.BatchId,
+                    TransactionId = job.Command.TransactionId,
+                    Role = _role,
+                    Character = Client.CharacterName,
+                    CompletedUtc = DateTime.UtcNow,
+                    Success = true,
+                    ExpectedCount = job.Command.Items?.Count ?? 0,
+                    StoredCount = job.StoredCount
+                });
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                _role,
+                "STORAGE BATCH COMPLETE batch=" + job.Command.BatchId +
+                " stored=" + job.StoredCount + ".");
+            _storageJob = null;
+        }
+
+        private void FailStorageJob(string error)
+        {
+            if (_storageJob == null)
+                return;
+            StorageJob job = _storageJob;
+            Logger.Error(
+                $"BANKING SERVICE storage failure character={Client.CharacterName} " +
+                $"batch={job.Command?.BatchId}: {error}");
+            RuntimeStateStore.WriteStorageResult(
+                _settingsDir,
+                new StorageBatchResult
+                {
+                    BatchId = job.Command?.BatchId,
+                    TransactionId = job.Command?.TransactionId,
+                    Role = _role,
+                    Character = Client.CharacterName,
+                    CompletedUtc = DateTime.UtcNow,
+                    Success = false,
+                    ExpectedCount = job.Command?.Items?.Count ?? 0,
+                    StoredCount = job.StoredCount,
+                    Error = error
+                });
+            RuntimeStateStore.AppendLedger(
+                _settingsDir,
+                new LedgerRecord
+                {
+                    Utc = DateTime.UtcNow,
+                    Event = "storage_failed",
+                    TransactionId = job.Command?.TransactionId,
+                    BatchId = job.Command?.BatchId,
+                    Actor = Client.CharacterName,
+                    Role = _role,
+                    Character = Client.CharacterName,
+                    Message = error
+                });
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                _role,
+                "STORAGE FAILURE: " + error);
+            TellKavem(
+                "STORAGE FAILURE on " + Client.CharacterName + ": " + error +
+                " No further items in this batch will be moved until reconciliation.");
+            _storageJob = null;
+        }
+
+        private void FailWorkerCommand(string error)
+        {
+            if (_workerCommand == null)
+                return;
+            DispatchCommand command = _workerCommand;
+            RuntimeStateStore.WriteStorageResult(
+                _settingsDir,
+                new StorageBatchResult
+                {
+                    BatchId = command.BatchId,
+                    TransactionId = command.TransactionId,
+                    Role = _role,
+                    Character = Client.CharacterName,
+                    CompletedUtc = DateTime.UtcNow,
+                    Success = false,
+                    ExpectedCount = command.Items?.Count ?? 0,
+                    StoredCount = 0,
+                    Error = error
+                });
+            RuntimeStateStore.DeleteIfExists(
+                RuntimeStateStore.GetDispatchCommandPath(_settingsDir, Client.CharacterName));
+            TellKavem("Worker trade failure on " + Client.CharacterName + ": " + error);
+            _workerCommand = null;
+            _workerAccepted = false;
+        }
+
+        // ---------------------------------------------------------------------
+        // Fresh bagaudit -> operational state import
+        // ---------------------------------------------------------------------
+
+        private void ImportFreshBaselineIfNeeded()
+        {
+            if (!_isCentral || DateTime.UtcNow < _nextSlowTickUtc)
+                return;
+            _nextSlowTickUtc = DateTime.UtcNow.AddSeconds(1);
+            string baselinePath = Path.Combine(
+                RuntimeStateStore.GetDataDirectory(_settingsDir),
+                "storage-baseline.json");
+            if (!File.Exists(baselinePath))
+                return;
+            JObject root;
+            try
+            {
+                root = JObject.Parse(File.ReadAllText(baselinePath));
+            }
+            catch
+            {
+                return;
+            }
+            string runId = root["runId"]?.ToString();
+            if (string.IsNullOrWhiteSpace(runId))
+                return;
+            StorageState current = RuntimeStateStore.LoadStorageState(_settingsDir);
+            if (current != null && string.Equals(current.BaselineRunId, runId, StringComparison.Ordinal))
+            {
+                _lastImportedBaselineRunId = runId;
+                return;
+            }
+            StorageState imported = ConvertBaseline(root, runId);
+            if (imported == null || imported.Workers == null || imported.Workers.Count != 5)
+                return;
+            RuntimeStateStore.SaveStorageBaseline(_settingsDir, imported, "audit-" + runId);
+            _lastImportedBaselineRunId = runId;
+            TellKavem(
+                "Storage baseline imported: run " + runId + ", workers=" +
+                imported.Workers.Count + ", bags=" +
+                imported.Workers.Sum(w => w.Bags?.Count ?? 0) + ", stock=" +
+                imported.Workers.Sum(w => w.Bags?.Sum(b => b.Items?.Count ?? 0) ?? 0) + ".");
+        }
+
+        private static StorageState ConvertBaseline(JObject root, string runId)
+        {
+            var state = new StorageState
+            {
+                BaselineRunId = runId,
+                UpdatedUtc = DateTime.UtcNow,
+                Workers = new List<StorageWorkerState>()
+            };
+            JObject workers = root["workers"] as JObject;
+            if (workers == null)
+                return null;
+            foreach (JProperty property in workers.Properties())
+            {
+                JObject sourceWorker = property.Value as JObject;
+                if (sourceWorker == null)
+                    continue;
+                var worker = new StorageWorkerState
+                {
+                    Role = sourceWorker["role"]?.ToString() ?? property.Name,
+                    Character = sourceWorker["character"]?.ToString(),
+                    ObservedUtc = ParseUtc(sourceWorker["observedUtc"]),
+                    Bags = new List<StorageBagState>()
+                };
+                JArray bags = sourceWorker["bags"] as JArray;
+                if (bags != null)
+                {
+                    foreach (JObject sourceBag in bags.OfType<JObject>())
+                    {
+                        var bag = new StorageBagState
+                        {
+                            Source = sourceBag["source"]?.ToString(),
+                            OuterSlotType = sourceBag["finalOuterSlotType"]?.ToString(),
+                            OuterSlotInstance = IntToken(sourceBag["finalOuterSlotInstance"]),
+                            LastUniqueIdentity = sourceBag["uniqueIdentity"]?.ToString(),
+                            LastHandle = 0,
+                            Capacity = 21,
+                            Items = new List<StoredItemState>()
+                        };
+                        JArray items = sourceBag["items"] as JArray;
+                        if (items != null)
+                        {
+                            foreach (JObject sourceItem in items.OfType<JObject>())
+                            {
+                                bag.Items.Add(new StoredItemState
+                                {
+                                    UniqueIdentity = sourceItem["UniqueIdentity"]?.ToString(),
+                                    AoId = IntToken(sourceItem["LowId"]),
+                                    HighId = IntToken(sourceItem["HighId"]),
+                                    Ql = IntToken(sourceItem["Ql"]),
+                                    Name = sourceItem["Name"]?.ToString(),
+                                    InnerSlot = IntToken(sourceItem["SlotInstance"]) & 0xFFFF,
+                                    ObservedUtc = worker.ObservedUtc,
+                                    TransactionId = "audit-" + runId
+                                });
+                            }
+                        }
+                        worker.Bags.Add(bag);
+                    }
+                }
+                state.Workers.Add(worker);
+            }
+            return state;
+        }
+
+        // ---------------------------------------------------------------------
+        // Common helpers
+        // ---------------------------------------------------------------------
+
+        private ServiceConfig LoadConfig()
+        {
+            try
+            {
+                return SettingsPaths.ReadBankersSettings(_settingsDir)
+                    .ToObject<ServiceConfig>();
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning($"BANKING SERVICE could not read the Bankers section: {ex.Message}");
+                return null;
+            }
+        }
+
+        private string ResolveCurrentRole()
+        {
+            foreach (KeyValuePair<string, RoleConfig> pair in _config.Roles)
+            {
+                if (pair.Value != null && string.Equals(
+                        pair.Value.Character,
+                        Client.CharacterName,
+                        StringComparison.OrdinalIgnoreCase))
+                    return pair.Key;
+            }
+            return null;
+        }
+
+        private bool TryGetRole(string role, out RoleConfig value)
+        {
+            foreach (KeyValuePair<string, RoleConfig> pair in _config.Roles)
+            {
+                if (string.Equals(pair.Key, role, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = pair.Value;
+                    return true;
+                }
+            }
+            value = null;
+            return false;
+        }
+
+        private bool HasUnresolvedDispatchWork()
+        {
+            if (_activeBatch != null || _donationCleanup != null)
+                return true;
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            return queue != null && queue.Batches != null && queue.Batches.Count > 0;
+        }
+
+        private void AnnounceDonationProgress(int count)
+        {
+            TellDonationPartner(
+                CityBankersChatPalette.DonationProgress(
+                    count,
+                    ServicePolicy.MaxTradeItems) +
+                "You now have " + count + "/" + ServicePolicy.MaxTradeItems +
+                " item(s) in this donation trade.");
+        }
+
+        private void AnnounceDonationItemAdded(TransferItemState item)
+        {
+            if (item == null)
+                return;
+            string destination;
+            if (!SymbiantCatalog.TryGetDestinationRole(item.AoId, out destination))
+            {
+                TellDonationPartner(
+                    "You are adding " + BuildItemLink(item) +
+                    ". This item is " + CityBankersChatPalette.Red("NOT ACCEPTED") +
+                    " because it is not in the managed symbiant catalog.");
+                return;
+            }
+            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            int count = CountStoredCopies(stock, item);
+            if (count >= ServicePolicy.MaxStoredCopiesPerTemplate)
+            {
+                TellDonationPartner(
+                    "You are adding " + BuildItemLink(item) +
+                    ". This item will be " + CityBankersChatPalette.Red("DELETED") +
+                    ". We currently have " + CityBankersChatPalette.Red(count.ToString()) +
+                    " of these.");
+                return;
+            }
+            TellDonationPartner(
+                "You are adding " + BuildItemLink(item) +
+                ". This item will be " + CityBankersChatPalette.Green("STORED") +
+                ". We currently have " + CityBankersChatPalette.Yellow(count.ToString()) +
+                " of these.");
+        }
+
+        private void AnnounceDonationItemRemoved(TransferItemState item)
+        {
+            if (item != null)
+                TellDonationPartner(
+                    "You removed " + BuildItemLink(item) +
+                    " from the trade. It will not be received.");
+        }
+
+        private static string BuildItemLink(TransferItemState item)
+        {
+            if (item == null)
+                return "<unknown item>";
+            return "<a href='itemref://" + item.AoId + "/" + item.HighId + "/" +
+                item.Ql + "'>" + EscapeChatText(item.Name) + "</a>";
+        }
+
+        private static string Color(string text, string color)
+        {
+            return "<font color='" + color + "'>" + EscapeChatText(text) + "</font>";
+        }
+
+        private static string EscapeChatText(string text)
+        {
+            return (text ?? string.Empty)
+                .Replace("&", "&amp;")
+                .Replace("<", "&lt;")
+                .Replace(">", "&gt;");
+        }
+
+        private static int CountStoredCopies(CurrentStockState stock, TransferItemState item)
+        {
+            if (item == null)
+                return 0;
+            return (stock?.Items ?? new List<StockItemState>()).Count(candidate =>
+                candidate != null &&
+                candidate.AoId == item.AoId &&
+                candidate.HighId == item.HighId &&
+                candidate.Ql == item.Ql);
+        }
+
+        private static List<TransferItemState> MultisetDifference(
+            IEnumerable<TransferItemState> left,
+            IEnumerable<TransferItemState> right)
+        {
+            List<TransferItemState> remaining = new List<TransferItemState>(
+                right ?? Enumerable.Empty<TransferItemState>());
+            List<TransferItemState> difference = new List<TransferItemState>();
+            foreach (TransferItemState item in left ?? Enumerable.Empty<TransferItemState>())
+            {
+                int index = remaining.FindIndex(candidate => SameTransferItem(item, candidate));
+                if (index >= 0)
+                    remaining.RemoveAt(index);
+                else
+                    difference.Add(item);
+            }
+            return difference;
+        }
+
+        private static string TemplateKey(TransferItemState item)
+        {
+            if (item == null)
+                return string.Empty;
+            return item.AoId + ":" + item.HighId + ":" + item.Ql;
+        }
+
+        private static List<TransferItemState> SnapshotTradeItems(IEnumerable<Item> items)
+        {
+            return (items ?? Enumerable.Empty<Item>())
+                .Where(item => item != null)
+                .OrderBy(item => item.Slot.Instance)
+                .Select(item => new TransferItemState
+                {
+                    UniqueIdentity = IsUsableIdentity(item.UniqueIdentity.ToString())
+                        ? item.UniqueIdentity.ToString()
+                        : null,
+                    AoId = item.Id,
+                    HighId = item.HighId,
+                    Ql = item.Ql,
+                    Name = item.Name ?? string.Empty
+                })
+                .ToList();
+        }
+
+        private static string ItemKey(TransferItemState item)
+        {
+            if (item == null)
+                return string.Empty;
+            if (IsUsableIdentity(item.UniqueIdentity))
+                return item.UniqueIdentity;
+            return item.AoId + ":" + item.HighId + ":" + item.Ql + ":" + item.Name;
+        }
+
+        private static bool IsUsableIdentity(string identity)
+        {
+            return !string.IsNullOrWhiteSpace(identity) &&
+                !string.Equals(identity, Identity.None.ToString(), StringComparison.Ordinal);
+        }
+
+        private static bool MatchesExpected(
+            List<TransferItemState> actual,
+            List<TransferItemState> expected)
+        {
+            actual = actual ?? new List<TransferItemState>();
+            expected = expected ?? new List<TransferItemState>();
+            if (actual.Count != expected.Count)
+                return false;
+            var remaining = new List<TransferItemState>(actual);
+            foreach (TransferItemState wanted in expected)
+            {
+                int index = remaining.FindIndex(candidate => SameTransferItem(candidate, wanted));
+                if (index < 0)
+                    return false;
+                remaining.RemoveAt(index);
+            }
+            return remaining.Count == 0;
+        }
+
+        private static bool SameTransferItem(TransferItemState left, TransferItemState right)
+        {
+            if (left == null || right == null)
+                return false;
+            if (IsUsableIdentity(left.UniqueIdentity) &&
+                IsUsableIdentity(right.UniqueIdentity) &&
+                string.Equals(left.UniqueIdentity, right.UniqueIdentity, StringComparison.Ordinal))
+                return true;
+            return left.AoId == right.AoId &&
+                left.HighId == right.HighId &&
+                left.Ql == right.Ql;
+        }
+
+        private Item FindInventoryItem(TransferItemState expected)
+        {
+            return FindInventoryItems(expected).FirstOrDefault();
+        }
+
+        private List<Item> FindInventoryItems(TransferItemState expected)
+        {
+            if (Inventory.Items == null || expected == null)
+                return new List<Item>();
+            List<Item> normal = Inventory.Items
+                .Where(item => item != null && item.Slot.Type == IdentityType.Inventory)
+                .OrderBy(item => item.Slot.Instance)
+                .ToList();
+            if (IsUsableIdentity(expected.UniqueIdentity))
+            {
+                List<Item> unique = normal.Where(item =>
+                    string.Equals(
+                        item.UniqueIdentity.ToString(),
+                        expected.UniqueIdentity,
+                        StringComparison.Ordinal)).ToList();
+                if (unique.Count > 0)
+                    return unique;
+            }
+            return normal.Where(item =>
+                item.Id == expected.AoId &&
+                item.HighId == expected.HighId &&
+                item.Ql == expected.Ql).ToList();
+        }
+
+        private List<Item> FindDistinctInventoryItems(IEnumerable<TransferItemState> expectedItems)
+        {
+            List<Item> available = Inventory.Items == null
+                ? new List<Item>()
+                : Inventory.Items
+                    .Where(item => item != null && item.Slot.Type == IdentityType.Inventory)
+                    .OrderBy(item => item.Slot.Instance)
+                    .ToList();
+            var selected = new List<Item>();
+            foreach (TransferItemState expected in expectedItems ?? Enumerable.Empty<TransferItemState>())
+            {
+                int index = -1;
+                if (IsUsableIdentity(expected?.UniqueIdentity))
+                {
+                    index = available.FindIndex(item => string.Equals(
+                        item.UniqueIdentity.ToString(),
+                        expected.UniqueIdentity,
+                        StringComparison.Ordinal));
+                }
+                if (index < 0 && expected != null)
+                {
+                    index = available.FindIndex(item =>
+                        item.Id == expected.AoId &&
+                        item.HighId == expected.HighId &&
+                        item.Ql == expected.Ql);
+                }
+                if (index < 0)
+                    return new List<Item>();
+                selected.Add(available[index]);
+                available.RemoveAt(index);
+            }
+            return selected;
+        }
+
+        private static bool MatchesItem(Item item, TransferItemState expected, string observedIdentity)
+        {
+            if (item == null || expected == null)
+                return false;
+            if (IsUsableIdentity(observedIdentity) && string.Equals(
+                item.UniqueIdentity.ToString(), observedIdentity, StringComparison.Ordinal))
+                return true;
+            if (IsUsableIdentity(expected.UniqueIdentity) && string.Equals(
+                item.UniqueIdentity.ToString(), expected.UniqueIdentity, StringComparison.Ordinal))
+                return true;
+            return item.Id == expected.AoId &&
+                item.HighId == expected.HighId &&
+                item.Ql == expected.Ql;
+        }
+
+        private static Item FindBankBagAtOuterSlot(int slot)
+        {
+            return Inventory.Bank.Items?.FirstOrDefault(item =>
+                item != null &&
+                item.UniqueIdentity.Type == IdentityType.Container &&
+                item.Slot.Instance == slot);
+        }
+
+        private static Item FindInventoryBagAtOuterSlot(int slot)
+        {
+            return Inventory.Items?.FirstOrDefault(item =>
+                item != null &&
+                item.Slot.Type == IdentityType.Inventory &&
+                item.UniqueIdentity.Type == IdentityType.Container &&
+                item.Slot.Instance == slot);
+        }
+
+        private static Item FindInventoryBagByIdentity(string identity)
+        {
+            return Inventory.Items?.FirstOrDefault(item =>
+                item != null &&
+                item.Slot.Type == IdentityType.Inventory &&
+                item.UniqueIdentity.Type == IdentityType.Container &&
+                string.Equals(item.UniqueIdentity.ToString(), identity, StringComparison.Ordinal));
+        }
+
+        private static Item FindBankBagByIdentity(string identity)
+        {
+            return Inventory.Bank.Items?.FirstOrDefault(item =>
+                item != null &&
+                item.UniqueIdentity.Type == IdentityType.Container &&
+                string.Equals(item.UniqueIdentity.ToString(), identity, StringComparison.Ordinal));
+        }
+
+        private static Container FindContainerByIdentity(string identity)
+        {
+            return Inventory.Containers?.FirstOrDefault(container =>
+                container != null &&
+                string.Equals(container.Identity.ToString(), identity, StringComparison.Ordinal));
+        }
+
+        private static string FindPlayerName(Identity identity)
+        {
+            PlayerChar player = DynelManager.Players.FirstOrDefault(p =>
+                p != null && p.Identity == identity);
+            return player?.Name;
+        }
+
+        private void TellPlayer(string playerName, string message)
+        {
+            if (string.IsNullOrWhiteSpace(playerName) || string.IsNullOrWhiteSpace(message))
+                return;
+            if (Client.Chat != null)
+                Client.Chat.SendPrivateMessage(
+                    playerName,
+                    CityBankersChatPalette.WhiteBaseMarkup(message),
+                    true);
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                _role,
+                "TELL -> " + playerName + ": " + message);
+        }
+
+        private void TellDonationPartner(string message)
+        {
+            string partnerName = !string.IsNullOrWhiteSpace(_donationPartnerName)
+                ? _donationPartnerName
+                : _donationDispositionPartnerName;
+            TellPlayer(partnerName, message);
+        }
+
+        private void TellKavem(string message)
+        {
+            TellPlayer(TrustedOperators.BootstrapAdmin, message);
+        }
+
+        private void AppendTradeLedger(
+            string eventName,
+            string transactionId,
+            string batchId,
+            string role,
+            string message,
+            IEnumerable<TransferItemState> items)
+        {
+            bool playerTrade = !string.IsNullOrWhiteSpace(eventName) &&
+                eventName.StartsWith("player_trade_", StringComparison.OrdinalIgnoreCase);
+            RuntimeStateStore.AppendLedger(
+                _settingsDir,
+                new LedgerRecord
+                {
+                    Utc = DateTime.UtcNow,
+                    Event = eventName,
+                    TransactionId = transactionId,
+                    BatchId = batchId,
+                    Actor = Client.CharacterName,
+                    Role = role,
+                    Character = Client.CharacterName,
+                    Source = playerTrade ? _donationPartnerName : null,
+                    Destination = playerTrade ? Client.CharacterName : null,
+                    Message = message,
+                    Items = items?.Select(item => ToLedgerItem(
+                        item,
+                        role,
+                        null,
+                        null,
+                        null)).ToList()
+                });
+        }
+
+        private static LedgerItem ToLedgerItem(
+            TransferItemState item,
+            string role,
+            string bagSource,
+            int? bagOuterSlot,
+            int? innerSlot)
+        {
+            return new LedgerItem
+            {
+                UniqueIdentity = item?.UniqueIdentity,
+                AoId = item?.AoId ?? 0,
+                HighId = item?.HighId ?? 0,
+                Ql = item?.Ql ?? 0,
+                Name = item?.Name,
+                Role = role,
+                BagSource = bagSource,
+                BagOuterSlot = bagOuterSlot,
+                InnerSlot = innerSlot
+            };
+        }
+
+        private static DispatchBatchState FindBatch(DispatchQueueState queue, string batchId)
+        {
+            return queue?.Batches?.FirstOrDefault(b => string.Equals(
+                b.BatchId,
+                batchId,
+                StringComparison.Ordinal));
+        }
+
+        private static DateTime ParseUtc(JToken token)
+        {
+            DateTime value;
+            return token != null && DateTime.TryParse(token.ToString(), out value)
+                ? value.ToUniversalTime()
+                : DateTime.UtcNow;
+        }
+
+        private static int IntToken(JToken token)
+        {
+            int value;
+            return token != null && int.TryParse(token.ToString(), out value)
+                ? value
+                : 0;
+        }
+
+        private void SetStorageDeadline(int milliseconds)
+        {
+            if (_storageJob == null)
+                return;
+            _storageJob.PhaseStartedUtc = DateTime.UtcNow;
+            _storageJob.DeadlineUtc = DateTime.UtcNow.AddMilliseconds(milliseconds);
+        }
+
+        private static string ShortId(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "?";
+            return value.Length <= 12 ? value : value.Substring(value.Length - 8);
+        }
+
+        private static void TryDeclineTrade()
+        {
+            try
+            {
+                if (Trade.IsTrading)
+                    Trade.Decline();
+            }
+            catch
+            {
+            }
+        }
+
+        private sealed class ServiceConfig
+        {
+            public Dictionary<string, RoleConfig> Roles;
+        }
+
+        private sealed class RoleConfig
+        {
+            public string Username;
+            public string Character;
+        }
+
+        private sealed class DonationCleanupState
+        {
+            public string TransactionId;
+            public int ReceivedCount;
+            public List<TransferItemState> StoreItems = new List<TransferItemState>();
+            public List<TransferItemState> DeleteItems = new List<TransferItemState>();
+            public int DeleteIndex;
+            public int DeletedCount;
+            public TransferItemState PendingDelete;
+            public int PendingBeforeCount;
+            public DateTime DeleteDeadlineUtc;
+        }
+
+        private sealed class StorageJob
+        {
+            public DispatchCommand Command;
+            public int Index;
+            public int StoredCount;
+            public StoragePhase Phase;
+            public DateTime PhaseStartedUtc;
+            public DateTime DeadlineUtc;
+            public TransferItemState Expected;
+            public StorageBagState Bag;
+            public string BagLiveIdentity;
+            public string ActualItemIdentity;
+            public string ObservedStoredItemIdentity;
+            public int InnerSlot;
+            public int BagHandle;
+        }
+    }
+}
