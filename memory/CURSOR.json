@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 17,
-  "last_completed_session": 16,
-  "status": "in_progress",
+  "last_completed_session": 17,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T06:38:09Z",
+  "completed_utc": "2026-09-08T06:59:46Z",
   "transaction": "session-17-portable-runtime-layout",
-  "base_commit": "445fec3cae12731b7f9a8b7c4a8ca1cdc7bda89a",
-  "task": "Create a portable release/debug runtime root with executable-adjacent settings and bot-owned state under data.",
-  "resume_instruction": "Recover session-17-portable-runtime-layout. Inspect project output paths, post-build copies, runtime directory resolution, mutable file ownership, and deployment documentation. Complete and seal the portable layout before starting the separate unified-host/service transaction."
+  "base_commit": "8ad5c42a3bdb878a0343c1a857bb7a49deed5974",
+  "task": "Replace Manager, Flipper, and Buddies manual console startup with one City Dwellers executable that also runs as a Windows service after network/time readiness.",
+  "resume_instruction": "Start at RECOVERY.md. Repository is idle. Session 17 published the portable release/debug runtime layout. Begin a separate transaction for the unified host and Windows service; preserve idle Flipper/Buddies semantics and do not trust mapped drive letters in a service session."
 }
