@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using CityDwellers.Shared;
 using Newtonsoft.Json.Linq;
