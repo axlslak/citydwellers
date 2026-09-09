@@ -23,6 +23,8 @@ namespace CityBankers
         private bool _withdrawalAccepted;
         private Identity _withdrawalTradePartner = Identity.None;
         private bool _withdrawalPickupTrade;
+        private int _withdrawalItemMoveAttempts;
+        private DateTime _withdrawalNextItemMoveRetryUtc;
         private readonly HashSet<string> _withdrawalRecoveryAttemptedIds =
             new HashSet<string>(StringComparer.Ordinal);
 
@@ -404,6 +406,8 @@ namespace CityBankers
                 return;
             }
             item.MoveToContainer(DynelManager.LocalPlayer.Identity);
+            _withdrawalItemMoveAttempts = 1;
+            _withdrawalNextItemMoveRetryUtc = DateTime.UtcNow.AddSeconds(1);
             _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitItemInventory;
             SetWithdrawalDeadline();
         }
@@ -411,7 +415,32 @@ namespace CityBankers
         private void WithdrawalWaitItemInventory()
         {
             Item extracted = FindWithdrawalInventoryItem(_withdrawal);
-            if (extracted == null) return;
+            if (extracted == null)
+            {
+                if (_withdrawalItemMoveAttempts < 3 &&
+                    DateTime.UtcNow >= _withdrawalNextItemMoveRetryUtc)
+                {
+                    Container container = FindContainerByIdentity(_withdrawalBagIdentity);
+                    Item stillInBag = container != null && container.IsOpen && container.Items != null
+                        ? container.Items.FirstOrDefault(value =>
+                            value != null &&
+                            (value.Slot.Instance & 0xFFFF) == _withdrawal.SourceInnerSlot &&
+                            MatchesWithdrawalItem(value, _withdrawal))
+                        : null;
+                    if (stillInBag != null)
+                    {
+                        _withdrawalItemMoveAttempts++;
+                        _withdrawalNextItemMoveRetryUtc = DateTime.UtcNow.AddSeconds(2);
+                        Logger.Warning(
+                            "[CityBankers] WITHDRAWAL ITEM MOVE RETRY " +
+                            (_withdrawal?.Id ?? "?") + ": attempt " +
+                            _withdrawalItemMoveAttempts +
+                            " reissued for the same exact reserved item still visible in its source slot.");
+                        stillInBag.MoveToContainer(DynelManager.LocalPlayer.Identity);
+                    }
+                }
+                return;
+            }
             Logger.Information(
                 "[CityBankers] WITHDRAWAL ITEM OBSERVED " + (_withdrawal?.Id ?? "?") +
                 ": exact reserved item is now in " + Client.CharacterName +
@@ -675,6 +704,8 @@ namespace CityBankers
             _withdrawalBag = null;
             _withdrawalBagIdentity = null;
             _withdrawalBankBag = false;
+            _withdrawalItemMoveAttempts = 0;
+            _withdrawalNextItemMoveRetryUtc = DateTime.MinValue;
             ResetWithdrawalTrade();
         }
     }
