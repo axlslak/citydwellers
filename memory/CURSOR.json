@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 29,
-  "last_completed_session": 28,
-  "status": "in_progress",
+  "last_completed_session": 29,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T15:15:41Z",
-  "transaction": "session-29-recovery-idempotence-and-cache-trust",
-  "base_commit": "250ac16598dfadec1b231e7ab9cbc7f9e2980f66",
-  "task": "Finish the live-log follow-up: make zero-remainder Banker recovery idempotent and prevent a stale Flipper fallback cache from canceling a still-pending live cloak recovery.",
-  "resume_instruction": "The supplied 802-line live log proves batch 07c904d1 recovered 1/1 and Central cleared it, but Kbexte published the same zero-remainder success repeatedly before Central's queue update became visible. It also proves Apcflipper disconnected during zoning, the cooldown suppressed a new login, then a #cloak stale-cache fallback (observed roughly four hours earlier, raw shield timer negative) caused CityRaidAutomation.ObserveConfirmedState to log CLOAK RECOVERY COMPLETE and cancel future live retries. Add an exact successful-result idempotence guard on worker recovery and ensure general cached Manager observations cannot complete pending recovery; preserve display fallback and direct trigger-qualified ensure behavior. Static checks only."
+  "status_changed_utc": "2026-09-09T15:23:08Z",
+  "transaction": null,
+  "base_commit": "69f2023414b8e09a996846a7ca93858da1778758",
+  "task": "Owner validation boundary: rebuild Release and verify Banker recovery success is emitted once and stale Flipper display cache cannot settle a pending cloak recovery.",
+  "resume_instruction": "Cursor is idle. Batch 07c904d1 already recovered safely. Partial-placement recovery now waits when its exact successful result already exists, preventing duplicate zero-remainder completions before Central removes the queue entry. A general Flipper.Cache observation may update displayed state but cannot complete pending cloak recovery; fresh probe/event and trigger-qualified EnsureEnabled paths remain authoritative. On the next live run, let any failed probe pass through its 90-second cooldown and return the post-cooldown Flipper segment if zoning still disconnects."
 }
