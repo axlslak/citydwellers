@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 33,
+  "current_session": 34,
   "last_completed_session": 33,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T20:29:31Z",
-  "transaction": null,
-  "base_commit": "291105fba653bbaae9f092e18f013f7498fee072",
-  "task": "Await Kavey's Release build and staged live withdrawal test.",
-  "resume_instruction": "Cursor idle. #get/#withdraw AOID now creates one durable exact-copy reservation, worker extraction to Kbcentral, a three-minute canonical-main/alt pickup, AO-Finished-only archival, and verified timeout restorage through normal dispatch. Stock and active donor rows carry GET links. Build first; then test one expendable item, a decline/retry, and an expiry before broader use. Return all compiler or live logs for reconciliation."
+  "status_changed_utc": "2026-09-09T20:38:40Z",
+  "transaction": "session-34-orphaned-trading-restart-recovery",
+  "base_commit": "4bd623a8dabf072a3a56a912728985c2023d95fa",
+  "task": "Recover persisted dispatch batches orphaned in trading state by a host restart.",
+  "resume_instruction": "Extend Central post-login reconciliation to consider only trading batches whose UpdatedUtc predates this agent process start. Requeue only after all expected items are physically loose on Central and no same-batch worker custody evidence exists. Never touch a trade created during the current process. Static checks only; Kavey owns build and one controlled restart."
 }
