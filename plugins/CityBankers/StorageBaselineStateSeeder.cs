@@ -264,9 +264,9 @@ namespace CityBankers
                 .ThenBy(w => w.Character, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (state.Workers.Count != 5)
+            if (state.Workers.Count != 8)
                 throw new InvalidOperationException(
-                    "Validated baseline did not yield exactly five storage workers.");
+                    "Validated baseline did not yield exactly eight storage workers.");
 
             return state;
         }
@@ -315,6 +315,9 @@ namespace CityBankers
                 case "control": return 2;
                 case "support": return 3;
                 case "extermination": return 4;
+                case "spirit": return 5;
+                case "dyna": return 6;
+                case "phatz": return 7;
                 default: return 99;
             }
         }

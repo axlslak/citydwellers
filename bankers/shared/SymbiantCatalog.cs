@@ -1,14 +1,28 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using Newtonsoft.Json.Linq;
 
 namespace CityBankers.Shared
 {
     public static class SymbiantCatalog
     {
         public const int MaxCopiesPerExactSymbiant = 10;
+        public const int MaxCopiesPerExactSpirit = 5;
+        public const int KeepAllCopies = -1;
 
         private static readonly Dictionary<int, string> RoutesByAoid =
             new Dictionary<int, string>();
+        private static readonly object PolicySync = new object();
+        private static readonly Dictionary<int, int> BuiltInMaximumOverrides =
+            new Dictionary<int, int>
+            {
+                { 162322, 3 }, // NanoCrystal (Frenzy of Fur)
+                { 162347, 3 }  // Instruction Disc (Frenzy of Fur)
+            };
+        private static JObject CachedPolicy;
+        private static bool PolicyLoaded;
 
         static SymbiantCatalog()
         {
@@ -18,6 +32,15 @@ namespace CityBankers.Shared
             AddRoutes(SupportIds, "support");
             AddRoutes(ExterminationIds, "extermination");
             AddRoutes(CentralSpecialIds, "central");
+            AddRoutes(SpiritIds, "spirit");
+            AddRoutes(DynaNanoIds, "dyna");
+        }
+
+        public sealed class AcceptanceRule
+        {
+            public int AoId;
+            public string Role;
+            public int MaxCopies;
         }
 
         public static IReadOnlyDictionary<int, string> Routes => RoutesByAoid;
@@ -25,6 +48,131 @@ namespace CityBankers.Shared
         public static bool TryGetDestinationRole(int aoid, out string role)
         {
             return RoutesByAoid.TryGetValue(aoid, out role);
+        }
+
+        public static bool TryGetDestinationRole(
+            string settingsDirectory, int aoid, out string role)
+        {
+            AcceptanceRule rule;
+            bool accepted = TryGetRule(settingsDirectory, aoid, out rule);
+            role = accepted ? rule.Role : null;
+            return accepted;
+        }
+
+        public static int GetMaximumCopies(string settingsDirectory, int aoid)
+        {
+            AcceptanceRule rule;
+            return TryGetRule(settingsDirectory, aoid, out rule) ? rule.MaxCopies : 0;
+        }
+
+        public static bool TryGetRule(
+            string settingsDirectory,
+            int aoid,
+            out AcceptanceRule rule)
+        {
+            string role;
+            bool builtIn = RoutesByAoid.TryGetValue(aoid, out role);
+            int maximum = !builtIn || string.Equals(role, "dyna", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase)
+                ? KeepAllCopies
+                : string.Equals(role, "spirit", StringComparison.OrdinalIgnoreCase)
+                ? MaxCopiesPerExactSpirit
+                : MaxCopiesPerExactSymbiant;
+            int builtInOverride;
+            if (BuiltInMaximumOverrides.TryGetValue(aoid, out builtInOverride))
+                maximum = builtInOverride;
+            JObject policy = LoadPolicy(settingsDirectory);
+
+            if (builtIn && policy != null &&
+                !string.Equals(role, "dyna", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase))
+            {
+                string key = string.Equals(role, "spirit", StringComparison.OrdinalIgnoreCase)
+                    ? "SpiritMaxCopies"
+                    : "SymbiantMaxCopies";
+                maximum = ReadMaximum(policy.GetValue(key, StringComparison.OrdinalIgnoreCase), maximum);
+            }
+
+            JObject items = policy?.GetValue("Items", StringComparison.OrdinalIgnoreCase) as JObject;
+            JProperty itemProperty = items?.Properties().FirstOrDefault(property =>
+                string.Equals(property.Name, aoid.ToString(CultureInfo.InvariantCulture),
+                    StringComparison.OrdinalIgnoreCase));
+            if (itemProperty != null)
+            {
+                JObject item = itemProperty.Value as JObject;
+                if (item == null)
+                {
+                    rule = null;
+                    return false;
+                }
+                string configuredRole = item.GetValue("Role", StringComparison.OrdinalIgnoreCase)?.ToString();
+                if (!string.IsNullOrWhiteSpace(configuredRole)) role = configuredRole.Trim();
+                maximum = ReadMaximum(
+                    item.GetValue("MaxCopies", StringComparison.OrdinalIgnoreCase), maximum);
+                builtIn = !string.IsNullOrWhiteSpace(role);
+            }
+
+            if (!builtIn || maximum == 0)
+            {
+                rule = null;
+                return false;
+            }
+            if (maximum < KeepAllCopies)
+                throw new InvalidOperationException(
+                    "AcceptancePolicy MaxCopies must be -1 (keep all), 0 (reject), or a positive number.");
+            rule = new AcceptanceRule { AoId = aoid, Role = role, MaxCopies = maximum };
+            return true;
+        }
+
+        public static IReadOnlyCollection<AcceptanceRule> GetRules(string settingsDirectory)
+        {
+            var ids = new HashSet<int>(RoutesByAoid.Keys);
+            JObject items = LoadPolicy(settingsDirectory)?
+                .GetValue("Items", StringComparison.OrdinalIgnoreCase) as JObject;
+            foreach (JProperty property in items?.Properties() ?? Enumerable.Empty<JProperty>())
+            {
+                int aoid;
+                if (!int.TryParse(property.Name, NumberStyles.None, CultureInfo.InvariantCulture, out aoid) || aoid <= 0)
+                    throw new InvalidOperationException(
+                        "AcceptancePolicy.Items keys must be positive AOIDs; invalid key '" + property.Name + "'.");
+                ids.Add(aoid);
+            }
+            var result = new List<AcceptanceRule>();
+            foreach (int aoid in ids.OrderBy(value => value))
+            {
+                AcceptanceRule rule;
+                if (TryGetRule(settingsDirectory, aoid, out rule)) result.Add(rule);
+            }
+            return result;
+        }
+
+        public static bool IsAtRetentionLimit(AcceptanceRule rule, int storedCopies)
+        {
+            return rule != null && rule.MaxCopies != KeepAllCopies &&
+                storedCopies >= rule.MaxCopies;
+        }
+
+        private static int ReadMaximum(JToken token, int fallback)
+        {
+            int value;
+            if (token == null) return fallback;
+            if (!int.TryParse(token.ToString(), NumberStyles.Integer,
+                CultureInfo.InvariantCulture, out value))
+                throw new InvalidOperationException(
+                    "AcceptancePolicy copy limits must be integers (-1 keeps every copy).");
+            return value;
+        }
+
+        private static JObject LoadPolicy(string settingsDirectory)
+        {
+            lock (PolicySync)
+            {
+                if (PolicyLoaded) return CachedPolicy;
+                CachedPolicy = SettingsPaths.ReadBankersSettings(settingsDirectory)
+                    .GetValue("AcceptancePolicy", StringComparison.OrdinalIgnoreCase) as JObject;
+                PolicyLoaded = true;
+                return CachedPolicy;
+            }
         }
 
         public static bool IsManagedSymbiant(int aoid)
@@ -45,6 +193,12 @@ namespace CityBankers.Shared
             }
 
             return count;
+        }
+
+        public static int CountForRole(string settingsDirectory, string role)
+        {
+            return GetRules(settingsDirectory).Count(rule => string.Equals(
+                rule.Role, role, StringComparison.OrdinalIgnoreCase));
         }
 
         private static void AddRoutes(IEnumerable<int> aoids, string role)
@@ -178,6 +332,111 @@ namespace CityBankers.Shared
         {
             245306, 245895
         };
+
+        // Standard wearable Shade spirits from the bundled AO item database.
+        // This intentionally matches the owner's 654-record tier census and excludes
+        // three later outliers not present in that census (AOIDs 270246, 275026, 295715).
+        private static readonly int[] SpiritIds =
+        {
+            // Generated from AOSharp.Clientless ItemData.bin; exact IDs are kept here so
+            // acceptance does not depend on item names supplied by a remote trade packet.
+            224645, 224646, 224647, 224648, 224649, 224650, 224651, 224652, 224653, 224654, 224655, 224656,
+            224657, 224658, 224659, 224661, 224662, 224663, 224664, 224665, 224666, 224667, 224668, 224669,
+            224670, 224671, 224672, 224673, 224674, 224675, 224677, 224678, 224679, 224680, 224681, 224682,
+            224683, 224684, 224685, 224686, 224687, 224688, 224689, 224690, 224691, 224692, 224693, 224694,
+            224695, 224696, 224697, 224698, 224699, 224700, 224701, 224702, 224703, 224704, 224705, 224706,
+            224707, 224708, 224709, 224710, 224711, 224712, 224713, 224714, 224715, 224716, 224717, 224718,
+            224719, 224720, 224721, 224722, 224723, 224724, 224725, 224726, 224727, 224728, 224729, 224730,
+            224731, 224732, 224733, 224734, 224735, 224736, 224737, 224738, 224739, 224740, 224741, 224742,
+            224743, 224744, 224745, 224746, 224747, 224748, 224749, 224750, 224751, 224752, 224753, 224754,
+            224755, 224756, 224757, 224758, 224759, 224760, 224761, 224762, 224763, 224764, 224765, 224766,
+            224767, 224768, 224769, 224770, 224771, 224772, 224773, 224774, 224775, 224776, 224777, 224778,
+            224779, 224780, 224781, 224782, 224783, 224784, 224785, 224786, 224787, 224788, 224789, 224790,
+            224791, 224792, 224793, 224794, 224795, 224796, 224797, 224798, 224799, 224800, 224801, 224802,
+            224803, 224804, 224805, 224806, 224807, 224808, 224809, 224810, 224811, 224812, 224813, 224814,
+            224815, 224816, 224817, 224818, 224819, 224820, 224821, 224822, 224823, 224824, 224825, 224826,
+            224827, 224828, 224829, 224830, 224831, 224832, 224833, 224834, 224835, 224836, 224837, 224838,
+            224839, 224840, 224841, 224842, 224843, 224844, 224845, 224847, 224848, 224849, 224850, 224851,
+            224852, 224853, 224854, 224855, 224856, 224857, 224858, 224859, 224860, 224861, 224862, 224863,
+            224864, 224865, 224866, 224867, 224868, 224869, 224870, 224871, 224872, 224873, 224874, 224875,
+            224876, 224877, 224878, 224879, 224880, 224881, 224882, 224883, 224884, 224885, 224886, 224887,
+            224888, 224889, 224890, 224891, 224892, 224893, 224894, 224895, 224896, 224897, 224898, 224899,
+            224900, 224901, 224902, 224903, 224904, 224905, 224906, 224907, 224908, 224909, 224910, 224911,
+            224912, 224913, 224914, 224915, 224916, 224917, 224918, 224919, 224920, 224921, 224922, 224923,
+            224924, 224925, 224926, 224927, 224928, 224929, 224930, 224931, 224932, 224933, 224934, 224935,
+            224936, 224937, 224938, 224939, 224940, 224941, 224942, 224943, 224944, 224945, 224946, 224947,
+            224948, 224949, 224950, 224951, 224952, 224953, 224954, 224955, 224956, 224957, 224958, 224959,
+            224960, 224961, 224962, 224963, 224964, 224965, 224966, 224967, 224968, 224969, 224970, 224971,
+            224972, 224973, 224974, 224975, 224976, 224977, 224978, 224979, 224980, 224981, 224982, 224983,
+            224984, 224985, 224986, 224987, 224988, 224989, 224990, 224991, 224992, 224993, 224994, 224995,
+            224996, 224997, 224998, 224999, 225000, 225001, 225002, 225003, 225004, 225005, 225006, 225007,
+            225008, 225009, 225010, 225011, 225012, 225013, 225014, 225015, 225016, 225017, 225018, 225019,
+            225020, 225021, 225022, 225023, 225024, 225025, 225026, 225027, 225028, 225029, 225030, 225031,
+            225032, 225033, 225034, 225035, 225036, 225037, 225038, 225039, 225040, 225041, 225042, 225043,
+            225044, 225045, 225046, 225047, 225048, 225049, 225050, 225051, 225052, 225053, 225054, 225055,
+            225056, 225057, 225058, 225059, 225060, 225061, 225062, 225063, 225064, 225065, 225066, 225067,
+            225068, 225069, 225070, 225071, 225072, 225073, 225074, 225075, 225076, 225077, 225078, 225079,
+            225080, 225081, 225082, 225083, 225084, 225085, 225086, 225087, 225088, 225089, 225090, 225091,
+            225092, 225093, 225094, 225095, 225096, 225097, 225098, 225099, 225100, 225101, 225102, 225103,
+            225104, 225105, 225106, 225107, 225108, 225109, 225110, 225111, 225112, 225113, 225114, 225115,
+            225116, 225117, 225118, 225119, 225120, 225121, 225122, 225123, 225124, 225125, 225126, 225127,
+            225128, 225129, 225130, 225131, 225132, 225133, 225134, 225135, 225136, 225137, 225138, 225139,
+            225140, 225141, 225142, 225143, 225144, 225145, 225146, 225147, 225148, 225149, 225150, 225151,
+            225152, 225153, 225154, 225155, 225156, 225157, 225158, 225159, 225160, 225161, 225162, 225163,
+            225164, 225165, 225166, 225167, 225168, 225169, 225170, 225171, 225172, 225173, 225174, 225175,
+            225176, 225177, 225178, 225179, 225180, 225181, 225182, 225183, 225184, 225185, 225186, 225187,
+            225188, 225189, 225190, 225191, 225192, 225193, 225194, 225195, 225196, 225197, 225198, 225199,
+            225200, 225201, 225202, 225203, 225204, 225205, 225206, 225207, 225208, 225209, 225210, 225211,
+            225212, 225213, 225214, 225215, 225216, 225217, 225218, 225219, 225220, 225221, 225222, 225223,
+            225224, 225225, 225226, 225227, 225228, 225229, 225230, 225231, 225232, 225233, 225234, 225235,
+            225236, 225237, 225238, 225239, 225240, 225241, 225242, 225243, 225244, 225245, 225246, 225247,
+            225248, 225249, 225250, 225251, 225252, 225253, 225254, 225255, 225256, 225257, 225258, 225259,
+            225260, 225261, 225262, 225263, 225264, 279068, 279069, 279070, 279071, 279072, 279073, 279074,
+            279075, 279076, 279077, 279078, 279079, 279080, 279081, 279082, 279083, 279084, 279085, 279086,
+            279087, 279088, 279089, 279090, 279091, 279092, 279093, 279094, 279095, 279096, 279097, 279098,
+            279099, 279100, 279101, 279102, 279173, 279321
+        };
+
+        // Nano crystals classified by Nadybot as RK Dyna or RK Mob drops, plus
+        // every matching instruction disc. Keep-all is the safe default; admins
+        // can set finite per-AOID limits in Bankers.AcceptancePolicy.Items.
+        private static readonly int[] DynaNanoIds =
+        {
+            28821, 28822, 28823, 85146, 146778, 147792, 147793, 147796, 150632, 150667, 154985, 154996,
+            155000, 155026, 155031, 155035, 155190, 155191, 155192, 155193, 155198, 155199, 155200, 155201,
+            160711, 160713, 160790, 160792, 160794, 160796, 160823, 160825, 160827, 160829, 160837, 160840,
+            160846, 160849, 160852, 160855, 160861, 160864, 160867, 160870, 160896, 160898, 160910, 161091,
+            161093, 161097, 161148, 161150, 161152, 161156, 161158, 161160, 161164, 161166, 161168, 161383,
+            161386, 161392, 161395, 161398, 161404, 161410, 161413, 161416, 161422, 161425, 161428, 161434,
+            161437, 161440, 161677, 161679, 161681, 161691, 161693, 161885, 161888, 161891, 161894, 161897,
+            161921, 161932, 162120, 162122, 162129, 162132, 162257, 162259, 162261, 162316, 162318, 162320,
+            162322, 162326, 162329, 162332, 162338, 162341, 162344, 162347, 162487, 162489, 162491, 162493,
+            162495, 162501, 162504, 162507, 162510, 162513, 162590, 162592, 162594, 162596, 162600, 162604,
+            162605, 162608, 162611, 162614, 162620, 162626, 162721, 162723, 162725, 162727, 162729, 162731,
+            162733, 162735, 162745, 162748, 162751, 162754, 162757, 162760, 162763, 162766, 162838, 162840,
+            162842, 163082, 163084, 163086, 163088, 163096, 163097, 163104, 163107, 163110, 163113, 163116,
+            163120, 163123, 163126, 163130, 163395, 163397, 163410, 163413, 201522, 201524, 202792, 202794,
+            202795, 202798, 202817, 202819, 202820, 202823, 202833, 202835, 202837, 202839, 202843, 202845,
+            202847, 202853, 202855, 202857, 202859, 202861, 202863, 202865, 202872, 202875, 202878, 202881,
+            202884, 202887, 202890, 202893, 202896, 202899, 202902, 202905, 202908, 202911, 203120, 203126,
+            203128, 203130, 203132, 203138, 203140, 203142, 203144, 203146, 203162, 203165, 203168, 203171,
+            203174, 203177, 203180, 203183, 203186, 203189, 203206, 203208, 203210, 203212, 203217, 203220,
+            203223, 203226, 203596, 203600, 203602, 203604, 203608, 203610, 203660, 203662, 203664, 203666,
+            203670, 203672, 203676, 203679, 203685, 203691, 203694, 203697, 203703, 203706, 203709, 203712,
+            203718, 203721, 203787, 203789, 203791, 203793, 203800, 203802, 203804, 203808, 203810, 203814,
+            203838, 203840, 203843, 203845, 203847, 203853, 203856, 203858, 203860, 203862, 203864, 203866,
+            203868, 203874, 203878, 203881, 203884, 203887, 203896, 203899, 203902, 203905, 203908, 203912,
+            203915, 203918, 203921, 203930, 203936, 203939, 203942, 203945, 203951, 203953, 203955, 203957,
+            203961, 203963, 203965, 203969, 203971, 203975, 203979, 203981, 203983, 203985, 203989, 203992,
+            203995, 203998, 204004, 204007, 204010, 204016, 204019, 204022, 204028, 204039, 204042, 204045,
+            204048, 204051, 204057, 204060, 204304, 204306, 204311, 204313, 204317, 204319, 204336, 204338,
+            204342, 204344, 204348, 204350, 204352, 204354, 204356, 204365, 204367, 204369, 204371, 204421,
+            204423, 204428, 204430, 204432, 204433, 204436, 204442, 204445, 204451, 204454, 204457, 204460,
+            204463, 204469, 204472, 204475, 204478, 204487, 204490, 204496, 204499, 204520, 204523, 204526,
+            204529, 204532, 205162, 205165, 205188, 205190, 205194, 205205, 205208, 205214, 205242, 205244,
+            205246, 205248, 205250, 205272, 205275, 205278, 205281, 205284, 205298, 205300, 205302, 205304,
+            205320, 205323, 205326, 205329, 205438, 205440, 205444, 210328, 210330, 210332, 210493, 210495,
+            210620, 210622, 210682, 211163, 211169, 211171, 230375, 230377, 230381, 230383
+        };
     }
 }
-

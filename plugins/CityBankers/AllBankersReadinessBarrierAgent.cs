@@ -13,7 +13,7 @@ namespace CityBankers
 {
     /// <summary>
     /// Holds all Central dispatch work while Banker.exe all is still assembling the
-    /// six clientless bankers. Readiness is current-run physical evidence: every
+    /// configured clientless bankers. Readiness is current-run physical evidence: every
     /// configured canonical banker must publish a fresh diagnostic, every storage worker
     /// must reconcile its persisted bag identities to the current live AO outer slots,
     /// and every worker must prove that the next bag it would actually write to has live,
@@ -37,7 +37,10 @@ namespace CityBankers
             "infantry",
             "control",
             "support",
-            "extermination"
+            "extermination",
+            "spirit",
+            "dyna",
+            "phatz"
         };
 
         private string _settingsDir;
@@ -74,8 +77,10 @@ namespace CityBankers
 
             Logger.Information(
                 "[CityBankers] ALL-BANKERS READINESS barrier armed on Central; " +
-                "dispatch/recovery held until all six fresh diagnostics, all five live " +
-                "storage-layout reconciliations, and all five live write-front capacity " +
+                "dispatch/recovery held until all " + RequiredRoles.Length +
+                " fresh diagnostics, all " + (RequiredRoles.Length - 1) + " live " +
+                "storage-layout reconciliations, and all " + (RequiredRoles.Length - 1) +
+                " live write-front capacity " +
                 "proofs are complete.");
         }
 
@@ -126,8 +131,9 @@ namespace CityBankers
                 ReleaseDispatchQueueAfterStartup();
 
                 string message =
-                    "All 6 bankers are ready. Fresh diagnostics, all 5 live storage " +
-                    "layouts, and all 5 live write fronts are reconciled; startup " +
+                    "All " + RequiredRoles.Length + " bankers are ready. Fresh diagnostics, all " +
+                    (RequiredRoles.Length - 1) + " live storage layouts, and all " +
+                    (RequiredRoles.Length - 1) + " live write fronts are reconciled; startup " +
                     "dispatch barrier released.";
                 Logger.Information("[CityBankers] " + message);
                 TellKavem(message);

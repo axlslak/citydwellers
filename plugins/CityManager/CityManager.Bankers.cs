@@ -38,7 +38,8 @@ namespace CityManager
 
                 foreach (string role in new[]
                 {
-                    "central", "artillery", "infantry", "control", "support", "extermination"
+                    "central", "artillery", "infantry", "control", "support", "extermination",
+                    "spirit", "dyna", "phatz"
                 })
                 {
                     JObject roleConfig = roles?.GetValue(role, StringComparison.OrdinalIgnoreCase) as JObject;
@@ -87,6 +88,14 @@ namespace CityManager
                             string.Equals(value.Character, character, StringComparison.OrdinalIgnoreCase));
                     int used = worker?.Bags?.Sum(bag => bag?.Items?.Count ?? 0) ?? 0;
                     int capacity = worker?.Bags?.Sum(bag => Math.Max(0, bag?.Capacity ?? 0)) ?? 0;
+                    List<SymbiantCatalog.AcceptanceRule> roleRules = SymbiantCatalog
+                        .GetRules(_settingsDir)
+                        .Where(rule => string.Equals(rule.Role, role, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    bool unboundedPolicy = roleRules.Any(rule =>
+                        rule.MaxCopies == SymbiantCatalog.KeepAllCopies);
+                    int policySlots = roleRules.Where(rule => rule.MaxCopies > 0)
+                        .Sum(rule => rule.MaxCopies);
                     totalUsed += used;
                     totalCapacity += capacity;
 
@@ -101,6 +110,11 @@ namespace CityManager
                         pending > 0 ? "; queued " + pending : string.Empty;
                     if (withdrawalHere)
                         workText += "; reserved items " + localOrders.Count;
+                    if (unboundedPolicy)
+                        workText += "; retention unbounded - monitor free space";
+                    else if (policySlots > capacity && capacity > 0)
+                        workText += "; policy ceiling " + policySlots + " exceeds capacity by " +
+                            (policySlots - capacity);
 
                     lines.Append(StatusLine(usable, character + " (" + role + ")",
                         state + capacityText + workText));

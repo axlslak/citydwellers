@@ -28,7 +28,10 @@ internal static class BagAuditRunner
         "infantry",
         "control",
         "support",
-        "extermination"
+        "extermination",
+        "spirit",
+        "dyna",
+        "phatz"
     };
 
     public static void Run()
@@ -94,7 +97,7 @@ internal static class BagAuditRunner
             Console.WriteLine();
             Console.WriteLine($"Run:       {runId}");
             Console.WriteLine("Mode:      non-destructive staged bag identity/content discovery");
-            Console.WriteLine("Workers:   5 storage bankers concurrently after Central");
+            Console.WriteLine($"Workers:   {roles.Count - 1} storage bankers concurrently after Central");
             Console.WriteLine("Bank bags: stage one at a time through normal inventory, open/read, return to bank");
             Console.WriteLine($"Plugin:    {pluginPath}");
             Console.WriteLine($"State:     {baseDir}");
@@ -142,7 +145,7 @@ internal static class BagAuditRunner
 
             Console.WriteLine();
             Console.WriteLine(
-                "Central is ready. Starting all five storage workers now; their AO " +
+                $"Central is ready. Starting all {workers.Count} storage workers now; their AO " +
                 "connections and audits overlap concurrently.");
 
             foreach (AuditRuntime worker in workers)
@@ -181,7 +184,7 @@ internal static class BagAuditRunner
             Console.WriteLine();
             Console.WriteLine(
                 "Issuing one audit command to each storage worker. Each worker processes " +
-                "its own bags serially while all five workers run in parallel.");
+                $"its own bags serially while all {workers.Count} workers run in parallel.");
 
             foreach (AuditRuntime worker in workers)
             {
@@ -264,7 +267,7 @@ internal static class BagAuditRunner
 
             Console.WriteLine();
             Console.WriteLine(
-                $"Result: {complete}/5 worker results; audit failures={failures}; " +
+                $"Result: {complete}/{workers.Count} worker results; audit failures={failures}; " +
                 $"bank-return failures={returnFailures}; fatalResults={fatalResults}; " +
                 $"non-empty bags={nonempty}.");
             Console.WriteLine($"Diagnostic dump created: {dumpPath}");
@@ -282,7 +285,7 @@ internal static class BagAuditRunner
 
             Console.WriteLine();
             Console.WriteLine(
-                "All six started bankers remain online. Press ENTER to unload them cleanly.");
+                $"All {runtimes.Count} started bankers remain online. Press ENTER to unload them cleanly.");
             Console.ReadLine();
         }
         catch (Exception ex)
@@ -360,7 +363,7 @@ internal static class BagAuditRunner
             if (!IsFullyConfigured(account))
             {
                 error =
-                    $"CityDwellers.exe bankers-bagaudit requires all six roles. Role '{roleName}' " +
+                    $"CityDwellers.exe bankers-bagaudit requires all nine roles. Role '{roleName}' " +
                     "is missing or still uses a placeholder mapping.";
                 return false;
             }

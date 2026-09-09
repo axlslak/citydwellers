@@ -119,7 +119,7 @@ normally are not visible to services.
 On first run, City Dwellers creates one complete `citydwellers.json` template
 beside the executable and exits. Fill in the `user1`, `pass1`, and `char1`
 example values in its `Manager`, `Flipper`, and `Buddies` sections, and replace
-the placeholder shared password and six role mappings in `Bankers`, then start
+the placeholder shared password and nine role mappings in `Bankers`, then start
 the program again. The host rejects unchanged examples before attempting to
 log in.
 
@@ -143,7 +143,7 @@ the alt bot is unavailable.
 ## Unified host and Windows service
 
 Run `CityDwellers.exe` for an interactive console. It starts the persistent
-Manager AO client, the idle Flipper and Buddies request services, and all six
+Manager AO client, the idle Flipper and Buddies request services, and all nine
 banker AO clients inside one supervised process. Flipper does not log its
 character in until it receives an operation; Buddies starts zero helper AO
 sessions until Manager requests them. Press ENTER or CTRL+C to stop every

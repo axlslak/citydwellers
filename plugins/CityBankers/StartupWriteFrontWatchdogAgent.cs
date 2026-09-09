@@ -38,7 +38,10 @@ namespace CityBankers
             "infantry",
             "control",
             "support",
-            "extermination"
+            "extermination",
+            "spirit",
+            "dyna",
+            "phatz"
         };
 
         private string _settingsDir;

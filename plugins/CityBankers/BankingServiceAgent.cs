@@ -268,7 +268,7 @@ namespace CityBankers
             List<StockItemState> items = stock?.Items ?? new List<StockItemState>();
             string byRole = string.Join(
                 ", ",
-                new[] { "artillery", "infantry", "control", "support", "extermination" }
+                new[] { "artillery", "infantry", "control", "support", "extermination", "spirit", "dyna", "phatz" }
                     .Select(role => role + "=" + items.Count(i => string.Equals(
                         i.Role, role, StringComparison.OrdinalIgnoreCase))));
             int misplaced = items.Count(i =>
@@ -589,7 +589,7 @@ namespace CityBankers
                     0,
                     ServicePolicy.MaxTradeItems) +
                 "Trade opened. Add up to " + ServicePolicy.MaxTradeItems +
-                " managed symbiants. Take your time: Central waits for " +
+                " accepted bank items. Take your time: Central waits for " +
                 ServicePolicy.DonationInactivitySeconds +
                 " seconds of unchanged trade contents before proceeding.");
             AppendTradeLedger(
@@ -674,7 +674,7 @@ namespace CityBankers
             foreach (TransferItemState item in offered)
             {
                 string destination;
-                if (!SymbiantCatalog.TryGetDestinationRole(item.AoId, out destination))
+                if (!SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.AoId, out destination))
                 {
                     error =
                         "Unmanaged item in donation: " + item.Name + " AOID=" + item.AoId +
@@ -685,8 +685,16 @@ namespace CityBankers
                 if (string.Equals(destination, "central", StringComparison.OrdinalIgnoreCase))
                 {
                     error =
-                        "Central-special symbiants are not physically assigned to a storage worker yet: " +
+                        "This accepted item is routed to Central rather than a storage worker: " +
                         item.Name + ". The entire trade is being declined safely.";
+                    return false;
+                }
+                RoleConfig storageRole;
+                if (!TryGetRole(destination, out storageRole) || storageRole == null ||
+                    string.IsNullOrWhiteSpace(storageRole.Character))
+                {
+                    error = "Accepted item " + item.Name + " routes to unconfigured role '" +
+                        destination + "'. The entire trade is being declined safely.";
                     return false;
                 }
             }
@@ -735,7 +743,8 @@ namespace CityBankers
                 if (!projectedCounts.TryGetValue(key, out count))
                     count = CountStoredCopies(stock, item);
 
-                if (count >= ServicePolicy.MaxStoredCopiesPerTemplate)
+                SymbiantCatalog.AcceptanceRule rule = GetAcceptanceRule(item.AoId);
+                if (SymbiantCatalog.IsAtRetentionLimit(rule, count))
                     deleteItems.Add(item);
                 else
                 {
@@ -761,7 +770,7 @@ namespace CityBankers
                 };
                 TellDonationPartner(
                     "Donation received. " + deleteItems.Count +
-                    " item(s) exceed the ten-copy retention cap; Central will delete those excess copies and verify each deletion before dispatching the remaining " +
+                    " item(s) exceed their configured per-AOID retention cap; Central will delete those excess copies and verify each deletion before dispatching the remaining " +
                     storeItems.Count + " item(s).");
                 return;
             }
@@ -851,8 +860,8 @@ namespace CityBankers
                 _role,
                 "DELETE REQUESTED one of " + matches.Count + " matching loose copies of " +
                 expected.Name + " QL" + expected.Ql +
-                " because projected exact-template stock exceeds cap " +
-                ServicePolicy.MaxStoredCopiesPerTemplate + ".");
+                " because projected exact-template stock exceeds configured cap " +
+                GetAcceptanceRule(expected.AoId).MaxCopies + ".");
             matches[0].Delete();
         }
 
@@ -951,7 +960,7 @@ namespace CityBankers
                 (items ?? Enumerable.Empty<TransferItemState>()).GroupBy(item =>
                 {
                     string destination;
-                    return SymbiantCatalog.TryGetDestinationRole(item.AoId, out destination)
+                    return SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.AoId, out destination)
                         ? destination
                         : "unmanaged";
                 }, StringComparer.OrdinalIgnoreCase))
@@ -1891,18 +1900,18 @@ namespace CityBankers
         {
             if (item == null)
                 return;
-            string destination;
-            if (!SymbiantCatalog.TryGetDestinationRole(item.AoId, out destination))
+            SymbiantCatalog.AcceptanceRule rule;
+            if (!SymbiantCatalog.TryGetRule(_settingsDir, item.AoId, out rule))
             {
                 TellDonationPartner(
                     "You are adding " + BuildItemLink(item) +
                     ". This item is " + CityBankersChatPalette.Red("NOT ACCEPTED") +
-                    " because it is not in the managed symbiant catalog.");
+                    " because it is not in Central's acceptance policy.");
                 return;
             }
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
             int count = CountStoredCopies(stock, item);
-            if (count >= ServicePolicy.MaxStoredCopiesPerTemplate)
+            if (SymbiantCatalog.IsAtRetentionLimit(rule, count))
             {
                 TellDonationPartner(
                     "You are adding " + BuildItemLink(item) +
@@ -1916,6 +1925,15 @@ namespace CityBankers
                 ". This item will be " + CityBankersChatPalette.Green("STORED") +
                 ". We currently have " + CityBankersChatPalette.Yellow(count.ToString()) +
                 " of these.");
+        }
+
+        private SymbiantCatalog.AcceptanceRule GetAcceptanceRule(int aoId)
+        {
+            SymbiantCatalog.AcceptanceRule rule;
+            if (!SymbiantCatalog.TryGetRule(_settingsDir, aoId, out rule))
+                throw new InvalidOperationException(
+                    "AOID " + aoId + " is absent from Central's acceptance policy.");
+            return rule;
         }
 
         private void AnnounceDonationItemRemoved(TransferItemState item)
@@ -1953,9 +1971,7 @@ namespace CityBankers
                 return 0;
             return (stock?.Items ?? new List<StockItemState>()).Count(candidate =>
                 candidate != null &&
-                candidate.AoId == item.AoId &&
-                candidate.HighId == item.HighId &&
-                candidate.Ql == item.Ql);
+                candidate.AoId == item.AoId);
         }
 
         private static List<TransferItemState> MultisetDifference(
@@ -1980,7 +1996,7 @@ namespace CityBankers
         {
             if (item == null)
                 return string.Empty;
-            return item.AoId + ":" + item.HighId + ":" + item.Ql;
+            return item.AoId.ToString();
         }
 
         private static List<TransferItemState> SnapshotTradeItems(IEnumerable<Item> items)

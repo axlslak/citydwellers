@@ -8,7 +8,7 @@ using CityBankers.Shared;
 namespace CityBankers
 {
     /// <summary>
-    /// AO-native, current-stock-driven query tree for symbiant availability.
+    /// AO-native, current-stock-driven query tree for accepted bank inventory.
     ///
     /// Canonical grammar:
     ///   stock [family [slot [targetQl]]]
@@ -25,7 +25,10 @@ namespace CityBankers
             "infantry",
             "control",
             "support",
-            "extermination"
+            "extermination",
+            "spirit",
+            "dyna",
+            "phatz"
         };
 
         private static readonly string[] SlotOrder =
@@ -60,7 +63,15 @@ namespace CityBankers
                 { "supp", "support" },
                 { "extermination", "extermination" },
                 { "exterm", "extermination" },
-                { "ext", "extermination" }
+                { "ext", "extermination" },
+                { "spirit", "spirit" },
+                { "spirits", "spirit" },
+                { "dyna", "dyna" },
+                { "dynas", "dyna" },
+                { "nano", "dyna" },
+                { "nanos", "dyna" },
+                { "phatz", "phatz" },
+                { "phat", "phatz" }
             };
 
         private static readonly Dictionary<string, string> SlotAliases =
@@ -157,6 +168,15 @@ namespace CityBankers
                 return true;
             }
 
+            if (!IsSlottedFamily(family))
+            {
+                int familyQl;
+                response = int.TryParse(raw[index], out familyQl) && familyQl > 0
+                    ? BuildGenericQl(items, centralCharacter, commandPrefix, family, familyQl)
+                    : BuildFamily(items, centralCharacter, commandPrefix, family);
+                return true;
+            }
+
             string slot;
             int consumed;
             if (!TryNormalizeSlot(raw, index, out slot, out consumed))
@@ -242,9 +262,12 @@ namespace CityBankers
             if (familyItems.Count == 0)
             {
                 return "No " + DisplayFamily(family) +
-                    " symbiants are in stock right now. " +
+                    " items are in stock right now. " +
                     ChatCommand("Stock", centralCharacter, commandPrefix + "stock");
             }
+
+            if (!IsSlottedFamily(family))
+                return BuildGenericFamily(familyItems, centralCharacter, commandPrefix, family);
 
             var slots = SlotOrder
                 .Select(slot => new
@@ -278,6 +301,66 @@ namespace CityBankers
             return DisplayFamily(family) + ": " +
                 familyItems.Count + " copies in " + CountTemplates(familyItems) +
                 " stocked types. " + Blob("Open " + DisplayFamily(family), body.ToString());
+        }
+
+        private static string BuildGenericFamily(
+            List<StockItemState> familyItems,
+            string centralCharacter,
+            string commandPrefix,
+            string family)
+        {
+            var body = new StringBuilder();
+            body.Append(CityBankersChatPalette.White(DisplayFamily(family) + " Stock"));
+            body.Append("<br><br>");
+            foreach (var tier in familyItems.GroupBy(item => item.Ql).OrderBy(group => group.Key))
+            {
+                body.Append(ChatCommand("QL " + tier.Key, centralCharacter,
+                    commandPrefix + "stock " + family + " " + tier.Key));
+                body.Append("  ");
+                body.Append(Color(CountTemplates(tier).ToString(), "#FFFF00"));
+                body.Append(" types / ");
+                body.Append(Color(tier.Count().ToString(), "#00FF00"));
+                body.Append(" copies<br>");
+            }
+            return DisplayFamily(family) + ": " + familyItems.Count + " copies in " +
+                CountTemplates(familyItems) + " stocked types. " +
+                Blob("Open " + DisplayFamily(family), body.ToString());
+        }
+
+        private static string BuildGenericQl(
+            List<StockItemState> items,
+            string centralCharacter,
+            string commandPrefix,
+            string family,
+            int ql)
+        {
+            List<StockTemplate> templates = GroupTemplates(FamilyItems(items, family)
+                    .Where(item => item.Ql == ql))
+                .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            if (templates.Count == 0)
+                return "No " + DisplayFamily(family) + " items at QL " + ql + ".";
+            var body = new StringBuilder();
+            body.Append(CityBankersChatPalette.White(DisplayFamily(family) + " QL " + ql));
+            body.Append("<br><br>");
+            foreach (StockTemplate template in templates)
+            {
+                body.Append(ItemLink(template));
+                body.Append("  x");
+                body.Append(Color(template.Count.ToString(), "#FFFF00"));
+                body.Append("  ");
+                body.Append(ChatCommand("GET", centralCharacter,
+                    commandPrefix + "get " + template.AoId));
+                body.Append("<br>");
+            }
+            return DisplayFamily(family) + " QL " + ql + ": " + templates.Count +
+                " stocked types. " + Blob("Open items", body.ToString());
+        }
+
+        private static bool IsSlottedFamily(string family)
+        {
+            return !string.Equals(family, "spirit", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(family, "dyna", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(family, "phatz", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string BuildSlot(

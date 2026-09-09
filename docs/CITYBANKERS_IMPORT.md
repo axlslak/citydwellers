@@ -42,7 +42,41 @@ CityBankers schema:
 - shared `Password`;
 - `MaxParallelLogins`;
 - `DiagnosticTimeoutMs`;
-- six `Roles` entries containing `Username` and `Character`.
+- nine `Roles` entries containing `Username` and `Character`: `central`, the
+  five symbiant families, `spirit`, `dyna`, and `phatz`. The last three
+  default mappings are `kbspirit` / `Kbspirit`, `kbdyna` / `Kbdyna`, and
+  `kbphatz` / `Kbphatz`. Override a username if its AO account differs.
+
+`Bankers.AcceptancePolicy` is Central's single acceptance, routing, and
+retention policy. It belongs in `citydwellers.json`:
+
+```json
+"AcceptancePolicy": {
+  "SymbiantMaxCopies": 10,
+  "SpiritMaxCopies": 5,
+  "Items": {
+    "123456": { "Name": "Example rare nano", "Role": "dyna", "MaxCopies": 3 },
+    "234567": { "Name": "Example never-delete item", "Role": "phatz", "MaxCopies": -1 }
+  }
+}
+```
+
+The built-in catalogue contains the existing symbiants, exactly 654 standard
+Shade-spirit AOIDs, and 418 dyna-nano AOIDs. The dyna set contains 220 crystals
+classified as `RK Dyna`, a mixed `RK Dyna` location, or `RK Mob` in Nadybot's
+maintained nano data plus 198 matching instruction discs from its disc map.
+Every one resolves in the bundled AOSharp item database. Dyna defaults to
+keep-all except both Frenzy of Fur forms, which start at three copies per
+AOID. Both Grid Armor IV forms remain keep-all. No phatz are guessed or
+accepted until an admin lists them.
+
+`Items` overrides a built-in AOID or adds a new accepted AOID. `MaxCopies: -1`
+keeps every copy, `0` rejects that AOID, and a positive value is the retained-
+copy ceiling. A custom AOID with no `MaxCopies` defaults to keep-all. Policy is
+read at process start; restart after editing it. Dyna source snapshot:
+Nadybot/Nadybot commit `de9e3b2c8d2f91df87c614a3d9f91bc16c2eacf2`,
+`src/Modules/NANO_MODULE/nanos.csv` and
+`src/Modules/DISC_MODULE/discs.csv`.
 
 Credentials are private deployment data and are never committed.
 

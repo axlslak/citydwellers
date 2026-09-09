@@ -26,7 +26,10 @@ public class BankerLoader
         "infantry",
         "control",
         "support",
-        "extermination"
+        "extermination",
+        "spirit",
+        "dyna",
+        "phatz"
     };
 
     private static BankerConfig _config;
@@ -126,6 +129,26 @@ public class BankerLoader
         if (_config.MaxParallelLogins <= 0)
             _config.MaxParallelLogins = 32;
 
+        try
+        {
+            foreach (SymbiantCatalog.AcceptanceRule rule in SymbiantCatalog.GetRules(_settingsDir))
+            {
+                AccountMapping destination;
+                if (!TryGetRole(rule.Role, out destination) || !IsFullyConfigured(destination))
+                {
+                    StopForConfiguration(
+                        "AcceptancePolicy AOID " + rule.AoId + " routes to missing or " +
+                        "placeholder role '" + rule.Role + "'.");
+                    return false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            StopForConfiguration("Invalid Bankers.AcceptancePolicy: " + ex.Message);
+            return false;
+        }
+
         return true;
     }
 
@@ -136,6 +159,12 @@ public class BankerLoader
             Password = "pass1",
             MaxParallelLogins = 32,
             DiagnosticTimeoutMs = DefaultDiagnosticTimeoutMs,
+            AcceptancePolicy = new AcceptancePolicyConfig
+            {
+                SymbiantMaxCopies = 10,
+                SpiritMaxCopies = 5,
+                Items = new Dictionary<string, AcceptanceItemConfig>()
+            },
             Roles = new Dictionary<string, AccountMapping>
             {
                 { "central", NewPlaceholder("central") },
@@ -143,7 +172,10 @@ public class BankerLoader
                 { "infantry", NewPlaceholder("infantry") },
                 { "control", NewPlaceholder("control") },
                 { "support", NewPlaceholder("support") },
-                { "extermination", NewPlaceholder("extermination") }
+                { "extermination", NewPlaceholder("extermination") },
+                { "spirit", NewAccount("kbspirit", "Kbspirit") },
+                { "dyna", NewAccount("kbdyna", "Kbdyna") },
+                { "phatz", NewAccount("kbphatz", "Kbphatz") }
             }
         };
 
@@ -157,6 +189,11 @@ public class BankerLoader
             Username = $"account-{role}",
             Character = $"character-{role}"
         };
+    }
+
+    private static AccountMapping NewAccount(string username, string character)
+    {
+        return new AccountMapping { Username = username, Character = character };
     }
 
     private static bool TryGetRole(string requestedRole, out AccountMapping account)
@@ -208,6 +245,12 @@ public class BankerLoader
             return 4;
         if (string.Equals(role, "extermination", StringComparison.OrdinalIgnoreCase))
             return 5;
+        if (string.Equals(role, "spirit", StringComparison.OrdinalIgnoreCase))
+            return 6;
+        if (string.Equals(role, "dyna", StringComparison.OrdinalIgnoreCase))
+            return 7;
+        if (string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase))
+            return 8;
 
         return 100;
     }
@@ -238,7 +281,10 @@ public class BankerLoader
             "infantry",
             "control",
             "support",
-            "extermination"
+            "extermination",
+            "spirit",
+            "dyna",
+            "phatz"
         };
 
         List<string> missing = requiredRoles
@@ -253,7 +299,7 @@ public class BankerLoader
             return true;
 
         error =
-            "CityDwellers requires all six banker roles to be fully " +
+            "CityDwellers requires all nine banker roles to be fully " +
             "configured. Missing: " + string.Join(", ", missing) + ".";
         return false;
     }
@@ -616,7 +662,7 @@ public class BankerLoader
     {
         var messages = new List<string>
         {
-            "CityBankers capacity report: 10 copies per exact tradable symbiant; " +
+            "CityBankers capacity report: configured copies per accepted AOID; " +
             "bags counted only in bank + normal inventory (no worn/social bags)."
         };
 
@@ -630,16 +676,19 @@ public class BankerLoader
                     role,
                     StringComparison.OrdinalIgnoreCase));
 
-            int exactSymbiants = SymbiantCatalog.CountForRole(role);
-            int requiredSlots = exactSymbiants *
-                SymbiantCatalog.MaxCopiesPerExactSymbiant;
+            List<SymbiantCatalog.AcceptanceRule> rules = SymbiantCatalog
+                .GetRules(_settingsDir)
+                .Where(rule => string.Equals(rule.Role, role, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            bool unbounded = rules.Any(rule => rule.MaxCopies == SymbiantCatalog.KeepAllCopies);
+            int requiredSlots = rules.Where(rule => rule.MaxCopies > 0)
+                .Sum(rule => rule.MaxCopies);
             int requiredBags = (requiredSlots + BagCapacity - 1) / BagCapacity;
 
             if (runtime == null || !runtime.Started || runtime.Result == null)
             {
                 messages.Add(
-                    $"{role}: NO RESULT; need {requiredBags} bags for " +
-                    $"{requiredSlots} item slots.");
+                    $"{role}: NO RESULT; policy needs {(unbounded ? "unbounded" : requiredSlots.ToString())} item slots.");
                 continue;
             }
 
@@ -648,14 +697,14 @@ public class BankerLoader
             {
                 messages.Add(
                     $"{role}: bank not verified; inventory bags={result.InventoryBagCount}; " +
-                    $"need {requiredBags} bags for {requiredSlots} slots.");
+                        $"policy={(unbounded ? "unbounded" : requiredSlots.ToString())} slots.");
                 continue;
             }
 
             int actualBags = result.TotalBagCount;
             int capacity = actualBags * BagCapacity;
             int bagDelta = actualBags - requiredBags;
-            bool enough = bagDelta >= 0;
+            bool enough = !unbounded && bagDelta >= 0;
 
             if (enough)
                 passed++;
@@ -663,7 +712,7 @@ public class BankerLoader
             messages.Add(
                 $"{role}: bags={actualBags} (bank {result.BankBagCount} + inv " +
                 $"{result.InventoryBagCount}), need={requiredBags}; capacity={capacity}/" +
-                $"{requiredSlots} -> {(enough ? "OK" : "SHORT")} " +
+                $"{(unbounded ? "unbounded" : requiredSlots.ToString())} -> {(unbounded ? "MONITOR" : enough ? "OK" : "SHORT")} " +
                 $"({(bagDelta >= 0 ? "+" : string.Empty)}{bagDelta} bags).");
         }
 
@@ -782,7 +831,21 @@ public class BankerLoader
         public string Password;
         public int MaxParallelLogins = 32;
         public int DiagnosticTimeoutMs = DefaultDiagnosticTimeoutMs;
+        public AcceptancePolicyConfig AcceptancePolicy;
         public Dictionary<string, AccountMapping> Roles;
+    }
+
+    public class AcceptancePolicyConfig
+    {
+        public int SymbiantMaxCopies = 10;
+        public int SpiritMaxCopies = 5;
+        public Dictionary<string, AcceptanceItemConfig> Items;
+    }
+
+    public class AcceptanceItemConfig
+    {
+        public string Role;
+        public int MaxCopies;
     }
 
     public class AccountMapping

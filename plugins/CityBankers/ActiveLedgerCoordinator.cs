@@ -421,7 +421,7 @@ namespace CityBankers
                 foreach (TransferItemState item in group.Skip(existingCount))
                 {
                     string family;
-                    SymbiantCatalog.TryGetDestinationRole(item.AoId, out family);
+                    SymbiantCatalog.TryGetDestinationRole(settingsDir, item.AoId, out family);
                     ledger.Items.Add(new ActiveLedgerItem
                     {
                         Id = "cb-" + Guid.NewGuid().ToString("N"),
@@ -754,7 +754,7 @@ namespace CityBankers
                             LegacyProvenance source;
                             provenance.TryGetValue(transactionId ?? string.Empty, out source);
                             string family;
-                            SymbiantCatalog.TryGetDestinationRole(aoId, out family);
+                            SymbiantCatalog.TryGetDestinationRole(settingsDir, aoId, out family);
 
                             AppendHistory(
                                 settingsDir,
@@ -860,23 +860,23 @@ namespace CityBankers
                 .ToDictionary(group => group.Key, group => group.First());
             bool changed = false;
 
-            foreach (KeyValuePair<int, string> route in SymbiantCatalog.Routes)
+            foreach (SymbiantCatalog.AcceptanceRule route in SymbiantCatalog.GetRules(settingsDir))
             {
                 SymbiantIndexItem entry;
-                if (!byAoid.TryGetValue(route.Key, out entry))
+                if (!byAoid.TryGetValue(route.AoId, out entry))
                 {
                     entry = new SymbiantIndexItem
                     {
-                        AoId = route.Key,
-                        Family = route.Value
+                        AoId = route.AoId,
+                        Family = route.Role
                     };
                     index.Items.Add(entry);
-                    byAoid[route.Key] = entry;
+                    byAoid[route.AoId] = entry;
                     changed = true;
                 }
-                else if (!string.Equals(entry.Family, route.Value, StringComparison.OrdinalIgnoreCase))
+                else if (!string.Equals(entry.Family, route.Role, StringComparison.OrdinalIgnoreCase))
                 {
-                    entry.Family = route.Value;
+                    entry.Family = route.Role;
                     changed = true;
                 }
             }
@@ -926,7 +926,7 @@ namespace CityBankers
                 }
 
                 string family;
-                SymbiantCatalog.TryGetDestinationRole(item.AoId, out family);
+                SymbiantCatalog.TryGetDestinationRole(settingsDir, item.AoId, out family);
                 string slot = DetectSlot(item.Name);
                 int? highId = item.HighId != 0 ? (int?)item.HighId : null;
                 int? ql = item.Ql != 0 ? (int?)item.Ql : null;

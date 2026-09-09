@@ -333,9 +333,9 @@ namespace CityBankers.Shared
 
                     string routedRole = null;
                     bool managed = item != null &&
-                        SymbiantCatalog.TryGetDestinationRole(item.AoId, out routedRole);
+                        SymbiantCatalog.TryGetDestinationRole(settingsDir, item.AoId, out routedRole);
                     if (!managed && item != null && item.HighId != item.AoId)
-                        managed = SymbiantCatalog.TryGetDestinationRole(item.HighId, out routedRole);
+                        managed = SymbiantCatalog.TryGetDestinationRole(settingsDir, item.HighId, out routedRole);
                     if (!managed)
                         throw new InvalidOperationException(
                             "Refusing to persist an unmanaged or unresolved storage item.");
@@ -516,9 +516,9 @@ namespace CityBankers.Shared
                             continue;
 
                         string routedRole = null;
-                        bool managed = SymbiantCatalog.TryGetDestinationRole(item.AoId, out routedRole);
+                        bool managed = SymbiantCatalog.TryGetDestinationRole(settingsDir, item.AoId, out routedRole);
                         if (!managed && item.HighId != item.AoId)
-                            managed = SymbiantCatalog.TryGetDestinationRole(item.HighId, out routedRole);
+                            managed = SymbiantCatalog.TryGetDestinationRole(settingsDir, item.HighId, out routedRole);
 
                         result.Items.Add(new StockItemState
                         {

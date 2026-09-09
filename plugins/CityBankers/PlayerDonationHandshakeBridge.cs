@@ -246,7 +246,7 @@ namespace CityBankers
                 {
                     string role;
                     return item != null &&
-                        SymbiantCatalog.TryGetDestinationRole(item.Id, out role);
+                        SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.Id, out role);
                 });
                 if (!allManaged)
                     return;

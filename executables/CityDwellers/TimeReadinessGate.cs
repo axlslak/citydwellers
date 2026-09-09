@@ -79,6 +79,12 @@ namespace CityDwellers.Host
                     Password = "pass1",
                     MaxParallelLogins = 32,
                     DiagnosticTimeoutMs = 30000,
+                    AcceptancePolicy = new global::BankerLoader.AcceptancePolicyConfig
+                    {
+                        SymbiantMaxCopies = 10,
+                        SpiritMaxCopies = 5,
+                        Items = new Dictionary<string, global::BankerLoader.AcceptanceItemConfig>()
+                    },
                     Roles = new Dictionary<string, global::BankerLoader.AccountMapping>
                     {
                         { "central", NewBankerPlaceholder("central") },
@@ -86,7 +92,10 @@ namespace CityDwellers.Host
                         { "infantry", NewBankerPlaceholder("infantry") },
                         { "control", NewBankerPlaceholder("control") },
                         { "support", NewBankerPlaceholder("support") },
-                        { "extermination", NewBankerPlaceholder("extermination") }
+                        { "extermination", NewBankerPlaceholder("extermination") },
+                        { "spirit", NewBankerAccount("kbspirit", "Kbspirit") },
+                        { "dyna", NewBankerAccount("kbdyna", "Kbdyna") },
+                        { "phatz", NewBankerAccount("kbphatz", "Kbphatz") }
                     }
                 }
             };
@@ -99,6 +108,17 @@ namespace CityDwellers.Host
             {
                 Username = "account-" + role,
                 Character = "character-" + role
+            };
+        }
+
+        private static global::BankerLoader.AccountMapping NewBankerAccount(
+            string username,
+            string character)
+        {
+            return new global::BankerLoader.AccountMapping
+            {
+                Username = username,
+                Character = character
             };
         }
 

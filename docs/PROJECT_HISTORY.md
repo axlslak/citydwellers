@@ -2,6 +2,35 @@
 
 This is a compact chronological engineering log. It records decisions and verified outcomes that future sessions may need in order to understand why the current code looks the way it does.
 
+## 2026-09-09 — session 36: spirit, dyna and phatz bank expansion
+
+Expanded the unified host from six bankers to nine. Kbspirit, Kbdyna and
+Kbphatz now participate in startup, audit/baseline/readiness, health/status,
+tell sending, dispatch/storage, ledger, stock and withdrawals. Startup requires
+all nine mappings, and a fresh audit must establish all eight worker layouts.
+
+Generalized the compiled symbiant gate into `Bankers.AcceptancePolicy` inside
+the existing single runtime JSON. Built-in routes remain deterministic while
+admins can override or add any AOID with a destination role and retained-copy
+limit. Negative one is never-delete, zero disables, and omitted custom limits
+default to never-delete. Policy errors fail before accepting items; configured
+routes without configured workers are rejected safely.
+
+Generated and independently counted 654 standard Shade-spirit AOIDs from the
+bundled AOSharp item database, exactly matching the owner's supplied tier
+census; retention defaults to five. Seeded 418 dyna nano/disc AOIDs from
+Nadybot's maintained location and disc mappings at commit
+`de9e3b2c8d2f91df87c614a3d9f91bc16c2eacf2`, then verified every AOID exists
+in bundled AOSharp data. Dyna is keep-all except Frenzy of Fur crystal/disc at
+three each; Grid Armor IV remains keep-all. Phatz is deliberately empty until
+the owner supplies trusted AOIDs.
+
+Stock navigation gained Spirit, Dyna/Nano and Phatz families grouped by QL.
+Capacity output now uses finite policy demand and explicitly marks unbounded
+roles; status warns about theoretical over-capacity. Source/static validation
+only; owner build, configuration update, fresh bagaudit and live trade tests
+remain pending.
+
 ## 2026-09-09 — session 35: four pickup orders and donation coexistence
 
 Implemented a revision-checked withdrawal queue with legacy single-item loading,

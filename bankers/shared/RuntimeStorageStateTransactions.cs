@@ -123,9 +123,9 @@ namespace CityBankers.Shared
                     foreach (LiveBagItemSnapshot extra in remaining)
                     {
                         string routedRole;
-                        bool managed = SymbiantCatalog.TryGetDestinationRole(extra.AoId, out routedRole);
+                        bool managed = SymbiantCatalog.TryGetDestinationRole(settingsDir, extra.AoId, out routedRole);
                         if (!managed && extra.HighId != extra.AoId)
-                            managed = SymbiantCatalog.TryGetDestinationRole(extra.HighId, out routedRole);
+                            managed = SymbiantCatalog.TryGetDestinationRole(settingsDir, extra.HighId, out routedRole);
 
                         if (!managed || !string.Equals(
                                 routedRole,
@@ -316,4 +316,3 @@ namespace CityBankers.Shared
         }
     }
 }
-

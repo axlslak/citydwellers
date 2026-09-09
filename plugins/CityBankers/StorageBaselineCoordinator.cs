@@ -12,7 +12,7 @@ using Newtonsoft.Json.Linq;
 namespace CityBankers
 {
     /// <summary>
-    /// Central-only coordinator that turns a complete, clean five-worker bagaudit run
+    /// Central-only coordinator that turns a complete, clean storage-worker bagaudit run
     /// into the first durable physical storage baseline under settings/data.
     ///
     /// The transient per-worker audit result files remain the handoff mechanism from
@@ -26,7 +26,10 @@ namespace CityBankers
             "infantry",
             "control",
             "support",
-            "extermination"
+            "extermination",
+            "spirit",
+            "dyna",
+            "phatz"
         };
 
         private string _settingsDir;
@@ -93,7 +96,7 @@ namespace CityBankers
 
             Logger.Information(
                 $"CityBankers storage-baseline coordinator armed on Central {Client.CharacterName}. " +
-                $"A clean five-worker bagaudit will publish authoritative state below " +
+                $"A clean {StorageRoles.Length}-worker bagaudit will publish authoritative state below " +
                 $"'{Path.Combine(_settingsDir, "data")}'. No baseline is assumed before that run succeeds.");
         }
 
@@ -254,7 +257,7 @@ namespace CityBankers
 
             if (results == null || results.Count != StorageRoles.Length)
             {
-                error = "all five storage-worker results are required";
+                error = "all " + StorageRoles.Length + " storage-worker results are required";
                 return false;
             }
 
@@ -401,7 +404,7 @@ namespace CityBankers
                 ["createdUtc"] = DateTime.UtcNow.ToString("O"),
                 ["source"] = "Banker.exe bagaudit",
                 ["cutoverRule"] =
-                    "Published only after all five configured storage workers completed a clean audit and all staged bank bags were verified returned.",
+                    "Published only after all configured storage workers completed a clean audit and all staged bank bags were verified returned.",
                 ["summary"] = summary,
                 ["workers"] = workers
             };

@@ -17,12 +17,12 @@ namespace CityBankers
     /// <summary>
     /// Read-only physical reconciliation census for Banker.exe bagaudit.
     ///
-    /// All six client domains run inside one Banker.exe process, so this version uses a
+    /// All banker client domains run inside one CityDwellers.exe process, so this version uses a
     /// process-scoped session token rather than trying to discover the audit RunId from
     /// transient command/result files. Each client continuously publishes its loose
     /// normal-inventory items. Central waits until the authoritative storage baseline
-    /// changes from the baseline seen at process startup, then combines that new five-worker
-    /// bag snapshot with all six same-process loose-inventory snapshots.
+    /// changes from the baseline seen at process startup, then combines the new worker
+    /// bag snapshot with every same-process loose-inventory snapshot.
     ///
     /// This agent never trades, moves, stores, deletes, queues, or changes stock/ledger.
     /// </summary>
@@ -277,9 +277,9 @@ namespace CityBankers
                 }
 
                 string route;
-                bool managed = SymbiantCatalog.TryGetDestinationRole(item.Id, out route);
+                bool managed = SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.Id, out route);
                 if (!managed && item.HighId != item.Id)
-                    managed = SymbiantCatalog.TryGetDestinationRole(item.HighId, out route);
+                    managed = SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.HighId, out route);
 
                 result.Add(new LooseItem
                 {
@@ -371,9 +371,9 @@ namespace CityBankers
                             int inner = IntToken(item["SlotInstance"] ?? item["slotInstance"]);
 
                             string routed;
-                            bool managed = SymbiantCatalog.TryGetDestinationRole(lowId, out routed);
+                            bool managed = SymbiantCatalog.TryGetDestinationRole(_settingsDir, lowId, out routed);
                             if (!managed && highId != lowId)
-                                managed = SymbiantCatalog.TryGetDestinationRole(highId, out routed);
+                                managed = SymbiantCatalog.TryGetDestinationRole(_settingsDir, highId, out routed);
 
                             result.Locations.Add(new PhysicalLocation
                             {

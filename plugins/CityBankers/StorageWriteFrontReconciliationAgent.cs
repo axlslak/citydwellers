@@ -22,7 +22,7 @@ namespace CityBankers
     /// persisted bag identities to current AO outer slots, this agent stages/opens only the
     /// next persisted writable bag. Its live contents are matched multiplicity-aware against
     /// persisted contents. Persisted items may never disappear during this reconciliation;
-    /// extra physical items are imported only when they are managed symbiants routed to this
+    /// extra physical items are imported only when they are accepted items routed to this
     /// exact worker. If the candidate is physically full, that truth is persisted and the
     /// agent advances until it proves one genuinely writable bag. Readiness waits for this
     /// marker, so normal dispatch cannot race stale write-front occupancy.
@@ -493,11 +493,13 @@ namespace CityBankers
                     {
                         string routedRole;
                         bool managed = SymbiantCatalog.TryGetDestinationRole(
+                            _settingsDir,
                             extra.Id,
                             out routedRole);
                         if (!managed && extra.HighId != extra.Id)
                         {
                             managed = SymbiantCatalog.TryGetDestinationRole(
+                                _settingsDir,
                                 extra.HighId,
                                 out routedRole);
                         }

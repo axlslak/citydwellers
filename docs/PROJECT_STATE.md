@@ -2,6 +2,45 @@
 
 Last continuity reconstruction: 2026-08-30
 
+## 2026-09-09 — expanded Banker network and acceptance policy (session 36)
+
+- `[IMPLEMENTED, OWNER VALIDATION PENDING]` `spirit`, `dyna`, and `phatz` are
+  full storage roles alongside the five symbiant workers. Host startup,
+  bagaudit, baseline publication/seeding, layout/write-front readiness,
+  diagnostics, status, tell rotation, routing, ledger, stock browsing, dispatch,
+  and withdrawals now include all nine bankers. Default mappings assume
+  `kbspirit`/`Kbspirit`, `kbdyna`/`Kbdyna`, and `kbphatz`/`Kbphatz`.
+- `[INVARIANT]` All nine role mappings must be configured before startup. The
+  three new toons use the shared Banker password. Each new storage worker is
+  expected to expose 102 bank bags plus 18 inventory bags, 21 slots per bag,
+  while leaving 12 normal-inventory slots loose for ten-item trades plus margin.
+- `[IMPLEMENTED, OWNER VALIDATION PENDING]` `Bankers.AcceptancePolicy` in the
+  single `citydwellers.json` controls global symbiant/spirit limits and per-AOID
+  route/retention overrides. `-1` means keep every copy, `0` rejects, positive
+  values cap copies. Custom AOIDs default to keep-all. Policy loads once per
+  client domain at process start; restart after editing.
+- `[VERIFIED-DATA]` The built-in spirit route contains 654 unique AOIDs and
+  exactly reproduces the owner-supplied QL-tier counts. All resolve as non-nano
+  items in the bundled AOSharp `ItemData.bin`; the three later outliers absent
+  from the supplied census remain excluded. Spirit retention defaults to five.
+- `[VERIFIED-DATA]` The built-in dyna route contains 418 unique AOIDs: 220 nano
+  crystals classified as RK Dyna/mixed RK Dyna/RK Mob in Nadybot plus 198 mapped
+  instruction discs. All resolve in bundled AOSharp item data. Dyna defaults to
+  keep-all; both Frenzy of Fur AOIDs default to three; both Grid Armor IV forms
+  remain keep-all. Source snapshot is Nadybot commit
+  `de9e3b2c8d2f91df87c614a3d9f91bc16c2eacf2`.
+- `[DECISION]` Phatz starts with no accepted AOIDs. Unknown valuables must be
+  explicitly added by an admin and default to keep-all. Central validates every
+  accepted route has a configured worker before accepting the whole trade.
+- `[IMPLEMENTED, OWNER VALIDATION PENDING]` Retention is counted by policy AOID,
+  including multiple items received in one trade. Capacity reporting sums finite
+  per-AOID ceilings and marks keep-all roles for monitoring. `#status` warns when
+  a finite ceiling exceeds live capacity and flags unbounded retention.
+- `[OPEN]` Existing deployed `citydwellers.json` must receive the three role
+  mappings and `AcceptancePolicy`; then run a new nine-banker bagaudit because
+  the old five-worker baseline cannot describe the new storage. Kavey owns the
+  Release build and controlled first run. No bot/runtime was started here.
+
 ## 2026-09-09 — concurrent pickup orders (session 35)
 
 - `[DECISION]` Four active canonical-member orders, at most three reserved items
