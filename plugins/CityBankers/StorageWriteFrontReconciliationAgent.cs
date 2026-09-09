@@ -29,11 +29,13 @@ namespace CityBankers
     ///
     /// After readiness, narrowly proven worker-local failures may be resumed without a second
     /// Central trade. Full-bag failures require the complete expected multiset to remain loose.
-    /// Post-placement persistence failures require every expected unique identity to partition
-    /// exactly between freshly reconciled persisted storage and loose worker inventory. Only
-    /// the loose remainder is moved. A normal StorageBatchResult is published only after the
-    /// complete original batch is durably accounted for; Central's worker-success reconciler
-    /// remains queue-removal authority.
+    /// Post-placement persistence failures use the original transaction id to subtract exact
+    /// persisted occurrences from the expected batch, then require the complete remaining
+    /// multiset to be loose in worker inventory. Unique identities are preferred when present;
+    /// identity-less occurrences use AO id/high-id/QL multiplicity. Only the loose remainder is
+    /// moved. A normal StorageBatchResult is published only after the complete original batch
+    /// is durably accounted for; Central's worker-success reconciler remains queue-removal
+    /// authority.
     /// </summary>
     public class StorageWriteFrontReconciliationAgent : ClientlessPluginEntry
     {
@@ -742,84 +744,19 @@ namespace CityBankers
             if (batch == null || batch.Items == null || batch.Items.Count == 0)
                 return;
 
-            var identities = new HashSet<string>(StringComparer.Ordinal);
-            foreach (TransferItemState expected in batch.Items)
-            {
-                if (expected == null || !IsUsableIdentity(expected.UniqueIdentity) ||
-                    !identities.Add(expected.UniqueIdentity))
-                {
-                    ReportProblem(
-                        "PARTIAL PLACEMENT RECOVERY BLOCKED " + _role + " batch " +
-                        ShortId(batch.BatchId) +
-                        ": every expected item must have one distinct AO identity. " +
-                        "No physical state was guessed.");
-                    return;
-                }
-            }
-
-            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
-            List<Item> loose = Inventory.Items == null
-                ? new List<Item>()
-                : Inventory.Items
-                    .Where(item =>
-                        item != null &&
-                        item.Slot.Type == IdentityType.Inventory &&
-                        item.UniqueIdentity.Type != IdentityType.Container)
-                    .ToList();
-            var remaining = new List<TransferItemState>();
-            int alreadyStored = 0;
-
-            foreach (TransferItemState expected in batch.Items)
-            {
-                int persistedMatches = (stock?.Items ?? new List<StockItemState>())
-                    .Count(item =>
-                        item != null &&
-                        string.Equals(
-                            item.UniqueIdentity,
-                            expected.UniqueIdentity,
-                            StringComparison.Ordinal) &&
-                        string.Equals(
-                            item.PhysicalRole,
-                            _role,
-                            StringComparison.OrdinalIgnoreCase) &&
-                        string.Equals(
-                            item.Character,
-                            Client.CharacterName,
-                            StringComparison.OrdinalIgnoreCase));
-                int looseMatches = loose.Count(item => string.Equals(
-                    item.UniqueIdentity.ToString(),
-                    expected.UniqueIdentity,
-                    StringComparison.Ordinal));
-
-                if (persistedMatches == 1 && looseMatches == 0)
-                {
-                    alreadyStored++;
-                    continue;
-                }
-
-                if (persistedMatches == 0 && looseMatches == 1)
-                {
-                    remaining.Add(expected);
-                    continue;
-                }
-
-                ReportProblem(
-                    "PARTIAL PLACEMENT RECOVERY BLOCKED " + _role + " batch " +
-                    ShortId(batch.BatchId) + ": expected identity " +
-                    expected.UniqueIdentity + " has persistedMatches=" + persistedMatches +
-                    " looseMatches=" + looseMatches +
-                    ". Every item must exist exactly once in one custody location; no " +
-                    "physical state was guessed.");
-                return;
-            }
-
-            if (alreadyStored == 0 || alreadyStored + remaining.Count != batch.Items.Count)
+            List<TransferItemState> remaining;
+            int alreadyStored;
+            string partitionError;
+            if (!TryBuildPartialPlacementPartition(
+                    batch,
+                    out remaining,
+                    out alreadyStored,
+                    out partitionError))
             {
                 ReportProblem(
                     "PARTIAL PLACEMENT RECOVERY BLOCKED " + _role + " batch " +
-                    ShortId(batch.BatchId) +
-                    ": the original batch is not completely partitioned between persisted " +
-                    "storage and loose worker inventory. No physical state was guessed.");
+                    ShortId(batch.BatchId) + ": " + partitionError +
+                    " No physical state was guessed.");
                 return;
             }
 
@@ -838,12 +775,165 @@ namespace CityBankers
 
             string notice =
                 "PARTIAL PLACEMENT RECOVERY " + _role + " batch " +
-                ShortId(batch.BatchId) + ": exact AO identities prove " + alreadyStored +
-                " already persisted and " + remaining.Count +
+                ShortId(batch.BatchId) + ": transaction-bound stock proves " +
+                alreadyStored + " already persisted and " + remaining.Count +
                 " still loose on " + Client.CharacterName +
                 "; resuming only the loose remainder. No Central re-trade.";
             Logger.Information("[CityBankers] " + notice);
             TellKavem(notice);
+        }
+
+        private bool TryBuildPartialPlacementPartition(
+            DispatchBatchState batch,
+            out List<TransferItemState> looseRemainder,
+            out int alreadyStored,
+            out string error)
+        {
+            looseRemainder = new List<TransferItemState>();
+            alreadyStored = 0;
+            error = null;
+
+            if (batch == null || batch.Items == null || batch.Items.Count == 0 ||
+                string.IsNullOrWhiteSpace(batch.TransactionId))
+            {
+                error = "the failed batch has no transaction-bound expected item set.";
+                return false;
+            }
+
+            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            var unmatchedExpected = new List<TransferItemState>(batch.Items);
+            List<StockItemState> persistedForTransaction =
+                (stock?.Items ?? new List<StockItemState>())
+                    .Where(item =>
+                        item != null &&
+                        string.Equals(
+                            item.TransactionId,
+                            batch.TransactionId,
+                            StringComparison.Ordinal) &&
+                        string.Equals(
+                            item.PhysicalRole,
+                            _role,
+                            StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(
+                            item.Character,
+                            Client.CharacterName,
+                            StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+            foreach (StockItemState persisted in persistedForTransaction)
+            {
+                int expectedIndex = FindExpectedMatchIndex(unmatchedExpected, persisted);
+                if (expectedIndex < 0)
+                {
+                    error =
+                        "persisted transaction " + batch.TransactionId +
+                        " contains an occurrence not present in the failed batch: " +
+                        (persisted.Name ?? "<unnamed>") + " AOID=" + persisted.AoId +
+                        " QL" + persisted.Ql + ".";
+                    return false;
+                }
+
+                unmatchedExpected.RemoveAt(expectedIndex);
+                alreadyStored++;
+            }
+
+            if (alreadyStored == 0)
+            {
+                error =
+                    "no destination-worker stock occurrence carries the failed batch " +
+                    "transaction id after write-front reconciliation.";
+                return false;
+            }
+
+            List<Item> availableLoose = Inventory.Items == null
+                ? new List<Item>()
+                : Inventory.Items
+                    .Where(item =>
+                        item != null &&
+                        item.Slot.Type == IdentityType.Inventory &&
+                        item.UniqueIdentity.Type != IdentityType.Container)
+                    .OrderBy(item => item.Slot.Instance)
+                    .ToList();
+
+            foreach (TransferItemState expected in unmatchedExpected)
+            {
+                int looseIndex = FindLooseMatchIndex(availableLoose, expected);
+                if (looseIndex < 0)
+                {
+                    error =
+                        "the transaction-bound persisted occurrences account for " +
+                        alreadyStored + "/" + batch.Items.Count +
+                        " item(s), but the remaining expected multiset is not completely " +
+                        "loose on " + Client.CharacterName + "; missing " +
+                        (expected?.Name ?? "<unnamed>") + " AOID=" +
+                        (expected?.AoId ?? 0) + " QL" + (expected?.Ql ?? 0) + ".";
+                    return false;
+                }
+
+                availableLoose.RemoveAt(looseIndex);
+                looseRemainder.Add(expected);
+            }
+
+            if (alreadyStored + looseRemainder.Count != batch.Items.Count)
+            {
+                error =
+                    "persisted and loose multiplicities do not account for the complete " +
+                    "original batch.";
+                return false;
+            }
+
+            return true;
+        }
+
+        private static int FindExpectedMatchIndex(
+            List<TransferItemState> expectedItems,
+            StockItemState persisted)
+        {
+            if (expectedItems == null || persisted == null)
+                return -1;
+
+            if (IsUsableIdentity(persisted.UniqueIdentity))
+            {
+                int identityIndex = expectedItems.FindIndex(expected =>
+                    expected != null &&
+                    IsUsableIdentity(expected.UniqueIdentity) &&
+                    string.Equals(
+                        expected.UniqueIdentity,
+                        persisted.UniqueIdentity,
+                        StringComparison.Ordinal));
+                if (identityIndex >= 0)
+                    return identityIndex;
+            }
+
+            return expectedItems.FindIndex(expected =>
+                expected != null &&
+                !IsUsableIdentity(expected.UniqueIdentity) &&
+                expected.AoId == persisted.AoId &&
+                expected.HighId == persisted.HighId &&
+                expected.Ql == persisted.Ql);
+        }
+
+        private static int FindLooseMatchIndex(
+            List<Item> looseItems,
+            TransferItemState expected)
+        {
+            if (looseItems == null || expected == null)
+                return -1;
+
+            if (IsUsableIdentity(expected.UniqueIdentity))
+            {
+                return looseItems.FindIndex(item =>
+                    item != null && string.Equals(
+                        item.UniqueIdentity.ToString(),
+                        expected.UniqueIdentity,
+                        StringComparison.Ordinal));
+            }
+
+            return looseItems.FindIndex(item =>
+                item != null &&
+                item.Id == expected.AoId &&
+                item.HighId == expected.HighId &&
+                item.Ql == expected.Ql);
         }
 
         private void TryStartFullBagRecovery()

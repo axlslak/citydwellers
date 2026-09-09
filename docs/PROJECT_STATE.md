@@ -848,6 +848,18 @@ resilience and restart change:
 - `[INVARIANT]` The fallback remains available for a plugin hosted outside the
   unified executable. Flipper timeouts and the fixed 30-second cloak-recovery
   cadence are unchanged.
+- `[VERIFIED-LIVE 2026-09-09]` A timed-out Flipper probe could unload its local
+  AppDomain while AO still retained Apcflipper's session. The next Manager
+  retry received `AlreadyLoggedIn`. During host shutdown, an already accepted
+  request could also finish domain setup and call `Start` after the Flipper
+  service announced it was stopping.
+- `[IMPLEMENTED]` Flipper rejects new IPC work once shutdown begins, active
+  result waits observe shutdown and unload, domain startup rechecks shutdown
+  after plugin loading, and service teardown waits up to 15 seconds for the
+  active probe to finish unloading. An unsuccessful started probe imposes a
+  90-second `Stopwatch`-based login cooldown; intervening Manager retries fail
+  immediately without creating another AO session. The Manager's 30-second
+  recovery cadence itself is unchanged.
 - `[OPEN]` Kavey owns the confirming Release build. Manager initialization and
   Flipper result production/consumption must all report the same `release` and
   `release\data` roots.
@@ -930,14 +942,18 @@ resilience and restart change:
   named mutex. Atomic replacement retries transient sharing violations for up
   to five seconds and never deletes the last good target after replacement
   fails.
-- `[IMPLEMENTED]` The worker-local recovery path recognizes this exact
-  post-placement persistence failure only after startup write-front
-  reconciliation. Every original item must have a distinct AO identity and
-  must exist exactly once either in persisted storage on the destination
-  worker or loose in that worker's inventory. Recovery moves only the loose
-  remainder and reports success for the complete original batch; ambiguous
-  custody remains held.
-- `[OPEN]` Kavey owns the Release build and the first live recovery of failed
+- `[SUPERSEDED 2026-09-09]` The first partial-placement recovery required a
+  distinct usable AO identity on every queued occurrence. Live batch
+  `07c904d1` proved imported trade snapshots may not satisfy that condition;
+  it blocked safely without moving anything.
+- `[IMPLEMENTED]` Partial-placement recovery now selects destination-worker
+  persisted occurrences by the original batch transaction id, subtracts them
+  multiplicity-aware from the expected batch, then proves the complete
+  remainder loose on that worker. Usable identities remain authoritative;
+  identity-less occurrences match only by AO id, high id, and QL. Recovery
+  moves only the loose remainder and reports success for the complete original
+  batch; any mismatch remains held.
+- `[OPEN]` Kavey owns the Release build and the next live recovery of failed
   extermination batch `07c904d1` by replacing the binaries and restarting the
   unified host without changing the runtime data directory.
 

@@ -17,6 +17,7 @@ using CityDwellers.Shared;
 public class FlipperLoader
 {
     private const string PipeName = "citydwellers-flipper";
+    private const int FailedProbeCooldownMilliseconds = 90000;
 
     private static Config _config;
     private static AccountInfo _account;
@@ -30,6 +31,8 @@ public class FlipperLoader
     private static int _timeoutMs;
     private static bool _interactive;
     private static volatile bool _stopping;
+    private static readonly ManualResetEvent ProbeIdle = new ManualResetEvent(true);
+    private static long _failedProbeCooldownStartedTimestamp;
 
     static void Main(string[] args)
     {
@@ -43,6 +46,8 @@ public class FlipperLoader
     {
         _interactive = interactive;
         _stopping = false;
+        ProbeIdle.Set();
+        Interlocked.Exchange(ref _failedProbeCooldownStartedTimestamp, 0L);
 
         if (ClientlessGameDataBootstrap.IsRestoreCommand(args))
         {
@@ -215,6 +220,12 @@ public class FlipperLoader
         _stopping = true;
         DeleteIfExists(_toggleRequestPath);
         DeleteIfExists(_operationIdPath);
+        if (!ProbeIdle.WaitOne(TimeSpan.FromSeconds(15)))
+        {
+            Console.WriteLine(
+                "Flipper probe did not finish unloading within 15 seconds; " +
+                "the unified host will continue shutdown.");
+        }
         Console.WriteLine("Flipper service stopped.");
         return 0;
     }
@@ -269,6 +280,9 @@ public class FlipperLoader
 
     private static WorkerResponse HandleRequest(WorkerRequest request)
     {
+        if (_stopping)
+            return Fail(request, "Flipper service is stopping; no AO client was started.");
+
         if (request == null || string.IsNullOrWhiteSpace(request.Command))
             return Fail(request, "Missing command.");
 
@@ -642,6 +656,25 @@ public class FlipperLoader
         int timeoutMs,
         string operationId)
     {
+        var run = new ProbeRun();
+
+        if (_stopping)
+        {
+            Console.WriteLine("Flipper probe canceled because the service is stopping.");
+            run.Canceled = true;
+            return run;
+        }
+
+        int cooldownRemainingMilliseconds;
+        if (TryGetFailedProbeCooldownRemaining(out cooldownRemainingMilliseconds))
+        {
+            Console.WriteLine(
+                "Flipper login cooling down for another " +
+                Math.Max(1, (int)Math.Ceiling(cooldownRemainingMilliseconds / 1000.0)) +
+                "s after an unsuccessful logged-in probe; no AO client was started.");
+            return run;
+        }
+
         bool actionRequested = !string.IsNullOrWhiteSpace(requestedAction);
         bool ensureEnabled = string.Equals(
             requestedAction,
@@ -686,12 +719,18 @@ public class FlipperLoader
             .CreateLogger();
 
         ClientDomain domain = null;
+        bool domainStarted = false;
         Stopwatch totalTimer = Stopwatch.StartNew();
 
-        ProbeRun run = new ProbeRun();
-
+        ProbeIdle.Reset();
         try
         {
+            if (_stopping)
+            {
+                run.Canceled = true;
+                return run;
+            }
+
             if (IsFileValue(_cancelRequestPath, operationId))
             {
                 Console.WriteLine(
@@ -714,15 +753,35 @@ public class FlipperLoader
 
             domain.LoadPlugin(_pluginPath);
 
+            if (_stopping)
+            {
+                Console.WriteLine(
+                    $"[{totalTimer.Elapsed.TotalSeconds:F3}s] " +
+                    "Service shutdown began before AO login; unloading without starting client.");
+                run.Canceled = true;
+                return run;
+            }
+
             Console.WriteLine(
                 $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Starting AO client.");
 
             domain.Start();
+            domainStarted = true;
 
             Stopwatch resultWaitTimer = Stopwatch.StartNew();
 
             while (!File.Exists(resultPath))
             {
+                if (_stopping)
+                {
+                    Console.WriteLine(
+                        $"[{totalTimer.Elapsed.TotalSeconds:F3}s] " +
+                        "Service shutdown began; unloading active Flipper client.");
+                    run.Canceled = true;
+                    run.Success = false;
+                    return run;
+                }
+
                 if (IsFileValue(_cancelRequestPath, operationId))
                 {
                     Console.WriteLine(
@@ -793,12 +852,45 @@ public class FlipperLoader
                 }
             }
 
+            if (domainStarted && !run.Success && !run.Canceled && !_stopping)
+            {
+                Interlocked.Exchange(
+                    ref _failedProbeCooldownStartedTimestamp,
+                    Stopwatch.GetTimestamp());
+                Console.WriteLine(
+                    "Unsuccessful Flipper login/probe entered a 90-second monotonic " +
+                    "cooldown so AO can release the character session.");
+            }
+
             DeleteIfExists(resultPath);
             DeleteIfExists(tempPath);
             DeleteIfExists(_toggleRequestPath);
             DeleteIfExists(_operationIdPath);
             DeleteIfContains(_cancelRequestPath, operationId);
+            ProbeIdle.Set();
         }
+    }
+
+    private static bool TryGetFailedProbeCooldownRemaining(
+        out int remainingMilliseconds)
+    {
+        remainingMilliseconds = 0;
+        long started = Interlocked.Read(ref _failedProbeCooldownStartedTimestamp);
+        if (started <= 0)
+            return false;
+
+        long elapsedTicks = Stopwatch.GetTimestamp() - started;
+        double elapsedMilliseconds =
+            elapsedTicks * 1000.0 / Stopwatch.Frequency;
+        double remaining = FailedProbeCooldownMilliseconds - elapsedMilliseconds;
+        if (remaining <= 0)
+        {
+            Interlocked.Exchange(ref _failedProbeCooldownStartedTimestamp, 0L);
+            return false;
+        }
+
+        remainingMilliseconds = (int)Math.Ceiling(remaining);
+        return true;
     }
 
     private static void PrintResult(ProbeRun run)

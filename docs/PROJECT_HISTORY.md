@@ -1071,3 +1071,38 @@ hold.
 
 No assistant-side compilation or live AO test was run. Kavey owns the Release
 build and live recovery of the held extermination batch.
+
+
+## 2026-09-09 — Transaction-bound Banker proof and Flipper lifecycle repair
+
+The first partial-placement recovery build correctly refused to act on held
+extermination batch `07c904d1`: at least one queued occurrence lacked a
+distinct usable AO identity. No item moved. This established that identity-only
+proof was too strict for the imported trade snapshot format, while its refusal
+behavior remained safe.
+
+The replacement proof uses evidence already committed before the original
+`current-stock.json` failure. Each successful `storage-state.json` placement
+retains the dispatch transaction id. Recovery selects only persisted
+occurrences on the intended destination worker with that exact transaction,
+subtracts them from the original expected batch, and then requires the entire
+remaining multiset to be loose on the same worker. Usable identities are
+matched exactly. Occurrences without one use AO id, high id, and QL with list
+removal preserving multiplicity. Only the proven loose remainder is placed;
+the final worker result carries the complete original count for Central's
+existing exact-success reconciler.
+
+The same live restart exposed an independent Flipper lifecycle defect. A probe
+timed out and unloaded locally while AO retained Apcflipper's session, so a
+later login received `AlreadyLoggedIn`. A request already accepted by the pipe
+could also proceed through domain creation and call `Start` after unified-host
+shutdown began. Flipper now observes shutdown before accepting work, again
+after plugin loading, and throughout result waiting. Shutdown waits briefly for
+an active probe to unload. Any unsuccessful probe that actually started an AO
+client begins a 90-second monotonic cooldown; retry requests during that window
+return without creating a client. This gives AO time to release the character
+without relying on the untrusted wall clock or changing Manager's recovery
+cadence.
+
+No assistant-side compilation or live AO test was run. Kavey owns the Release
+build and the next stopped-host validation.
