@@ -23,6 +23,8 @@ namespace CityBankers
         private bool _withdrawalAccepted;
         private Identity _withdrawalTradePartner = Identity.None;
         private bool _withdrawalPickupTrade;
+        private readonly HashSet<string> _withdrawalRecoveryAttemptedIds =
+            new HashSet<string>(StringComparer.Ordinal);
 
         private enum WithdrawalWorkerPhase
         {
@@ -125,6 +127,29 @@ namespace CityBankers
 
             if (string.Equals(state.Status, "requested", StringComparison.OrdinalIgnoreCase))
                 return false;
+            if (string.Equals(state.Status, "failed", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(state.Id) ||
+                    _withdrawalRecoveryAttemptedIds.Contains(state.Id) ||
+                    Trade.IsTrading)
+                {
+                    return true;
+                }
+
+                _withdrawalRecoveryAttemptedIds.Add(state.Id);
+                string priorError = state.Error;
+                state.Status = "extracting";
+                state.Error =
+                    "One-shot worker recovery is verifying physical AO state. Prior failure: " +
+                    priorError;
+                WithdrawalStore.Save(_settingsDir, state);
+                ResetWithdrawalLocal();
+                _withdrawal = state;
+                Logger.Warning(
+                    "[CityBankers] WITHDRAWAL RECOVERY RETRY " + state.Id +
+                    ": worker will re-locate the exact reserved item once; prior failure: " +
+                    priorError);
+            }
             if (!string.Equals(state.Status, "extracting", StringComparison.OrdinalIgnoreCase))
                 return string.Equals(state.Status, "failed", StringComparison.OrdinalIgnoreCase);
             if (_withdrawalWorkerPhase == WithdrawalWorkerPhase.None)
@@ -588,10 +613,22 @@ namespace CityBankers
 
         private static Item FindWithdrawalInventoryItem(WithdrawalState state)
         {
-            List<Item> matches = (Inventory.Items ?? new List<Item>()).Where(item =>
+            List<Item> inventory = (Inventory.Items ?? new List<Item>()).Where(item =>
                 item != null && item.Slot.Type == IdentityType.Inventory &&
-                item.UniqueIdentity.Type != IdentityType.Container &&
-                MatchesWithdrawalItem(item, state)).ToList();
+                item.UniqueIdentity.Type != IdentityType.Container).ToList();
+
+            if (!string.IsNullOrWhiteSpace(state?.SourceItemIdentity) &&
+                !string.Equals(state.SourceItemIdentity, "(None:0000)", StringComparison.Ordinal))
+            {
+                List<Item> exact = inventory.Where(item => string.Equals(
+                    item.UniqueIdentity.ToString(),
+                    state.SourceItemIdentity,
+                    StringComparison.Ordinal)).ToList();
+                if (exact.Count == 1)
+                    return exact[0];
+            }
+
+            List<Item> matches = inventory.Where(item => MatchesWithdrawalItem(item, state)).ToList();
             return matches.Count == 1 ? matches[0] : null;
         }
 
