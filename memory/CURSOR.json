@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 31,
-  "last_completed_session": 30,
-  "status": "in_progress",
+  "last_completed_session": 31,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T17:46:16Z",
-  "transaction": "session-31-donor-history-windows",
-  "base_commit": "08d03a9245303d41dbcf5951a8364795eed28ca5",
-  "task": "Implement pretty donor leaderboard, recent-history, and member-history windows with canonical alt grouping.",
-  "resume_instruction": "Extend Apcmanager #donor with: donor top (rank donors by all-time item count), donor last (latest 25 donations with absolute time and donor), and donor <member> (latest 10 plus all-time total). Combine active ledger.json items with archived history/history-*.jsonl item records and deduplicate stable item IDs. Resolve each donor and member argument through Manager's canonical alt mapping so alts aggregate under their main. Render human-readable AO blobs with clickable navigation. Preserve AP-members-only authorization. Static checks only; Kavey owns build/live test."
+  "status_changed_utc": "2026-09-09T17:51:29Z",
+  "transaction": null,
+  "base_commit": "9b2d9ccfba39fdcf67230b874fb2bc3b680fd139",
+  "task": "Await Kavey's Release build and live validation of the donor history windows.",
+  "resume_instruction": "Cursor idle. Apcmanager #donor now provides an overview, top provides the all-time canonical-main leaderboard, last provides the latest 25 item donations, and a member name provides their latest 10 plus all-time total. Active and archived ledgers are deduplicated by stable item ID; current alt mappings aggregate identities; item links and absolute UTC timestamps are rendered in AO blobs. Return any Release compiler output or presentation/runtime errors for repair."
 }
