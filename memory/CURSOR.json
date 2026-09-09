@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 30,
-  "last_completed_session": 29,
-  "status": "in_progress",
+  "last_completed_session": 30,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T17:09:28Z",
-  "transaction": "session-30-unified-public-command-gateway",
-  "base_commit": "f888acaf79c1575da30b70e53ff186233a93887b",
-  "task": "Unify the public stock and donor command surface under Apcmanager, with City Dwellers membership authorization and Manager-targeted stock links.",
-  "resume_instruction": "Make Apcmanager the sole org/guest processor for #stock and #donor. Reuse CityBankers' stock and active-ledger readers without duplicating their grammar, point generated stock chatcmd links to Apcmanager with the Manager prefix, and apply the canonical City Dwellers admin/member/alt authorization boundary. Preserve Kbcentral's private tell and physical trade responsibilities. Do not compile or run AO; Kavey owns the build and live test."
+  "status_changed_utc": "2026-09-09T17:36:31Z",
+  "transaction": null,
+  "base_commit": "e021aeb0160c43fee0f1b84cf26897aa68aefdd6",
+  "task": "Owner validation boundary: rebuild Release and verify Apcmanager #stock/#donor in org, guest, and tell contexts plus Banker-to-Manager guest telemetry.",
+  "resume_instruction": "Cursor is idle. Apcmanager is the sole stock/donor information processor and uses the canonical admin/member/alt authorization model. Stock links target the configured Manager character with #stock. Kbcentral redirects legacy stock/donor tells while retaining trades and operator functions. Banker notices for Kavem now queue durably to Apcmanager's confirmed guest channel; other player tells still use the rotating tell pool. Return the build output or any first-run command/channel failure verbatim."
 }
