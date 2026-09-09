@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 35,
+  "current_session": 36,
   "last_completed_session": 35,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-35-multi-order-pickup",
-  "base_commit": "6d3aa6b505b1a56ee89c77d0e69e27abdbb2d4d3",
-  "task": "Multi-order pickup implementation published; owner build and live validation pending",
-  "resume_instruction": "Read session 35 state/history. Await owner Release build/live results; do not run the bot."
+  "transaction": "session-36-expand-bank-network-and-acceptance-policy",
+  "base_commit": "4274d9a4a598048f62809d0a425477c54daad4e3",
+  "task": "Add spirit, dyna and phatz bankers; generalize Central acceptance and per-AOID retention policy",
+  "resume_instruction": "Add three full banker roles, seed exactly 654 spirit AOIDs at cap five, preserve symbiants at cap ten, and expose safe per-AOID dyna/phatz policy overrides. Owner build/live test only."
 }
