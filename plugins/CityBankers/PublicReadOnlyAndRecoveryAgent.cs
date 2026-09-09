@@ -121,6 +121,8 @@ namespace CityBankers
         private string _settingsDir;
         private bool _enabled;
         private DateTime _nextPollUtc;
+        private readonly HashSet<string> _attemptedBatchIds =
+            new HashSet<string>(StringComparer.Ordinal);
 
         public override void Init(string pluginDir)
         {
@@ -146,6 +148,7 @@ namespace CityBankers
             if (!_enabled)
                 return;
             Client.OnUpdate -= Tick;
+            _attemptedBatchIds.Clear();
         }
 
         private void Tick(object sender, double deltaTime)
@@ -163,6 +166,8 @@ namespace CityBankers
                 DispatchBatchState batch = (queue?.Batches ?? new List<DispatchBatchState>())
                     .FirstOrDefault(candidate =>
                         candidate != null &&
+                        !string.IsNullOrWhiteSpace(candidate.BatchId) &&
+                        !_attemptedBatchIds.Contains(candidate.BatchId) &&
                         string.Equals(candidate.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
                         IsRecoverablePreTransferFailure(candidate.LastError));
                 if (batch == null || batch.Items == null || batch.Items.Count == 0)
@@ -197,6 +202,7 @@ namespace CityBankers
                     "Recovered pre-transfer failure after verifying the complete expected " +
                     "item multiset in Central normal inventory. Prior error: " + priorError;
                 RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                _attemptedBatchIds.Add(batch.BatchId);
 
                 RuntimeStateStore.AppendLedger(
                     _settingsDir,
