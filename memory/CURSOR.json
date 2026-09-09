@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 28,
-  "last_completed_session": 27,
-  "status": "in_progress",
+  "last_completed_session": 28,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T10:28:48Z",
-  "transaction": "session-28-banker-proof-and-flipper-lifecycle",
-  "base_commit": "7ee1093a0317419191655ab8abf3276d6e9ef05d",
-  "task": "Recover held Banker batches whose AO trade snapshots lack distinct identities using transaction-bound multiset proof, and prevent Flipper probes from starting or retry-storming across unified-host shutdown.",
-  "resume_instruction": "Kavey stopped the unified host after exact-identity recovery safely blocked batch 07c904d1. Keep data unchanged. Replace identity-only proof with a transaction-bound persisted-stock plus loose-worker multiset partition while preserving the exact one-location invariant. Flipper evidence shows a timed-out probe left an AO AlreadyLoggedIn session and a retry proceeded into domain.Start after host shutdown began; add monotonic failed-probe cooldown and a shutdown-aware active-probe barrier. Static checks only; Kavey owns build and live validation."
+  "status_changed_utc": "2026-09-09T10:32:28Z",
+  "transaction": null,
+  "base_commit": "8fe6ecab38d2ca2798e7dae21643ed0dbe74e97a",
+  "task": "Owner validation boundary: rebuild Release and restart the stopped unified host with data unchanged; verify transaction-bound recovery clears extermination batch 07c904d1 and Flipper no longer starts clients during shutdown or login cooldown.",
+  "resume_instruction": "Cursor is idle. Banker partial recovery now uses transaction-bound persisted occurrences plus a multiplicity-aware loose-worker remainder, preferring exact identities when present. Flipper is shutdown-aware and uses a 90-second monotonic cooldown after unsuccessful started probes. On the next live run, preserve all data, watch for PARTIAL PLACEMENT RECOVERY and RECONCILED QUEUE, and allow Flipper to sit through cooldown messages if the first AO login still reports AlreadyLoggedIn. Return any BLOCKED message or post-cooldown failure verbatim."
 }
