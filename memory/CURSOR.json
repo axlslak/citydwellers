@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 36,
+  "current_session": 37,
   "last_completed_session": 36,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "490ec21fcf3347e726c2e0782d212abfc584b5eb",
-  "task": "Owner configuration, fresh nine-banker bag audit, Release build and live AO validation",
-  "resume_instruction": "Before normal startup, add the spirit/dyna/phatz account mappings and AcceptancePolicy to citydwellers.json, then run CityDwellers.exe bankers-bagaudit once to publish an eight-worker storage baseline. Owner build/live test only."
+  "transaction": "session-37-bank-expansion-build-fix",
+  "base_commit": "15ee48fe838b40f87643c743cb56d079b5791dfb",
+  "task": "Fix settings-directory compile errors reported by the owner build",
+  "resume_instruction": "Thread settingsDir through current-stock construction, make loose-inventory census routing use its agent instance, and replace the remaining six-census threshold with the nine-banker roster. Owner rebuild only."
 }
