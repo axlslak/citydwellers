@@ -1153,3 +1153,9 @@ pool remains unchanged for player-directed replies.
 
 No assistant-side compilation or live AO test was run. Kavey owns the Release
 build and org/guest/tell validation.
+
+Kavey's first Release build compiled CityDwellers, CityBankers, CityFlipper,
+and CityBuddies, but CityManager failed because its new Banker partial omitted
+the AOSharp.Clientless namespace needed to resolve `Client.CharacterName`.
+The partial now imports that namespace; no command, authorization, queue, or
+runtime behavior changed.
