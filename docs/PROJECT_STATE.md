@@ -1019,6 +1019,13 @@ resilience and restart change:
 - `[IMPLEMENTED 2026-09-09]` Item-level stock results and active donor-history
   rows include a `GET` chat command targeting Apcmanager. Historical items that
   have already left custody do not show a pickup action.
+- `[IMPLEMENTED 2026-09-09]` A Central restart no longer strands a durable
+  dispatch row forever in `trading`. Post-login reconciliation treats such a
+  row as a restart orphan only when its persisted `UpdatedUtc` predates the
+  current reconciliation-agent start. It then requires the complete expected
+  multiset loose on Central and no same-batch worker custody/storage evidence
+  before clearing stale sidecars and returning the batch to `queued`. Trades
+  created by the current process are never eligible for this recovery.
 
 ## Central outbound tell queue (2026-09-08)
 

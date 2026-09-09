@@ -1205,3 +1205,18 @@ remain blocking holds so neither accounting nor physical custody is guessed.
 Stock item views and active donation rows now display GET links aimed at
 Apcmanager; departed history has no GET action. No assistant-side compilation
 or live AO trade was run. Kavey owns the Release build and staged live test.
+
+## 2026-09-09 — Restart-orphaned dispatch trading state
+
+A dispatch could persist a batch as `trading` and then lose Central's in-memory
+owner during a host restart. Normal dispatch selects only `queued`, while the
+post-login reconciler previously selected only `failed`, leaving that batch to
+block player trades indefinitely. Live evidence showed artillery batch
+`68b9ee5d` in this exact gap after five attempts.
+
+Post-login reconciliation now recognizes a `trading` batch only when its update
+predates the current process. It still requires every expected item loose on
+Central and rejects any same-batch worker receipt/storage evidence. Only with
+that proof does it clear stale same-batch sidecars and requeue normally. A trade
+started by the current process cannot match the restart-orphan predicate. No
+assistant-side build or live AO test was run; Kavey owns the controlled restart.

@@ -40,6 +40,7 @@ namespace CityBankers
         private string _settingsDir;
         private bool _enabled;
         private DateTime _nextPollUtc;
+        private DateTime _processStartedUtc;
 
         public override void Init(string pluginDir)
         {
@@ -55,6 +56,7 @@ namespace CityBankers
             }
 
             _enabled = true;
+            _processStartedUtc = DateTime.UtcNow;
             _nextPollUtc = DateTime.UtcNow;
             Client.OnUpdate += Tick;
             Logger.Information(
@@ -83,15 +85,16 @@ namespace CityBankers
                     return;
 
                 DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-                List<DispatchBatchState> failed = (queue?.Batches ?? new List<DispatchBatchState>())
+                List<DispatchBatchState> candidates = (queue?.Batches ?? new List<DispatchBatchState>())
                     .Where(batch =>
                         batch != null &&
-                        string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase))
+                        (string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase) ||
+                         IsRestartOrphanedTradingBatch(batch)))
                     .ToList();
 
-                foreach (DispatchBatchState batch in failed)
+                foreach (DispatchBatchState batch in candidates)
                 {
-                    if (TryReconcile(queue, batch))
+                    if (TryReconcile(queue, batch, IsRestartOrphanedTradingBatch(batch)))
                         return;
                 }
             }
@@ -104,7 +107,8 @@ namespace CityBankers
 
         private bool TryReconcile(
             DispatchQueueState queue,
-            DispatchBatchState batch)
+            DispatchBatchState batch,
+            bool restartOrphan)
         {
             if (batch == null)
                 return false;
@@ -123,7 +127,7 @@ namespace CityBankers
                 return false;
             }
 
-            if (!IsRecoverablePreTransferFailure(batch.LastError))
+            if (!restartOrphan && !IsRecoverablePreTransferFailure(batch.LastError))
             {
                 ReportDecisionOnce(
                     batch,
@@ -237,7 +241,9 @@ namespace CityBankers
                 return false;
             }
 
-            string priorError = batch.LastError;
+            string priorError = restartOrphan
+                ? "Host restarted after persisting trading state; no current process owns this trade."
+                : batch.LastError;
             bool clearedCommand = command != null;
             bool clearedResult = sameBatchResult;
 
@@ -286,7 +292,8 @@ namespace CityBankers
                 });
 
             string notice =
-                "RECONCILED " + BatchLabel(batch) + ": Central verified " +
+                (restartOrphan ? "RESTART ORPHAN RECONCILED " : "RECONCILED ") +
+                BatchLabel(batch) + ": Central verified " +
                 expectedCount + "/" + expectedCount +
                 " expected item(s) loose; no worker custody evidence; " +
                 (clearedCommand || clearedResult
@@ -297,6 +304,25 @@ namespace CityBankers
             TellKavem(notice);
             _lastDecisionByBatch.Remove(batch.BatchId ?? string.Empty);
             return true;
+        }
+
+        private bool IsRestartOrphanedTradingBatch(DispatchBatchState batch)
+        {
+            if (batch == null || !string.Equals(
+                    batch.Status, "trading", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            DateTime updated = NormalizeUtc(batch.UpdatedUtc);
+            return updated == DateTime.MinValue || updated < _processStartedUtc;
+        }
+
+        private static DateTime NormalizeUtc(DateTime value)
+        {
+            if (value == DateTime.MinValue || value.Kind == DateTimeKind.Utc)
+                return value;
+            if (value.Kind == DateTimeKind.Local)
+                return value.ToUniversalTime();
+            return DateTime.SpecifyKind(value, DateTimeKind.Utc);
         }
 
         private static bool IsRecoverablePreTransferFailure(string error)
