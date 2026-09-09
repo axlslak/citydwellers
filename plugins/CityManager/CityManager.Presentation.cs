@@ -275,8 +275,8 @@ namespace CityManager
                 "Browse CityBankers symbiant availability."));
             body.Append(HelpSyntaxLine(
                 target,
-                "donor",
-                "Show the active CityBankers donor count."));
+                "donor [top|last|member]",
+                "Browse all-time donor rankings and donation history."));
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
             body.Append(HelpSyntaxLine(target, "cancel [raid-token]", "Cancel your active raid."));
             body.Append(HelpSyntaxLine(target, "alts [character]", "Show known mains and alts."));

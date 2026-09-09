@@ -1159,3 +1159,26 @@ and CityBuddies, but CityManager failed because its new Banker partial omitted
 the AOSharp.Clientless namespace needed to resolve `Client.CharacterName`.
 The partial now imports that namespace; no command, authorization, queue, or
 runtime behavior changed.
+
+## 2026-09-09 — Donor history windows
+
+The initial unified `#donor` command counted only distinct donors represented
+by items still in the active ledger. It could not answer who contributed the
+most, show recent donated items, or preserve credit after an item left stock.
+
+Manager now builds one all-time donation view by combining active
+`ledger.json` items with the copied item records in monthly
+`history/history-*.jsonl` archives. Stable ledger item IDs remove any overlap.
+Symbiant index metadata restores item names, QLs, and AO item links. Donor
+names are canonicalized through the current Manager alt graph at query time,
+so donations made across known alts aggregate under the main.
+
+`#donor top` presents the ranked all-time leaderboard, `#donor last` presents
+the latest 25 item receipts with absolute UTC time and donor, and
+`#donor <member>` presents the canonical member's all-time total plus latest
+10 items. Bare `#donor` opens a navigation overview. All views use Manager's
+existing channel-aware links, blob pagination, colors, and AP-members-only
+authorization.
+
+No assistant-side compilation or live AO test was run. Kavey owns the Release
+build and command presentation validation.

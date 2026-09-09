@@ -975,10 +975,11 @@ resilience and restart change:
 - `[DECISION]` Apcmanager is the integrated system's sole public command
   identity in organization and guest chat. Banker information does not require
   a second prefix or a second public bot vocabulary.
-- `[IMPLEMENTED]` Manager owns `#stock [family [slot [targetQl]]]` and
-  `#donor`. It reads the same mutex-protected `current-stock.json` and
-  `ledger.json` that CityBankers maintains; no second stock, donor, admin,
-  member, or alt database exists.
+- `[IMPLEMENTED]` Manager owns `#stock [family [slot [targetQl]]]` and the
+  `#donor` family. It reads the same mutex-protected `current-stock.json`,
+  `ledger.json`, `symbiant-index.json`, and monthly departure history that
+  CityBankers maintains; no second stock, donor, admin, member, or alt database
+  exists.
 - `[INVARIANT]` Stock and donor information is AP-members-only. Organization
   channel origin supplies membership context; guest and tell requests must
   resolve through Manager's canonical admin/member/alt identity model.
@@ -993,6 +994,14 @@ resilience and restart change:
   queue into its confirmed guest channel and retains a message when channel
   delivery throws. Other player tells continue through the rotating tell
   sender pool.
+- `[IMPLEMENTED 2026-09-09]` `#donor top` ranks canonical mains by all-time
+  donated item count; `#donor last` shows the latest 25 donated items with
+  absolute UTC receipt time and donor; `#donor <member>` shows that canonical
+  main's latest 10 and all-time total. Active ledger items and archived
+  departure items are combined and deduplicated by stable ledger item ID, so
+  items remain credited after withdrawal or deletion. Donor alts are resolved
+  through Manager's live canonical alt map at query time. Responses are
+  paginated AO blobs with item links and clickable donor navigation.
 
 ## Central outbound tell queue (2026-09-08)
 

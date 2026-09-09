@@ -422,7 +422,6 @@ namespace CityManager
             bool hasCommandShape =
                 ((command == "cloak" ||
                   command == "status" ||
-                  command == "donor" ||
                   command == "leave" ||
                   command == "join" ||
                   command == "adminlist" ||
@@ -431,6 +430,7 @@ namespace CityManager
                   command == "dump" ||
                   command == "restart") && parts.Length == 1) ||
                 (command == "help" && parts.Length <= 3) ||
+                (command == "donor" && parts.Length <= 2) ||
                 command == "stock" ||
                 (command == "home" &&
                  (parts.Length == 1 || parts.Length == 2)) ||
