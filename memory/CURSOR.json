@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 27,
-  "last_completed_session": 26,
-  "status": "in_progress",
+  "last_completed_session": 27,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T10:11:07Z",
-  "transaction": "session-27-banker-state-write-collision",
-  "base_commit": "1fc0982d47bc489ecc87e8387c8a754d46d06f56",
-  "task": "Repair the shared Banker current-stock persistence collision exposed after AO placement, and add evidence-based recovery for the resulting partially stored failed batch.",
-  "resume_instruction": "Inspect RuntimeStateStore read/write locking first. The live evidence shows one Kbexte item reached its storage bag but current-stock.json replacement failed because a concurrent reader held the file; the remaining extermination batch was stopped and remains failed. Do not weaken custody safeguards or blindly requeue the full batch. Serialize shared-file access, then recover only after proving which expected items are already persisted/physical and which remain loose on the destination worker. Static checks only; Kavey owns build and live AO recovery."
+  "status_changed_utc": "2026-09-09T10:16:32Z",
+  "transaction": null,
+  "base_commit": "43feaaf05569fc455744d4986d4d8357f4392c3d",
+  "task": "Owner validation boundary: rebuild Release, replace the running unified binaries, and restart CityDwellers.exe so startup write-front reconciliation and exact-identity partial recovery can repair held extermination batch 07c904d1.",
+  "resume_instruction": "Cursor is idle. Shared Banker JSON reads/writes now use one per-file mutex; atomic replacement retries sharing violations without deleting the last good file. On the next restart, watch Kbexte for write-front reconciliation followed by PARTIAL PLACEMENT RECOVERY, then WORKER PARTIAL PLACEMENT RECOVERY COMPLETE and Central RECONCILED QUEUE. If exact identity partition proof blocks, preserve data and physical inventory and return the complete block message; never re-donate the held items."
 }
