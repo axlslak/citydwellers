@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 27,
+  "current_session": 28,
   "last_completed_session": 27,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T10:16:32Z",
-  "transaction": null,
-  "base_commit": "43feaaf05569fc455744d4986d4d8357f4392c3d",
-  "task": "Owner validation boundary: rebuild Release, replace the running unified binaries, and restart CityDwellers.exe so startup write-front reconciliation and exact-identity partial recovery can repair held extermination batch 07c904d1.",
-  "resume_instruction": "Cursor is idle. Shared Banker JSON reads/writes now use one per-file mutex; atomic replacement retries sharing violations without deleting the last good file. On the next restart, watch Kbexte for write-front reconciliation followed by PARTIAL PLACEMENT RECOVERY, then WORKER PARTIAL PLACEMENT RECOVERY COMPLETE and Central RECONCILED QUEUE. If exact identity partition proof blocks, preserve data and physical inventory and return the complete block message; never re-donate the held items."
+  "status_changed_utc": "2026-09-09T10:28:48Z",
+  "transaction": "session-28-banker-proof-and-flipper-lifecycle",
+  "base_commit": "7ee1093a0317419191655ab8abf3276d6e9ef05d",
+  "task": "Recover held Banker batches whose AO trade snapshots lack distinct identities using transaction-bound multiset proof, and prevent Flipper probes from starting or retry-storming across unified-host shutdown.",
+  "resume_instruction": "Kavey stopped the unified host after exact-identity recovery safely blocked batch 07c904d1. Keep data unchanged. Replace identity-only proof with a transaction-bound persisted-stock plus loose-worker multiset partition while preserving the exact one-location invariant. Flipper evidence shows a timed-out probe left an AO AlreadyLoggedIn session and a retry proceeded into domain.Start after host shutdown began; add monotonic failed-probe cooldown and a shutdown-aware active-probe barrier. Static checks only; Kavey owns build and live validation."
 }
