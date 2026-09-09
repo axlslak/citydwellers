@@ -1041,3 +1041,33 @@ because their idle lifecycle has no logged-in AO character.
 
 No assistant-side compilation or live AO test was run. Kavey owns the
 authoritative Release build and live chat-rate verification.
+
+
+## 2026-09-09 — Banker shared-state collision and partial-placement recovery
+
+The first sustained unified live run proved both the imported baseline and a
+previously hidden file-sharing race. Kbexte placed an extermination item into
+its AO storage bag, then failed while replacing `current-stock.json` because a
+concurrent stock reader held the destination file. The worker stopped before
+moving another item, and Central correctly retained the batch as a failed
+post-transfer hold.
+
+The runtime-state store now gives readers and atomic writers the same
+path-specific named mutex. Replacement retries transient Windows or network
+share access failures for up to five seconds; failure preserves the prior good
+file instead of deleting it as an immediate fallback.
+
+The existing startup write-front pass already proves and imports physical bag
+contents before dispatch readiness. After that proof, worker-local recovery may
+now handle the exact placement-then-persistence failure only when every
+original transfer item has a distinct usable AO identity and those identities
+partition exactly between persisted storage on the destination worker and
+loose destination-worker inventory. It resumes only the loose subset, carries
+forward the already-stored count, and emits full-batch success only after all
+original identities are durably accounted for. Central's existing exact worker
+success reconciler remains the only authority that removes the failed queue
+entry. Any missing, duplicated, or cross-location identity leaves the batch on
+hold.
+
+No assistant-side compilation or live AO test was run. Kavey owns the Release
+build and live recovery of the held extermination batch.

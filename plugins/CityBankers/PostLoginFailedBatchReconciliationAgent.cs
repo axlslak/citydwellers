@@ -31,6 +31,8 @@ namespace CityBankers
         private const int PollMilliseconds = 750;
         private const string WorkerLocalFullBagFailure =
             "Live bag is full even though persisted state expected free space. Reconcile before continuing.";
+        private const string WorkerLocalPlacementPersistenceFailurePrefix =
+            "AO placement succeeded but persistent state update failed:";
 
         private readonly Dictionary<string, string> _lastDecisionByBatch =
             new Dictionary<string, string>(StringComparer.Ordinal);
@@ -110,10 +112,14 @@ namespace CityBankers
             if (string.Equals(
                     batch.LastError,
                     WorkerLocalFullBagFailure,
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal) ||
+                (batch.LastError != null && batch.LastError.StartsWith(
+                    WorkerLocalPlacementPersistenceFailurePrefix,
+                    StringComparison.Ordinal)))
             {
-                // StorageWriteFrontReconciliationAgent owns this exact post-transfer case.
-                // The items are expected to be loose on the destination worker, not Central.
+                // StorageWriteFrontReconciliationAgent owns these exact post-transfer cases.
+                // The items are expected to be stored and/or loose on the destination worker,
+                // not Central.
                 return false;
             }
 

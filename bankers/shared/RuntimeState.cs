@@ -190,6 +190,8 @@ namespace CityBankers.Shared
         private const string LedgerMutexName = "CityBankers.Ledger.v1";
         private const string LogMutexName = "CityBankers.ActivityLog.v1";
         private const string IdentityNoneText = "(None:0000)";
+        private const int AtomicFileRetryCount = 50;
+        private const int AtomicFileRetryDelayMilliseconds = 100;
 
         public static string GetDataDirectory(string settingsDir)
         {
@@ -269,9 +271,9 @@ namespace CityBankers.Shared
             WithMutex(StateMutexName, delegate
             {
                 storageState.UpdatedUtc = DateTime.UtcNow;
-                WriteJsonAtomicNoLock(GetStorageStatePath(settingsDir), storageState);
+                WriteJsonAtomic(GetStorageStatePath(settingsDir), storageState);
                 CurrentStockState stock = BuildCurrentStock(storageState);
-                WriteJsonAtomicNoLock(GetCurrentStockPath(settingsDir), stock);
+                WriteJsonAtomic(GetCurrentStockPath(settingsDir), stock);
             });
 
             AppendLedger(
@@ -298,7 +300,7 @@ namespace CityBankers.Shared
             WithMutex(StateMutexName, delegate
             {
                 state.UpdatedUtc = DateTime.UtcNow;
-                WriteJsonAtomicNoLock(GetDispatchQueuePath(settingsDir), state);
+                WriteJsonAtomic(GetDispatchQueuePath(settingsDir), state);
             });
         }
 
@@ -323,7 +325,7 @@ namespace CityBankers.Shared
             {
                 WithMutex(StateMutexName, delegate
                 {
-                    StorageState state = ReadJsonNoLock<StorageState>(
+                    StorageState state = ReadJson<StorageState>(
                         GetStorageStatePath(settingsDir));
                     if (state == null)
                         throw new InvalidOperationException(
@@ -395,8 +397,8 @@ namespace CityBankers.Shared
 
                     worker.ObservedUtc = DateTime.UtcNow;
                     state.UpdatedUtc = DateTime.UtcNow;
-                    WriteJsonAtomicNoLock(GetStorageStatePath(settingsDir), state);
-                    WriteJsonAtomicNoLock(
+                    WriteJsonAtomic(GetStorageStatePath(settingsDir), state);
+                    WriteJsonAtomic(
                         GetCurrentStockPath(settingsDir),
                         BuildCurrentStock(state));
                     success = true;
@@ -600,7 +602,12 @@ namespace CityBankers.Shared
         {
             try
             {
-                return ReadJsonNoLock<T>(path);
+                T result = null;
+                WithMutex(GetFileMutexName(path), delegate
+                {
+                    result = ReadJsonNoLock<T>(path);
+                });
+                return result;
             }
             catch
             {
@@ -613,8 +620,7 @@ namespace CityBankers.Shared
             if (string.IsNullOrWhiteSpace(path))
                 throw new ArgumentException("Path is required.", "path");
 
-            string mutexName = StateMutexName + "." + SafeFileToken(Path.GetFileName(path));
-            WithMutex(mutexName, delegate
+            WithMutex(GetFileMutexName(path), delegate
             {
                 WriteJsonAtomicNoLock(path, value);
             });
@@ -640,22 +646,36 @@ namespace CityBankers.Shared
                 JsonConvert.SerializeObject(value, Formatting.Indented),
                 new UTF8Encoding(false));
 
+            Exception lastError = null;
             try
             {
-                if (File.Exists(path))
+                for (int attempt = 1; attempt <= AtomicFileRetryCount; attempt++)
                 {
                     try
                     {
-                        File.Replace(temp, path, null);
+                        if (File.Exists(path))
+                            File.Replace(temp, path, null);
+                        else
+                            File.Move(temp, path);
                         return;
                     }
-                    catch
+                    catch (IOException ex)
                     {
-                        File.Delete(path);
+                        lastError = ex;
                     }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        lastError = ex;
+                    }
+
+                    if (attempt < AtomicFileRetryCount)
+                        Thread.Sleep(AtomicFileRetryDelayMilliseconds);
                 }
 
-                File.Move(temp, path);
+                throw new IOException(
+                    "Unable to replace '" + path + "' after " +
+                    AtomicFileRetryCount + " attempts; the last good file was preserved.",
+                    lastError);
             }
             finally
             {
@@ -668,6 +688,12 @@ namespace CityBankers.Shared
         {
             return !string.IsNullOrWhiteSpace(value) &&
                 !string.Equals(value, IdentityNoneText, StringComparison.Ordinal);
+        }
+
+        private static string GetFileMutexName(string path)
+        {
+            return StateMutexName + ".File." +
+                SafeFileToken(Path.GetFullPath(path ?? string.Empty));
         }
 
         private static string EnsureDirectory(string path)

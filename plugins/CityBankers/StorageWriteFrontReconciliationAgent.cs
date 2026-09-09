@@ -27,12 +27,13 @@ namespace CityBankers
     /// agent advances until it proves one genuinely writable bag. Readiness waits for this
     /// marker, so normal dispatch cannot race stale write-front occupancy.
     ///
-    /// After readiness, a failed batch with the exact pre-insertion 'live bag is full' error
-    /// may be resumed locally only when its complete expected multiset is still loose in the
-    /// destination worker's normal inventory. No second Central trade is used. A normal
-    /// StorageBatchResult is published only after every item is physically placed and any
-    /// staged bank bag has returned; Central's worker-success reconciler remains queue-removal
-    /// authority.
+    /// After readiness, narrowly proven worker-local failures may be resumed without a second
+    /// Central trade. Full-bag failures require the complete expected multiset to remain loose.
+    /// Post-placement persistence failures require every expected unique identity to partition
+    /// exactly between freshly reconciled persisted storage and loose worker inventory. Only
+    /// the loose remainder is moved. A normal StorageBatchResult is published only after the
+    /// complete original batch is durably accounted for; Central's worker-success reconciler
+    /// remains queue-removal authority.
     /// </summary>
     public class StorageWriteFrontReconciliationAgent : ClientlessPluginEntry
     {
@@ -42,6 +43,8 @@ namespace CityBankers
         private const int PollMilliseconds = 100;
         private const string FullBagFailure =
             "Live bag is full even though persisted state expected free space. Reconcile before continuing.";
+        private const string PlacementPersistenceFailurePrefix =
+            "AO placement succeeded but persistent state update failed:";
 
         private string _settingsDir;
         private WriteFrontConfig _config;
@@ -162,7 +165,9 @@ namespace CityBankers
                 if (Trade.IsTrading)
                     return;
 
-                TryStartFullBagRecovery();
+                TryStartPartialPlacementRecovery();
+                if (_recovery == null)
+                    TryStartFullBagRecovery();
             }
             catch (Exception ex)
             {
@@ -718,6 +723,129 @@ namespace CityBankers
         // Post-readiness local recovery for this exact pre-insertion failure.
         // -----------------------------------------------------------------
 
+        private void TryStartPartialPlacementRecovery()
+        {
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            DispatchBatchState batch = (queue?.Batches ?? new List<DispatchBatchState>())
+                .FirstOrDefault(candidate =>
+                    candidate != null &&
+                    string.Equals(candidate.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(candidate.Role, _role, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(
+                        candidate.Character,
+                        Client.CharacterName,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    candidate.LastError != null &&
+                    candidate.LastError.StartsWith(
+                        PlacementPersistenceFailurePrefix,
+                        StringComparison.Ordinal));
+            if (batch == null || batch.Items == null || batch.Items.Count == 0)
+                return;
+
+            var identities = new HashSet<string>(StringComparer.Ordinal);
+            foreach (TransferItemState expected in batch.Items)
+            {
+                if (expected == null || !IsUsableIdentity(expected.UniqueIdentity) ||
+                    !identities.Add(expected.UniqueIdentity))
+                {
+                    ReportProblem(
+                        "PARTIAL PLACEMENT RECOVERY BLOCKED " + _role + " batch " +
+                        ShortId(batch.BatchId) +
+                        ": every expected item must have one distinct AO identity. " +
+                        "No physical state was guessed.");
+                    return;
+                }
+            }
+
+            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            List<Item> loose = Inventory.Items == null
+                ? new List<Item>()
+                : Inventory.Items
+                    .Where(item =>
+                        item != null &&
+                        item.Slot.Type == IdentityType.Inventory &&
+                        item.UniqueIdentity.Type != IdentityType.Container)
+                    .ToList();
+            var remaining = new List<TransferItemState>();
+            int alreadyStored = 0;
+
+            foreach (TransferItemState expected in batch.Items)
+            {
+                int persistedMatches = (stock?.Items ?? new List<StockItemState>())
+                    .Count(item =>
+                        item != null &&
+                        string.Equals(
+                            item.UniqueIdentity,
+                            expected.UniqueIdentity,
+                            StringComparison.Ordinal) &&
+                        string.Equals(
+                            item.PhysicalRole,
+                            _role,
+                            StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(
+                            item.Character,
+                            Client.CharacterName,
+                            StringComparison.OrdinalIgnoreCase));
+                int looseMatches = loose.Count(item => string.Equals(
+                    item.UniqueIdentity.ToString(),
+                    expected.UniqueIdentity,
+                    StringComparison.Ordinal));
+
+                if (persistedMatches == 1 && looseMatches == 0)
+                {
+                    alreadyStored++;
+                    continue;
+                }
+
+                if (persistedMatches == 0 && looseMatches == 1)
+                {
+                    remaining.Add(expected);
+                    continue;
+                }
+
+                ReportProblem(
+                    "PARTIAL PLACEMENT RECOVERY BLOCKED " + _role + " batch " +
+                    ShortId(batch.BatchId) + ": expected identity " +
+                    expected.UniqueIdentity + " has persistedMatches=" + persistedMatches +
+                    " looseMatches=" + looseMatches +
+                    ". Every item must exist exactly once in one custody location; no " +
+                    "physical state was guessed.");
+                return;
+            }
+
+            if (alreadyStored == 0 || alreadyStored + remaining.Count != batch.Items.Count)
+            {
+                ReportProblem(
+                    "PARTIAL PLACEMENT RECOVERY BLOCKED " + _role + " batch " +
+                    ShortId(batch.BatchId) +
+                    ": the original batch is not completely partitioned between persisted " +
+                    "storage and loose worker inventory. No physical state was guessed.");
+                return;
+            }
+
+            _recovery = new RecoveryJob
+            {
+                BatchId = batch.BatchId,
+                TransactionId = batch.TransactionId,
+                Items = remaining,
+                ExpectedCount = batch.Items.Count,
+                Index = 0,
+                StoredCount = alreadyStored,
+                RecoveryKind = "PARTIAL PLACEMENT",
+                Phase = RecoveryPhase.FindBag,
+                DeadlineUtc = DateTime.UtcNow.AddMilliseconds(ServicePolicy.ItemMoveTimeoutMs)
+            };
+
+            string notice =
+                "PARTIAL PLACEMENT RECOVERY " + _role + " batch " +
+                ShortId(batch.BatchId) + ": exact AO identities prove " + alreadyStored +
+                " already persisted and " + remaining.Count +
+                " still loose on " + Client.CharacterName +
+                "; resuming only the loose remainder. No Central re-trade.";
+            Logger.Information("[CityBankers] " + notice);
+            TellKavem(notice);
+        }
+
         private void TryStartFullBagRecovery()
         {
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
@@ -766,8 +894,10 @@ namespace CityBankers
                 BatchId = batch.BatchId,
                 TransactionId = batch.TransactionId,
                 Items = new List<TransferItemState>(batch.Items),
+                ExpectedCount = batch.Items.Count,
                 Index = 0,
                 StoredCount = 0,
+                RecoveryKind = "FULL-BAG",
                 Phase = RecoveryPhase.FindBag,
                 DeadlineUtc = DateTime.UtcNow.AddMilliseconds(ServicePolicy.ItemMoveTimeoutMs)
             };
@@ -1003,7 +1133,7 @@ namespace CityBankers
                 new LedgerRecord
                 {
                     Utc = DateTime.UtcNow,
-                    Event = "item_stored_full_bag_recovery",
+                    Event = "item_stored_worker_local_recovery",
                     TransactionId = _recovery.TransactionId,
                     BatchId = _recovery.BatchId,
                     Actor = Client.CharacterName,
@@ -1013,8 +1143,9 @@ namespace CityBankers
                     Destination = _recovery.Bag.Source + ":" +
                         _recovery.BagOuterSlot + "/inner:" + _recovery.InnerSlot,
                     Message =
-                        "AO confirmed worker-local placement after startup write-front " +
-                        "occupancy reconciliation.",
+                        "AO confirmed worker-local placement during " +
+                        (_recovery.RecoveryKind ?? "storage") + " recovery after startup " +
+                        "write-front occupancy reconciliation.",
                     Items = new List<LedgerItem>
                     {
                         new LedgerItem
@@ -1066,14 +1197,15 @@ namespace CityBankers
                     Character = Client.CharacterName,
                     CompletedUtc = DateTime.UtcNow,
                     Success = true,
-                    ExpectedCount = job.Items?.Count ?? 0,
+                    ExpectedCount = job.ExpectedCount,
                     StoredCount = job.StoredCount
                 });
 
             string notice =
-                "WORKER FULL-BAG RECOVERY COMPLETE " + _role + " batch " +
+                "WORKER " + (job.RecoveryKind ?? "LOCAL") +
+                " RECOVERY COMPLETE " + _role + " batch " +
                 ShortId(job.BatchId) + ": stored=" + job.StoredCount + "/" +
-                (job.Items?.Count ?? 0) +
+                job.ExpectedCount +
                 "; exact worker success is ready for Central queue reconciliation.";
             Logger.Information("[CityBankers] " + notice);
             TellKavem(notice);
@@ -1096,16 +1228,18 @@ namespace CityBankers
                     Character = Client.CharacterName,
                     CompletedUtc = DateTime.UtcNow,
                     Success = false,
-                    ExpectedCount = job.Items?.Count ?? 0,
+                    ExpectedCount = job.ExpectedCount,
                     StoredCount = job.StoredCount,
                     Error = error
                 });
 
             Logger.Error(
-                "[CityBankers] WORKER FULL-BAG RECOVERY FAILED " + _role +
+                "[CityBankers] WORKER " + (job.RecoveryKind ?? "LOCAL") +
+                " RECOVERY FAILED " + _role +
                 " batch " + ShortId(job.BatchId) + ": " + error);
             TellKavem(
-                "WORKER FULL-BAG RECOVERY FAILED " + _role + ": " + error +
+                "WORKER " + (job.RecoveryKind ?? "LOCAL") +
+                " RECOVERY FAILED " + _role + ": " + error +
                 " Queue remains failed; no physical state was guessed.");
             _recovery = null;
         }
@@ -1412,8 +1546,10 @@ namespace CityBankers
             public string BatchId;
             public string TransactionId;
             public List<TransferItemState> Items;
+            public int ExpectedCount;
             public int Index;
             public int StoredCount;
+            public string RecoveryKind;
             public RecoveryPhase Phase;
             public DateTime DeadlineUtc;
             public TransferItemState Expected;

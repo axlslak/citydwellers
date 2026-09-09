@@ -917,9 +917,29 @@ resilience and restart change:
 - `[DEFERRED]` City Dwellers admins, members, and alts are not yet shared with
   CityBankers. Kavem remains the imported bootstrap administrator until the
   owner defines the next integration layer.
-- `[OPEN]` Kavey owns Release compilation, one-process startup/shutdown proof,
-  six-banker readiness, retained-state verification, and live donation/stock
-  checks.
+- `[VERIFIED-LIVE 2026-09-08]` The unified executable started Manager, the
+  idle Flipper/Buddies services, and all six Bankers. The migrated storage
+  baseline reconciled with zero bag remaps, all six readiness barriers opened,
+  and two donations routed 17 symbiants into nine worker batches. The shared
+  tell queue rotated coherent trade messages across Apcmanager and the bankers.
+- `[VERIFIED-LIVE 2026-09-09]` A concurrent `current-stock.json` read exposed a
+  Windows sharing violation after one Kbexte AO bag placement. The worker
+  correctly stopped the remaining batch and Central held it as post-transfer
+  rather than requeueing it.
+- `[IMPLEMENTED]` Banker JSON reads and atomic writes now share a per-file
+  named mutex. Atomic replacement retries transient sharing violations for up
+  to five seconds and never deletes the last good target after replacement
+  fails.
+- `[IMPLEMENTED]` The worker-local recovery path recognizes this exact
+  post-placement persistence failure only after startup write-front
+  reconciliation. Every original item must have a distinct AO identity and
+  must exist exactly once either in persisted storage on the destination
+  worker or loose in that worker's inventory. Recovery moves only the loose
+  remainder and reports success for the complete original batch; ambiguous
+  custody remains held.
+- `[OPEN]` Kavey owns the Release build and the first live recovery of failed
+  extermination batch `07c904d1` by replacing the binaries and restarting the
+  unified host without changing the runtime data directory.
 
 
 ## Central outbound tell queue (2026-09-08)
