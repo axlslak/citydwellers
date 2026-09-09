@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 31,
+  "current_session": 32,
   "last_completed_session": 31,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T17:51:29Z",
-  "transaction": null,
-  "base_commit": "9b2d9ccfba39fdcf67230b874fb2bc3b680fd139",
-  "task": "Await Kavey's Release build and live validation of the donor history windows.",
-  "resume_instruction": "Cursor idle. Apcmanager #donor now provides an overview, top provides the all-time canonical-main leaderboard, last provides the latest 25 item donations, and a member name provides their latest 10 plus all-time total. Active and archived ledgers are deduplicated by stable item ID; current alt mappings aggregate identities; item links and absolute UTC timestamps are rendered in AO blobs. Return any Release compiler output or presentation/runtime errors for repair."
+  "status_changed_utc": "2026-09-09T17:57:01Z",
+  "transaction": "session-32-donor-utc-namespace-build-fix",
+  "base_commit": "b15d62e9a91b870a7ae258a4238d228fd3518b70",
+  "task": "Repair the missing UtcTimestamp namespace import in CityManager.Bankers.cs.",
+  "resume_instruction": "Add the CityDwellers.Shared namespace import to CityManager.Bankers.cs, statically verify the project reference and source, publish, and return the cursor idle. Kavey owns the authoritative Visual Studio Release build."
 }
