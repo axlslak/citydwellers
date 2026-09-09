@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 34,
-  "last_completed_session": 33,
-  "status": "in_progress",
+  "last_completed_session": 34,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T20:38:40Z",
-  "transaction": "session-34-orphaned-trading-restart-recovery",
-  "base_commit": "4bd623a8dabf072a3a56a912728985c2023d95fa",
-  "task": "Recover persisted dispatch batches orphaned in trading state by a host restart.",
-  "resume_instruction": "Extend Central post-login reconciliation to consider only trading batches whose UpdatedUtc predates this agent process start. Requeue only after all expected items are physically loose on Central and no same-batch worker custody evidence exists. Never touch a trade created during the current process. Static checks only; Kavey owns build and one controlled restart."
+  "status_changed_utc": "2026-09-09T20:40:47Z",
+  "transaction": null,
+  "base_commit": "ed1d678b5331f15d313f141d0e25e2b2e39cafe4",
+  "task": "Await Kavey's Release build and controlled restart recovery of artillery batch 68b9ee5d.",
+  "resume_instruction": "Cursor idle. Post-login reconciliation now safely recovers persisted trading batches older than the current process only after exact Central inventory and no-worker-custody proof. Build, stop the old host, replace artifacts, and start once. Expect RESTART ORPHAN RECONCILED for artillery batch 9fd6b3a9, then normal dispatch/storage completion and player trades reopening. Return the startup segment if it holds instead."
 }
