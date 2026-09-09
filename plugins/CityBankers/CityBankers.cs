@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
@@ -24,12 +25,14 @@ namespace CityBankers
         private string _tempPath;
         private string _reportCommandPath;
         private string _reportAckPath;
+        private string _healthPath;
         private string _dataDir;
         private bool _inPlay;
         private bool _diagnosticStarted;
         private bool _snapshotWritten;
         private DateTime _snapshotDueUtc = DateTime.MaxValue;
         private DateTime _bankDeadlineUtc = DateTime.MaxValue;
+        private DateTime _nextHealthUtc = DateTime.MinValue;
         private DiagnosticResult _pendingResult;
 
         public override void Init(string pluginDir)
@@ -53,6 +56,7 @@ namespace CityBankers
             _reportAckPath = Path.Combine(
                 pluginDir,
                 $"citybankers-report-ack-{token}.json");
+            _healthPath = Path.Combine(pluginDir, $"citybankers-health-{token}.json");
 
             DeleteIfExists(_resultPath);
             DeleteIfExists(_tempPath);
@@ -60,6 +64,8 @@ namespace CityBankers
             DeleteIfExists(_reportCommandPath + ".tmp");
             DeleteIfExists(_reportAckPath);
             DeleteIfExists(_reportAckPath + ".tmp");
+            DeleteIfExists(_healthPath);
+            DeleteIfExists(_healthPath + ".tmp");
 
             Logger.Information(
                 $"CityBankers diagnostic plugin initialized. Runtime state root='{pluginDir}'.");
@@ -79,6 +85,8 @@ namespace CityBankers
             Client.MessageReceived -= MessageReceived;
             Client.OnUpdate -= Tick;
             Client.Disconnected -= Disconnected;
+            DeleteIfExists(_healthPath);
+            DeleteIfExists(_healthPath + ".tmp");
             Logger.Information("CityBankers diagnostic plugin teardown.");
         }
 
@@ -121,6 +129,8 @@ namespace CityBankers
             if (!_inPlay)
                 return;
 
+            PublishHealthHeartbeat();
+
             ProcessReportCommand();
 
             if (_snapshotWritten)
@@ -158,9 +168,27 @@ namespace CityBankers
             _pendingResult = null;
             _snapshotDueUtc = DateTime.MaxValue;
             _bankDeadlineUtc = DateTime.MaxValue;
+            DeleteIfExists(_healthPath);
+            DeleteIfExists(_healthPath + ".tmp");
             Logger.Warning(
                 $"CityBankers observed {Client.CharacterName} disconnect; " +
                 "AutoReconnect remains enabled.");
+        }
+
+        private void PublishHealthHeartbeat()
+        {
+            if (DateTime.UtcNow < _nextHealthUtc || string.IsNullOrWhiteSpace(_healthPath))
+                return;
+
+            _nextHealthUtc = DateTime.UtcNow.AddSeconds(5);
+            WriteAtomicJson(_healthPath, new BankerHealthHeartbeat
+            {
+                ProcessId = Process.GetCurrentProcess().Id,
+                ObservedUtc = DateTime.UtcNow,
+                Character = Client.CharacterName,
+                InPlay = Client.InPlay,
+                BankOpen = Inventory.Bank != null && Inventory.Bank.IsOpen
+            });
         }
 
         private void BeginDiagnostic()
@@ -562,6 +590,15 @@ namespace CityBankers
             public int BankBagCount;
             public int TotalBagCount;
             public string BankError;
+        }
+
+        public class BankerHealthHeartbeat
+        {
+            public int ProcessId;
+            public DateTime ObservedUtc;
+            public string Character;
+            public bool InPlay;
+            public bool BankOpen;
         }
 
         public class PlayerSnapshot
