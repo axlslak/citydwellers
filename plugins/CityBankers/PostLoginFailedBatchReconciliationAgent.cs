@@ -36,11 +36,14 @@ namespace CityBankers
 
         private readonly Dictionary<string, string> _lastDecisionByBatch =
             new Dictionary<string, string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _startupFailedBatchIds =
+            new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _startupTradingBatchIds =
+            new HashSet<string>(StringComparer.Ordinal);
 
         private string _settingsDir;
         private bool _enabled;
         private DateTime _nextPollUtc;
-        private DateTime _processStartedUtc;
 
         public override void Init(string pluginDir)
         {
@@ -56,7 +59,17 @@ namespace CityBankers
             }
 
             _enabled = true;
-            _processStartedUtc = DateTime.UtcNow;
+            DispatchQueueState startupQueue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            foreach (DispatchBatchState batch in startupQueue?.Batches ?? new List<DispatchBatchState>())
+            {
+                if (batch == null || string.IsNullOrWhiteSpace(batch.BatchId))
+                    continue;
+
+                if (string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase))
+                    _startupFailedBatchIds.Add(batch.BatchId);
+                else if (string.Equals(batch.Status, "trading", StringComparison.OrdinalIgnoreCase))
+                    _startupTradingBatchIds.Add(batch.BatchId);
+            }
             _nextPollUtc = DateTime.UtcNow;
             Client.OnUpdate += Tick;
             Logger.Information(
@@ -70,6 +83,8 @@ namespace CityBankers
 
             Client.OnUpdate -= Tick;
             _lastDecisionByBatch.Clear();
+            _startupFailedBatchIds.Clear();
+            _startupTradingBatchIds.Clear();
         }
 
         private void Tick(object sender, double deltaTime)
@@ -88,7 +103,7 @@ namespace CityBankers
                 List<DispatchBatchState> candidates = (queue?.Batches ?? new List<DispatchBatchState>())
                     .Where(batch =>
                         batch != null &&
-                        (string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase) ||
+                        (IsStartupFailedBatch(batch) ||
                          IsRestartOrphanedTradingBatch(batch)))
                     .ToList();
 
@@ -303,26 +318,26 @@ namespace CityBankers
             Logger.Information("[CityBankers] " + notice);
             TellKavem(notice);
             _lastDecisionByBatch.Remove(batch.BatchId ?? string.Empty);
+            _startupFailedBatchIds.Remove(batch.BatchId ?? string.Empty);
+            _startupTradingBatchIds.Remove(batch.BatchId ?? string.Empty);
             return true;
+        }
+
+        private bool IsStartupFailedBatch(DispatchBatchState batch)
+        {
+            return batch != null &&
+                   !string.IsNullOrWhiteSpace(batch.BatchId) &&
+                   string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
+                   _startupFailedBatchIds.Contains(batch.BatchId);
         }
 
         private bool IsRestartOrphanedTradingBatch(DispatchBatchState batch)
         {
-            if (batch == null || !string.Equals(
+            if (batch == null || string.IsNullOrWhiteSpace(batch.BatchId) || !string.Equals(
                     batch.Status, "trading", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            DateTime updated = NormalizeUtc(batch.UpdatedUtc);
-            return updated == DateTime.MinValue || updated < _processStartedUtc;
-        }
-
-        private static DateTime NormalizeUtc(DateTime value)
-        {
-            if (value == DateTime.MinValue || value.Kind == DateTimeKind.Utc)
-                return value;
-            if (value.Kind == DateTimeKind.Local)
-                return value.ToUniversalTime();
-            return DateTime.SpecifyKind(value, DateTimeKind.Utc);
+            return _startupTradingBatchIds.Contains(batch.BatchId);
         }
 
         private static bool IsRecoverablePreTransferFailure(string error)
