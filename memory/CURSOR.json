@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 32,
-  "last_completed_session": 31,
-  "status": "in_progress",
+  "last_completed_session": 32,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T17:57:01Z",
-  "transaction": "session-32-donor-utc-namespace-build-fix",
-  "base_commit": "b15d62e9a91b870a7ae258a4238d228fd3518b70",
-  "task": "Repair the missing UtcTimestamp namespace import in CityManager.Bankers.cs.",
-  "resume_instruction": "Add the CityDwellers.Shared namespace import to CityManager.Bankers.cs, statically verify the project reference and source, publish, and return the cursor idle. Kavey owns the authoritative Visual Studio Release build."
+  "status_changed_utc": "2026-09-09T17:57:56Z",
+  "transaction": null,
+  "base_commit": "7e23291c7f812961615ea5cf0e2fe8b83c140d30",
+  "task": "Await Kavey's repeat Visual Studio Release build.",
+  "resume_instruction": "Cursor idle. The donor-history source now imports CityDwellers.Shared, resolving CS0103 for UtcTimestamp. Repeat the Release build and return any remaining compiler output."
 }
