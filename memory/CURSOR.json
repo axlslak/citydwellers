@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 30,
+  "current_session": 31,
   "last_completed_session": 30,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T17:36:31Z",
-  "transaction": null,
-  "base_commit": "e021aeb0160c43fee0f1b84cf26897aa68aefdd6",
-  "task": "Owner validation boundary: rebuild Release and verify Apcmanager #stock/#donor in org, guest, and tell contexts plus Banker-to-Manager guest telemetry.",
-  "resume_instruction": "Cursor is idle. Apcmanager is the sole stock/donor information processor and uses the canonical admin/member/alt authorization model. Stock links target the configured Manager character with #stock. Kbcentral redirects legacy stock/donor tells while retaining trades and operator functions. Banker notices for Kavem now queue durably to Apcmanager's confirmed guest channel; other player tells still use the rotating tell pool. Return the build output or any first-run command/channel failure verbatim."
+  "status_changed_utc": "2026-09-09T17:46:16Z",
+  "transaction": "session-31-donor-history-windows",
+  "base_commit": "08d03a9245303d41dbcf5951a8364795eed28ca5",
+  "task": "Implement pretty donor leaderboard, recent-history, and member-history windows with canonical alt grouping.",
+  "resume_instruction": "Extend Apcmanager #donor with: donor top (rank donors by all-time item count), donor last (latest 25 donations with absolute time and donor), and donor <member> (latest 10 plus all-time total). Combine active ledger.json items with archived history/history-*.jsonl item records and deduplicate stable item IDs. Resolve each donor and member argument through Manager's canonical alt mapping so alts aggregate under their main. Render human-readable AO blobs with clickable navigation. Preserve AP-members-only authorization. Static checks only; Kavey owns build/live test."
 }
