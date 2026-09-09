@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 32,
+  "current_session": 33,
   "last_completed_session": 32,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T17:57:56Z",
-  "transaction": null,
-  "base_commit": "7e23291c7f812961615ea5cf0e2fe8b83c140d30",
-  "task": "Await Kavey's repeat Visual Studio Release build.",
-  "resume_instruction": "Cursor idle. The donor-history source now imports CityDwellers.Shared, resolving CS0103 for UtcTimestamp. Repeat the Release build and return any remaining compiler output."
+  "status_changed_utc": "2026-09-09T18:23:56Z",
+  "transaction": "session-33-member-withdrawal-transactions",
+  "base_commit": "ba57f8af98c77e46d97fb32c9691dee1a9c3dfb8",
+  "task": "Implement durable AP-member #withdraw/#get AO item pickup transactions.",
+  "resume_instruction": "Implement Apcmanager withdraw/get by Anarchy Online item ID; reserve one exact physical copy; retrieve worker -> Kbcentral; allow the canonical member or recognized alt three minutes to collect; remove active stock and append recipient history only after AO Finished; on timeout return to the original worker without losing ledger truth; add GET links to stock/donor item displays. Static checks only; Kavey owns build/live validation."
 }

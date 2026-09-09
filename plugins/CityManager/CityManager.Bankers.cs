@@ -10,7 +10,6 @@ using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using CityBankers;
 using CityBankers.Shared;
-using CityDwellers.Shared;
 using Newtonsoft.Json.Linq;
 
 namespace CityManager
