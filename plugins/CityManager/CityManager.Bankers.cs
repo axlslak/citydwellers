@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -17,6 +18,133 @@ namespace CityManager
 {
     public partial class CityManager
     {
+        private BankerStatusSnapshot BuildBankerStatusSnapshot()
+        {
+            try
+            {
+                JObject bankers = SettingsPaths.ReadBankersSettings(_settingsDir);
+                JObject roles = bankers.GetValue("Roles", StringComparison.OrdinalIgnoreCase) as JObject;
+                StorageState storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+                DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+                WithdrawalState withdrawal = WithdrawalStore.Load(_settingsDir);
+                bool allReady = File.Exists(Path.Combine(
+                    _dataDir, TrustedOperators.AllBankersReadyMarkerFileName));
+                int processId = Process.GetCurrentProcess().Id;
+                int totalUsed = 0;
+                int totalCapacity = 0;
+                bool allUsable = true;
+                var lines = new StringBuilder();
+                var diagnostics = new List<string>();
+
+                foreach (string role in new[]
+                {
+                    "central", "artillery", "infantry", "control", "support", "extermination"
+                })
+                {
+                    JObject roleConfig = roles?.GetValue(role, StringComparison.OrdinalIgnoreCase) as JObject;
+                    string character = roleConfig?.GetValue(
+                        "Character", StringComparison.OrdinalIgnoreCase)?.ToString();
+                    if (string.IsNullOrWhiteSpace(character))
+                    {
+                        allUsable = false;
+                        lines.Append(StatusLine(false, role, "Not configured"));
+                        diagnostics.Add(role + "=not-configured");
+                        continue;
+                    }
+
+                    string token = string.Concat(character.Where(char.IsLetterOrDigit));
+                    JObject heartbeat = RuntimeStateStore.ReadJson<JObject>(Path.Combine(
+                        _dataDir, "citybankers-health-" + token + ".json"));
+                    bool sameProcess = ParseDonationInt(heartbeat?["ProcessId"]) == processId;
+                    bool online = sameProcess && ParseBool(heartbeat?["InPlay"]);
+                    bool bankOpen = online && ParseBool(heartbeat?["BankOpen"]);
+                    bool roleReady = string.Equals(role, "central", StringComparison.OrdinalIgnoreCase)
+                        ? allReady
+                        : File.Exists(Path.Combine(
+                            _dataDir, "citybankers-storage-writefront-ready-" + token + ".json"));
+
+                    List<DispatchBatchState> roleBatches = (queue?.Batches ?? new List<DispatchBatchState>())
+                        .Where(batch => batch != null &&
+                            (string.Equals(batch.Character, character, StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(batch.Role, role, StringComparison.OrdinalIgnoreCase)))
+                        .ToList();
+                    int failed = roleBatches.Count(batch => string.Equals(
+                        batch.Status, "failed", StringComparison.OrdinalIgnoreCase));
+                    int pending = roleBatches.Count - failed;
+                    bool withdrawalHere = WithdrawalStore.IsActive(withdrawal) &&
+                        (string.Equals(withdrawal.SourceCharacter, character, StringComparison.OrdinalIgnoreCase) ||
+                         (string.Equals(role, "central", StringComparison.OrdinalIgnoreCase) &&
+                          (string.Equals(withdrawal.Status, "central-ready", StringComparison.OrdinalIgnoreCase) ||
+                           string.Equals(withdrawal.Status, "pickup-trading", StringComparison.OrdinalIgnoreCase))));
+                    bool withdrawalFailed = withdrawalHere && string.Equals(
+                        withdrawal.Status, "failed", StringComparison.OrdinalIgnoreCase);
+                    bool stuck = failed > 0 || withdrawalFailed;
+                    bool usable = online && bankOpen && roleReady && !stuck;
+                    bool busy = !stuck && (pending > 0 || withdrawalHere);
+                    allUsable &= usable;
+
+                    StorageWorkerState worker = (storage?.Workers ?? new List<StorageWorkerState>())
+                        .FirstOrDefault(value => value != null &&
+                            string.Equals(value.Character, character, StringComparison.OrdinalIgnoreCase));
+                    int used = worker?.Bags?.Sum(bag => bag?.Items?.Count ?? 0) ?? 0;
+                    int capacity = worker?.Bags?.Sum(bag => Math.Max(0, bag?.Capacity ?? 0)) ?? 0;
+                    totalUsed += used;
+                    totalCapacity += capacity;
+
+                    string state = !online ? "OFFLINE" : stuck ? "STUCK" :
+                        !bankOpen ? "ONLINE, bank unavailable" :
+                        !roleReady ? "ONLINE, starting" : busy ? "USABLE, busy" : "USABLE";
+                    string capacityText = capacity > 0
+                        ? "; storage " + used + "/" + capacity
+                        : string.Empty;
+                    string workText = failed > 0 ? "; failed " + failed :
+                        pending > 0 ? "; queued " + pending : string.Empty;
+                    if (withdrawalHere)
+                        workText += "; withdrawal " + (withdrawal.Status ?? "active");
+
+                    lines.Append(StatusLine(usable, character + " (" + role + ")",
+                        state + capacityText + workText));
+                    diagnostics.Add(character + "=" + state.ToLowerInvariant() +
+                        (capacity > 0 ? " " + used + "/" + capacity : string.Empty));
+                }
+
+                string total = "Storage " + totalUsed + "/" + totalCapacity +
+                    " slots used; " + Math.Max(0, totalCapacity - totalUsed) + " free.";
+                return new BankerStatusSnapshot
+                {
+                    IsUsable = allUsable,
+                    Summary = total,
+                    Blob = lines.ToString() + "  <font color='" + ColorMuted + "'>" +
+                        EscapeBlobText(total) + "</font>\n",
+                    DiagnosticText = string.Join(", ", diagnostics)
+                };
+            }
+            catch (Exception ex)
+            {
+                return new BankerStatusSnapshot
+                {
+                    IsUsable = false,
+                    Summary = "Banker health unavailable",
+                    Blob = StatusLine(false, "Bankers", "Health unavailable: " + ex.Message),
+                    DiagnosticText = "unavailable: " + ex.Message
+                };
+            }
+        }
+
+        private static bool ParseBool(JToken token)
+        {
+            bool value;
+            return token != null && bool.TryParse(token.ToString(), out value) && value;
+        }
+
+        private sealed class BankerStatusSnapshot
+        {
+            public bool IsUsable;
+            public string Summary;
+            public string Blob;
+            public string DiagnosticText;
+        }
+
         private void ProcessBankerStockCommand(string rawCommand, ReplyTarget target)
         {
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
