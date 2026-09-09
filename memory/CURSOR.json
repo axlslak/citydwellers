@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 35,
-  "last_completed_session": 34,
-  "status": "in_progress",
+  "last_completed_session": 35,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-35-multi-order-pickup",
-  "base_commit": "1fd1cf02cf2f4435d7271d360b2440e80c259e94",
-  "task": "Four concurrent three-item orders; partial pickup; donation coexistence",
-  "resume_instruction": "Implement atomic queue migration and exact trade ownership. Owner build/live test only."
+  "base_commit": "6d3aa6b505b1a56ee89c77d0e69e27abdbb2d4d3",
+  "task": "Multi-order pickup implementation published; owner build and live validation pending",
+  "resume_instruction": "Read session 35 state/history. Await owner Release build/live results; do not run the bot."
 }
