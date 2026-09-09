@@ -157,14 +157,7 @@ namespace CityBankers
                 _withdrawalWorkerPhase = WithdrawalWorkerPhase.Locate;
                 SetWithdrawalDeadline();
             }
-            if (_withdrawalWorkerPhase != WithdrawalWorkerPhase.WaitTrade &&
-                DateTime.UtcNow >= _withdrawalDeadlineUtc)
-            {
-                FailWithdrawal(state, "Timed out during worker extraction phase " +
-                    _withdrawalWorkerPhase + ". Physical state requires reconciliation.");
-                return true;
-            }
-
+            WithdrawalWorkerPhase phaseAtStart = _withdrawalWorkerPhase;
             switch (_withdrawalWorkerPhase)
             {
                 case WithdrawalWorkerPhase.Locate: WithdrawalLocate(); break;
@@ -174,6 +167,18 @@ namespace CityBankers
                 case WithdrawalWorkerPhase.WaitBagReturn: WithdrawalWaitBagReturn(); break;
                 case WithdrawalWorkerPhase.OpenTrade: WithdrawalOpenCentralTrade(); break;
                 case WithdrawalWorkerPhase.WaitTrade: WithdrawalTickWorkerTrade(); break;
+            }
+
+            // Consume the newest AO inventory/container update before declaring the phase
+            // timed out. On Clientless, the item-arrival update can be delivered on the
+            // same tick that reaches the deadline; checking first caused a false failure
+            // followed immediately by a successful recovery retry.
+            if (phaseAtStart != WithdrawalWorkerPhase.WaitTrade &&
+                _withdrawalWorkerPhase == phaseAtStart &&
+                DateTime.UtcNow >= _withdrawalDeadlineUtc)
+            {
+                FailWithdrawal(state, "Timed out during worker extraction phase " +
+                    _withdrawalWorkerPhase + ". Physical state requires reconciliation.");
             }
             return true;
         }
@@ -405,7 +410,12 @@ namespace CityBankers
 
         private void WithdrawalWaitItemInventory()
         {
-            if (FindWithdrawalInventoryItem(_withdrawal) == null) return;
+            Item extracted = FindWithdrawalInventoryItem(_withdrawal);
+            if (extracted == null) return;
+            Logger.Information(
+                "[CityBankers] WITHDRAWAL ITEM OBSERVED " + (_withdrawal?.Id ?? "?") +
+                ": exact reserved item is now in " + Client.CharacterName +
+                " normal inventory; continuing extraction.");
             if (_withdrawalBankBag)
             {
                 Item bag = FindInventoryBagByIdentity(_withdrawalBagIdentity);
