@@ -535,12 +535,14 @@ namespace CityManager
                 string alts = BuildAltStatusSummary();
                 string membership = BuildMembershipStatusForBlob();
                 string orgOutput = BuildOrgOutboundStatusSummary();
+                BankerStatusSnapshot bankers = BuildBankerStatusSnapshot();
 
                 string diagnostic =
                     "STATUS Manager=online uptime=" + FormatDuration(_managerUptime.Elapsed) +
                     "; " + alts +
                     "; Flipper=" + flipper.DiagnosticText +
                     "; Buddies=" + buddies.DiagnosticText +
+                    "; Bankers=" + bankers.DiagnosticText +
                     "; " + buddyActivity;
 
                 Logger.Information(diagnostic);
@@ -556,10 +558,11 @@ namespace CityManager
                     raid,
                     alts,
                     membership,
-                    orgOutput);
+                    orgOutput,
+                    bankers);
 
                 string links = BuildBlobLinks(target, "System Status", "Open status", body);
-                string healthColor = flipper.IsUsable && buddies.IsUsable
+                string healthColor = flipper.IsUsable && buddies.IsUsable && bankers.IsUsable
                     ? ColorGood
                     : ColorWarn;
 
@@ -582,7 +585,8 @@ namespace CityManager
             string raid,
             string alts,
             string membership,
-            string orgOutput)
+            string orgOutput,
+            BankerStatusSnapshot bankers)
         {
             var body = new StringBuilder();
             body.Append(HelpHeader(
@@ -609,6 +613,9 @@ namespace CityManager
             body.Append(StatusLine(buddies.IsUsable, "Buddies", buddies.PublicText + " — " + buddies.Detail));
             body.Append("  <font color='").Append(ColorMuted).Append("'>")
                 .Append(EscapeBlobText(buddyActivity)).Append("</font>\n");
+
+            body.Append("\n").Append(StatusSection("City Bankers"));
+            body.Append(bankers.Blob);
 
             body.Append("\n").Append(StatusSection("Current operations"));
             body.Append(StatusLine(true, "Raid", raid));
