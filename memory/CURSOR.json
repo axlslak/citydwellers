@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 26,
+  "current_session": 27,
   "last_completed_session": 26,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-08T22:30:13Z",
-  "transaction": null,
-  "base_commit": "dd35678891dc33f9f8125e464dfc2d52bd65447f",
-  "task": "Owner cutover boundary: extract citybankers-data-first-run.zip directly into release\\data before the first successful unified-host run, then rebuild/start and verify banker state loads without alien-layout warnings.",
-  "resume_instruction": "Cursor is idle. The private Banker migration ZIP is cleaned, flattened, validated, and remains outside Git. All compiled Banker mutable paths resolve beneath executable-adjacent data. Kavey owns extraction and the first live run. If runtime evidence disagrees, preserve the migrated files and begin a focused repair transaction from dd35678."
+  "status_changed_utc": "2026-09-09T10:11:07Z",
+  "transaction": "session-27-banker-state-write-collision",
+  "base_commit": "1fc0982d47bc489ecc87e8387c8a754d46d06f56",
+  "task": "Repair the shared Banker current-stock persistence collision exposed after AO placement, and add evidence-based recovery for the resulting partially stored failed batch.",
+  "resume_instruction": "Inspect RuntimeStateStore read/write locking first. The live evidence shows one Kbexte item reached its storage bag but current-stock.json replacement failed because a concurrent reader held the file; the remaining extermination batch was stopped and remains failed. Do not weaken custody safeguards or blindly requeue the full batch. Serialize shared-file access, then recover only after proving which expected items are already persisted/physical and which remain loose on the destination worker. Static checks only; Kavey owns build and live AO recovery."
 }
