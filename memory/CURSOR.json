@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 29,
+  "current_session": 30,
   "last_completed_session": 29,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T15:23:08Z",
-  "transaction": null,
-  "base_commit": "69f2023414b8e09a996846a7ca93858da1778758",
-  "task": "Owner validation boundary: rebuild Release and verify Banker recovery success is emitted once and stale Flipper display cache cannot settle a pending cloak recovery.",
-  "resume_instruction": "Cursor is idle. Batch 07c904d1 already recovered safely. Partial-placement recovery now waits when its exact successful result already exists, preventing duplicate zero-remainder completions before Central removes the queue entry. A general Flipper.Cache observation may update displayed state but cannot complete pending cloak recovery; fresh probe/event and trigger-qualified EnsureEnabled paths remain authoritative. On the next live run, let any failed probe pass through its 90-second cooldown and return the post-cooldown Flipper segment if zoning still disconnects."
+  "status_changed_utc": "2026-09-09T17:09:28Z",
+  "transaction": "session-30-unified-public-command-gateway",
+  "base_commit": "f888acaf79c1575da30b70e53ff186233a93887b",
+  "task": "Unify the public stock and donor command surface under Apcmanager, with City Dwellers membership authorization and Manager-targeted stock links.",
+  "resume_instruction": "Make Apcmanager the sole org/guest processor for #stock and #donor. Reuse CityBankers' stock and active-ledger readers without duplicating their grammar, point generated stock chatcmd links to Apcmanager with the Manager prefix, and apply the canonical City Dwellers admin/member/alt authorization boundary. Preserve Kbcentral's private tell and physical trade responsibilities. Do not compile or run AO; Kavey owns the build and live test."
 }
