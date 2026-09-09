@@ -2,12 +2,12 @@
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
   "current_session": 33,
-  "last_completed_session": 32,
-  "status": "in_progress",
+  "last_completed_session": 33,
+  "status": "idle",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T18:23:56Z",
-  "transaction": "session-33-member-withdrawal-transactions",
-  "base_commit": "ba57f8af98c77e46d97fb32c9691dee1a9c3dfb8",
-  "task": "Implement durable AP-member #withdraw/#get AO item pickup transactions.",
-  "resume_instruction": "Implement Apcmanager withdraw/get by Anarchy Online item ID; reserve one exact physical copy; retrieve worker -> Kbcentral; allow the canonical member or recognized alt three minutes to collect; remove active stock and append recipient history only after AO Finished; on timeout return to the original worker without losing ledger truth; add GET links to stock/donor item displays. Static checks only; Kavey owns build/live validation."
+  "status_changed_utc": "2026-09-09T20:29:31Z",
+  "transaction": null,
+  "base_commit": "291105fba653bbaae9f092e18f013f7498fee072",
+  "task": "Await Kavey's Release build and staged live withdrawal test.",
+  "resume_instruction": "Cursor idle. #get/#withdraw AOID now creates one durable exact-copy reservation, worker extraction to Kbcentral, a three-minute canonical-main/alt pickup, AO-Finished-only archival, and verified timeout restorage through normal dispatch. Stock and active donor rows carry GET links. Build first; then test one expendable item, a decline/retry, and an expiry before broader use. Return all compiler or live logs for reconciliation."
 }
