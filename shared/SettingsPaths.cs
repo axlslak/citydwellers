@@ -382,7 +382,15 @@ namespace CityDwellers.Shared
                     StringComparison.OrdinalIgnoreCase))
             {
                 var allowedChildren = new HashSet<string>(
-                    new[] { "pending", "assigned", "acknowledgements", "senders", "failed" },
+                    new[]
+                    {
+                        "pending",
+                        "assigned",
+                        "acknowledgements",
+                        "senders",
+                        "failed",
+                        "manager-channel"
+                    },
                     StringComparer.OrdinalIgnoreCase);
 
                 foreach (string child in Directory.GetDirectories(directory))
@@ -400,10 +408,22 @@ namespace CityDwellers.Shared
                     "*",
                     SearchOption.AllDirectories))
                 {
+                    string parent = Path.GetFileName(Path.GetDirectoryName(file));
                     if (string.Equals(
                             file,
                             Path.Combine(directory, "sequence.txt"),
                             StringComparison.OrdinalIgnoreCase) ||
+                        (string.Equals(
+                             parent,
+                             "manager-channel",
+                             StringComparison.OrdinalIgnoreCase) &&
+                         (string.Equals(
+                              Path.GetFileName(file),
+                              "sequence.txt",
+                              StringComparison.OrdinalIgnoreCase) ||
+                          Path.GetFileName(file).StartsWith(
+                              "sequence.txt.tmp-",
+                              StringComparison.OrdinalIgnoreCase))) ||
                         Path.GetFileName(file).StartsWith(
                             "sequence.txt.tmp-",
                             StringComparison.OrdinalIgnoreCase))
@@ -411,7 +431,6 @@ namespace CityDwellers.Shared
                         continue;
                     }
 
-                    string parent = Path.GetFileName(Path.GetDirectoryName(file));
                     if (allowedChildren.Contains(parent) &&
                         (file.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
                          Path.GetFileName(file).Contains(".json.tmp-")))

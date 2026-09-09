@@ -51,7 +51,6 @@
     <Compile Include="RouteRepairBankingGateAgent.cs" />
     <Compile Include="StartupWriteFrontWatchdogAgent.cs" />
     <Compile Include="StaticDynelDataPreloader.cs" />
-    <Compile Include="StockCommandEngine.cs" />
     <Compile Include="TellQueueSenderAgent.cs" />
     <Compile Include="StorageBaselineCoordinator.cs" />
     <Compile Include="StorageBaselineStateSeeder.cs" />

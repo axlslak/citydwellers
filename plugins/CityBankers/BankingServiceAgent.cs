@@ -202,39 +202,21 @@ namespace CityBankers
                     _role,
                     "TELL <- Kavem: " + text);
 
-                string stockResponse;
-                if (StockCommandEngine.TryBuildResponse(
-                    text,
-                    RuntimeStateStore.LoadCurrentStock(_settingsDir),
-                    Client.CharacterName,
-                    out stockResponse))
+                string command = text.ToLowerInvariant();
+                if (command == "stock" || command.StartsWith("stock ") ||
+                    command == "don" || command == "donor")
                 {
-                    TellPlayer(message.SenderName, stockResponse);
+                    TellPlayer(
+                        message.SenderName,
+                        "Public Banker information now lives on " +
+                        SettingsPaths.ReadManagerCharacter(_settingsDir) +
+                        ". Use #stock or #donor there.");
                     return;
                 }
 
-                string command = text.ToLowerInvariant();
                 if (command == "status")
                 {
                     TellKavem(BuildStatusMessage());
-                    return;
-                }
-
-                if (command == "stock")
-                {
-                    TellKavem(BuildStockMessage());
-                    return;
-                }
-
-                if (command == "don" || command == "donor")
-                {
-                    ActiveLedgerState ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
-                    int donorCount = (ledger?.Items ?? new List<ActiveLedgerItem>())
-                        .Where(item => item != null && !string.IsNullOrWhiteSpace(item.From))
-                        .Select(item => item.From.Trim())
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Count();
-                    TellPlayer(message.SenderName, "CityBankers active donors: " + donorCount + ".");
                     return;
                 }
 
@@ -251,7 +233,8 @@ namespace CityBankers
                 }
 
                 TellKavem(
-                    "CityBankers commands: status | stock | don | donor | queue | bags. " +
+                    "CityBankers operator commands: status | queue | bags. " +
+                    "Public #stock and #donor commands live on Apcmanager. " +
                     "You are the bootstrap admin; your trades with Central are accepted under the current max-10 policy.");
             }
             catch (Exception ex)

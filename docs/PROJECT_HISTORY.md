@@ -1127,3 +1127,29 @@ responses retain their existing authority.
 
 No assistant-side compilation or live AO test was run. Kavey owns the Release
 build and the next live validation after the cooldown.
+
+## 2026-09-09 — One public command identity
+
+The CityBankers import temporarily left two public vocabularies: Apcmanager
+owned City Dwellers commands while Kbcentral parsed stock and donor tells and
+generated navigation links back to itself. That also bypassed Manager's
+canonical admin/member/alt authorization for Banker information.
+
+Apcmanager now owns the only stock and donor information processor. The
+existing stock engine is linked into CityManager and reads the Bankers' live
+state directly; its chatcmd tree targets the configured Manager character with
+`#stock`. `#donor` reads distinct active provenance from the same ledger.
+Organization requests are AP-member requests by channel origin, while guest
+and tell requests must pass Manager's canonical membership and alt resolution.
+Kbcentral redirects the obsolete public tell forms but keeps physical trading
+and private operator functions.
+
+Banker operational messages previously queued as tells to Kavem now use a
+separate durable Manager-channel lane beneath the existing tell-queue data
+root. Cross-AppDomain producers allocate sequence numbers under a named mutex;
+Apcmanager sends the messages in order to its confirmed guest channel and only
+removes each job after the AO send call succeeds. The ordinary rotating tell
+pool remains unchanged for player-directed replies.
+
+No assistant-side compilation or live AO test was run. Kavey owns the Release
+build and org/guest/tell validation.

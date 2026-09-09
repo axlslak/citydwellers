@@ -31,6 +31,9 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\TellQueue.cs">
       <Link>TellQueue.cs</Link>
     </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\ManagerChannelQueue.cs">
+      <Link>ManagerChannelQueue.cs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>

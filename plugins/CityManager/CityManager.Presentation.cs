@@ -269,6 +269,14 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "help [topic]", "Open help."));
             body.Append(HelpSyntaxLine(target, "status", "Open live system status."));
             body.Append(HelpSyntaxLine(target, "cloak", "Check city cloak through Flipper."));
+            body.Append(HelpSyntaxLine(
+                target,
+                "stock [family [slot [targetQl]]]",
+                "Browse CityBankers symbiant availability."));
+            body.Append(HelpSyntaxLine(
+                target,
+                "donor",
+                "Show the active CityBankers donor count."));
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
             body.Append(HelpSyntaxLine(target, "cancel [raid-token]", "Cancel your active raid."));
             body.Append(HelpSyntaxLine(target, "alts [character]", "Show known mains and alts."));

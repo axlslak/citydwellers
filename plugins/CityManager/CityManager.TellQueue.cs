@@ -73,6 +73,8 @@ namespace CityManager
             if (!_tellQueueInitialized)
                 return;
 
+            TrySendManagerChannelMessage();
+
             DateTime now = DateTime.UtcNow;
             if (now >= _tellQueueNextHeartbeatUtc)
             {
@@ -135,6 +137,41 @@ namespace CityManager
                 Logger.Information(
                     "TELL QUEUE assigned " + ShortTellId(job.Id) + " -> " +
                     sender + " for " + (job.RecipientName ?? "character-id") + ".");
+            }
+        }
+
+        private void TrySendManagerChannelMessage()
+        {
+            lock (_devSync)
+            {
+                if (!_devChannelConfirmed)
+                    return;
+            }
+
+            ManagerChannelJob job;
+            string path;
+            if (!ManagerChannelQueue.TryReadNext(_dataDir, out job, out path))
+                return;
+
+            string source = string.IsNullOrWhiteSpace(job.SourceCharacter)
+                ? "CityDwellers"
+                : job.SourceCharacter;
+            try
+            {
+                if (Client.Chat == null)
+                    return;
+                Client.Chat.SendPrivateGroupMessage(
+                    Client.Chat.CharId,
+                    "<font color='#89D2E8'>[" + source + "]</font> " + job.Message);
+                ManagerChannelQueue.Complete(path);
+                Logger.Information(
+                    "MANAGER CHANNEL delivered " + job.Id + " from " + source + ".");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning(
+                    "MANAGER CHANNEL delivery failed for " + job.Id + ": " +
+                    ex.Message + ". The message remains queued.");
             }
         }
 

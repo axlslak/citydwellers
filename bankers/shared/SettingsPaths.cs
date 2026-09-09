@@ -51,6 +51,23 @@ namespace CityBankers.Shared
             return bankers;
         }
 
+        public static string ReadManagerCharacter(string settingsDirectory)
+        {
+            string path = Path.Combine(settingsDirectory, "citydwellers.json");
+            JObject root = JObject.Parse(File.ReadAllText(path));
+            JObject manager = root.GetValue(
+                "Manager",
+                StringComparison.OrdinalIgnoreCase) as JObject;
+            JArray accounts = manager?.GetValue(
+                "Accounts",
+                StringComparison.OrdinalIgnoreCase) as JArray;
+            string character = accounts?.First?["Character"]?.ToString();
+            if (string.IsNullOrWhiteSpace(character))
+                throw new InvalidDataException(
+                    "'" + path + "' requires Manager.Accounts[0].Character.");
+            return character.Trim();
+        }
+
         public static bool TryCreateFile(
             string path,
             string contents,

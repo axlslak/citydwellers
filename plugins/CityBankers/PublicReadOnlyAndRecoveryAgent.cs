@@ -66,36 +66,24 @@ namespace CityBankers
                 if (string.IsNullOrWhiteSpace(text))
                     return;
 
-                string stockResponse;
-                if (StockCommandEngine.TryBuildResponse(
-                    text,
-                    RuntimeStateStore.LoadCurrentStock(_settingsDir),
-                    Client.CharacterName,
-                    out stockResponse))
+                string command = text.ToLowerInvariant();
+                if (command == "stock" || command.StartsWith("stock ") ||
+                    command == "don" || command == "donor")
                 {
-                    TellPlayer(message.SenderName, stockResponse);
+                    TellPlayer(
+                        message.SenderName,
+                        "Please ask " + SettingsPaths.ReadManagerCharacter(_settingsDir) +
+                        " using #stock or #donor. Public commands and AP membership " +
+                        "are handled there.");
                     return;
                 }
 
-                string command = text.ToLowerInvariant();
                 if (command == "queue" || command == "que")
                 {
                     TellPlayer(message.SenderName, ReadOnlyCommandRouter.BuildQueueResponse(_settingsDir));
                     return;
                 }
 
-                if (command == "don" || command == "donor")
-                {
-                    ActiveLedgerState ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
-                    int donorCount = (ledger?.Items ?? new List<ActiveLedgerItem>())
-                        .Where(item => item != null && !string.IsNullOrWhiteSpace(item.From))
-                        .Select(item => item.From.Trim())
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Count();
-                    TellPlayer(
-                        message.SenderName,
-                        "CityBankers active donors: " + donorCount + ".");
-                }
             }
             catch (Exception ex)
             {

@@ -37,6 +37,7 @@
     <Compile Include="CityManager.Admins.cs" />
     <Compile Include="CityManager.Alts.cs" />
     <Compile Include="CityManager.Bans.cs" />
+    <Compile Include="CityManager.Bankers.cs" />
     <Compile Include="CityManager.Membership.cs" />
     <Compile Include="CityManager.Presentation.cs" />
     <Compile Include="CityManager.Raid.cs" />
@@ -46,6 +47,21 @@
     <Compile Include="OrgRankAuthorizer.cs" />
     <Compile Include="..\..\shared\UtcTimestamp.cs">
       <Link>UtcTimestamp.cs</Link>
+    </Compile>
+    <Compile Include="..\CityBankers\StockCommandEngine.cs">
+      <Link>Bankers\StockCommandEngine.cs</Link>
+    </Compile>
+    <Compile Include="..\..\bankers\shared\CityBankersChatPalette.cs">
+      <Link>Bankers\Shared\CityBankersChatPalette.cs</Link>
+    </Compile>
+    <Compile Include="..\..\bankers\shared\RuntimeState.cs">
+      <Link>Bankers\Shared\RuntimeState.cs</Link>
+    </Compile>
+    <Compile Include="..\..\bankers\shared\SettingsPaths.cs">
+      <Link>Bankers\Shared\SettingsPaths.cs</Link>
+    </Compile>
+    <Compile Include="..\..\bankers\shared\SymbiantCatalog.cs">
+      <Link>Bankers\Shared\SymbiantCatalog.cs</Link>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

@@ -103,7 +103,8 @@ namespace CityBankers
             string input,
             CurrentStockState stock,
             string centralCharacter,
-            out string response)
+            out string response,
+            string commandPrefix = "")
         {
             response = null;
             string[] raw = (input ?? string.Empty)
@@ -111,16 +112,6 @@ namespace CityBankers
                 .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (raw.Length == 0)
                 return false;
-
-            // Short read-only queue alias. BankingServiceAgent calls the stock parser
-            // before its admin command switch, so handling "que" here gives Kavem the
-            // same concise queue view without falling through to the command help text.
-            if (raw.Length == 1 &&
-                string.Equals(raw[0], "que", StringComparison.OrdinalIgnoreCase))
-            {
-                response = ReadOnlyCommandRouter.BuildQueueResponse();
-                return true;
-            }
 
             int index = 0;
             string family = null;
@@ -144,9 +135,9 @@ namespace CityBankers
             if (index >= raw.Length)
             {
                 if (family == null)
-                    response = BuildRoot(items, centralCharacter);
+                    response = BuildRoot(items, centralCharacter, commandPrefix);
                 else
-                    response = BuildFamily(items, centralCharacter, family);
+                    response = BuildFamily(items, centralCharacter, commandPrefix, family);
                 return true;
             }
 
@@ -154,7 +145,7 @@ namespace CityBankers
             {
                 if (!TryNormalizeFamily(raw[index], out family))
                 {
-                    response = BuildRoot(items, centralCharacter);
+                    response = BuildRoot(items, centralCharacter, commandPrefix);
                     return true;
                 }
                 index++;
@@ -162,7 +153,7 @@ namespace CityBankers
 
             if (index >= raw.Length)
             {
-                response = BuildFamily(items, centralCharacter, family);
+                response = BuildFamily(items, centralCharacter, commandPrefix, family);
                 return true;
             }
 
@@ -170,29 +161,34 @@ namespace CityBankers
             int consumed;
             if (!TryNormalizeSlot(raw, index, out slot, out consumed))
             {
-                response = BuildFamily(items, centralCharacter, family);
+                response = BuildFamily(items, centralCharacter, commandPrefix, family);
                 return true;
             }
             index += consumed;
 
             if (index >= raw.Length)
             {
-                response = BuildSlot(items, centralCharacter, family, slot);
+                response = BuildSlot(items, centralCharacter, commandPrefix, family, slot);
                 return true;
             }
 
             int targetQl;
             if (!int.TryParse(raw[index], out targetQl) || targetQl <= 0)
             {
-                response = BuildSlot(items, centralCharacter, family, slot);
+                response = BuildSlot(
+                    items, centralCharacter, commandPrefix, family, slot);
                 return true;
             }
 
-            response = BuildQlAvailability(items, centralCharacter, family, slot, targetQl);
+            response = BuildQlAvailability(
+                items, centralCharacter, commandPrefix, family, slot, targetQl);
             return true;
         }
 
-        private static string BuildRoot(List<StockItemState> items, string centralCharacter)
+        private static string BuildRoot(
+            List<StockItemState> items,
+            string centralCharacter,
+            string commandPrefix)
         {
             var represented = FamilyOrder
                 .Select(family => new
@@ -224,7 +220,7 @@ namespace CityBankers
                 body.Append(ChatCommand(
                     DisplayFamily(entry.Family),
                     centralCharacter,
-                    "stock " + entry.Family));
+                    commandPrefix + "stock " + entry.Family));
                 body.Append("  ");
                 body.Append(CityBankersChatPalette.Yellow(templates.ToString()));
                 body.Append(templates == 1 ? " type / " : " types / ");
@@ -239,6 +235,7 @@ namespace CityBankers
         private static string BuildFamily(
             List<StockItemState> items,
             string centralCharacter,
+            string commandPrefix,
             string family)
         {
             List<StockItemState> familyItems = FamilyItems(items, family);
@@ -246,7 +243,7 @@ namespace CityBankers
             {
                 return "No " + DisplayFamily(family) +
                     " symbiants are in stock right now. " +
-                    ChatCommand("Stock", centralCharacter, "stock");
+                    ChatCommand("Stock", centralCharacter, commandPrefix + "stock");
             }
 
             var slots = SlotOrder
@@ -266,7 +263,7 @@ namespace CityBankers
                 body.Append(ChatCommand(
                     DisplaySlot(entry.Slot),
                     centralCharacter,
-                    "stock " + family + " " + entry.Slot));
+                    commandPrefix + "stock " + family + " " + entry.Slot));
                 body.Append("  ");
                 int templates = CountTemplates(entry.Items);
                 body.Append(Color(templates.ToString(), "#FFFF00"));
@@ -275,7 +272,8 @@ namespace CityBankers
                 body.Append(" copies<br>");
             }
             body.Append("<br>");
-            body.Append(ChatCommand("Back to stock", centralCharacter, "stock"));
+            body.Append(ChatCommand(
+                "Back to stock", centralCharacter, commandPrefix + "stock"));
 
             return DisplayFamily(family) + ": " +
                 familyItems.Count + " copies in " + CountTemplates(familyItems) +
@@ -285,6 +283,7 @@ namespace CityBankers
         private static string BuildSlot(
             List<StockItemState> items,
             string centralCharacter,
+            string commandPrefix,
             string family,
             string slot)
         {
@@ -296,7 +295,7 @@ namespace CityBankers
                     ChatCommand(
                         DisplayFamily(family) + " stock",
                         centralCharacter,
-                        "stock " + family);
+                        commandPrefix + "stock " + family);
             }
 
             List<StockTemplate> templates = GroupTemplates(matches)
@@ -313,7 +312,7 @@ namespace CityBankers
                 body.Append(ChatCommand(
                     "QL " + template.Ql,
                     centralCharacter,
-                    "stock " + family + " " + slot + " " + template.Ql));
+                    commandPrefix + "stock " + family + " " + slot + " " + template.Ql));
                 body.Append("  ");
                 body.Append(ItemLink(template));
                 body.Append("  x");
@@ -324,7 +323,7 @@ namespace CityBankers
             body.Append(ChatCommand(
                 "Back to " + DisplayFamily(family),
                 centralCharacter,
-                "stock " + family));
+                commandPrefix + "stock " + family));
 
             return DisplayFamily(family) + " " + DisplaySlot(slot) + ": " +
                 templates.Count + (templates.Count == 1 ? " stocked QL" : " stocked QLs") +
@@ -335,6 +334,7 @@ namespace CityBankers
         private static string BuildQlAvailability(
             List<StockItemState> items,
             string centralCharacter,
+            string commandPrefix,
             string family,
             string slot,
             int targetQl)
@@ -344,7 +344,7 @@ namespace CityBankers
             string back = ChatCommand(
                 "All " + DisplayFamily(family) + " " + DisplaySlot(slot),
                 centralCharacter,
-                "stock " + family + " " + slot);
+                commandPrefix + "stock " + family + " " + slot);
 
             if (templates.Count == 0)
             {
@@ -353,7 +353,7 @@ namespace CityBankers
                     ChatCommand(
                         DisplayFamily(family) + " stock",
                         centralCharacter,
-                        "stock " + family);
+                        commandPrefix + "stock " + family);
             }
 
             List<StockTemplate> exact = templates
@@ -600,4 +600,3 @@ namespace CityBankers
         }
     }
 }
-

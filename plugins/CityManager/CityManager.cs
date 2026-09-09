@@ -40,6 +40,8 @@ namespace CityManager
                 "help",
                 "cloak",
                 "status",
+                "stock",
+                "donor",
                 "leave",
                 "join",
                 "alts",
@@ -420,6 +422,7 @@ namespace CityManager
             bool hasCommandShape =
                 ((command == "cloak" ||
                   command == "status" ||
+                  command == "donor" ||
                   command == "leave" ||
                   command == "join" ||
                   command == "adminlist" ||
@@ -428,6 +431,7 @@ namespace CityManager
                   command == "dump" ||
                   command == "restart") && parts.Length == 1) ||
                 (command == "help" && parts.Length <= 3) ||
+                command == "stock" ||
                 (command == "home" &&
                  (parts.Length == 1 || parts.Length == 2)) ||
                 (command == "alts" && HasTellAltsCommandShape(parts)) ||
@@ -509,6 +513,21 @@ namespace CityManager
                 return;
             }
 
+            if ((string.Equals(command, "stock", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "donor", StringComparison.OrdinalIgnoreCase)) &&
+                !isAdmin &&
+                !replyTarget.IsOrg &&
+                !IsTellMember(senderName))
+            {
+                DevTrace(
+                    $"COMMAND DENIED {replyTarget.Kind} {senderName}: " +
+                    $"{command} requires AP membership.");
+                Reply(
+                    replyTarget,
+                    "This command is available to Athen Paladins members.");
+                return;
+            }
+
             if (string.Equals(command, "cloak", StringComparison.OrdinalIgnoreCase) &&
                 !isAdmin &&
                 !replyTarget.IsOrg &&
@@ -554,6 +573,14 @@ namespace CityManager
 
                 case "status":
                     BeginServiceStatus(replyTarget);
+                    break;
+
+                case "stock":
+                    ProcessBankerStockCommand(rawCommand, replyTarget);
+                    break;
+
+                case "donor":
+                    ProcessBankerDonorCommand(parts, replyTarget);
                     break;
 
                 case "alts":

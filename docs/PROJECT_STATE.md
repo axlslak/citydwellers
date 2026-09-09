@@ -970,6 +970,30 @@ resilience and restart change:
   reconciliation instead of being trusted.
 
 
+## Unified public command gateway (2026-09-09)
+
+- `[DECISION]` Apcmanager is the integrated system's sole public command
+  identity in organization and guest chat. Banker information does not require
+  a second prefix or a second public bot vocabulary.
+- `[IMPLEMENTED]` Manager owns `#stock [family [slot [targetQl]]]` and
+  `#donor`. It reads the same mutex-protected `current-stock.json` and
+  `ledger.json` that CityBankers maintains; no second stock, donor, admin,
+  member, or alt database exists.
+- `[INVARIANT]` Stock and donor information is AP-members-only. Organization
+  channel origin supplies membership context; guest and tell requests must
+  resolve through Manager's canonical admin/member/alt identity model.
+- `[IMPLEMENTED]` The existing StockCommandEngine source is compiled into
+  CityManager instead of CityBankers. Every generated stock navigation link
+  targets the configured Manager character and includes the Manager `#`
+  prefix. Old direct `stock`, `don`, or `donor` tells to Kbcentral receive a
+  redirect to Manager; Kbcentral retains physical trades and private operator
+  duties, not a second public information processor.
+- `[IMPLEMENTED]` CityBankers notices formerly addressed as Kavem tells enter
+  a durable, sequence-ordered Manager-channel queue. Apcmanager drains that
+  queue into its confirmed guest channel and retains a message when channel
+  delivery throws. Other player tells continue through the rotating tell
+  sender pool.
+
 ## Central outbound tell queue (2026-09-08)
 
 - `[IMPLEMENTED]` Manager and CityBankers no longer send application tells
