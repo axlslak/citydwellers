@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 
 using AOSharp.Clientless;
@@ -25,8 +26,10 @@ namespace CityBankers
         private bool _withdrawalPickupTrade;
         private int _withdrawalItemMoveAttempts;
         private DateTime _withdrawalNextItemMoveRetryUtc;
-        private readonly HashSet<string> _withdrawalRecoveryAttemptedIds =
-            new HashSet<string>(StringComparer.Ordinal);
+        private string _receiptWaitId;
+        private readonly Stopwatch _receiptWait = new Stopwatch();
+        private string _extractionWaitId;
+        private readonly Stopwatch _extractionWait = new Stopwatch();
 
         private enum WithdrawalWorkerPhase
         {
@@ -40,120 +43,146 @@ namespace CityBankers
             WaitTrade
         }
 
+        private List<WithdrawalState> _pickupItems = new List<WithdrawalState>();
+        private readonly HashSet<string> _pickupOfferedIds = new HashSet<string>(StringComparer.Ordinal);
+
         private bool TickWithdrawalCentral()
         {
-            WithdrawalState state = WithdrawalStore.Load(_settingsDir);
-            _withdrawal = state;
-            if (!WithdrawalStore.IsActive(state))
+            List<WithdrawalState> rows = WithdrawalStore.LoadAll(_settingsDir);
+            if (_withdrawalTradeOpened && !Trade.IsTrading)
+                ResetWithdrawalTrade(); // recover even if AO omitted a Declined callback
+            if (_withdrawalTradeOpened)
             {
-                ResetWithdrawalLocal();
-                return false;
+                if (_withdrawalPickupTrade && _pickupItems.Count > 0)
+                    TickWithdrawalPickupTrade(_pickupItems[0]);
+                else if (_extractionWait.IsRunning && _extractionWait.Elapsed.TotalSeconds >= 240)
+                    FailWithdrawal(rows.First(row => row.Id == _withdrawal.Id),
+                        "Worker return trade did not finish within four minutes; custody needs reconciliation.");
+                return true;
             }
 
-            if (string.Equals(state.Status, "requested", StringComparison.OrdinalIgnoreCase))
+            foreach (WithdrawalState row in rows.Where(WithdrawalStore.IsActive))
             {
-                if (_donationActive || _donationCleanup != null || _activeBatch != null ||
-                    Trade.IsTrading || HasUnresolvedDispatchWork())
-                    return false;
-                state.Status = "extracting";
-                WithdrawalStore.Save(_settingsDir, state);
-            }
-
-            if (string.Equals(state.Status, "return-queued", StringComparison.OrdinalIgnoreCase))
-            {
-                if (WithdrawalReturnIsStored(state))
+                if (WithdrawalStore.HasStatus(row, "delivery-confirmed"))
+                    CompleteWithdrawalAccounting(row);
+                else if (WithdrawalStore.HasStatus(row, "returning"))
+                    QueueWithdrawalReturn(row);
+                else if (WithdrawalStore.HasStatus(row, "return-queued") && WithdrawalReturnIsStored(row))
                 {
-                    state.Status = "expired";
-                    WithdrawalStore.Save(_settingsDir, state);
-                    TellPlayer(state.RequestedBy,
-                        "Your pickup expired. The reserved item was safely returned to storage.");
+                    row.Status = "expired";
+                    WithdrawalStore.Save(_settingsDir, row);
                 }
-                return false;
-            }
-
-            if (string.Equals(state.Status, "delivery-confirmed", StringComparison.OrdinalIgnoreCase))
-            {
-                CompleteWithdrawalAccounting(state);
-                return true;
-            }
-
-            if ((string.Equals(state.Status, "extracting", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(state.Status, "central-received", StringComparison.OrdinalIgnoreCase)) &&
-                FindWithdrawalInventoryItem(state) != null && !Trade.IsTrading)
-            {
-                OpenPickupWindow(state);
-                return true;
-            }
-
-            if (string.Equals(state.Status, "central-ready", StringComparison.OrdinalIgnoreCase) &&
-                state.PickupExpiresUtc.HasValue && DateTime.UtcNow >= state.PickupExpiresUtc.Value)
-            {
-                QueueWithdrawalReturn(state);
-                return false;
-            }
-
-            if (string.Equals(state.Status, "pickup-trading", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!Trade.IsTrading && !_withdrawalTradeOpened)
+                else if (WithdrawalStore.HasStatus(row, "pickup-trading") && !Trade.IsTrading)
                 {
-                    if (FindWithdrawalInventoryItem(state) == null)
+                    if (FindWithdrawalInventoryItem(row) == null)
+                        FailWithdrawal(row, "Interrupted pickup requires custody reconciliation.");
+                    else
                     {
-                        FailWithdrawal(state,
-                            "Pickup state survived a restart but the reserved item is not uniquely visible on Central; refusing to guess whether AO delivered it.");
-                        return true;
+                        row.Status = "central-ready";
+                        WithdrawalStore.Save(_settingsDir, row);
                     }
-                    state.Status = "central-ready";
-                    WithdrawalStore.Save(_settingsDir, state);
                 }
-                else
-                    TickWithdrawalPickupTrade(state);
+                else if (WithdrawalStore.HasStatus(row, "central-ready") && !Trade.IsTrading &&
+                    row.PickupExpiresUtc.HasValue && DateTime.UtcNow >= row.PickupExpiresUtc.Value)
+                {
+                    // Claim expiry against the current revision: a concurrent #get may have extended it.
+                    bool expired = WithdrawalStore.Update(_settingsDir, current =>
+                    {
+                        WithdrawalState fresh = current.First(value => value.Id == row.Id);
+                        if (!WithdrawalStore.HasStatus(fresh, "central-ready") ||
+                            !fresh.PickupExpiresUtc.HasValue || fresh.PickupExpiresUtc.Value > DateTime.UtcNow)
+                            return false;
+                        fresh.Status = "returning";
+                        fresh.ReturnBatchId = "withdraw-return-" + fresh.Id;
+                        WithdrawalStore.Touch(fresh);
+                        return true;
+                    });
+                    if (expired) return false; // enqueue idempotently on next tick
+                }
             }
 
-            if (string.Equals(state.Status, "failed", StringComparison.OrdinalIgnoreCase))
-                return true;
+            rows = WithdrawalStore.LoadAll(_settingsDir);
+            WithdrawalState active = rows.FirstOrDefault(row =>
+                WithdrawalStore.HasStatus(row, "extracting") || WithdrawalStore.HasStatus(row, "central-received"));
+            if (active != null)
+            {
+                _withdrawal = active;
+                if (_extractionWaitId != active.Id)
+                {
+                    _extractionWaitId = active.Id;
+                    _extractionWait.Restart();
+                }
+                if (WithdrawalStore.HasStatus(active, "extracting") &&
+                    _extractionWait.Elapsed.TotalSeconds >= 240)
+                {
+                    FailWithdrawal(active, "Worker extraction did not finish within four minutes; custody needs reconciliation.");
+                    return true;
+                }
+                if (WithdrawalStore.HasStatus(active, "central-received") && !Trade.IsTrading)
+                {
+                    if (_receiptWaitId != active.Id)
+                    {
+                        _receiptWaitId = active.Id;
+                        _receiptWait.Restart();
+                    }
+                    if (FindWithdrawalInventoryItem(active) != null)
+                        OpenPickupWindow(active);
+                    else if (_receiptWait.Elapsed.TotalSeconds >= 30)
+                        FailWithdrawal(active, "AO finished the worker trade but Central cannot identify the received copy.");
+                }
+                return true; // only physical extraction owns Central, never a waiting reservation
+            }
 
+            if (_donationActive || _donationCleanup != null || _activeBatch != null || Trade.IsTrading)
+                return false;
+            // Existing dispatch drains before another extraction; waiting pickups do not gate it.
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            if ((queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
+                batch != null && !string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase)))
+                return false;
+            if (!TrustedOperators.IsAllBankersReady() || Inventory.NumFreeSlots < 12)
+                return false; // retain room for a full donation even with waiting orders
+            WithdrawalState next = rows.FirstOrDefault(row =>
+                (WithdrawalStore.HasStatus(row, "requested") || CanRetryWithdrawalExtraction(row)) &&
+                !rows.Any(other => other.Id != row.Id && WithdrawalStore.HasStatus(other, "failed") &&
+                    string.Equals(other.SourceCharacter, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)) &&
+                !(queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
+                    batch != null && string.Equals(batch.Character, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)));
+            if (next == null) return false;
+            bool retry = WithdrawalStore.HasStatus(next, "failed");
+            if (retry) next.RecoveryAttempts++;
+            next.Status = "extracting";
+            WithdrawalStore.Save(_settingsDir, next);
+            _extractionWaitId = next.Id;
+            _extractionWait.Restart();
+            if (retry)
+                Logger.Warning("[CityBankers] WITHDRAWAL RECOVERY RETRY " + next.Id +
+                    ": Central scheduled one inventory-extraction retry; no delivery or pickup state is replayed.");
+            _withdrawal = next;
             return true;
+        }
+
+        private static bool CanRetryWithdrawalExtraction(WithdrawalState row)
+        {
+            return WithdrawalStore.HasStatus(row, "failed") && row.RecoveryAttempts == 0 &&
+                !row.DeliveredUtc.HasValue && string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
+                (row.Error ?? string.Empty).StartsWith(
+                    "Timed out during worker extraction phase WaitItemInventory.", StringComparison.Ordinal);
         }
 
         private bool TickWithdrawalWorker()
         {
-            WithdrawalState state = WithdrawalStore.Load(_settingsDir);
+            WithdrawalState state = WithdrawalStore.LoadAll(_settingsDir).FirstOrDefault(row =>
+                WithdrawalStore.HasStatus(row, "extracting") &&
+                string.Equals(row.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+            if (state == null)
+            {
+                ResetWithdrawalLocal();
+                return false;
+            }
+            if (_withdrawal != null && _withdrawal.Id != state.Id)
+                ResetWithdrawalLocal();
             _withdrawal = state;
-            if (!WithdrawalStore.IsActive(state) ||
-                !string.Equals(state.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(state.Status, "return-queued", StringComparison.OrdinalIgnoreCase))
-            {
-                ResetWithdrawalLocal();
-                return false;
-            }
-
-            if (string.Equals(state.Status, "requested", StringComparison.OrdinalIgnoreCase))
-                return false;
-            if (string.Equals(state.Status, "failed", StringComparison.OrdinalIgnoreCase))
-            {
-                if (string.IsNullOrWhiteSpace(state.Id) ||
-                    _withdrawalRecoveryAttemptedIds.Contains(state.Id) ||
-                    Trade.IsTrading)
-                {
-                    return true;
-                }
-
-                _withdrawalRecoveryAttemptedIds.Add(state.Id);
-                string priorError = state.Error;
-                state.Status = "extracting";
-                state.Error =
-                    "One-shot worker recovery is verifying physical AO state. Prior failure: " +
-                    priorError;
-                WithdrawalStore.Save(_settingsDir, state);
-                ResetWithdrawalLocal();
-                _withdrawal = state;
-                Logger.Warning(
-                    "[CityBankers] WITHDRAWAL RECOVERY RETRY " + state.Id +
-                    ": worker will re-locate the exact reserved item once; prior failure: " +
-                    priorError);
-            }
-            if (!string.Equals(state.Status, "extracting", StringComparison.OrdinalIgnoreCase))
-                return string.Equals(state.Status, "failed", StringComparison.OrdinalIgnoreCase);
             if (_withdrawalWorkerPhase == WithdrawalWorkerPhase.None)
             {
                 _withdrawalWorkerPhase = WithdrawalWorkerPhase.Locate;
@@ -187,58 +216,56 @@ namespace CityBankers
 
         private bool TryHandleWithdrawalTradeOpened(Identity target, string targetName)
         {
-            WithdrawalState state = WithdrawalStore.Load(_settingsDir);
-            if (!WithdrawalStore.IsActive(state))
-                return false;
-            _withdrawal = state;
-
-            if (!_isCentral &&
-                string.Equals(state.Status, "extracting", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(state.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(targetName, _centralCharacter, StringComparison.OrdinalIgnoreCase))
+            List<WithdrawalState> rows = WithdrawalStore.LoadAll(_settingsDir);
+            WithdrawalState transfer = rows.FirstOrDefault(row => WithdrawalStore.HasStatus(row, "extracting") &&
+                (_isCentral
+                    ? string.Equals(row.SourceCharacter, targetName, StringComparison.OrdinalIgnoreCase)
+                    : string.Equals(row.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
+                      string.Equals(targetName, _centralCharacter, StringComparison.OrdinalIgnoreCase)));
+            if (transfer != null)
             {
+                _withdrawal = transfer;
                 _withdrawalTradeOpened = true;
                 _withdrawalTradePartner = target;
                 return true;
             }
+            if (!_isCentral || rows.Any(WithdrawalStore.OwnsCentralTrade) ||
+                _activeBatch != null || _donationCleanup != null) return false;
 
-            if (_isCentral &&
-                string.Equals(state.Status, "extracting", StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(targetName, state.SourceCharacter, StringComparison.OrdinalIgnoreCase))
+            // A ready order belongs to this collector; everybody else can donate normally.
+            List<WithdrawalState> ready = WithdrawalStore.Update(_settingsDir, current =>
             {
-                _withdrawalTradeOpened = true;
-                _withdrawalTradePartner = target;
-                return true;
-            }
-
-            if (_isCentral &&
-                string.Equals(state.Status, "central-ready", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!WithdrawalStore.IsAllowedCollector(state, targetName))
+                WithdrawalState first = current.FirstOrDefault(row =>
+                    WithdrawalStore.HasStatus(row, "central-ready") &&
+                    WithdrawalStore.IsAllowedCollector(row, targetName) &&
+                    row.PickupExpiresUtc.HasValue && row.PickupExpiresUtc.Value > DateTime.UtcNow);
+                if (first == null) return new List<WithdrawalState>();
+                List<WithdrawalState> claim = current.Where(row => row.OrderId == first.OrderId &&
+                    WithdrawalStore.HasStatus(row, "central-ready") &&
+                    row.PickupExpiresUtc.HasValue && row.PickupExpiresUtc.Value > DateTime.UtcNow).ToList();
+                foreach (WithdrawalState row in claim)
                 {
-                    TellPlayer(targetName, "That reserved pickup belongs to " + state.RecipientMain + ".");
-                    Trade.Decline();
-                    return true;
+                    row.Status = "pickup-trading";
+                    WithdrawalStore.Touch(row);
                 }
-                state.Status = "pickup-trading";
-                WithdrawalStore.Save(_settingsDir, state);
-                _withdrawalPickupTrade = true;
-                _withdrawalTradeOpened = true;
-                _withdrawalTradePartner = target;
-                _withdrawalItemOffered = false;
-                _withdrawalAccepted = false;
-                return true;
-            }
-            return false;
+                return claim;
+            });
+            if (ready.Count == 0) return false;
+            _pickupItems = ready;
+            _withdrawal = ready[0];
+            _withdrawalPickupTrade = true;
+            _withdrawalTradeOpened = true;
+            _withdrawalTradePartner = target;
+            _pickupOfferedIds.Clear();
+            _withdrawalAccepted = false;
+            return true;
         }
 
         private bool TryHandleWithdrawalTradeStatus(Identity target, TradeStatus status)
         {
-            WithdrawalState state = WithdrawalStore.Load(_settingsDir);
-            if (!WithdrawalStore.IsActive(state) || !_withdrawalTradeOpened ||
-                target != _withdrawalTradePartner)
+            if (!_withdrawalTradeOpened || target != _withdrawalTradePartner || _withdrawal == null)
                 return false;
-
+            WithdrawalState state = WithdrawalStore.LoadAll(_settingsDir).First(row => row.Id == _withdrawal.Id);
             if (status == TradeStatus.Accept)
             {
                 if (_isCentral && !_withdrawalPickupTrade)
@@ -254,24 +281,42 @@ namespace CityBankers
             }
             if (status == TradeStatus.Confirm)
             {
-                Trade.Confirm();
+                if (_isCentral && _withdrawalPickupTrade &&
+                    (Trade.TargetWindowCache?.Items?.Count ?? 0) > 0)
+                {
+                    TryDeclineTrade();
+                    return true;
+                }
+                if (_withdrawalAccepted) Trade.Confirm();
                 return true;
             }
             if (status == TradeStatus.Finished)
             {
-                if (_isCentral)
+                if (_isCentral && _withdrawalPickupTrade)
                 {
-                    if (_withdrawalPickupTrade)
+                    if (!_withdrawalAccepted || _pickupOfferedIds.Count != _pickupItems.Count)
                     {
-                        state.DeliveredUtc = DateTime.UtcNow;
-                        state.Status = "delivery-confirmed";
-                        WithdrawalStore.Save(_settingsDir, state);
-                        CompleteWithdrawalAccounting(state);
+                        ResetWithdrawalTrade(); // persisted pickup-trading requires physical reconciliation
+                        return true;
                     }
-                    else
+                    // Persist the entire confirmed delivery before per-item archival.
+                    List<string> ids = _pickupItems.Select(row => row.Id).ToList();
+                    WithdrawalStore.Update(_settingsDir, current =>
                     {
-                        OpenPickupWindow(state);
-                    }
+                        foreach (WithdrawalState row in current.Where(row => ids.Contains(row.Id) &&
+                            WithdrawalStore.HasStatus(row, "pickup-trading")))
+                        {
+                            row.DeliveredUtc = DateTime.UtcNow;
+                            row.Status = "delivery-confirmed";
+                            WithdrawalStore.Touch(row);
+                        }
+                        return true;
+                    });
+                }
+                else if (_isCentral)
+                {
+                    state.Status = "central-received";
+                    WithdrawalStore.Save(_settingsDir, state);
                 }
                 ResetWithdrawalTrade();
                 return true;
@@ -280,13 +325,22 @@ namespace CityBankers
             {
                 if (_isCentral && _withdrawalPickupTrade)
                 {
-                    state.Status = "central-ready";
-                    WithdrawalStore.Save(_settingsDir, state);
+                    List<string> ids = _pickupItems.Select(row => row.Id).ToList();
+                    WithdrawalStore.Update(_settingsDir, current =>
+                    {
+                        foreach (WithdrawalState row in current.Where(row => ids.Contains(row.Id) &&
+                            WithdrawalStore.HasStatus(row, "pickup-trading")))
+                        {
+                            row.Status = "central-ready";
+                            WithdrawalStore.Touch(row);
+                        }
+                        return true;
+                    });
                 }
                 else if (!_isCentral)
                 {
+                    // Keep the existing deadline: a busy/declined trade cannot retry forever.
                     _withdrawalWorkerPhase = WithdrawalWorkerPhase.OpenTrade;
-                    SetWithdrawalDeadline();
                 }
                 ResetWithdrawalTrade();
                 return true;
@@ -473,7 +527,6 @@ namespace CityBankers
             if (central == null) return;
             ResetWithdrawalTrade();
             _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitTrade;
-            _withdrawalDeadlineUtc = DateTime.UtcNow.AddSeconds(WithdrawalPhaseTimeoutSeconds);
             Trade.Open(central.Identity);
         }
 
@@ -507,31 +560,44 @@ namespace CityBankers
 
         private void TickWithdrawalPickupTrade(WithdrawalState state)
         {
-            if (state.PickupExpiresUtc.HasValue && DateTime.UtcNow >= state.PickupExpiresUtc.Value)
+            if (!Trade.IsTrading) return;
+            if ((Trade.TargetWindowCache?.Items?.Count ?? 0) > 0)
             {
+                TellPlayer(state.RequestedBy, "This trade collects your ready order. Please donate in a separate trade after pickup.");
                 TryDeclineTrade();
-                state.Status = "central-ready";
-                WithdrawalStore.Save(_settingsDir, state);
-                ResetWithdrawalTrade();
                 return;
             }
-            if (!_withdrawalTradeOpened || !Trade.IsTrading) return;
-            if (!_withdrawalItemOffered)
+            if (_pickupItems.Any(row => row.PickupExpiresUtc.HasValue &&
+                    DateTime.UtcNow >= row.PickupExpiresUtc.Value))
             {
-                Item item = FindWithdrawalInventoryItem(state);
+                TryDeclineTrade();
+                return; // Declined callback restores all claimed items together
+            }
+            foreach (WithdrawalState row in _pickupItems)
+            {
+                if (_pickupOfferedIds.Contains(row.Id)) continue;
+                Item item = FindWithdrawalInventoryItem(row);
                 if (item == null)
                 {
-                    FailWithdrawal(state, "Reserved item disappeared from Central inventory.");
+                    TryDeclineTrade();
                     return;
                 }
                 Trade.AddItem(item.Slot);
-                _withdrawalItemOffered = true;
+                _pickupOfferedIds.Add(row.Id);
                 return;
             }
             if (!_withdrawalAccepted)
             {
                 List<Item> offered = Trade.PlayerWindowCache?.Items ?? new List<Item>();
-                if (offered.Count == 1 && MatchesWithdrawalItem(offered[0], state))
+                var available = new List<Item>(offered);
+                bool exact = offered.Count == _pickupItems.Count;
+                foreach (WithdrawalState row in _pickupItems)
+                {
+                    Item match = available.FirstOrDefault(item => MatchesWithdrawalItem(item, row));
+                    if (match == null) { exact = false; break; }
+                    available.Remove(match);
+                }
+                if (exact)
                 {
                     _withdrawalAccepted = true;
                     Trade.Accept();
@@ -556,12 +622,25 @@ namespace CityBankers
                     return;
                 }
             }
-            state.Status = "central-ready";
-            state.PickupExpiresUtc = DateTime.UtcNow.AddSeconds(WithdrawalStore.PickupSeconds);
-            WithdrawalStore.Save(_settingsDir, state);
+            Item received = FindWithdrawalInventoryItem(state);
+            if (received == null) return;
+            WithdrawalStore.Update(_settingsDir, rows =>
+            {
+                WithdrawalState fresh = rows.First(row => row.Id == state.Id);
+                fresh.CentralItemIdentity = received.UniqueIdentity.ToString();
+                fresh.Status = "central-ready";
+                DateTime expires = DateTime.UtcNow.AddSeconds(WithdrawalStore.PickupSeconds);
+                foreach (WithdrawalState row in rows.Where(row => row.OrderId == fresh.OrderId &&
+                    WithdrawalStore.HasStatus(row, "central-ready")))
+                {
+                    row.PickupExpiresUtc = expires;
+                    WithdrawalStore.Touch(row);
+                }
+                return true;
+            });
             TellPlayer(state.RequestedBy,
                 (state.Item?.Name ?? "Your item") + " is ready on Kbcentral. " +
-                "Open trade within three minutes; no ledger item is removed until AO finishes the trade.");
+                "Your order pickup clock is now three minutes. Open trade to collect all ready items.");
         }
 
         private void CompleteWithdrawalAccounting(WithdrawalState state)
@@ -596,8 +675,9 @@ namespace CityBankers
         private void QueueWithdrawalReturn(WithdrawalState state)
         {
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            string batchId = "withdraw-return-" + Guid.NewGuid().ToString("N");
-            queue.Batches.Add(new DispatchBatchState
+            string batchId = state.ReturnBatchId ?? ("withdraw-return-" + state.Id);
+            if (!queue.Batches.Any(batch => batch.BatchId == batchId))
+                queue.Batches.Add(new DispatchBatchState
             {
                 BatchId = batchId,
                 TransactionId = state.DonationTransactionId,
@@ -606,7 +686,9 @@ namespace CityBankers
                 Status = "queued",
                 CreatedUtc = DateTime.UtcNow,
                 UpdatedUtc = DateTime.UtcNow,
-                Items = new List<TransferItemState> { state.Item }
+                Items = new List<TransferItemState> { new TransferItemState {
+                    UniqueIdentity = state.CentralItemIdentity ?? state.Item.UniqueIdentity,
+                    AoId = state.Item.AoId, HighId = state.Item.HighId, Ql = state.Item.Ql, Name = state.Item.Name } }
             });
             RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
             state.ReturnBatchId = batchId;
@@ -623,6 +705,9 @@ namespace CityBankers
             if ((queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
                     string.Equals(batch.BatchId, state.ReturnBatchId, StringComparison.Ordinal)))
                 return false;
+            StorageBatchResult result = RuntimeStateStore.ReadStorageResult(_settingsDir, state.SourceCharacter);
+            if (result == null || result.BatchId != state.ReturnBatchId || !result.Success ||
+                result.StoredCount != 1) return false;
             return (RuntimeStateStore.LoadCurrentStock(_settingsDir).Items ?? new List<StockItemState>())
                 .Any(item => item != null && item.AoId == state.Item.AoId &&
                     string.Equals(item.TransactionId, state.DonationTransactionId, StringComparison.Ordinal) &&
@@ -650,11 +735,34 @@ namespace CityBankers
             return item.Id == state.Item.AoId && item.HighId == state.Item.HighId && item.Ql == state.Item.Ql;
         }
 
-        private static Item FindWithdrawalInventoryItem(WithdrawalState state)
+        private bool IsReservedForPickup(Item item, List<WithdrawalState> reservations)
+        {
+            if (!_isCentral || item == null) return false;
+            return reservations.Any(row =>
+                WithdrawalStore.IsActive(row) && !WithdrawalStore.HasStatus(row, "return-queued") &&
+                (row.CentralItemIdentity == item.UniqueIdentity.ToString() ||
+                 row.SourceItemIdentity == item.UniqueIdentity.ToString() ||
+                 (string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
+                  (WithdrawalStore.HasStatus(row, "failed") ||
+                   WithdrawalStore.HasStatus(row, "central-received") ||
+                   WithdrawalStore.HasStatus(row, "central-ready") ||
+                   WithdrawalStore.HasStatus(row, "pickup-trading") ||
+                   WithdrawalStore.HasStatus(row, "returning")) &&
+                  MatchesWithdrawalItem(item, row))));
+        }
+
+        private Item FindWithdrawalInventoryItem(WithdrawalState state)
         {
             List<Item> inventory = (Inventory.Items ?? new List<Item>()).Where(item =>
                 item != null && item.Slot.Type == IdentityType.Inventory &&
                 item.UniqueIdentity.Type != IdentityType.Container).ToList();
+
+            if (_isCentral && !string.IsNullOrWhiteSpace(state?.CentralItemIdentity))
+            {
+                List<Item> exactCentral = inventory.Where(item =>
+                    item.UniqueIdentity.ToString() == state.CentralItemIdentity).ToList();
+                return exactCentral.Count == 1 ? exactCentral[0] : null;
+            }
 
             if (!string.IsNullOrWhiteSpace(state?.SourceItemIdentity) &&
                 !string.Equals(state.SourceItemIdentity, "(None:0000)", StringComparison.Ordinal))
@@ -667,7 +775,12 @@ namespace CityBankers
                     return exact[0];
             }
 
-            List<Item> matches = inventory.Where(item => MatchesWithdrawalItem(item, state)).ToList();
+            // Exclude every other reservation, so identical templates cannot share one physical item.
+            List<WithdrawalState> others = WithdrawalStore.LoadAll(_settingsDir)
+                .Where(row => WithdrawalStore.IsActive(row) && row.Id != state.Id).ToList();
+            List<Item> matches = inventory.Where(item => MatchesWithdrawalItem(item, state) &&
+                !others.Any(row => !string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
+                    row.CentralItemIdentity == item.UniqueIdentity.ToString())).ToList();
             return matches.Count == 1 ? matches[0] : null;
         }
 
@@ -695,6 +808,8 @@ namespace CityBankers
             _withdrawalAccepted = false;
             _withdrawalTradePartner = Identity.None;
             _withdrawalPickupTrade = false;
+            _pickupItems.Clear();
+            _pickupOfferedIds.Clear();
         }
 
         private void ResetWithdrawalLocal()

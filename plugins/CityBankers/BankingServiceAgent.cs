@@ -329,11 +329,9 @@ namespace CityBankers
 
                 if (TryHandleWithdrawalTradeOpened(target, targetName))
                     return;
-                WithdrawalState withdrawalGate = WithdrawalStore.Load(_settingsDir);
-                if (WithdrawalStore.IsActive(withdrawalGate) &&
-                    !string.Equals(withdrawalGate.Status, "return-queued", StringComparison.OrdinalIgnoreCase))
+                if (WithdrawalStore.LoadAll(_settingsDir).Any(WithdrawalStore.OwnsCentralTrade))
                 {
-                    TellPlayer(targetName, "CityBankers is busy with a reserved pickup. Please try again shortly.");
+                    TellPlayer(targetName, "Central is transferring an item. Please try your trade again shortly.");
                     Trade.Decline();
                     return;
                 }
@@ -551,6 +549,12 @@ namespace CityBankers
         private void BeginDonation(Identity partner)
         {
             string partnerName = FindPlayerName(partner) ?? partner.ToString();
+            if (Inventory.NumFreeSlots < ServicePolicy.MaxTradeItems)
+            {
+                TellPlayer(partnerName, "Central needs room for a full donation. Please try again after pending storage or pickups finish.");
+                Trade.Decline();
+                return;
+            }
             if (HasUnresolvedDispatchWork())
             {
                 TellPlayer(
@@ -2053,8 +2057,11 @@ namespace CityBankers
         {
             if (Inventory.Items == null || expected == null)
                 return new List<Item>();
+            List<WithdrawalState> reservations = _isCentral
+                ? WithdrawalStore.LoadAll(_settingsDir) : new List<WithdrawalState>();
             List<Item> normal = Inventory.Items
-                .Where(item => item != null && item.Slot.Type == IdentityType.Inventory)
+                .Where(item => item != null && item.Slot.Type == IdentityType.Inventory &&
+                    !IsReservedForPickup(item, reservations))
                 .OrderBy(item => item.Slot.Instance)
                 .ToList();
             if (IsUsableIdentity(expected.UniqueIdentity))
@@ -2075,10 +2082,13 @@ namespace CityBankers
 
         private List<Item> FindDistinctInventoryItems(IEnumerable<TransferItemState> expectedItems)
         {
+            List<WithdrawalState> reservations = _isCentral
+                ? WithdrawalStore.LoadAll(_settingsDir) : new List<WithdrawalState>();
             List<Item> available = Inventory.Items == null
                 ? new List<Item>()
                 : Inventory.Items
-                    .Where(item => item != null && item.Slot.Type == IdentityType.Inventory)
+                    .Where(item => item != null && item.Slot.Type == IdentityType.Inventory &&
+                        !IsReservedForPickup(item, reservations))
                     .OrderBy(item => item.Slot.Instance)
                     .ToList();
             var selected = new List<Item>();

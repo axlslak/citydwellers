@@ -22,13 +22,13 @@ namespace CityManager
         {
             try
             {
-                JObject bankers = SettingsPaths.ReadBankersSettings(_settingsDir);
+                JObject bankers = CityBankers.Shared.SettingsPaths.ReadBankersSettings(_settingsDir);
                 JObject roles = bankers.GetValue("Roles", StringComparison.OrdinalIgnoreCase) as JObject;
                 StorageState storage = RuntimeStateStore.LoadStorageState(_settingsDir);
                 DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-                WithdrawalState withdrawal = WithdrawalStore.Load(_settingsDir);
+                List<WithdrawalState> withdrawals = WithdrawalStore.LoadAll(_settingsDir);
                 bool allReady = File.Exists(Path.Combine(
-                    _dataDir, TrustedOperators.AllBankersReadyMarkerFileName));
+                    _dataDir, "citybankers-all-bankers-ready.json"));
                 int processId = Process.GetCurrentProcess().Id;
                 int totalUsed = 0;
                 int totalCapacity = 0;
@@ -71,14 +71,13 @@ namespace CityManager
                     int failed = roleBatches.Count(batch => string.Equals(
                         batch.Status, "failed", StringComparison.OrdinalIgnoreCase));
                     int pending = roleBatches.Count - failed;
-                    bool withdrawalHere = WithdrawalStore.IsActive(withdrawal) &&
-                        (string.Equals(withdrawal.SourceCharacter, character, StringComparison.OrdinalIgnoreCase) ||
-                         (string.Equals(role, "central", StringComparison.OrdinalIgnoreCase) &&
-                          (string.Equals(withdrawal.Status, "central-ready", StringComparison.OrdinalIgnoreCase) ||
-                           string.Equals(withdrawal.Status, "pickup-trading", StringComparison.OrdinalIgnoreCase))));
-                    bool withdrawalFailed = withdrawalHere && string.Equals(
-                        withdrawal.Status, "failed", StringComparison.OrdinalIgnoreCase);
-                    bool stuck = failed > 0 || withdrawalFailed;
+                    List<WithdrawalState> localOrders = withdrawals.Where(row =>
+                        WithdrawalStore.IsActive(row) &&
+                        (string.Equals(row.SourceCharacter, character, StringComparison.OrdinalIgnoreCase) ||
+                         role == "central")).ToList();
+                    bool withdrawalHere = localOrders.Count > 0;
+                    bool withdrawalFailed = localOrders.Any(row => WithdrawalStore.HasStatus(row, "failed"));
+                    bool stuck = failed > 0 || (withdrawalFailed && role != "central");
                     bool usable = online && bankOpen && roleReady && !stuck;
                     bool busy = !stuck && (pending > 0 || withdrawalHere);
                     allUsable &= usable;
@@ -93,14 +92,15 @@ namespace CityManager
 
                     string state = !online ? "OFFLINE" : stuck ? "STUCK" :
                         !bankOpen ? "ONLINE, bank unavailable" :
-                        !roleReady ? "ONLINE, starting" : busy ? "USABLE, busy" : "USABLE";
+                        !roleReady ? "ONLINE, starting" : withdrawalFailed ? "USABLE, some items held" :
+                        busy ? "USABLE, busy" : "USABLE";
                     string capacityText = capacity > 0
                         ? "; storage " + used + "/" + capacity
                         : string.Empty;
                     string workText = failed > 0 ? "; failed " + failed :
                         pending > 0 ? "; queued " + pending : string.Empty;
                     if (withdrawalHere)
-                        workText += "; withdrawal " + (withdrawal.Status ?? "active");
+                        workText += "; reserved items " + localOrders.Count;
 
                     lines.Append(StatusLine(usable, character + " (" + role + ")",
                         state + capacityText + workText));
@@ -109,7 +109,10 @@ namespace CityManager
                 }
 
                 string total = "Storage " + totalUsed + "/" + totalCapacity +
-                    " slots used; " + Math.Max(0, totalCapacity - totalUsed) + " free.";
+                    " slots used; " + Math.Max(0, totalCapacity - totalUsed) + " free. Orders " +
+                    withdrawals.Where(WithdrawalStore.IsActive).Select(row => row.OrderId).Distinct().Count() +
+                    "/4; ready items " + withdrawals.Count(row => WithdrawalStore.HasStatus(row, "central-ready")) +
+                    "; held items " + withdrawals.Count(row => WithdrawalStore.HasStatus(row, "failed")) + ".";
                 return new BankerStatusSnapshot
                 {
                     IsUsable = allUsable,
@@ -148,7 +151,8 @@ namespace CityManager
         private void ProcessBankerStockCommand(string rawCommand, ReplyTarget target)
         {
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
-            HideReservedWithdrawalCopy(stock, WithdrawalStore.Load(_settingsDir));
+            foreach (WithdrawalState row in WithdrawalStore.LoadAll(_settingsDir))
+                HideReservedWithdrawalCopy(stock, row);
             string response;
             if (!StockCommandEngine.TryBuildResponse(
                     rawCommand,
@@ -199,28 +203,16 @@ namespace CityManager
 
         private void BeginBankerWithdrawal(string senderName, int aoId, ReplyTarget target)
         {
-            WithdrawalState existing = WithdrawalStore.Load(_settingsDir);
-            if (WithdrawalStore.IsActive(existing))
-            {
-                string owner = string.IsNullOrWhiteSpace(existing.RecipientMain)
-                    ? "another member"
-                    : existing.RecipientMain;
-                Reply(target, "The bank is already preparing a pickup for " + owner +
-                    ". Please wait for that transaction to finish.");
-                return;
-            }
-            DispatchQueueState dispatch = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            if ((dispatch.Batches ?? new List<DispatchBatchState>()).Any(batch => batch != null))
-            {
-                Reply(target, "The bank is still finishing storage work. Please try again when its queue is clear.");
-                return;
-            }
+            List<WithdrawalState> reservations = WithdrawalStore.LoadAll(_settingsDir);
+            var reservedIds = new HashSet<string>(reservations.Where(WithdrawalStore.IsActive)
+                .Select(row => row.ActiveLedgerId), StringComparer.Ordinal);
 
             JObject ledger = RuntimeStateStore.ReadJson<JObject>(
                 Path.Combine(_dataDir, "ledger.json"));
             JObject selected = (ledger?["Items"] as JArray ?? new JArray())
                 .OfType<JObject>()
-                .Where(item => ParseDonationInt(item["AoId"]) == aoId)
+                .Where(item => ParseDonationInt(item["AoId"]) == aoId &&
+                    !reservedIds.Contains(item["Id"]?.ToString()))
                 .OrderBy(item => ParseDonationUtc(item["ReceivedUtc"]))
                 .ThenBy(item => item["Id"]?.ToString(), StringComparer.Ordinal)
                 .FirstOrDefault();
@@ -282,16 +274,17 @@ namespace CityManager
                     Name = physical.Name
                 }
             };
-            WithdrawalState raced;
-            if (!WithdrawalStore.TryCreate(_settingsDir, request, out raced))
+            string admissionError;
+            if (!WithdrawalStore.TryAdd(_settingsDir, request, out admissionError))
             {
-                Reply(target, "Another bank pickup started first. Please try again after it finishes.");
+                Reply(target, admissionError);
                 return;
             }
             Reply(target,
                 "Withdrawal " + request.Id.Substring(request.Id.Length - 8) +
                 " started for " + (physical.Name ?? ("AOID " + aoId)) +
-                ". Kbcentral will tell you when the three-minute pickup window opens.");
+                ". Added to your order (maximum three items). Ready items remain collectible; " +
+                "the pickup clock resets to three minutes now and when this item arrives.");
         }
 
         private static void HideReservedWithdrawalCopy(
@@ -445,13 +438,13 @@ namespace CityManager
                 }
             }
 
-            WithdrawalState withdrawal = WithdrawalStore.Load(_settingsDir);
-            DonationRecord reserved;
-            if (WithdrawalStore.IsActive(withdrawal) &&
-                !string.IsNullOrWhiteSpace(withdrawal.ActiveLedgerId) &&
-                records.TryGetValue(withdrawal.ActiveLedgerId, out reserved))
+            List<WithdrawalState> withdrawals = WithdrawalStore.LoadAll(_settingsDir);
+            foreach (WithdrawalState withdrawal in withdrawals.Where(WithdrawalStore.IsActive))
             {
-                reserved.Available = false;
+                DonationRecord reserved;
+                if (!string.IsNullOrWhiteSpace(withdrawal.ActiveLedgerId) &&
+                    records.TryGetValue(withdrawal.ActiveLedgerId, out reserved))
+                    reserved.Available = false;
             }
 
             return records.Values

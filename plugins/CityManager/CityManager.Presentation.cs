@@ -130,8 +130,8 @@ namespace CityManager
                     body = CommandHelp(
                         target,
                         "get [AO item ID]",
-                        "Reserve one available CityBankers item and have its storage worker return it to Kbcentral.",
-                        "Kbcentral tells you when the item is ready. Open trade within three minutes. Your known alts may collect it too.",
+                        "Add an available item to your order: up to three items per member and four orders across the bank.",
+                        "Each addition and arrival refreshes your three-minute pickup clock. Trade with Kbcentral to collect all ready items, even if another is still pending. Known alts share your order. Donations continue while orders await pickup.",
                         "Athen Paladins member",
                         "Alias: withdraw. The item leaves stock only after AO confirms the pickup trade finished.");
                     return true;

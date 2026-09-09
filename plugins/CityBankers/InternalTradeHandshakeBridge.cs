@@ -484,7 +484,10 @@ namespace CityBankers
 
         private bool IsMatchingWorkerCommand(DispatchCommand command)
         {
-            return command != null &&
+            return !WithdrawalStore.LoadAll(_settingsDir).Any(row =>
+                WithdrawalStore.HasStatus(row, "extracting") &&
+                string.Equals(row.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase)) &&
+                command != null &&
                 !string.IsNullOrWhiteSpace(command.BatchId) &&
                 string.Equals(command.Role, _role, StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(

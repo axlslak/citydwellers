@@ -2,6 +2,39 @@
 
 Last continuity reconstruction: 2026-08-30
 
+## 2026-09-09 — concurrent pickup orders (session 35)
+
+- `[DECISION]` Four active canonical-member orders, at most three reserved items
+  per order. Known alts share admission and pickup authorization. Adding an item
+  refreshes existing ready items to three minutes; each physical arrival also
+  refreshes that order. A pickup collects all currently ready items only.
+- `[IMPLEMENTED, OWNER VALIDATION PENDING]` Waiting reservations no longer own
+  Central's trade slot. Donations and serialized storage dispatch can proceed
+  while orders await pickup. Extraction retains donation inventory headroom;
+  actual AO trades remain serialized. Pickup trades do not double as donations.
+- `[INVARIANT]` Reservation admission and order transitions use one mutex and
+  revision-checked writes. `data/withdrawal.json` reads the legacy single item
+  and writes a v2 queue on its next mutation, preserving all old item fields.
+  Do not downgrade to a single-item reader after this migration.
+- `[INVARIANT]` Reserved Central identities are excluded from donation cleanup
+  and dispatch selection. Only player AO Finished confirms delivery for archival.
+  Interrupted or ambiguous custody remains reserved; other ready orders can be
+  collected. Expired items use deterministic return batch IDs.
+- `[SUPERSEDED]` Any worker independently retrying any failed withdrawal is
+  incompatible with multiple orders. Central schedules only one persisted retry
+  of a pre-delivery WaitItemInventory timeout. Delivered/pickup/accounting
+  failures are never replayed as extraction. A four-minute extraction watchdog
+  releases the logical slot into a custody hold, without guessing delivery.
+- `[IMPLEMENTED, OWNER VALIDATION PENDING]` Banker status includes per-character
+  online/usability/held work, storage used/capacity, occupied orders, ready items,
+  and held items. Corrected Manager's settings type qualification and ready-marker
+  reference while adapting status to the queue.
+- `[OWNER-DIRECTION]` Kavey authorizes pushing completed changes without asking.
+- `[OPEN]` Kavey owns Release compilation and live tests: three-item order with
+  timer refresh, donation by another member while pickup waits, partial pickup,
+  known-alt collection, fourth/fifth order admission, expiry/restorage, and restart
+  with an existing single-item withdrawal. Source review is not live AO evidence.
+
 This file is the compact restart image for a new development session. It is intentionally not a transcript. Some early project knowledge was recovered from ChatGPT continuity after long conversations became unusable; anything not independently confirmed is labelled accordingly.
 
 ## Durable recovery entry point

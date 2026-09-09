@@ -91,7 +91,12 @@ namespace CityBankers
             if (!_enabled || !Client.InPlay)
                 return;
 
-            if (WithdrawalStore.IsActive(WithdrawalStore.Load(_settingsDir)))
+            string targetName = FindPlayerName(target);
+            if (WithdrawalStore.LoadAll(_settingsDir).Any(row =>
+                WithdrawalStore.OwnsCentralTrade(row) ||
+                (WithdrawalStore.HasStatus(row, "central-ready") &&
+                 WithdrawalStore.IsAllowedCollector(row, targetName) &&
+                 row.PickupExpiresUtc.HasValue && row.PickupExpiresUtc.Value > DateTime.UtcNow)))
             {
                 Reset();
                 return;
@@ -106,7 +111,6 @@ namespace CityBankers
                 return;
             }
 
-            string targetName = FindPlayerName(target);
             if (!TrustedOperators.IsTrustedAdmin(targetName))
             {
                 Reset();

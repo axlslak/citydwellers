@@ -2,6 +2,27 @@
 
 This is a compact chronological engineering log. It records decisions and verified outcomes that future sessions may need in order to understand why the current code looks the way it does.
 
+## 2026-09-09 — session 35: four pickup orders and donation coexistence
+
+Implemented a revision-checked withdrawal queue with legacy single-item loading,
+four canonical-member orders, three items per order, and shared ready-item
+deadlines refreshed by additions and arrivals. Central collects ready subsets
+without waiting for every requested item. Waiting reservations no longer block
+donations; actual extraction and AO trades remain serialized.
+
+Reservation-aware inventory selection prevents ordinary dispatch or deletion
+from consuming pickup copies. The donation handshake recognizes a ready collector
+before callback ordering can misclassify a pickup. Worker dispatch fallback
+does not arm during extraction. AO Finished persists all delivered pickup IDs
+before per-item archival. Expiry queues deterministic return batches.
+
+Replaced independent retries of arbitrary failed withdrawals with one persisted,
+Central-scheduled retry restricted to inventory-extraction timeout. Ambiguous
+custody and delivery/accounting failures stay held rather than being replayed.
+Status and help describe occupied orders, ready/held items, limits and partial
+pickup. Source/diff review only; owner Release build and live AO validation remain
+outstanding. No runtime was started and no owner data was rewritten by the session.
+
 ## 2026-08 — early clientless / AOLite work
 
 `[HISTORICAL]` Development included AOLite/clientless `PluginLoader` and `config.json` work, with multiple accounts and plugin DLL paths. The project then expanded into City Dwellers/APCManager orchestration rather than remaining a simple loader exercise.
