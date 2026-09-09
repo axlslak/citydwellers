@@ -1106,3 +1106,24 @@ cadence.
 
 No assistant-side compilation or live AO test was run. Kavey owns the Release
 build and the next stopped-host validation.
+
+## 2026-09-09 — Recovery idempotence and Flipper cache trust
+
+Kavey's next live run proved the transaction-bound Banker repair: the held
+extermination batch was reconciled as one already-persisted item and no loose
+remainder, emitted exact full-batch success, and was removed by Central's
+worker-success reconciler. The worker could nevertheless repeat that zero-item
+completion while the failed queue entry remained briefly visible. Partial
+placement recovery now treats an already-published, exact successful result as
+terminal and waits for Central to remove the queue entry. A same-batch success
+with mismatched role, character, or counts blocks instead of being trusted.
+
+The same run proved Flipper's failed-probe cooldown but exposed a trust-boundary
+error: an old `Flipper.Cache` observation shown after a zoning disconnect could
+mark Manager's pending cloak recovery complete and cancel further live retries.
+Cached observations may still support status display, but can no longer settle
+pending recovery. Fresh probes, live events, and trigger-qualified ensure
+responses retain their existing authority.
+
+No assistant-side compilation or live AO test was run. Kavey owns the Release
+build and the next live validation after the cooldown.

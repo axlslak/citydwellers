@@ -106,6 +106,12 @@ Coordinates chat commands, raid lifecycle, cloak operations, helpers, admin/memb
 
 ### Flipper
 
+- `[IMPLEMENTED 2026-09-09]` A general historical `Flipper.Cache` observation
+  may still be displayed when a live probe cannot start or finish, but it may
+  not complete Manager's pending cloak recovery or cancel its live retry. A
+  trigger-qualified cached `EnsureEnabled` response remains authoritative only
+  through Flipper's existing `NotBeforeUtc` validation.
+
 - `[IMPLEMENTED 2026-09-07]` Flipper cache freshness is anchored to
   `Stopwatch`, not UTC subtraction. A persisted record loaded after a Flipper
   service restart is historical fallback data and cannot suppress a live
@@ -953,9 +959,15 @@ resilience and restart change:
   identity-less occurrences match only by AO id, high id, and QL. Recovery
   moves only the loose remainder and reports success for the complete original
   batch; any mismatch remains held.
-- `[OPEN]` Kavey owns the Release build and the next live recovery of failed
-  extermination batch `07c904d1` by replacing the binaries and restarting the
-  unified host without changing the runtime data directory.
+- `[VERIFIED-LIVE 2026-09-09]` Failed extermination batch `07c904d1` recovered
+  from transaction-bound evidence as one already-persisted item and no loose
+  remainder. The worker published full-batch success and Central removed the
+  held queue entry without a second trade or physical move.
+- `[IMPLEMENTED 2026-09-09]` Partial-placement recovery is idempotent across
+  the short interval before Central removes a successful failed-queue entry.
+  An exact same-batch success result suppresses another worker recovery; a
+  same-batch success with mismatched role, character, or counts blocks for
+  reconciliation instead of being trusted.
 
 
 ## Central outbound tell queue (2026-09-08)

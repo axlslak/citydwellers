@@ -744,6 +744,37 @@ namespace CityBankers
             if (batch == null || batch.Items == null || batch.Items.Count == 0)
                 return;
 
+            StorageBatchResult existing = RuntimeStateStore.ReadStorageResult(
+                _settingsDir,
+                Client.CharacterName);
+            if (existing != null && string.Equals(
+                    existing.BatchId,
+                    batch.BatchId,
+                    StringComparison.Ordinal))
+            {
+                bool exactSuccess =
+                    existing.Success &&
+                    existing.ExpectedCount == batch.Items.Count &&
+                    existing.StoredCount == batch.Items.Count &&
+                    string.Equals(existing.Role, _role, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(
+                        existing.Character,
+                        Client.CharacterName,
+                        StringComparison.OrdinalIgnoreCase);
+                if (exactSuccess)
+                    return;
+
+                if (existing.Success)
+                {
+                    ReportProblem(
+                        "PARTIAL PLACEMENT RECOVERY BLOCKED " + _role + " batch " +
+                        ShortId(batch.BatchId) +
+                        ": an existing success result does not exactly match the failed " +
+                        "batch. Waiting for operator reconciliation.");
+                    return;
+                }
+            }
+
             List<TransferItemState> remaining;
             int alreadyStored;
             string partitionError;

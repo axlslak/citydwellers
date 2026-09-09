@@ -904,7 +904,14 @@ namespace CityManager
 
                 if (status == CloakStatus.Enabled)
                 {
-                    complete = true;
+                    // A historical cache may answer an interactive status request, but it
+                    // cannot prove that a pending recovery has completed now. Keep the live
+                    // retry armed until a probe, event, or trigger-qualified ensure response
+                    // supplies current evidence.
+                    complete = !string.Equals(
+                        _observationSource,
+                        "Flipper.Cache",
+                        StringComparison.OrdinalIgnoreCase);
                 }
                 else if (status == CloakStatus.Disabled)
                 {
