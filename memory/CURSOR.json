@@ -1,13 +1,13 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "recovery_key": "CITYDWELLERS-RECOVER-V1",
-  "current_session": 28,
+  "current_session": 29,
   "last_completed_session": 28,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "status_changed_utc": "2026-09-09T10:32:28Z",
-  "transaction": null,
-  "base_commit": "8fe6ecab38d2ca2798e7dae21643ed0dbe74e97a",
-  "task": "Owner validation boundary: rebuild Release and restart the stopped unified host with data unchanged; verify transaction-bound recovery clears extermination batch 07c904d1 and Flipper no longer starts clients during shutdown or login cooldown.",
-  "resume_instruction": "Cursor is idle. Banker partial recovery now uses transaction-bound persisted occurrences plus a multiplicity-aware loose-worker remainder, preferring exact identities when present. Flipper is shutdown-aware and uses a 90-second monotonic cooldown after unsuccessful started probes. On the next live run, preserve all data, watch for PARTIAL PLACEMENT RECOVERY and RECONCILED QUEUE, and allow Flipper to sit through cooldown messages if the first AO login still reports AlreadyLoggedIn. Return any BLOCKED message or post-cooldown failure verbatim."
+  "status_changed_utc": "2026-09-09T15:15:41Z",
+  "transaction": "session-29-recovery-idempotence-and-cache-trust",
+  "base_commit": "250ac16598dfadec1b231e7ab9cbc7f9e2980f66",
+  "task": "Finish the live-log follow-up: make zero-remainder Banker recovery idempotent and prevent a stale Flipper fallback cache from canceling a still-pending live cloak recovery.",
+  "resume_instruction": "The supplied 802-line live log proves batch 07c904d1 recovered 1/1 and Central cleared it, but Kbexte published the same zero-remainder success repeatedly before Central's queue update became visible. It also proves Apcflipper disconnected during zoning, the cooldown suppressed a new login, then a #cloak stale-cache fallback (observed roughly four hours earlier, raw shield timer negative) caused CityRaidAutomation.ObserveConfirmedState to log CLOAK RECOVERY COMPLETE and cancel future live retries. Add an exact successful-result idempotence guard on worker recovery and ensure general cached Manager observations cannot complete pending recovery; preserve display fallback and direct trigger-qualified ensure behavior. Static checks only."
 }
