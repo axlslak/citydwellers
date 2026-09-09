@@ -1182,3 +1182,26 @@ authorization.
 
 No assistant-side compilation or live AO test was run. Kavey owns the Release
 build and command presentation validation.
+
+## 2026-09-09 — Member withdrawals through Kbcentral
+
+CityBankers previously accepted donations and answered stock questions but had
+no safe path for an AP member to take an item back out. Apcmanager now accepts
+`#get <AOID>` and `#withdraw <AOID>`, resolves the requester through the shared
+member/alt policy, and durably reserves one exact active-ledger and audited
+physical location. Duplicate AO item IDs remain interchangeable publicly, while
+the internal transaction follows the chosen copy's ledger ID, character, bag,
+inner slot, and usable AO identity.
+
+The source worker uses the proven audited-bag extraction sequence and returns
+the reserved item to Kbcentral. Kbcentral starts a three-minute pickup window
+only after physical receipt. A completed AO player trade archives the exact
+active item with reason `withdrawn`, canonical recipient, and UTC departure
+time. A timeout queues the still-owned item through the existing serialized
+Central-to-worker storage path; it is marked expired only after that batch has
+left the queue and physical stock shows the item stored again. Failure states
+remain blocking holds so neither accounting nor physical custody is guessed.
+
+Stock item views and active donation rows now display GET links aimed at
+Apcmanager; departed history has no GET action. No assistant-side compilation
+or live AO trade was run. Kavey owns the Release build and staged live test.

@@ -1002,6 +1002,23 @@ resilience and restart change:
   items remain credited after withdrawal or deletion. Donor alts are resolved
   through Manager's live canonical alt map at query time. Responses are
   paginated AO blobs with item links and clickable donor navigation.
+- `[IMPLEMENTED 2026-09-09]` AP members may request one available copy by
+  Anarchy Online item ID with `#get <AOID>` or its `#withdraw` alias.
+  Apcmanager reserves one exact audited ledger/location row and hides that copy
+  from stock while its durable `withdrawal.json` transaction is active. The
+  source worker extracts the exact bag/inner-slot item and returns it to
+  Kbcentral. Only then does the three-minute pickup window start; the requesting
+  character or a currently known alt in the same canonical group may collect.
+- `[INVARIANT]` AO `TradeStatus.Finished` for the member pickup is the only
+  authority that archives the exact active-ledger ID as `withdrawn`, with the
+  canonical recipient and UTC departure time. Declines leave the reservation
+  open. Expiry queues the physical item back through the normal serialized
+  dispatch/storage path and leaves the active ledger intact. An ambiguous or
+  failed physical transition enters a persistent failed hold rather than
+  guessing or permitting another withdrawal.
+- `[IMPLEMENTED 2026-09-09]` Item-level stock results and active donor-history
+  rows include a `GET` chat command targeting Apcmanager. Historical items that
+  have already left custody do not show a pickup action.
 
 ## Central outbound tell queue (2026-09-08)
 

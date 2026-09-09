@@ -322,6 +322,7 @@ namespace CityDwellers.Shared
                 "dispatch-queue.json",
                 "ledger.json",
                 "symbiant-index.json",
+                "withdrawal.json",
                 "storage-baseline.json",
                 "physical-state.json",
                 "route-repair-active.json",

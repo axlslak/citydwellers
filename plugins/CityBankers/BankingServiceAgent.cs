@@ -22,7 +22,7 @@ namespace CityBankers
     /// matching Central dispatch command and physically place received items into the
     /// persisted bank-first bag topology.
     /// </summary>
-    public class BankingServiceAgent : ClientlessPluginEntry
+    public partial class BankingServiceAgent : ClientlessPluginEntry
     {
         private string _settingsDir;
         private ServiceConfig _config;
@@ -152,12 +152,16 @@ namespace CityBankers
                 if (_isCentral)
                 {
                     ImportFreshBaselineIfNeeded();
+                    if (TickWithdrawalCentral())
+                        return;
                     TickDonation();
                     TickDonationCleanup();
                     TickDispatch();
                 }
                 else
                 {
+                    if (TickWithdrawalWorker())
+                        return;
                     TickWorkerTrade();
                     TickStorageJob();
                 }
@@ -323,6 +327,17 @@ namespace CityBankers
                     _role,
                     "TRADE OPEN target=" + (targetName ?? target.ToString()) + ".");
 
+                if (TryHandleWithdrawalTradeOpened(target, targetName))
+                    return;
+                WithdrawalState withdrawalGate = WithdrawalStore.Load(_settingsDir);
+                if (WithdrawalStore.IsActive(withdrawalGate) &&
+                    !string.Equals(withdrawalGate.Status, "return-queued", StringComparison.OrdinalIgnoreCase))
+                {
+                    TellPlayer(targetName, "CityBankers is busy with a reserved pickup. Please try again shortly.");
+                    Trade.Decline();
+                    return;
+                }
+
                 if (_isCentral)
                 {
                     if (_activeBatch != null && target == _activeWorkerIdentity)
@@ -398,6 +413,8 @@ namespace CityBankers
 
             try
             {
+                if (TryHandleWithdrawalTradeStatus(target, status))
+                    return;
                 if (status == TradeStatus.Accept && _isCentral && _donationActive)
                 {
                     if (!Trade.IsTrading || Trade.CurrentTarget != _donationPartner)

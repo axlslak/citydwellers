@@ -57,6 +57,9 @@
     <Compile Include="..\..\bankers\shared\RuntimeState.cs">
       <Link>Bankers\Shared\RuntimeState.cs</Link>
     </Compile>
+    <Compile Include="..\..\bankers\shared\WithdrawalState.cs">
+      <Link>Bankers\Shared\WithdrawalState.cs</Link>
+    </Compile>
     <Compile Include="..\..\bankers\shared\SettingsPaths.cs">
       <Link>Bankers\Shared\SettingsPaths.cs</Link>
     </Compile>

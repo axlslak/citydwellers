@@ -42,6 +42,8 @@ namespace CityManager
                 "status",
                 "stock",
                 "donor",
+                "withdraw",
+                "get",
                 "leave",
                 "join",
                 "alts",
@@ -431,6 +433,7 @@ namespace CityManager
                   command == "restart") && parts.Length == 1) ||
                 (command == "help" && parts.Length <= 3) ||
                 (command == "donor" && parts.Length <= 2) ||
+                ((command == "withdraw" || command == "get") && parts.Length == 2) ||
                 command == "stock" ||
                 (command == "home" &&
                  (parts.Length == 1 || parts.Length == 2)) ||
@@ -514,7 +517,9 @@ namespace CityManager
             }
 
             if ((string.Equals(command, "stock", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(command, "donor", StringComparison.OrdinalIgnoreCase)) &&
+                 string.Equals(command, "donor", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "withdraw", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "get", StringComparison.OrdinalIgnoreCase)) &&
                 !isAdmin &&
                 !replyTarget.IsOrg &&
                 !IsTellMember(senderName))
@@ -581,6 +586,11 @@ namespace CityManager
 
                 case "donor":
                     ProcessBankerDonorCommand(parts, replyTarget);
+                    break;
+
+                case "withdraw":
+                case "get":
+                    ProcessBankerWithdrawalCommand(senderName, parts, replyTarget);
                     break;
 
                 case "alts":

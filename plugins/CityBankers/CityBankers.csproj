@@ -36,6 +36,7 @@
     <Compile Include="AuditRecoveryHoldGuard.cs" />
     <Compile Include="BagAuditAgent.cs" />
     <Compile Include="BankingServiceAgent.cs" />
+    <Compile Include="BankingServiceAgent.Withdrawal.cs" />
     <Compile Include="CityBankers.cs" />
     <Compile Include="InternalTradeHandshakeBridge.cs" />
     <Compile Include="KavemChatBootstrap.cs" />
@@ -66,6 +67,7 @@
     <Compile Include="..\..\bankers\shared\SymbiantCatalog.cs"><Link>Shared\SymbiantCatalog.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\TrustedOperators.cs"><Link>Shared\TrustedOperators.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\TellQueueClient.cs"><Link>Shared\TellQueueClient.cs</Link></Compile>
+    <Compile Include="..\..\bankers\shared\WithdrawalState.cs"><Link>Shared\WithdrawalState.cs</Link></Compile>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

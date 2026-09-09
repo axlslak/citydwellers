@@ -413,6 +413,54 @@ namespace CityBankers.Shared
             return success;
         }
 
+        public static bool RemoveStoredItem(
+            string settingsDir,
+            string character,
+            string bagSource,
+            int bagOuterSlot,
+            int innerSlot,
+            string uniqueIdentity,
+            int aoId,
+            out string error)
+        {
+            error = null;
+            try
+            {
+                WithMutex(StateMutexName, delegate
+                {
+                    StorageState state = ReadJsonNoLock<StorageState>(
+                        GetStorageStatePath(settingsDir));
+                    StorageWorkerState worker = (state?.Workers ?? new List<StorageWorkerState>())
+                        .FirstOrDefault(value => string.Equals(
+                            value.Character, character, StringComparison.OrdinalIgnoreCase));
+                    StorageBagState bag = (worker?.Bags ?? new List<StorageBagState>())
+                        .FirstOrDefault(value =>
+                            string.Equals(value.Source, bagSource, StringComparison.OrdinalIgnoreCase) &&
+                            value.OuterSlotInstance == bagOuterSlot);
+                    StoredItemState item = (bag?.Items ?? new List<StoredItemState>())
+                        .FirstOrDefault(value => value != null &&
+                            value.InnerSlot == innerSlot && value.AoId == aoId &&
+                            (!IsUsableItemIdentity(uniqueIdentity) ||
+                             !IsUsableItemIdentity(value.UniqueIdentity) ||
+                             string.Equals(value.UniqueIdentity, uniqueIdentity, StringComparison.Ordinal)));
+                    if (item == null)
+                        throw new InvalidOperationException(
+                            "The exact persisted storage item could not be found.");
+                    bag.Items.Remove(item);
+                    worker.ObservedUtc = DateTime.UtcNow;
+                    state.UpdatedUtc = DateTime.UtcNow;
+                    WriteJsonAtomicNoLock(GetStorageStatePath(settingsDir), state);
+                    WriteJsonAtomicNoLock(GetCurrentStockPath(settingsDir), BuildCurrentStock(state));
+                });
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
         public static StorageBagState FindNextFreeBag(
             StorageState state,
             string role,

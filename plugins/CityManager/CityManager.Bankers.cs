@@ -10,6 +10,7 @@ using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using CityBankers;
 using CityBankers.Shared;
+using CityDwellers.Shared;
 using Newtonsoft.Json.Linq;
 
 namespace CityManager
@@ -18,10 +19,12 @@ namespace CityManager
     {
         private void ProcessBankerStockCommand(string rawCommand, ReplyTarget target)
         {
+            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            HideReservedWithdrawalCopy(stock, WithdrawalStore.Load(_settingsDir));
             string response;
             if (!StockCommandEngine.TryBuildResponse(
                     rawCommand,
-                    RuntimeStateStore.LoadCurrentStock(_settingsDir),
+                    stock,
                     Client.CharacterName,
                     out response,
                     CommandPrefix))
@@ -31,6 +34,153 @@ namespace CityManager
             }
 
             Reply(target, response);
+        }
+
+        private void ProcessBankerWithdrawalCommand(
+            string senderName,
+            string[] parts,
+            ReplyTarget target)
+        {
+            if (parts == null || parts.Length != 2)
+            {
+                Reply(target, Usage(target, "get [AO item ID]"));
+                return;
+            }
+
+            int aoId;
+            if (!int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out aoId) ||
+                aoId <= 0)
+            {
+                Reply(target, "That is not a valid Anarchy Online item ID.");
+                return;
+            }
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    BeginBankerWithdrawal(senderName, aoId, target);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("WITHDRAW command failed: " + ex);
+                    Reply(target, "The bank could not start that withdrawal safely.");
+                }
+            });
+        }
+
+        private void BeginBankerWithdrawal(string senderName, int aoId, ReplyTarget target)
+        {
+            WithdrawalState existing = WithdrawalStore.Load(_settingsDir);
+            if (WithdrawalStore.IsActive(existing))
+            {
+                string owner = string.IsNullOrWhiteSpace(existing.RecipientMain)
+                    ? "another member"
+                    : existing.RecipientMain;
+                Reply(target, "The bank is already preparing a pickup for " + owner +
+                    ". Please wait for that transaction to finish.");
+                return;
+            }
+            DispatchQueueState dispatch = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            if ((dispatch.Batches ?? new List<DispatchBatchState>()).Any(batch => batch != null))
+            {
+                Reply(target, "The bank is still finishing storage work. Please try again when its queue is clear.");
+                return;
+            }
+
+            JObject ledger = RuntimeStateStore.ReadJson<JObject>(
+                Path.Combine(_dataDir, "ledger.json"));
+            JObject selected = (ledger?["Items"] as JArray ?? new JArray())
+                .OfType<JObject>()
+                .Where(item => ParseDonationInt(item["AoId"]) == aoId)
+                .OrderBy(item => ParseDonationUtc(item["ReceivedUtc"]))
+                .ThenBy(item => item["Id"]?.ToString(), StringComparer.Ordinal)
+                .FirstOrDefault();
+            if (selected == null)
+            {
+                Reply(target, "That item is not currently available in CityBankers stock.");
+                return;
+            }
+
+            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            string transactionId = selected["TransactionId"]?.ToString();
+            string character = selected["Character"]?.ToString();
+            string location = selected["Location"]?.ToString();
+            int bag = ParseDonationInt(selected["Bag"]);
+            int slot = ParseDonationInt(selected["Slot"]);
+            StockItemState physical = (stock.Items ?? new List<StockItemState>())
+                .FirstOrDefault(item => item != null &&
+                    item.AoId == aoId &&
+                    string.Equals(item.TransactionId, transactionId, StringComparison.Ordinal) &&
+                    string.Equals(item.Character, character, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(item.BagSource, location, StringComparison.OrdinalIgnoreCase) &&
+                    item.BagOuterSlot == bag && item.InnerSlot == slot);
+            if (physical == null || string.IsNullOrWhiteSpace(physical.Character))
+            {
+                Reply(target,
+                    "That ledger entry has no exact live storage location. Run reconciliation before withdrawing it.");
+                return;
+            }
+
+            string canonical = ResolveCanonicalAltMain(senderName);
+            List<string> allowed = GetAltIdentityCandidates(senderName);
+            if (!allowed.Any(name => string.Equals(name, senderName, StringComparison.OrdinalIgnoreCase)))
+                allowed.Add(senderName);
+            if (!allowed.Any(name => string.Equals(name, canonical, StringComparison.OrdinalIgnoreCase)))
+                allowed.Add(canonical);
+
+            var request = new WithdrawalState
+            {
+                Id = "wd-" + Guid.NewGuid().ToString("N"),
+                Status = "requested",
+                CreatedUtc = DateTime.UtcNow,
+                RequestedBy = senderName,
+                RecipientMain = canonical,
+                AllowedCharacters = allowed.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                ActiveLedgerId = selected["Id"]?.ToString(),
+                DonationTransactionId = transactionId,
+                SourceRole = physical.PhysicalRole ?? physical.Role,
+                SourceCharacter = physical.Character,
+                SourceBag = physical.BagSource,
+                SourceBagOuterSlot = physical.BagOuterSlot,
+                SourceInnerSlot = physical.InnerSlot,
+                SourceItemIdentity = physical.UniqueIdentity,
+                Item = new TransferItemState
+                {
+                    UniqueIdentity = physical.UniqueIdentity,
+                    AoId = physical.AoId,
+                    HighId = physical.HighId,
+                    Ql = physical.Ql,
+                    Name = physical.Name
+                }
+            };
+            WithdrawalState raced;
+            if (!WithdrawalStore.TryCreate(_settingsDir, request, out raced))
+            {
+                Reply(target, "Another bank pickup started first. Please try again after it finishes.");
+                return;
+            }
+            Reply(target,
+                "Withdrawal " + request.Id.Substring(request.Id.Length - 8) +
+                " started for " + (physical.Name ?? ("AOID " + aoId)) +
+                ". Kbcentral will tell you when the three-minute pickup window opens.");
+        }
+
+        private static void HideReservedWithdrawalCopy(
+            CurrentStockState stock,
+            WithdrawalState withdrawal)
+        {
+            if (stock == null || stock.Items == null || !WithdrawalStore.IsActive(withdrawal))
+                return;
+            StockItemState reserved = stock.Items.FirstOrDefault(item => item != null &&
+                item.AoId == (withdrawal.Item?.AoId ?? 0) &&
+                string.Equals(item.TransactionId, withdrawal.DonationTransactionId, StringComparison.Ordinal) &&
+                string.Equals(item.Character, withdrawal.SourceCharacter, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(item.BagSource, withdrawal.SourceBag, StringComparison.OrdinalIgnoreCase) &&
+                item.BagOuterSlot == withdrawal.SourceBagOuterSlot &&
+                item.InnerSlot == withdrawal.SourceInnerSlot);
+            if (reserved != null)
+                stock.Items.Remove(reserved);
         }
 
         private void ProcessBankerDonorCommand(string[] parts, ReplyTarget target)
@@ -118,7 +268,7 @@ namespace CityManager
             foreach (JObject item in (ledger?["Items"] as JArray ?? new JArray())
                 .OfType<JObject>())
             {
-                AddDonationRecord(records, item, metadata, "active-" + ordinal++);
+                AddDonationRecord(records, item, metadata, "active-" + ordinal++, true);
             }
 
             string historyDirectory = Path.Combine(_dataDir, "history");
@@ -153,7 +303,8 @@ namespace CityManager
                                     records,
                                     item,
                                     metadata,
-                                    Path.GetFileName(path) + "-" + lineNumber);
+                                    Path.GetFileName(path) + "-" + lineNumber,
+                                    false);
                             }
                         }
                     }
@@ -166,6 +317,15 @@ namespace CityManager
                 }
             }
 
+            WithdrawalState withdrawal = WithdrawalStore.Load(_settingsDir);
+            DonationRecord reserved;
+            if (WithdrawalStore.IsActive(withdrawal) &&
+                !string.IsNullOrWhiteSpace(withdrawal.ActiveLedgerId) &&
+                records.TryGetValue(withdrawal.ActiveLedgerId, out reserved))
+            {
+                reserved.Available = false;
+            }
+
             return records.Values
                 .OrderByDescending(record => record.ReceivedUtc)
                 .ThenBy(record => record.Id, StringComparer.Ordinal)
@@ -176,7 +336,8 @@ namespace CityManager
             IDictionary<string, DonationRecord> records,
             JObject item,
             IDictionary<int, DonationItemMetadata> metadata,
-            string fallbackId)
+            string fallbackId,
+            bool available)
         {
             if (item == null)
                 return;
@@ -202,7 +363,8 @@ namespace CityManager
                 AoId = aoId,
                 HighId = detail?.HighId ?? 0,
                 Ql = detail?.Ql ?? 0,
-                Name = detail?.Name ?? ("Item " + aoId)
+                Name = detail?.Name ?? ("Item " + aoId),
+                Available = available
             };
         }
 
@@ -306,6 +468,9 @@ namespace CityManager
                     .Append(FormatDonationUtc(record.ReceivedUtc))
                     .Append("</font>  ")
                     .Append(BuildDonationItemLink(record))
+                    .Append(record.Available
+                        ? "  " + CommandLink(target, "get " + record.AoId, "GET")
+                        : string.Empty)
                     .Append("\n    by ")
                     .Append(CommandLink(
                         target,
@@ -402,6 +567,7 @@ namespace CityManager
             public int HighId;
             public int Ql;
             public string Name;
+            public bool Available;
         }
 
         private sealed class DonationItemMetadata

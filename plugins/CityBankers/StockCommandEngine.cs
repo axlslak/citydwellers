@@ -317,6 +317,11 @@ namespace CityBankers
                 body.Append(ItemLink(template));
                 body.Append("  x");
                 body.Append(Color(template.Count.ToString(), "#FFFF00"));
+                body.Append("  ");
+                body.Append(ChatCommand(
+                    "GET",
+                    centralCharacter,
+                    commandPrefix + "get " + template.AoId));
                 body.Append("<br>");
             }
             body.Append("<br>");
@@ -364,7 +369,8 @@ namespace CityBankers
             {
                 return DisplayFamily(family) + " " + DisplaySlot(slot) +
                     " around QL " + targetQl + ": " +
-                    string.Join(" | ", exact.Select(FormatTemplate)) +
+                    string.Join(" | ", exact.Select(template => FormatTemplate(
+                        template, centralCharacter, commandPrefix))) +
                     ". " + back;
             }
 
@@ -386,7 +392,8 @@ namespace CityBankers
                     .Where(template => template.Ql == lowerQl.Value)
                     .OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
                     .ToList();
-                parts.Add("below: " + string.Join(" | ", lower.Select(FormatTemplate)));
+                parts.Add("below: " + string.Join(" | ", lower.Select(template =>
+                    FormatTemplate(template, centralCharacter, commandPrefix))));
             }
             if (higherQl.HasValue)
             {
@@ -394,7 +401,8 @@ namespace CityBankers
                     .Where(template => template.Ql == higherQl.Value)
                     .OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
                     .ToList();
-                parts.Add("above: " + string.Join(" | ", higher.Select(FormatTemplate)));
+                parts.Add("above: " + string.Join(" | ", higher.Select(template =>
+                    FormatTemplate(template, centralCharacter, commandPrefix))));
             }
 
             return DisplayFamily(family) + " " + DisplaySlot(slot) +
@@ -538,10 +546,14 @@ namespace CityBankers
             }
         }
 
-        private static string FormatTemplate(StockTemplate template)
+        private static string FormatTemplate(
+            StockTemplate template,
+            string centralCharacter,
+            string commandPrefix)
         {
             return ItemLink(template) + " QL" + template.Ql + " x" +
-                Color(template.Count.ToString(), "#FFFF00");
+                Color(template.Count.ToString(), "#FFFF00") + " " +
+                ChatCommand("GET", centralCharacter, commandPrefix + "get " + template.AoId);
         }
 
         private static string ItemLink(StockTemplate template)

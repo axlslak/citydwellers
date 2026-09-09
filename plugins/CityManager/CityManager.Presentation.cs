@@ -124,6 +124,18 @@ namespace CityManager
                     body = BuildAltHelp(target, isAdmin);
                     return true;
 
+                case "get":
+                case "withdraw":
+                    title = "Bank Pickup";
+                    body = CommandHelp(
+                        target,
+                        "get [AO item ID]",
+                        "Reserve one available CityBankers item and have its storage worker return it to Kbcentral.",
+                        "Kbcentral tells you when the item is ready. Open trade within three minutes. Your known alts may collect it too.",
+                        "Athen Paladins member",
+                        "Alias: withdraw. The item leaves stock only after AO confirms the pickup trade finished.");
+                    return true;
+
                 case "guest":
                 case "join":
                 case "leave":
@@ -277,6 +289,10 @@ namespace CityManager
                 target,
                 "donor [top|last|member]",
                 "Browse all-time donor rankings and donation history."));
+            body.Append(HelpSyntaxLine(
+                target,
+                "get [AO item ID]",
+                "Reserve an item and collect it from Kbcentral within three minutes. Alias: withdraw."));
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
             body.Append(HelpSyntaxLine(target, "cancel [raid-token]", "Cancel your active raid."));
             body.Append(HelpSyntaxLine(target, "alts [character]", "Show known mains and alts."));

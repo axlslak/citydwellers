@@ -91,6 +91,12 @@ namespace CityBankers
             if (!_enabled || !Client.InPlay)
                 return;
 
+            if (WithdrawalStore.IsActive(WithdrawalStore.Load(_settingsDir)))
+            {
+                Reset();
+                return;
+            }
+
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             if (queue != null && queue.Batches != null && queue.Batches.Count > 0)
             {

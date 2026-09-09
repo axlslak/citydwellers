@@ -593,6 +593,34 @@ namespace CityBankers
             SaveLedger(settingsDir, ledger);
         }
 
+        public static bool ArchiveActiveItemById(
+            string settingsDir,
+            string itemId,
+            DateTime leftUtc,
+            string reason,
+            string recipient)
+        {
+            ActiveLedgerState ledger = LoadLedger(settingsDir);
+            ActiveLedgerItem entry = ledger?.Items?.FirstOrDefault(item =>
+                string.Equals(item.Id, itemId, StringComparison.Ordinal));
+            if (entry == null)
+                return HistoryContains(settingsDir, leftUtc, itemId, reason);
+            DateTime when = leftUtc == DateTime.MinValue ? DateTime.UtcNow : leftUtc;
+            if (!HistoryContains(settingsDir, when, entry.Id, reason))
+            {
+                AppendHistory(settingsDir, new ActiveHistoryRecord
+                {
+                    LeftUtc = when,
+                    Reason = reason,
+                    Recipient = recipient,
+                    Item = Clone(entry)
+                });
+            }
+            ledger.Items.Remove(entry);
+            SaveLedger(settingsDir, ledger);
+            return true;
+        }
+
         public static CurrentStockState BuildStockView(string settingsDir)
         {
             ActiveLedgerState ledger = LoadLedger(settingsDir) ?? NewLedger();
