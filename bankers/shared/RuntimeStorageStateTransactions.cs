@@ -181,7 +181,7 @@ namespace CityBankers.Shared
                         state);
                     RuntimeStateStore.WriteJsonAtomic(
                         RuntimeStateStore.GetCurrentStockPath(settingsDir),
-                        RuntimeStateStore.BuildCurrentStock(state));
+                        RuntimeStateStore.BuildCurrentStock(settingsDir, state));
                 });
 
                 importedExtras = reconciledImportedExtras;
@@ -243,7 +243,7 @@ namespace CityBankers.Shared
                         state);
                     RuntimeStateStore.WriteJsonAtomic(
                         RuntimeStateStore.GetCurrentStockPath(settingsDir),
-                        RuntimeStateStore.BuildCurrentStock(state));
+                        RuntimeStateStore.BuildCurrentStock(settingsDir, state));
                 });
                 return true;
             }

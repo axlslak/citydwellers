@@ -229,7 +229,7 @@ namespace CityBankers
                 censuses[pair.Key] = census;
             }
 
-            if (censuses.Count < 6)
+            if (censuses.Count < 9)
                 return;
 
             PhysicalStateSnapshot physical = BuildPhysicalState(baseline, censuses);
@@ -264,7 +264,7 @@ namespace CityBankers
             }
         }
 
-        private static List<LooseItem> SnapshotLooseInventory()
+        private List<LooseItem> SnapshotLooseInventory()
         {
             var result = new List<LooseItem>();
             foreach (Item item in Inventory.Items ?? new List<Item>())

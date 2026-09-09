@@ -2,6 +2,16 @@
 
 This is a compact chronological engineering log. It records decisions and verified outcomes that future sessions may need in order to understand why the current code looks the way it does.
 
+## 2026-09-09 — session 37: Banker expansion compile repair
+
+The first owner Release build exposed two mechanical settings-context mistakes:
+the static current-stock builder had no `settingsDir` parameter, and the static
+loose-inventory census method referenced its agent's `_settingsDir`. Threaded the
+settings directory through every stock-builder caller and made census capture an
+instance method. Also corrected its surviving six-client publication threshold
+to require all nine configured banker censuses. No runtime behavior was tested by
+the assistant; owner rebuild remains authoritative.
+
 ## 2026-09-09 — session 36: spirit, dyna and phatz bank expansion
 
 Expanded the unified host from six bankers to nine. Kbspirit, Kbdyna and

@@ -2,6 +2,17 @@
 
 Last continuity reconstruction: 2026-08-30
 
+## 2026-09-09 — Banker expansion compile repair (session 37)
+
+- `[FIXED, OWNER REBUILD PENDING]` Current-stock reconstruction now receives the
+  runtime settings directory explicitly at every call site, so configurable
+  acceptance routing compiles and remains available during atomic state writes.
+- `[FIXED, OWNER REBUILD PENDING]` Loose-inventory census capture is an instance
+  operation and can safely use its agent settings directory. Physical-state
+  publication now waits for all nine banker censuses rather than the former six.
+- `[EVIDENCE]` These corrections address all four CS0103/CS0120 errors in the
+  owner build. The remaining CS0649 messages in that log are warnings.
+
 ## 2026-09-09 — expanded Banker network and acceptance policy (session 36)
 
 - `[IMPLEMENTED, OWNER VALIDATION PENDING]` `spirit`, `dyna`, and `phatz` are

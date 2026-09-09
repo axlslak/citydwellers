@@ -561,7 +561,7 @@ namespace CityBankers
                         state);
                     RuntimeStateStore.WriteJsonAtomic(
                         RuntimeStateStore.GetCurrentStockPath(_settingsDir),
-                        RuntimeStateStore.BuildCurrentStock(state));
+                        RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
 
                     if (importedLedgerItems.Count > 0)
                     {
@@ -655,7 +655,7 @@ namespace CityBankers
                         state);
                     RuntimeStateStore.WriteJsonAtomic(
                         RuntimeStateStore.GetCurrentStockPath(_settingsDir),
-                        RuntimeStateStore.BuildCurrentStock(state));
+                        RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
                     return true;
                 }
                 finally
