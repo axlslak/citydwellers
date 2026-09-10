@@ -208,10 +208,11 @@ Coordinates chat commands, raid lifecycle, cloak operations, helpers, admin/memb
   JSON, data, character, and exact `37.18.193.57:7501` endpoint. The later
   reconnect, disconnect fail-fast, login-only, and process-isolation changes
   are superseded. All subsequent Banker functionality remains present.
-- `[IMPLEMENTED 2026-09-10]` That exact known-good Flipper host now runs behind
-  a separate supervised process boundary. This is deliberately the combination
-  not covered by the earlier failed experiment, which isolated the already
-  modified lifecycle. Manager, Bankers, Buddies, and Flipper remain concurrent.
+- `[SUPERSEDED 2026-09-10]` The temporary standalone `Flipper.exe` process
+  boundary was removed after the zoning/login failures proved external and
+  cleared without a code change. The exact known-good Flipper lifecycle remains
+  a parallel component of the unified host; Manager, Bankers, Buddies, and
+  Flipper remain concurrent.
 - `[VERIFIED-LIVE 2026-09-10]` The startup storage enrollment and Flipper are
   independent: Spirit, Dyna, and Phatz completed their sequential 120-bag
   audits while Flipper separately failed at `Zoning -> Disconnected`. Banker

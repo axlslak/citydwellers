@@ -62,7 +62,6 @@ Windows directory link to durable storage.
 ```text
 release\
   CityDwellers.exe
-  Flipper.exe
   CityManager.dll
   CityFlipper.dll
   CityBuddies.dll

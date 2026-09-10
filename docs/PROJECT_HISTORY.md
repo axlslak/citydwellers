@@ -18,12 +18,12 @@ hypothesis wrong. Flipper host and plugin code were restored to live-proven
 commit `548e37a2f126684f58f97e571f331bdc4805dea5`; later Banker functionality was
 retained.
 
-Session 48 corrected the incomplete experiment: process isolation had first
-been tested only with the modified Flipper lifecycle, and the known-good
-lifecycle had then been tested only back inside the shared process. The final
-combination keeps the byte-identical live-proven Flipper host/plugin and runs
-that host as `Flipper.exe`, concurrently supervised by the current unified
-application. Current Banker and give-item functionality remains intact.
+Session 48 combined the byte-identical live-proven Flipper host/plugin with a
+standalone `Flipper.exe` process boundary. Later evidence showed the incident
+was external: the affected host/IP recovered without a code change. Session 52
+therefore removed that diagnostic-era process wrapper and returned the same
+known-good Flipper lifecycle to the unified host's parallel component runner.
+Current Banker and give-item functionality remains intact.
 
 ## 2026-09-10 — session 38: per-role Banker credentials
 
