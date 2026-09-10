@@ -82,6 +82,13 @@ public class FlipperLoader
         }
 
         if (args.Length == 1 &&
+            string.Equals(args[0], "login-test", StringComparison.OrdinalIgnoreCase))
+        {
+            RunManualLoginTest();
+            return 0;
+        }
+
+        if (args.Length == 1 &&
             string.Equals(args[0], "toggle", StringComparison.OrdinalIgnoreCase))
         {
             RunManualProbe(true);
@@ -91,6 +98,7 @@ public class FlipperLoader
         Console.WriteLine("Usage:");
         Console.WriteLine("  CityDwellers.exe             # all services, interactive");
         Console.WriteLine("  CityDwellers.exe flipper-probe");
+        Console.WriteLine("  CityDwellers.exe flipper-login-test");
         Console.WriteLine("  CityDwellers.exe flipper-toggle");
         return 1;
     }
@@ -636,6 +644,32 @@ public class FlipperLoader
         }
     }
 
+    private static void RunManualLoginTest()
+    {
+        Console.WriteLine("======================================");
+        Console.WriteLine(" City Dwellers - Flipper Login Test");
+        Console.WriteLine("======================================");
+        Console.WriteLine();
+        Console.WriteLine($"Character: {_account.Character}");
+        Console.WriteLine("Mode:      LOGIN ONLY (no city or cloak actions)");
+        Console.WriteLine();
+
+        ProbeRun run = RunProbe("login-test");
+
+        Console.WriteLine();
+        Console.WriteLine(
+            run.Success
+                ? "LOGIN TEST PASSED: Apcflipper reached InPlay."
+                : "LOGIN TEST FAILED: Apcflipper did not reach InPlay.");
+
+        Console.WriteLine();
+        if (_interactive)
+        {
+            Console.WriteLine("Press ENTER to exit.");
+            Console.ReadLine();
+        }
+    }
+
     private static ProbeRun RunProbe(bool toggle)
     {
         return RunProbe(toggle ? "toggle" : null);
@@ -680,6 +714,10 @@ public class FlipperLoader
             requestedAction,
             "enable",
             StringComparison.OrdinalIgnoreCase);
+        bool loginTest = string.Equals(
+            requestedAction,
+            "login-test",
+            StringComparison.OrdinalIgnoreCase);
         bool watchController =
             requestedAction != null &&
             requestedAction.StartsWith(
@@ -691,6 +729,8 @@ public class FlipperLoader
         Console.WriteLine(
             ensureEnabled
                 ? "ENSURE ENABLED PROBE"
+                : loginTest
+                    ? "LOGIN-ONLY TEST"
                 : watchController
                     ? "RAID CT WATCH"
                     : actionRequested
@@ -825,7 +865,7 @@ public class FlipperLoader
                         : run.Result.ToggleBlockedReason));
             }
 
-            if (run.Success)
+            if (run.Success && !loginTest)
                 FlipperCacheStore.SaveFromResult(run.Result);
 
             return run;

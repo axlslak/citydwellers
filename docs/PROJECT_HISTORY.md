@@ -1378,3 +1378,12 @@ after handler detachment, which causes prompt host unload and the existing
 90-second cooldown without caching an unknown observation. This limits the
 damage and preserves the original failure for diagnosis; it does not claim to
 repair the underlying server-side zoning disconnect.
+
+Because normal full-client login remained healthy while the probe itself
+created a half-open server session during zoning, an explicit
+`flipper-login-test` diagnostic now separates AOSharp/ClientDomain login from
+CityFlipper's operational behavior. It loads the same account and assembly but
+ignores all packets except the local character's `CharInPlay`, sends no game
+action, and reports only login success or disconnect failure. A passing result
+is deliberately excluded from cloak cache because it contains no city-state
+observation.

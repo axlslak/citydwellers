@@ -34,6 +34,9 @@ namespace CityDwellers.Host
             if (HasCommand(args, "flipper-probe"))
                 return RunManualFlipper(false);
 
+            if (HasCommand(args, "flipper-login-test"))
+                return RunManualFlipperLoginTest();
+
             if (HasCommand(args, "flipper-toggle"))
                 return RunManualFlipper(true);
 
@@ -89,6 +92,21 @@ namespace CityDwellers.Host
             }
         }
 
+        private static int RunManualFlipperLoginTest()
+        {
+            using (var stop = new ManualResetEvent(false))
+            {
+                HostSettings settings;
+                if (!CityDwellersCoordinator.Prepare(stop, out settings))
+                    return 1;
+
+                return FlipperLoader.Run(
+                    new[] { "login-test" },
+                    null,
+                    true);
+            }
+        }
+
         private static int RunBankersBagAudit()
         {
             using (var stop = new ManualResetEvent(false))
@@ -117,6 +135,7 @@ namespace CityDwellers.Host
             Console.WriteLine("  CityDwellers.exe install-service");
             Console.WriteLine("  CityDwellers.exe uninstall-service");
             Console.WriteLine("  CityDwellers.exe flipper-probe");
+            Console.WriteLine("  CityDwellers.exe flipper-login-test");
             Console.WriteLine("  CityDwellers.exe flipper-toggle");
             Console.WriteLine("  CityDwellers.exe bankers-bagaudit");
         }

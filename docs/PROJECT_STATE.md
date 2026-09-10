@@ -202,6 +202,14 @@ Coordinates chat commands, raid lifecycle, cloak operations, helpers, admin/memb
 
 ### Flipper
 
+- `[IMPLEMENTED 2026-09-10]` `CityDwellers.exe flipper-login-test` is an
+  explicit manual isolation path. It uses the configured Apcflipper account,
+  the same AOSharp ClientDomain, and the same CityFlipper assembly, but ignores
+  every non-`CharInPlay` game message and performs no city, controller, charge,
+  or cloak processing. Success means only that `InPlay` was reached. Its
+  result never updates operational Flipper cache; disconnect failure retains
+  the normal cooldown.
+
 - `[SUPERSEDED 2026-09-10]` Same-domain AutoReconnect after a zoning
   disconnect was live-disproved: AO retained Apcflipper, rejected the retry as
   `AlreadyLoggedIn`, and AOSharp then faulted its internal Stop transition.
