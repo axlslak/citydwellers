@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 43,
-  "last_completed_session": 42,
-  "status": "in_progress",
+  "last_completed_session": 43,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-43-revert-flipper-same-domain-reconnect",
-  "base_commit": "18aaacbc754d20e6768f889ae9e499d352c38d49",
-  "task": "Remove the live-disproved same-domain Flipper reconnect behavior",
-  "resume_instruction": "Use the owner log proving that AO retains Apcflipper after the first zoning disconnect. Remove AutoReconnect and the 45-second reconnect window, preserve the existing cooldown, make a pre-action disconnect terminate the probe promptly without invoking AOSharp Stop from its Disconnected callback, document that the Session 42 approach was disproved, then publish and seal."
+  "transaction": null,
+  "base_commit": "0107f975df8b9563bf0159c7e9afc3361da281f3",
+  "task": "Owner Release build and diagnosis of the underlying Apcflipper zoning disconnect",
+  "resume_instruction": "Pull master and rebuild Release. Confirm a zoning disconnect now publishes a failed result and unloads promptly without AutoReconnect, AlreadyLoggedIn retry, AOSharp Stop exception, or 45-second wait. The underlying server-side zoning disconnect remains open; capture the first Apcflipper attempt from authentication through disconnect."
 }
