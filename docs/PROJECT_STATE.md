@@ -1212,6 +1212,17 @@ resilience and restart change:
 - `[OPEN]` Kavey owns the Release build and live validation that the existing
   Kbexte-held item resumes to Central, and that inventory windows display all
   nine workers without stopping the host.
+- `[VERIFIED-LIVE]` The recovered Feet and an earlier Right Wrist completed
+  their physical return to Kbexte and reappeared in `current-stock.json` under
+  their exact original donation transaction IDs. Their withdrawal rows stayed
+  `return-queued`, however, leaving one order and two reservations active and
+  hiding the otherwise-restored items from stock output.
+- `[IMPLEMENTED]` Return finalization now accepts the durable combination of
+  an absent return batch and an exact canonical stock row matching AOID,
+  original donation transaction, and source worker. A still-queued batch,
+  missing stock row, or matching same-batch failure result remains a hard stop.
+  The transient worker result is no longer required after the normal dispatch
+  consumer has legitimately consumed and deleted it.
 
 ## Automatic startup storage enrollment (2026-09-10)
 

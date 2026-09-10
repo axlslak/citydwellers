@@ -1477,3 +1477,28 @@ markers. Comparison thresholds, concurrency, and fail-closed readiness rules
 are unchanged. Flipper was healthy and reached InPlay during the evidentiary
 run, so this transaction makes no Flipper change. No assistant-side build or
 live AO test was run; Kavey owns Release build and `+03:00` startup validation.
+
+## 2026-09-10 — Withdrawal return finalization repair
+
+The durable runtime files resolved the apparently missing Xan Feet symbiant.
+Both it and an earlier returned Right Wrist were present in canonical Kbexte
+stock at their original transaction identities and bag slots; the dispatch
+queue was empty and neither item was loose. Two `return-queued` withdrawal
+rows sharing one order nevertheless remained active, so status counted those
+same rows as reservations at both Central and Kbexte and stock presentation
+continued excluding the items.
+
+`[ROOT-CAUSE]` The ordinary Central dispatch consumer removes a successfully
+stored batch and deletes the worker's transient storage-result file. On a
+later tick, withdrawal finalization required that deleted result as well as
+the durable queue and stock evidence. It could therefore wait forever after a
+fully successful return.
+
+`[IMPLEMENTED]` A return is now finalized when its batch is absent and the
+exact AOID, original donation transaction, and source worker are restored in
+canonical stock. A matching same-batch result, if still present, must not say
+the placement failed or stored a count other than one. Queued work and absent
+stock evidence still fail closed. No user data is edited by this transaction;
+the two existing stale rows will self-finalize on the next corrected startup.
+No assistant-side compilation or live AO test was run; Kavey owns Release
+build and stale-order cleanup validation.

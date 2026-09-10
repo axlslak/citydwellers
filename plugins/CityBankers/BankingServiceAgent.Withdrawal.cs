@@ -781,13 +781,23 @@ namespace CityBankers
             if ((queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
                     string.Equals(batch.BatchId, state.ReturnBatchId, StringComparison.Ordinal)))
                 return false;
-            StorageBatchResult result = RuntimeStateStore.ReadStorageResult(_settingsDir, state.SourceCharacter);
-            if (result == null || result.BatchId != state.ReturnBatchId || !result.Success ||
-                result.StoredCount != 1) return false;
-            return (RuntimeStateStore.LoadCurrentStock(_settingsDir).Items ?? new List<StockItemState>())
+
+            bool restored = (RuntimeStateStore.LoadCurrentStock(_settingsDir).Items ??
+                    new List<StockItemState>())
                 .Any(item => item != null && item.AoId == state.Item.AoId &&
                     string.Equals(item.TransactionId, state.DonationTransactionId, StringComparison.Ordinal) &&
                     string.Equals(item.Character, state.SourceCharacter, StringComparison.OrdinalIgnoreCase));
+            if (!restored)
+                return false;
+
+            // The normal dispatch consumer removes a successful batch and then
+            // deletes its worker result.  The queue absence plus this exact
+            // transaction's restored canonical stock row is the durable proof;
+            // retain a matching result only as an additional failure check when
+            // Central happens to observe it before that ordinary cleanup.
+            StorageBatchResult result = RuntimeStateStore.ReadStorageResult(_settingsDir, state.SourceCharacter);
+            return result == null || result.BatchId != state.ReturnBatchId ||
+                (result.Success && result.StoredCount == 1);
         }
 
         private bool WithdrawalSourceStillPersisted(WithdrawalState state)
