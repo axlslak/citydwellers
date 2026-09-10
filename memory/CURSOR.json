@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 57,
-  "last_completed_session": 56,
-  "status": "in_progress",
+  "last_completed_session": 57,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-57-internal-trade-staging",
-  "base_commit": "306457ee8bb4a3ffb287acb5454f611a439e2e36",
-  "task": "Make multi-item Central-to-worker trades tolerate incremental AO cache publication",
-  "resume_instruction": "Stage one outgoing item at a time after local-window acknowledgement and permit the trusted worker fallback when its remote cache is incomplete after Central accepted the exact persisted batch."
+  "transaction": null,
+  "base_commit": "9696dcc112e2e5a178c7041b79e289b097dbc648",
+  "task": "Owner build and live six-item Spirit dispatch retry",
+  "resume_instruction": "Pull master and build Release without moving Central's six loose Spirits. Start the runtime and verify the preserved failed Spirit batch requeues once, stages six items incrementally, completes AO trade, stores all six on Kbspirit, and clears the queue."
 }
