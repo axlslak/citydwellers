@@ -2,6 +2,18 @@
 
 Last continuity reconstruction: 2026-08-30
 
+## 2026-09-10 — per-role Banker credentials (session 38)
+
+- `[IMPLEMENTED, OWNER REBUILD PENDING]` Each `Bankers.Roles` mapping may carry
+  its own `Password`. Normal startup and `bankers-bagaudit` use that override
+  when present and otherwise retain the top-level shared `Bankers.Password`
+  fallback. This supports a mixed-password nine-banker fleet without exposing
+  credentials in Git.
+- `[PRIVATE HANDOFF PENDING]` Reconcile the supplied AOQuickLauncher batches
+  into a private `citydwellers.json`; correct Extermination's AO account
+  username and include explicit policy examples for Grid Armor Mk IV and the
+  wrapped premium recharger.
+
 ## 2026-09-09 — Banker expansion compile repair (session 37)
 
 - `[FIXED, OWNER REBUILD PENDING]` Current-stock reconstruction now receives the
@@ -21,8 +33,8 @@ Last continuity reconstruction: 2026-08-30
   diagnostics, status, tell rotation, routing, ledger, stock browsing, dispatch,
   and withdrawals now include all nine bankers. Default mappings assume
   `kbspirit`/`Kbspirit`, `kbdyna`/`Kbdyna`, and `kbphatz`/`Kbphatz`.
-- `[INVARIANT]` All nine role mappings must be configured before startup. The
-  three new toons use the shared Banker password. Each new storage worker is
+- `[INVARIANT]` All nine role mappings must be configured before startup. Each
+  role must have either its own password or the shared Banker fallback. Each new storage worker is
   expected to expose 102 bank bags plus 18 inventory bags, 21 slots per bag,
   while leaving 12 normal-inventory slots loose for ten-item trades plus margin.
 - `[IMPLEMENTED, OWNER VALIDATION PENDING]` `Bankers.AcceptancePolicy` in the

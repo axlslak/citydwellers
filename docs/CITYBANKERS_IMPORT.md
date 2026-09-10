@@ -39,7 +39,8 @@ The sole administrator configuration is `citydwellers.json` beside
 `CityDwellers.exe`. Its required `Bankers` section preserves the former
 CityBankers schema:
 
-- shared `Password`;
+- shared `Password` fallback, with an optional `Password` override on any
+  individual role whose AO account uses a different password;
 - `MaxParallelLogins`;
 - `DiagnosticTimeoutMs`;
 - nine `Roles` entries containing `Username` and `Character`: `central`, the

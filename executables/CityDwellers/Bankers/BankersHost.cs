@@ -104,21 +104,6 @@ public class BankerLoader
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(_config.Password))
-        {
-            StopForConfiguration(
-                "The Bankers section in citydwellers.json requires Password.");
-            return false;
-        }
-
-        if (string.Equals(_config.Password, "pass1", StringComparison.Ordinal))
-        {
-            StopForConfiguration(
-                "The Bankers section still contains the pass1 placeholder. " +
-                "Replace it with the shared banker-account password.");
-            return false;
-        }
-
         if (_config.Roles == null || _config.Roles.Count == 0)
         {
             StopForConfiguration(
@@ -128,6 +113,12 @@ public class BankerLoader
 
         if (_config.MaxParallelLogins <= 0)
             _config.MaxParallelLogins = 32;
+
+        foreach (KeyValuePair<string, AccountMapping> role in _config.Roles)
+        {
+            if (!ValidateSelectedAccount(role.Key, role.Value))
+                return false;
+        }
 
         try
         {
@@ -266,7 +257,24 @@ public class BankerLoader
             return false;
         }
 
+        string password = ResolvePassword(account);
+        if (string.IsNullOrWhiteSpace(password) ||
+            string.Equals(password, "pass1", StringComparison.Ordinal))
+        {
+            StopForConfiguration(
+                $"Role '{role}' requires a real Password either on its role mapping " +
+                "or as the shared Bankers.Password fallback.");
+            return false;
+        }
+
         return true;
+    }
+
+    private static string ResolvePassword(AccountMapping account)
+    {
+        return !string.IsNullOrWhiteSpace(account?.Password)
+            ? account.Password
+            : _config.Password;
     }
 
     private static bool ValidateCapacityReportRoles(
@@ -393,7 +401,7 @@ public class BankerLoader
 
                 ClientDomain domain = Client.CreateInstance(
                     role.Account.Username,
-                    _config.Password,
+                    ResolvePassword(role.Account),
                     role.Account.Character,
                     Dimension.RubiKa,
                     logger);
@@ -851,6 +859,7 @@ public class BankerLoader
     public class AccountMapping
     {
         public string Username;
+        public string Password;
         public string Character;
     }
 

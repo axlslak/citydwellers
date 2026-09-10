@@ -2,6 +2,15 @@
 
 This is a compact chronological engineering log. It records decisions and verified outcomes that future sessions may need in order to understand why the current code looks the way it does.
 
+## 2026-09-10 — session 38: per-role Banker credentials
+
+The owner's AOQuickLauncher batches proved that the nine-bank network does not
+use one universal password. Extended both normal hosting and the explicit bag
+audit so an individual role's `Password` overrides the top-level shared
+fallback. Configuration validation now rejects a role only when neither source
+provides a real password. Credentials remain private deployment data and are
+never committed.
+
 ## 2026-09-09 — session 37: Banker expansion compile repair
 
 The first owner Release build exposed two mechanical settings-context mistakes:

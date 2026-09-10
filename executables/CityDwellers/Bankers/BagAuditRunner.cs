@@ -108,7 +108,7 @@ internal static class BagAuditRunner
             {
                 AuditRuntime runtime = CreateRuntime(
                     role,
-                    config.Password,
+                    ResolvePassword(config, role.Account),
                     pluginPath,
                     baseDir,
                     logger);
@@ -341,13 +341,6 @@ internal static class BagAuditRunner
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(config.Password) ||
-            string.Equals(config.Password, "pass1", StringComparison.Ordinal))
-        {
-            error = "The Bankers section requires the real shared Password.";
-            return false;
-        }
-
         if (config.Roles == null)
         {
             error = "The Bankers section requires a Roles map.";
@@ -365,6 +358,16 @@ internal static class BagAuditRunner
                 error =
                     $"CityDwellers.exe bankers-bagaudit requires all nine roles. Role '{roleName}' " +
                     "is missing or still uses a placeholder mapping.";
+                return false;
+            }
+
+            string password = ResolvePassword(config, account);
+            if (string.IsNullOrWhiteSpace(password) ||
+                string.Equals(password, "pass1", StringComparison.Ordinal))
+            {
+                error =
+                    $"Role '{roleName}' requires a real Password either on its role mapping " +
+                    "or as the shared Bankers.Password fallback.";
                 return false;
             }
 
@@ -387,6 +390,13 @@ internal static class BagAuditRunner
         }
 
         return true;
+    }
+
+    private static string ResolvePassword(AuditConfig config, AuditAccount account)
+    {
+        return !string.IsNullOrWhiteSpace(account?.Password)
+            ? account.Password
+            : config.Password;
     }
 
     private static bool IsFullyConfigured(AuditAccount account)
@@ -678,6 +688,7 @@ internal static class BagAuditRunner
     private class AuditAccount
     {
         public string Username;
+        public string Password;
         public string Character;
     }
 
