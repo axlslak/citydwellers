@@ -9,6 +9,7 @@ using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
 using CityBankers.Shared;
 using Newtonsoft.Json;
+using SmokeLounge.AOtomation.Messaging.GameData;
 using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 
@@ -20,6 +21,15 @@ namespace CityBankers
             TimeSpan.FromSeconds(5);
         private static readonly TimeSpan BankOpenTimeout =
             TimeSpan.FromSeconds(8);
+
+        // The city office building exposes this real terminal to the game UI,
+        // but AOSharp currently omits it from DynelManager.AllDynels.
+        private const int CityOfficePlayfieldModelId = 6152312;
+        private const int CityOfficeBankTerminalInstance = 1478048485;
+        private const float CityOfficeBankX = 185f;
+        private const float CityOfficeBankY = 6.02f;
+        private const float CityOfficeBankZ = 173f;
+        private const float CityOfficeBankMaxDistance = 8f;
 
         private string _resultPath;
         private string _tempPath;
@@ -308,8 +318,14 @@ namespace CityBankers
                 Dynel bankTarget = FindNearestBankTarget(localPlayer);
                 if (bankTarget == null)
                 {
-                    CompleteDiagnostic(
-                        "No nearby cached static dynel with 'bank' in its name was found; no Use() was attempted.");
+                    if (!TryUseCityOfficeBankTerminal(localPlayer, position))
+                    {
+                        CompleteDiagnostic(
+                            "No nearby cached static dynel with 'bank' in its name was found, " +
+                            "and the guarded city office terminal fallback did not match; " +
+                            "no Use() was attempted.");
+                    }
+
                     return;
                 }
 
@@ -355,6 +371,56 @@ namespace CityBankers
                     StringComparison.OrdinalIgnoreCase) >= 0)
                 .OrderBy(d => TryDistance(localPlayer, d))
                 .FirstOrDefault();
+        }
+
+        private bool TryUseCityOfficeBankTerminal(
+            LocalPlayer localPlayer,
+            Vector3 position)
+        {
+            if ((int)Playfield.ModelId != CityOfficePlayfieldModelId)
+                return false;
+
+            float dx = position.X - CityOfficeBankX;
+            float dy = position.Y - CityOfficeBankY;
+            float dz = position.Z - CityOfficeBankZ;
+            float distance = (float)Math.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+            if (distance > CityOfficeBankMaxDistance)
+            {
+                Logger.Warning(
+                    $"BANK TEST: city office terminal fallback rejected at " +
+                    $"distance={distance:F2}m (maximum {CityOfficeBankMaxDistance:F0}m).");
+                return false;
+            }
+
+            var terminalIdentity = new Identity(
+                IdentityType.Terminal,
+                CityOfficeBankTerminalInstance);
+
+            _pendingResult.BankAttempted = true;
+            _pendingResult.BankTargetName = "Rubi-Ka Banking Service Terminal";
+            _pendingResult.BankTargetIdentity = terminalIdentity.ToString();
+            _pendingResult.BankTargetTemplateId = null;
+
+            Logger.Information(
+                $"BANK TEST: guarded city office fallback GenericCmd Use -> " +
+                $"{_pendingResult.BankTargetName} | {terminalIdentity} | " +
+                $"playfield={CityOfficePlayfieldModelId} | distance={distance:F2}m.");
+            Logger.Information(
+                "BANK TEST is read-only: no item/bag move or delete operation will be issued.");
+
+            _bankDeadlineUtc = DateTime.UtcNow.Add(BankOpenTimeout);
+            Client.Send(new GenericCmdMessage
+            {
+                Temp1 = 0,
+                Count = 5,
+                Action = GenericCmdAction.Use,
+                Temp4 = 1,
+                User = localPlayer.Identity,
+                Target = terminalIdentity,
+                Unknown = 1
+            });
+
+            return true;
         }
 
         private void CompleteDiagnostic(string error)

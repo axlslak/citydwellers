@@ -1148,6 +1148,26 @@ resilience and restart change:
   parsing, cross-AppDomain policy refresh, stock navigation links, and the
   displayed storage census.
 
+## City office building bank terminal (2026-09-10)
+
+- `[VERIFIED-LIVE]` In playfield model `6152312`, the game UI identifies
+  `Rubi-Ka Banking Service Terminal` instance `1478048485` at
+  `(185, 6.02, 173)`, while the clientless AOSharp dynel collection reports no
+  static dynels. The location is a separate city office building, not HQ and
+  not Apcmanager's location.
+- `[IMPLEMENTED]` Banker startup still prefers ordinary nearby named
+  `StaticDynel` discovery. If none exists, it sends the repository's proven
+  `GenericCmdAction.Use` packet to the exact terminal identity only when the
+  playfield matches and the local character is within eight metres of the
+  supplied terminal position.
+- `[INVARIANT]` The fallback is one-shot and read-only, retains the existing
+  eight-second `Inventory.Bank.IsOpen` confirmation timeout, and cannot fire
+  in another playfield or away from the verified terminal coordinates.
+- `[OPEN]` Kavey owns the Release build and live confirmation that all banker
+  clients open the bank through this identity fallback. Missing Spirit, Dyna,
+  and Phatz storage baselines remain a separate follow-up after bank access is
+  proven.
+
 ## Central outbound tell queue (2026-09-08)
 
 - `[IMPLEMENTED]` Manager and CityBankers no longer send application tells

@@ -1311,3 +1311,20 @@ color-coded inventory occupancy line: consumed slots, total audited slots,
 percentage used, and remaining free slots. Existing online/readiness and work
 diagnostics remain separate. No assistant-side compilation or live AO test was
 run; Kavey owns the Release build and AO validation.
+
+## 2026-09-10 — City office building bank terminal fallback
+
+Moving the banker clients into the city office building exposed a visibility
+gap: the in-game Info Manager saw a real Rubi-Ka bank terminal, but AOSharp's
+clientless dynel manager returned zero static dynels. The existing diagnostic
+therefore never attempted to open the bank, leaving every storage-dependent
+agent correctly blocked behind `Inventory.Bank.IsOpen`.
+
+The ordinary name-based `StaticDynel.Use()` route remains first choice. When it
+has no candidate, bankers in playfield model `6152312` and within eight metres
+of the verified terminal position may send the same low-level GenericCmd Use
+shape already proven by CityFlipper, targeted at terminal identity instance
+`1478048485`. This is deliberately an evidence-specific bridge rather than a
+general interaction guess. The existing one-attempt and eight-second bank-open
+confirmation behavior remains intact. No assistant-side compilation or live
+AO test was run; Kavey owns the Release build and terminal validation.
