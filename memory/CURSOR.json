@@ -1,1 +1,11 @@
-N‹Z–‹­¦ëeŠw¬
+{
+  "format": "citydwellers-recovery-cursor-v1",
+  "current_session": 45,
+  "last_completed_session": 45,
+  "status": "idle",
+  "active_project": "citydwellers",
+  "transaction": null,
+  "base_commit": "57ca9983ca571babd0a442b77bc6b1c45a9dc0b3",
+  "task": "Owner Release build and isolated Flipper validation",
+  "resume_instruction": "Pull master and rebuild the full Release solution, confirming Flipper.exe is produced beside CityDwellers.exe. After AO's crashed-session cooldown expires, run CityDwellers.exe flipper-login-test once. If it reaches InPlay, start CityDwellers.exe normally and test #cloak; return complete Flipper and host output for either failure."
+}
