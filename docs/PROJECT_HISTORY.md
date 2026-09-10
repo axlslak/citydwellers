@@ -1427,10 +1427,11 @@ clickable AO items. This makes clientless inventory directly observable without
 stopping the fleet.
 
 Withdrawal extraction now records the pre-move inventory slots, retains the
-post-move live identity once recognized, and uses a unique name+QL/new-slot
+post-move live identity once recognized, and uses a unique exact-name/new-slot
 fallback only after exact identity and template matching fail. Central may
 resume a failed extraction from a fresh worker heartbeat only when exactly one
-matching loose item exists; the worker then returns the staged bag and proceeds
-to Central without touching the emptied source slot. Ambiguous or absent
+exact-name loose item exists. This path has its own single persisted attempt;
+the worker then returns the staged bag and proceeds to Central without touching
+the emptied source slot. Ambiguous or absent
 inventory remains a hard stop. No assistant-side compilation or live AO test
 was run; Kavey owns the Release build and recovery validation.

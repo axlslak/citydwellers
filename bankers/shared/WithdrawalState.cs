@@ -15,6 +15,7 @@ namespace CityBankers.Shared
         public string OrderId;
         public long Revision;
         public int RecoveryAttempts;
+        public int LiveInventoryRecoveryAttempts;
         public string Status;
         public DateTime CreatedUtc;
         public DateTime UpdatedUtc;

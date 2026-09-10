@@ -1194,13 +1194,13 @@ resilience and restart change:
   `#inventory <role|character>` for a live slot-by-slot AO-link window.
 - `[IMPLEMENTED]` Before bag extraction, the worker persists its occupied
   inventory slots. Post-move recognition still prefers exact identity and
-  template matching, then permits only one unique name+QL item in a newly
+  template matching, then permits only one exact-name item in a newly
   occupied slot. The recognized live identity is retained for subsequent
   trade phases.
 - `[INVARIANT]` A failed withdrawal may resume from worker inventory only when
-  its fresh heartbeat contains exactly one matching loose item. That recovery
-  bypasses the emptied audited source slot and remains bounded; ambiguity
-  continues to fail closed.
+  its fresh heartbeat contains exactly one exact-name loose item. That recovery
+  has its own single persisted attempt, bypasses the emptied audited source
+  slot, and continues to fail closed on ambiguity.
 - `[OPEN]` Kavey owns the Release build and live validation that the existing
   Kbexte-held item resumes to Central, and that inventory windows display all
   nine workers without stopping the host.

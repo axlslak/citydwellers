@@ -151,14 +151,22 @@ namespace CityBankers
                     batch != null && string.Equals(batch.Character, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)));
             if (next == null) return false;
             bool retry = WithdrawalStore.HasStatus(next, "failed");
-            if (retry) next.RecoveryAttempts++;
+            bool liveInventoryRetry = retry &&
+                next.LiveInventoryRecoveryAttempts == 0 &&
+                WorkerHeartbeatHasUniqueLooseMatch(next);
+            if (liveInventoryRetry)
+                next.LiveInventoryRecoveryAttempts++;
+            else if (retry)
+                next.RecoveryAttempts++;
             next.Status = "extracting";
             WithdrawalStore.Save(_settingsDir, next);
             _extractionWaitId = next.Id;
             _extractionWait.Restart();
             if (retry)
                 Logger.Warning("[CityBankers] WITHDRAWAL RECOVERY RETRY " + next.Id +
-                    ": Central scheduled one inventory-extraction retry; no delivery or pickup state is replayed.");
+                    (liveInventoryRetry
+                        ? ": Central proved one exact-name loose item in the source worker's fresh inventory; resuming from live custody without replaying the old bag slot."
+                        : ": Central scheduled one inventory-extraction retry; no delivery or pickup state is replayed."));
             _withdrawal = next;
             return true;
         }
@@ -169,7 +177,8 @@ namespace CityBankers
                 !string.IsNullOrWhiteSpace(row.CentralItemIdentity))
                 return false;
 
-            if (row.RecoveryAttempts <= 1 && WorkerHeartbeatHasUniqueLooseMatch(row))
+            if (row.LiveInventoryRecoveryAttempts == 0 &&
+                WorkerHeartbeatHasUniqueLooseMatch(row))
                 return true;
 
             return row.RecoveryAttempts == 0 &&
@@ -202,9 +211,8 @@ namespace CityBankers
                 !string.Equals(row.SourceItemIdentity, "(None:0000)", StringComparison.Ordinal) &&
                 string.Equals(identity, row.SourceItemIdentity, StringComparison.Ordinal))
                 return true;
-            int ql = (int?)(item["Ql"] ?? item["ql"]) ?? -1;
             string name = (string)(item["Name"] ?? item["name"]);
-            return ql == row.Item.Ql && string.Equals(
+            return string.Equals(
                 name ?? string.Empty, row.Item.Name ?? string.Empty,
                 StringComparison.OrdinalIgnoreCase);
         }
@@ -861,7 +869,6 @@ namespace CityBankers
             // never be guessed as the withdrawn item.
             var priorSlots = new HashSet<int>(state.PreExtractionInventorySlots ?? new List<int>());
             List<Item> named = inventory.Where(item =>
-                    item.Ql == state.Item.Ql &&
                     string.Equals(item.Name ?? string.Empty, state.Item.Name ?? string.Empty,
                         StringComparison.OrdinalIgnoreCase) &&
                     (priorSlots.Count == 0 || !priorSlots.Contains(item.Slot.Instance)) &&
