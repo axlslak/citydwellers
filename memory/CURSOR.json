@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 54,
+  "current_session": 55,
   "last_completed_session": 54,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "c94270dfc67613be1ac955f507359b857a241fdd",
-  "task": "Owner build and live positive-offset Banker startup validation",
-  "resume_instruction": "Pull master and build Release on the +03 host. Start the unified runtime and verify Central publishes all-bankers-ready after the eighth fresh write-front marker instead of repeating that all eight workers are missing."
+  "transaction": "session-55-withdrawal-return-finalization",
+  "base_commit": "e1b34597b4f4f7ca8b037c25050e0acfaa91779a",
+  "task": "Finalize safely restored withdrawal returns after ephemeral result cleanup",
+  "resume_instruction": "Allow a return-queued withdrawal to expire when its dispatch batch is absent and the exact original transaction item is restored in canonical stock, even if the transient worker result has already been consumed."
 }
