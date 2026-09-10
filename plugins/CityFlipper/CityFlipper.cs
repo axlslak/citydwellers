@@ -72,7 +72,7 @@ namespace CityFlipper
         private bool _resultWritten;
         private int _resultWriteScheduled;
         private int _stopping;
-        private int _disconnectCount;
+        private bool _probeFailed;
 
         public override void Init(string pluginDir)
         {
@@ -173,14 +173,9 @@ namespace CityFlipper
 
             _timer.Start();
 
-            Client.Config.AutoReconnect = true;
             Client.MessageReceived += MessageReceived;
             Client.OnUpdate += Tick;
             Client.Disconnected += Disconnected;
-
-            Logger.Information(
-                $"CityFlipper AutoReconnect={Client.Config.AutoReconnect}; " +
-                "one pre-action zoning disconnect may be recovered within this probe.");
         }
 
         public override void Teardown()
@@ -200,46 +195,25 @@ namespace CityFlipper
 
         private void Disconnected()
         {
-            bool retryAllowed;
-            bool actionAlreadySent;
-            int disconnectCount;
+            if (Volatile.Read(ref _stopping) != 0)
+                return;
 
             lock (_sync)
             {
-                disconnectCount = ++_disconnectCount;
-                actionAlreadySent = _toggleSent;
-                retryAllowed = !actionAlreadySent && disconnectCount == 1;
+                if (_resultWritten)
+                    return;
 
-                if (retryAllowed)
-                {
-                    _charInPlay = false;
-                    _controllerFound = false;
-                    _gotCityInfo = false;
-                    _gotCloakInfo = false;
-                    _gotChargeInfo = false;
-                    _controllerOpenRequested = false;
-                    _haveLiveControllerIdentity = false;
-                    _liveControllerIdentity = default(Identity);
-                    _cityInfo = new Dictionary<string, string>();
-                    _cloakInfo = new Dictionary<string, string>();
-                    _controllerCharge = 0f;
-                    _chargePollCount = 0;
-                }
-                else
-                {
-                    Client.Config.AutoReconnect = false;
-                }
+                _probeFailed = true;
+                _toggleBlockedReason = _toggleSent
+                    ? "AO disconnected before confirming the cloak action."
+                    : "AO disconnected before the Flipper probe reached a usable in-play session.";
+                _resultWritten = true;
             }
 
             Logger.Warning(
-                retryAllowed
-                    ? $"CityFlipper disconnected before acting (count={disconnectCount}); " +
-                      "AutoReconnect remains enabled for one in-probe recovery."
-                    : actionAlreadySent
-                        ? "CityFlipper disconnected after sending an action; " +
-                          "AutoReconnect disabled to prevent a duplicate action."
-                        : $"CityFlipper disconnected again (count={disconnectCount}); " +
-                          "AutoReconnect disabled for this bounded probe.");
+                "CityFlipper AO session disconnected; publishing a failed probe " +
+                "so the host can unload it without an in-domain reconnect.");
+            ScheduleResultWrite();
         }
 
         private void Tick(object sender, double e)
@@ -925,6 +899,7 @@ namespace CityFlipper
                     CloakInfo = _cloakInfo,
 
                     ToggleRequested = _toggleRequested,
+                    ProbeFailed = _probeFailed,
                     Canceled = _cancellationRequested,
                     ToggleSent = _toggleSent,
                     ToggleSucceeded = toggleSucceeded,
@@ -980,6 +955,7 @@ namespace CityFlipper
             public Dictionary<string, string> CloakInfo;
 
             public bool ToggleRequested;
+            public bool ProbeFailed;
             public bool Canceled;
             public bool ToggleSent;
             public bool ToggleSucceeded;

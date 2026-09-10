@@ -18,7 +18,6 @@ public class FlipperLoader
 {
     private const string PipeName = "citydwellers-flipper";
     private const int FailedProbeCooldownMilliseconds = 90000;
-    private const int ReconnectCapableProbeTimeoutMilliseconds = 45000;
 
     private static Config _config;
     private static AccountInfo _account;
@@ -139,11 +138,9 @@ public class FlipperLoader
             return false;
         }
 
-        _timeoutMs = Math.Max(
-            ReconnectCapableProbeTimeoutMilliseconds,
-            _config.ProbeTimeoutMs > 0
-                ? _config.ProbeTimeoutMs
-                : 20000);
+        _timeoutMs = _config.ProbeTimeoutMs > 0
+            ? _config.ProbeTimeoutMs
+            : 20000;
 
         _pluginPath = Path.Combine(_settingsDir, "CityFlipper.dll");
         if (!File.Exists(_pluginPath))
@@ -816,8 +813,17 @@ public class FlipperLoader
             string json = File.ReadAllText(resultPath);
             run.Result = JsonConvert.DeserializeObject<FlipperResult>(json);
             run.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds;
-            run.Success = run.Result != null;
+            run.Success = run.Result != null && !run.Result.ProbeFailed;
             run.Canceled = run.Result != null && run.Result.Canceled;
+
+            if (run.Result != null && run.Result.ProbeFailed)
+            {
+                Console.WriteLine(
+                    "CityFlipper reported a failed AO session: " +
+                    (string.IsNullOrWhiteSpace(run.Result.ToggleBlockedReason)
+                        ? "no additional reason was supplied."
+                        : run.Result.ToggleBlockedReason));
+            }
 
             if (run.Success)
                 FlipperCacheStore.SaveFromResult(run.Result);
@@ -1084,6 +1090,7 @@ public class FlipperLoader
         public Dictionary<string, string> CloakInfo;
 
         public bool ToggleRequested;
+        public bool ProbeFailed;
         public bool Canceled;
         public bool ToggleSent;
         public bool ToggleSucceeded;

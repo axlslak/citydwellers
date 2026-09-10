@@ -1368,3 +1368,13 @@ a second disconnect or any post-action disconnect. The loader's minimum probe
 window is 45 seconds so this recovery can complete, while the established
 90-second cooldown still follows a failed started probe. Cloak safety and
 Banker readiness boundaries are unchanged.
+
+Live validation disproved that approach. AO retained the first disconnected
+session, so AOSharp's ten-second same-domain reconnect received
+`AlreadyLoggedIn`; changing AutoReconnect from inside that callback also
+collided with AOSharp's internal Stop transition. The reconnect and 45-second
+minimum were removed. A disconnect now publishes a specifically failed result
+after handler detachment, which causes prompt host unload and the existing
+90-second cooldown without caching an unknown observation. This limits the
+damage and preserves the original failure for diagnosis; it does not claim to
+repair the underlying server-side zoning disconnect.
