@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 59,
-  "last_completed_session": 58,
-  "status": "in_progress",
+  "last_completed_session": 59,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-59-storage-success-noise",
-  "base_commit": "76ddf693b44e52fee8b299984b55a4fa8a75bcda",
-  "task": "Stop routine successful internal-storage steps from flooding Manager channel",
-  "resume_instruction": "Remove TellKavem calls for ordinary trade-opened, transferred, worker-received, per-item-stored, batch-stored, and fallback-accepted confirmations while retaining durable activity/ledger records, failures, and exceptional recovery notices."
+  "transaction": null,
+  "base_commit": "4ef98e8f8003347a3d3974b941c0524fa94e8fae",
+  "task": "Owner build and normal-storage log-noise validation",
+  "resume_instruction": "Pull master and build Release. Run a normal donation and verify routine internal transfer/storage success creates no Manager-channel delivery flood while failures, exceptional recovery, and donor-facing messages remain visible."
 }
