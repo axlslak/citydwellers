@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 49,
+  "current_session": 50,
   "last_completed_session": 49,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "2097c3e9a54907800055c661e30412794bfddece",
-  "task": "Owner build and live Kbexte withdrawal/inventory-command validation",
-  "resume_instruction": "Pull master and build Release. Start normally; the held Kbexte withdrawal should be uniquely recognized from the fresh worker inventory heartbeat, return any staged bank bag, and continue to Central without replaying the old source slot. Verify #inventory, #inventory exte, and #inventory Kbexte as an administrator."
+  "transaction": "session-50-name-anchored-live-withdrawal-recovery",
+  "base_commit": "5b66445792e39094ec696f2f1053bd1e10d18d08",
+  "task": "Recover the held Kbexte feet from its proven live loose inventory slot",
+  "resume_instruction": "The new #inventory Kbexte command proved Xan Feet Symbiant, Extermination Unit Beta is loose at slot 0041 with eleven backpacks around it, but recovery still replayed the old bag slot. Separate live-inventory recovery from legacy retry count and accept only one exact-name loose item when stored QL/template metadata disagrees."
 }
