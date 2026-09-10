@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 44,
-  "last_completed_session": 43,
-  "status": "in_progress",
+  "last_completed_session": 44,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-44-minimal-flipper-login-test",
-  "base_commit": "47bdaa0117c972ce792305b19237a04b1c639df3",
-  "task": "Add a non-operational minimal Apcflipper login diagnostic",
-  "resume_instruction": "Implement CityDwellers.exe flipper-login-test using the same configured account, AOSharp ClientDomain and CityFlipper assembly while bypassing all city, cloak and controller packet handling. It must perform no game action, must not update Flipper cache, and must report only InPlay success or disconnect failure. Update state/history, publish, and seal for owner Release validation."
+  "transaction": null,
+  "base_commit": "bd608a07e6cd4271382ac77dd77168666932432c",
+  "task": "Owner Release build and clean minimal Apcflipper login isolation test",
+  "resume_instruction": "Pull master and rebuild Release. With the unified host and normal AO client closed and Funcom's crashed-session cooldown fully expired, run CityDwellers.exe flipper-login-test once and return its complete output. A pass isolates the fault inside operational CityFlipper processing; the same Zoning-to-Disconnected failure isolates it at AOSharp/ClientDomain/runtime login below cloak logic."
 }
