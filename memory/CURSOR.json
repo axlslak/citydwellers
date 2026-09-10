@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 40,
+  "current_session": 41,
   "last_completed_session": 40,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "f9ba47c4fa0e07816c24ac0ed3fa2ea8f87b15fc",
-  "task": "Owner Release build and live confirmation that every banker opens the bank in the city office building",
-  "resume_instruction": "Pull master, rebuild Release, launch the bankers in the city office building, and return the startup diagnostics. Confirm each client logs the guarded city office fallback and BankOpen=True. If successful, design the separate idle enrollment audit for Spirit, Dyna, and Phatz without weakening readiness or overlapping trades."
+  "transaction": "session-41-automatic-storage-enrollment-audit",
+  "base_commit": "548e37a2f126684f58f97e571f331bdc4805dea5",
+  "task": "Make normal banker startup automatically audit and enroll missing storage workers without requiring a manual bagaudit run",
+  "resume_instruction": "Recover session-41-automatic-storage-enrollment-audit. Implement a conservative normal-mode coordinator that keeps readiness closed, audits missing worker bag sets one character at a time after banks are verified open, validates every staged bag was returned, and atomically merges only the missing worker into storage-state/current-stock. Preserve established workers and ledger history; manual bankers-bagaudit remains available."
 }
