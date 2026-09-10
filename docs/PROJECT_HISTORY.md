@@ -2,6 +2,20 @@
 
 This is a compact chronological engineering log. It records decisions and verified outcomes that future sessions may need in order to understand why the current code looks the way it does.
 
+## 2026-09-10 — session 53: direct donor progress tells
+
+The shared Banker tell adapter intentionally routes messages addressed to the
+bootstrap administrator into Apcmanager's guest channel for operational
+visibility. That broad exception also caught player-facing donation progress
+when Kavem was the donor, exposing repetitive trade UX to admins and hiding it
+from the donor's tell window.
+
+Donation-partner messages now explicitly use the ordinary rotating direct-tell
+queue; operational Central/storage notices keep their Manager-channel route.
+The former item explanation plus separate trade-count message is one compact
+colored line containing trade position, store/delete/reject disposition,
+clickable item, QL, projected copy count, and destination banker.
+
 ## 2026-09-10 — sessions 45–47: Flipper regression rollback
 
 Five consecutive normal-client Apcflipper logins succeeded, while the

@@ -32,5 +32,22 @@ namespace CityBankers.Shared
                 null,
                 message);
         }
+
+        public static string EnqueueDirectTell(
+            string settingsDirectory,
+            string sourceCharacter,
+            string recipient,
+            string message)
+        {
+            if (string.IsNullOrWhiteSpace(recipient) || string.IsNullOrWhiteSpace(message))
+                return null;
+
+            return CityDwellers.Shared.TellQueue.Enqueue(
+                RuntimeStateStore.GetDataDirectory(settingsDirectory),
+                sourceCharacter,
+                recipient,
+                null,
+                message);
+        }
     }
 }

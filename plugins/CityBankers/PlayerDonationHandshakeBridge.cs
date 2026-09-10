@@ -356,7 +356,7 @@ namespace CityBankers
             if (string.IsNullOrWhiteSpace(_partnerName) || string.IsNullOrWhiteSpace(message))
                 return;
 
-            TellQueueClient.Enqueue(
+            TellQueueClient.EnqueueDirectTell(
                 _settingsDir,
                 Client.CharacterName,
                 _partnerName,

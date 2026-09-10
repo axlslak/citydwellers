@@ -331,7 +331,7 @@ namespace CityBankers
                     return;
                 if (WithdrawalStore.LoadAll(_settingsDir).Any(WithdrawalStore.OwnsCentralTrade))
                 {
-                    TellPlayer(targetName, "Central is transferring an item. Please try your trade again shortly.");
+                    TellDirectPlayer(targetName, "Central is transferring an item. Please try your trade again shortly.");
                     Trade.Decline();
                     return;
                 }
@@ -351,7 +351,7 @@ namespace CityBankers
 
                     if (HasUnresolvedDispatchWork())
                     {
-                        TellPlayer(
+                        TellDirectPlayer(
                             targetName,
                             "CityBankers is finishing pending storage work. Please try your trade again when the queue is clear.");
                         RuntimeStateStore.AppendActivity(
@@ -421,14 +421,7 @@ namespace CityBankers
                     List<TransferItemState> offered = SnapshotTradeItems(Trade.TargetWindowCache.Items);
                     if (!MatchesExpected(offered, _donationPreviousOffer))
                     {
-                        List<TransferItemState> added = MultisetDifference(offered, _donationPreviousOffer);
-                        List<TransferItemState> removed = MultisetDifference(_donationPreviousOffer, offered);
-
-                        foreach (TransferItemState item in added)
-                            AnnounceDonationItemAdded(item);
-                        foreach (TransferItemState item in removed)
-                            AnnounceDonationItemRemoved(item);
-                        AnnounceDonationProgress(offered.Count);
+                        AnnounceDonationChanges(offered);
 
                         _donationPreviousOffer = new List<TransferItemState>(offered);
                         _donationLastChangeUtc = DateTime.UtcNow;
@@ -551,13 +544,13 @@ namespace CityBankers
             string partnerName = FindPlayerName(partner) ?? partner.ToString();
             if (Inventory.NumFreeSlots < ServicePolicy.MaxTradeItems)
             {
-                TellPlayer(partnerName, "Central needs room for a full donation. Please try again after pending storage or pickups finish.");
+                TellDirectPlayer(partnerName, "Central needs room for a full donation. Please try again after pending storage or pickups finish.");
                 Trade.Decline();
                 return;
             }
             if (HasUnresolvedDispatchWork())
             {
-                TellPlayer(
+                TellDirectPlayer(
                     partnerName,
                     "CityBankers is finishing pending storage work; your new donation trade was declined. Please try again when the queue is clear.");
                 Trade.Decline();
@@ -567,7 +560,7 @@ namespace CityBankers
             StorageState storage = RuntimeStateStore.LoadStorageState(_settingsDir);
             if (storage == null)
             {
-                TellPlayer(
+                TellDirectPlayer(
                     partnerName,
                     "CityBankers has no operational bag baseline yet. This trade is being declined safely.");
                 Trade.Decline();
@@ -618,13 +611,7 @@ namespace CityBankers
             List<TransferItemState> offered = SnapshotTradeItems(Trade.TargetWindowCache.Items);
             if (!MatchesExpected(offered, _donationPreviousOffer))
             {
-                List<TransferItemState> added = MultisetDifference(offered, _donationPreviousOffer);
-                List<TransferItemState> removed = MultisetDifference(_donationPreviousOffer, offered);
-                foreach (TransferItemState item in added)
-                    AnnounceDonationItemAdded(item);
-                foreach (TransferItemState item in removed)
-                    AnnounceDonationItemRemoved(item);
-                AnnounceDonationProgress(offered.Count);
+                AnnounceDonationChanges(offered);
                 _donationPreviousOffer = new List<TransferItemState>(offered);
                 _donationLastChangeUtc = DateTime.UtcNow;
                 _donationAccepted = false;
@@ -1886,45 +1873,99 @@ namespace CityBankers
             return queue != null && queue.Batches != null && queue.Batches.Count > 0;
         }
 
-        private void AnnounceDonationProgress(int count)
+        private void AnnounceDonationChanges(List<TransferItemState> offered)
         {
-            TellDonationPartner(
-                CityBankersChatPalette.DonationProgress(
-                    count,
-                    ServicePolicy.MaxTradeItems) +
-                "You now have " + count + "/" + ServicePolicy.MaxTradeItems +
-                " item(s) in this donation trade.");
+            List<TransferItemState> current = offered ?? new List<TransferItemState>();
+            List<TransferItemState> previous =
+                _donationPreviousOffer ?? new List<TransferItemState>();
+            List<TransferItemState> added = MultisetDifference(current, previous);
+            List<TransferItemState> removed = MultisetDifference(previous, current);
+            List<TransferItemState> alreadyOffered = new List<TransferItemState>(previous);
+
+            foreach (TransferItemState item in removed)
+            {
+                int removedIndex = alreadyOffered.FindIndex(candidate =>
+                    SameTransferItem(candidate, item));
+                if (removedIndex >= 0)
+                    alreadyOffered.RemoveAt(removedIndex);
+                AnnounceDonationItemRemoved(item);
+            }
+
+            int tradeIndex = Math.Max(0, current.Count - added.Count);
+            foreach (TransferItemState item in added)
+            {
+                tradeIndex++;
+                int earlierCopies = alreadyOffered.Count(candidate =>
+                    candidate != null && candidate.AoId == item.AoId);
+                AnnounceDonationItemAdded(item, tradeIndex, earlierCopies);
+                alreadyOffered.Add(item);
+            }
         }
 
-        private void AnnounceDonationItemAdded(TransferItemState item)
+        private void AnnounceDonationItemAdded(
+            TransferItemState item,
+            int tradeIndex,
+            int earlierCopiesInTrade)
         {
             if (item == null)
                 return;
+            string progress =
+                "Accepting item " + CityBankersChatPalette.Cyan(tradeIndex.ToString()) +
+                "/" + CityBankersChatPalette.Cyan(ServicePolicy.MaxTradeItems.ToString()) +
+                " — ";
+            string itemDescription = BuildItemLink(item) + " (QL " +
+                CityBankersChatPalette.Cyan(item.Ql.ToString()) + ")";
             SymbiantCatalog.AcceptanceRule rule;
             if (!SymbiantCatalog.TryGetRule(_settingsDir, item.AoId, out rule))
             {
                 TellDonationPartner(
-                    "You are adding " + BuildItemLink(item) +
-                    ". This item is " + CityBankersChatPalette.Red("NOT ACCEPTED") +
-                    " because it is not in Central's acceptance policy.");
+                    progress + CityBankersChatPalette.Red("REJECTED") + " " +
+                    itemDescription + " — not accepted.");
                 return;
             }
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
             int count = CountStoredCopies(stock, item);
-            if (SymbiantCatalog.IsAtRetentionLimit(rule, count))
+            int projectedStored = count + Math.Max(0, earlierCopiesInTrade);
+            string destination = GetDonationDestinationCharacter(rule);
+            if (SymbiantCatalog.IsAtRetentionLimit(rule, projectedStored))
             {
                 TellDonationPartner(
-                    "You are adding " + BuildItemLink(item) +
-                    ". This item will be " + CityBankersChatPalette.Red("DELETED") +
-                    ". We currently have " + CityBankersChatPalette.Red(count.ToString()) +
-                    " of these.");
+                    progress + CityBankersChatPalette.Red("DELETING") + " " +
+                    itemDescription + " — " +
+                    CityBankersChatPalette.Cyan(projectedStored.ToString()) +
+                    " already stored on " + CityBankersChatPalette.Yellow(destination) + ".");
                 return;
             }
+            int copyNumber = projectedStored + 1;
             TellDonationPartner(
-                "You are adding " + BuildItemLink(item) +
-                ". This item will be " + CityBankersChatPalette.Green("STORED") +
-                ". We currently have " + CityBankersChatPalette.Yellow(count.ToString()) +
-                " of these.");
+                progress + CityBankersChatPalette.Green("STORING") + " " +
+                CityBankersChatPalette.Cyan(copyNumber.ToString()) +
+                OrdinalSuffix(copyNumber) + " " + itemDescription + " on " +
+                CityBankersChatPalette.Yellow(destination) + ".");
+        }
+
+        private string GetDonationDestinationCharacter(
+            SymbiantCatalog.AcceptanceRule rule)
+        {
+            RoleConfig destination;
+            return rule != null && TryGetRole(rule.Role, out destination) &&
+                destination != null && !string.IsNullOrWhiteSpace(destination.Character)
+                ? destination.Character
+                : rule?.Role ?? "storage";
+        }
+
+        private static string OrdinalSuffix(int value)
+        {
+            int lastTwo = Math.Abs(value) % 100;
+            if (lastTwo >= 11 && lastTwo <= 13)
+                return "th";
+            switch (Math.Abs(value) % 10)
+            {
+                case 1: return "st";
+                case 2: return "nd";
+                case 3: return "rd";
+                default: return "th";
+            }
         }
 
         private SymbiantCatalog.AcceptanceRule GetAcceptanceRule(int aoId)
@@ -2217,7 +2258,26 @@ namespace CityBankers
             string partnerName = !string.IsNullOrWhiteSpace(_donationPartnerName)
                 ? _donationPartnerName
                 : _donationDispositionPartnerName;
-            TellPlayer(partnerName, message);
+            TellDirectPlayer(partnerName, message, "DONOR TELL");
+        }
+
+        private void TellDirectPlayer(
+            string playerName,
+            string message,
+            string activityLabel = "PLAYER TELL")
+        {
+            if (string.IsNullOrWhiteSpace(playerName) || string.IsNullOrWhiteSpace(message))
+                return;
+            TellQueueClient.EnqueueDirectTell(
+                _settingsDir,
+                Client.CharacterName,
+                playerName,
+                CityBankersChatPalette.WhiteBaseMarkup(message));
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                _role,
+                activityLabel + " -> " + playerName + ": " + message);
         }
 
         private void TellKavem(string message)

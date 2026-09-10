@@ -1107,6 +1107,12 @@ resilience and restart change:
   queue into its confirmed guest channel and retains a message when channel
   delivery throws. Other player tells continue through the rotating tell
   sender pool.
+- `[IMPLEMENTED 2026-09-10]` Active donation-partner UX always uses the direct
+  rotating tell queue, even when the donor is the bootstrap administrator.
+  Internal Central/storage notices addressed to that administrator retain the
+  Manager-channel guest route. Each added item now produces one compact line:
+  cyan trade position, green store or red delete/reject disposition, clickable
+  item with cyan QL/copy count, and yellow destination banker.
 - `[IMPLEMENTED 2026-09-09]` `#donor top` ranks canonical mains by all-time
   donated item count; `#donor last` shows the latest 25 donated items with
   absolute UTC receipt time and donor; `#donor <member>` shows that canonical
