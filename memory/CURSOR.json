@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 60,
+  "current_session": 61,
   "last_completed_session": 60,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "94967b211e38e6f321c750153310f4b0cfd0ff6c",
-  "task": "Owner build and live donor-tell timing validation",
-  "resume_instruction": "Pull master and build Release. Open a donation, add several accepted items slowly, and verify progress tells continue during the open trade through idle senders. The log may show one TELL QUEUE returned line if Central was assigned just before becoming busy; the same job should then be reassigned promptly and messages must remain ordered."
+  "transaction": "session-61-authoritative-spirit-slots",
+  "base_commit": "a5ba961cd6e3400d50dd933d17782dfffc0d32cf",
+  "task": "Replace spirit name-based slot inference with authoritative item-database wear locations",
+  "resume_instruction": "Use the owner-supplied Tinker items.zip StatValues Stat 298 field to map every one of the 654 accepted spirit AOIDs to its implant slot. Keep name parsing only for symbiants, update stock grouping to use AOID for spirits, and verify every accepted spirit maps exactly once."
 }
