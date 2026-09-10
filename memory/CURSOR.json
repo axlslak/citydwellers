@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 53,
-  "last_completed_session": 52,
-  "status": "in_progress",
+  "last_completed_session": 53,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-53-donor-progress-tells",
-  "base_commit": "20833ca2e87ff0b5196126d35dad14777c9a6c67",
-  "task": "Return donation item progress to direct donor tells and compact each addition into one colored line",
-  "resume_instruction": "Bypass the bootstrap-admin guest-channel exception for donation partners only, combine item disposition and trade progress into one compact colored direct tell with an item link and destination banker, and retain internal operational messages on Manager's guest channel."
+  "transaction": null,
+  "base_commit": "13e8b345a3fa00b1c483a6a82a9581d59e17cd46",
+  "task": "Owner build and live donor-message validation",
+  "resume_instruction": "Pull master and build Release. Donate as Kavem and verify each item produces one compact direct tell—not a guest-channel message—with colored position, disposition, copy/QL values, clickable item, and destination banker; internal dispatch/storage notices should remain on guest."
 }
