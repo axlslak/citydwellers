@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 52,
-  "last_completed_session": 51,
-  "status": "in_progress",
+  "last_completed_session": 52,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-52-remove-flipper-process-scaffolding",
-  "base_commit": "a228eaf5e4babae9bde4e85c9ae6a8830ce8311e",
-  "task": "Remove last night's standalone Flipper process experiment",
-  "resume_instruction": "Remove the Flipper executable project and process supervisor, restore FlipperLoader as a parallel in-process unified-host component, keep the established flipper-probe and flipper-toggle operator commands, and update runtime inventory and project records."
+  "transaction": null,
+  "base_commit": "d4209498c90c9a860d897582804b0f153b7ebe00",
+  "task": "Owner build and unified-host Flipper smoke validation",
+  "resume_instruction": "Pull master and build Release. Confirm the output no longer contains Flipper.exe, normal startup still launches Flipper concurrently inside CityDwellers.exe, and the existing flipper-probe command remains available for deliberate diagnostics."
 }
