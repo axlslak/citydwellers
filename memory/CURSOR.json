@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 43,
+  "current_session": 44,
   "last_completed_session": 43,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "0107f975df8b9563bf0159c7e9afc3361da281f3",
-  "task": "Owner Release build and diagnosis of the underlying Apcflipper zoning disconnect",
-  "resume_instruction": "Pull master and rebuild Release. Confirm a zoning disconnect now publishes a failed result and unloads promptly without AutoReconnect, AlreadyLoggedIn retry, AOSharp Stop exception, or 45-second wait. The underlying server-side zoning disconnect remains open; capture the first Apcflipper attempt from authentication through disconnect."
+  "transaction": "session-44-minimal-flipper-login-test",
+  "base_commit": "47bdaa0117c972ce792305b19237a04b1c639df3",
+  "task": "Add a non-operational minimal Apcflipper login diagnostic",
+  "resume_instruction": "Implement CityDwellers.exe flipper-login-test using the same configured account, AOSharp ClientDomain and CityFlipper assembly while bypassing all city, cloak and controller packet handling. It must perform no game action, must not update Flipper cache, and must report only InPlay success or disconnect failure. Update state/history, publish, and seal for owner Release validation."
 }
