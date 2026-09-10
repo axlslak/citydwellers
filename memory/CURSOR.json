@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 39,
+  "current_session": 40,
   "last_completed_session": 39,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "903e3da7bd80a1cb057ac18ae3e754bc1068a393",
-  "task": "Owner Release build, fresh nine-banker audit, and live AO validation of family stock commands, Phatz policy, and occupancy status",
-  "resume_instruction": "Pull master, rebuild Release, run CityDwellers.exe bankers-bagaudit, then validate #status occupancy plus #stock, #symb, #spirit, #dyna, and #phatz. As an admin, add an expendable linked item with #phatz add <link> -1, confirm Central accepts/routes it, then remove it and return the full build/audit/live log."
+  "transaction": "session-40-city-building-bank-terminal-fallback",
+  "base_commit": "5d676b6bade774b95315df9bb0d628bf308e4ea3",
+  "task": "Open the city-building bank through a guarded terminal-identity fallback when AOSharp omits it from the dynel collection",
+  "resume_instruction": "Recover session-40-city-building-bank-terminal-fallback. Add a playfield-, identity-, position-, and proximity-scoped GenericCmd Use fallback for terminal instance 1478048485 in playfield model 6152312, preserving the ordinary named StaticDynel path and existing bank-open timeout. Do not describe this building as HQ. Static-check only; Kavey owns the Release build and live AO test."
 }
