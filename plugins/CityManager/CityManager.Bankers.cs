@@ -91,6 +91,20 @@ namespace CityManager
                             string.Equals(value.Character, character, StringComparison.OrdinalIgnoreCase));
                     int used = worker?.Bags?.Sum(bag => bag?.Items?.Count ?? 0) ?? 0;
                     int capacity = worker?.Bags?.Sum(bag => Math.Max(0, bag?.Capacity ?? 0)) ?? 0;
+                    int displayUsed = used;
+                    int displayCapacity = capacity;
+                    if (string.Equals(role, "central", StringComparison.OrdinalIgnoreCase))
+                    {
+                        JArray inventoryItems = heartbeat?["InventoryItems"] as JArray;
+                        JToken inventoryFreeToken = heartbeat?["InventoryFreeSlots"];
+                        int inventoryFree = ParseDonationInt(inventoryFreeToken);
+                        if (online && inventoryItems != null && inventoryFreeToken != null &&
+                            inventoryFree >= 0)
+                        {
+                            displayUsed = inventoryItems.Count;
+                            displayCapacity = displayUsed + inventoryFree;
+                        }
+                    }
                     List<SymbiantCatalog.AcceptanceRule> roleRules = acceptanceRules
                         .Where(rule => string.Equals(rule.Role, role, StringComparison.OrdinalIgnoreCase))
                         .ToList();
@@ -117,9 +131,11 @@ namespace CityManager
 
                     lines.Append(StatusLine(usable, character + " (" + role + ")",
                         state + workText));
-                    lines.Append(BuildInventoryStatusLine(used, capacity));
+                    lines.Append(BuildInventoryStatusLine(displayUsed, displayCapacity));
                     diagnostics.Add(character + "=" + state.ToLowerInvariant() +
-                        (capacity > 0 ? " " + used + "/" + capacity : string.Empty));
+                        (displayCapacity > 0
+                            ? " " + displayUsed + "/" + displayCapacity
+                            : string.Empty));
                 }
 
                 string total = "Storage " + totalUsed + "/" + totalCapacity +

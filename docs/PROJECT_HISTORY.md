@@ -1502,3 +1502,18 @@ stock evidence still fail closed. No user data is edited by this transaction;
 the two existing stale rows will self-finalize on the next corrected startup.
 No assistant-side compilation or live AO test was run; Kavey owns Release
 build and stale-order cleanup validation.
+
+## 2026-09-10 — Central inventory status census
+
+Central's administrator inventory view proved its live heartbeat contained
+three loose items while the Banker status window displayed `Inventory census
+unavailable`. This was a presentation-source mismatch: the status renderer
+used canonical storage bags for every role, but Central intentionally owns no
+storage-worker bag map.
+
+`[IMPLEMENTED]` Central now reports its ordinary inventory occupancy from the
+heartbeat's item census plus free-slot count. Storage workers continue to use
+their complete canonical bag capacities, and Central's trade inventory is not
+added to the aggregate storage figure. No inventory item is moved or deleted.
+No assistant-side compilation or live AO test was run; Kavey owns Release
+build and status-window validation.

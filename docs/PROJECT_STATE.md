@@ -1295,3 +1295,16 @@ resilience and restart change:
 - `[OPEN]` Kavey owns the authoritative Release build and live validation of
   AO tell pacing, sender rotation, trade-busy exclusion, restart recovery, and
   alt-bot reply ownership.
+
+## Central inventory status census (2026-09-10)
+
+- `[VERIFIED-LIVE]` `#inventory central` listed three current loose items, but
+  the Banker status window said Central's inventory census was unavailable.
+- `[ROOT-CAUSE]` Status used canonical storage-bag capacity for every role.
+  Central deliberately has no storage-worker bag map and instead publishes its
+  ordinary inventory items and free-slot count in the same live heartbeat used
+  by the inventory command.
+- `[IMPLEMENTED]` Central's status line now derives used, total, percentage,
+  and free ordinary inventory slots from that heartbeat. The eight storage
+  workers retain canonical bag-map occupancy, and Central is still excluded
+  from the aggregate storage total.
