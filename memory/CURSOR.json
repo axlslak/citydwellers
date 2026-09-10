@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 59,
+  "current_session": 60,
   "last_completed_session": 59,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "4ef98e8f8003347a3d3974b941c0524fa94e8fae",
-  "task": "Owner build and normal-storage log-noise validation",
-  "resume_instruction": "Pull master and build Release. Run a normal donation and verify routine internal transfer/storage success creates no Manager-channel delivery flood while failures, exceptional recovery, and donor-facing messages remain visible."
+  "transaction": "session-60-busy-tell-reassignment",
+  "base_commit": "39ed224546b6a5b0b711be4d806e0f8bb72aafad",
+  "task": "Prevent a tell assigned to a newly busy sender from blocking all donor progress messages",
+  "resume_instruction": "Inspect the ordered tell scheduler and implement an atomic, non-failure handback when the assigned sender's fresh heartbeat becomes busy. Preserve sequence order, one active assignment, sender pacing, and required-sender constraints."
 }
