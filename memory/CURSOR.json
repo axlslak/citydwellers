@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 50,
+  "current_session": 51,
   "last_completed_session": 50,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "f4b3575912ba2134c5d16785588831305c95a505",
-  "task": "Owner build and exact-name Kbexte live-inventory recovery validation",
-  "resume_instruction": "Pull master and build Release. Start normally with the existing withdrawal.json. Central should log that it proved one exact-name loose item in Kbexte's fresh inventory, and Kbexte should log WITHDRAWAL LIVE INVENTORY RECOVERY for the feet at slot 0041 before returning it to Central."
+  "transaction": "session-51-persist-live-withdrawal-anchor",
+  "base_commit": "1b91d9ea16f2bc7be38f1bbe1c0a09676380b126",
+  "task": "Persist Central's proven worker inventory slot into the withdrawal for worker consumption",
+  "resume_instruction": "Central proved exactly one live Kbexte feet item but Kbexte's independent matcher rejected it and replayed the old bag slot. Persist the heartbeat item's live slot and identity when scheduling recovery, then make the source worker consume that exact anchored entry before all historical matching."
 }
