@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 47,
-  "last_completed_session": 46,
-  "status": "in_progress",
+  "last_completed_session": 47,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-47-restore-known-good-flipper",
-  "base_commit": "0ba0fbc60138cca8a96dbe08aeddf99e28a4b3f9",
-  "task": "Restore the last live-proven Flipper code while retaining current Banker features",
-  "resume_instruction": "Restore Flipper host/plugin behavior from known-good commit 548e37a2f126684f58f97e571f331bdc4805dea5 and remove the disproved process-isolation experiment. Preserve all subsequent Banker functionality."
+  "transaction": null,
+  "base_commit": "a235bd39aae77d51c820cbd3bba17e302a6a9b0c",
+  "task": "Owner rebuild and known-good Flipper probe validation",
+  "resume_instruction": "Pull master, rebuild Release, wait for AO's session lock to clear, and run CityDwellers.exe flipper-probe once. The temporary flipper-login-test command and standalone Flipper.exe project were intentionally removed."
 }
