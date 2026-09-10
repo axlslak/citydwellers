@@ -16,6 +16,7 @@ namespace CityBankers.Shared
         public long Revision;
         public int RecoveryAttempts;
         public int LiveInventoryRecoveryAttempts;
+        public int LiveInventoryAnchorAttempts;
         public string Status;
         public DateTime CreatedUtc;
         public DateTime UpdatedUtc;
@@ -34,6 +35,8 @@ namespace CityBankers.Shared
         public string SourceItemIdentity;
         public List<int> PreExtractionInventorySlots = new List<int>();
         public string ExtractedItemIdentity;
+        public int? LiveInventoryAnchorSlot;
+        public string LiveInventoryAnchorIdentity;
         public string CentralItemIdentity;
         public string ReturnBatchId;
         public string Error;

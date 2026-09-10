@@ -1199,8 +1199,9 @@ resilience and restart change:
   trade phases.
 - `[INVARIANT]` A failed withdrawal may resume from worker inventory only when
   its fresh heartbeat contains exactly one exact-name loose item. That recovery
-  has its own single persisted attempt, bypasses the emptied audited source
-  slot, and continues to fail closed on ambiguity.
+  persists the proven live slot and identity for the worker, has its own single
+  anchored attempt, bypasses the emptied audited source slot, and continues to
+  fail closed on ambiguity.
 - `[OPEN]` Kavey owns the Release build and live validation that the existing
   Kbexte-held item resumes to Central, and that inventory windows display all
   nine workers without stopping the host.

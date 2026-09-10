@@ -1430,8 +1430,10 @@ Withdrawal extraction now records the pre-move inventory slots, retains the
 post-move live identity once recognized, and uses a unique exact-name/new-slot
 fallback only after exact identity and template matching fail. Central may
 resume a failed extraction from a fresh worker heartbeat only when exactly one
-exact-name loose item exists. This path has its own single persisted attempt;
-the worker then returns the staged bag and proceeds to Central without touching
-the emptied source slot. Ambiguous or absent
+exact-name loose item exists. Central persists that heartbeat entry's slot and
+identity into the withdrawal, and the worker consumes the same proof before its
+historical matcher. This path has its own single anchored attempt; the worker
+then returns the staged bag and proceeds to Central without touching the emptied
+source slot. Ambiguous or absent
 inventory remains a hard stop. No assistant-side compilation or live AO test
 was run; Kavey owns the Release build and recovery validation.

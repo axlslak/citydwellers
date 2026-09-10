@@ -151,11 +151,20 @@ namespace CityBankers
                     batch != null && string.Equals(batch.Character, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)));
             if (next == null) return false;
             bool retry = WithdrawalStore.HasStatus(next, "failed");
-            bool liveInventoryRetry = retry &&
-                next.LiveInventoryRecoveryAttempts == 0 &&
-                WorkerHeartbeatHasUniqueLooseMatch(next);
+            JToken liveInventoryMatch = retry
+                ? FindUniqueLooseWorkerHeartbeatMatch(next)
+                : null;
+            bool liveInventoryRetry = liveInventoryMatch != null &&
+                next.LiveInventoryAnchorAttempts == 0;
             if (liveInventoryRetry)
-                next.LiveInventoryRecoveryAttempts++;
+            {
+                next.LiveInventoryAnchorAttempts++;
+                next.LiveInventoryAnchorSlot =
+                    (int?)(liveInventoryMatch["Slot"] ?? liveInventoryMatch["slot"]);
+                next.LiveInventoryAnchorIdentity =
+                    (string)(liveInventoryMatch["UniqueIdentity"] ??
+                             liveInventoryMatch["uniqueIdentity"]);
+            }
             else if (retry)
                 next.RecoveryAttempts++;
             next.Status = "extracting";
@@ -177,8 +186,8 @@ namespace CityBankers
                 !string.IsNullOrWhiteSpace(row.CentralItemIdentity))
                 return false;
 
-            if (row.LiveInventoryRecoveryAttempts == 0 &&
-                WorkerHeartbeatHasUniqueLooseMatch(row))
+            if (row.LiveInventoryAnchorAttempts == 0 &&
+                FindUniqueLooseWorkerHeartbeatMatch(row) != null)
                 return true;
 
             return row.RecoveryAttempts == 0 &&
@@ -187,21 +196,21 @@ namespace CityBankers
                     "Timed out during worker extraction phase WaitItemInventory.", StringComparison.Ordinal);
         }
 
-        private bool WorkerHeartbeatHasUniqueLooseMatch(WithdrawalState row)
+        private JToken FindUniqueLooseWorkerHeartbeatMatch(WithdrawalState row)
         {
             if (row?.Item == null || string.IsNullOrWhiteSpace(row.SourceCharacter))
-                return false;
+                return null;
             string token = string.Concat(row.SourceCharacter.Where(char.IsLetterOrDigit));
             JObject heartbeat = RuntimeStateStore.ReadJson<JObject>(System.IO.Path.Combine(
                 RuntimeStateStore.GetDataDirectory(_settingsDir),
                 "citybankers-health-" + token + ".json"));
             JArray items = heartbeat?["InventoryItems"] as JArray;
             if (items == null)
-                return false;
+                return null;
             List<JToken> matches = items.Where(item =>
                 item != null && !((bool?)(item["IsContainer"] ?? item["isContainer"]) ?? false) &&
                 LiveInventorySnapshotMatches(item, row)).ToList();
-            return matches.Count == 1;
+            return matches.Count == 1 ? matches[0] : null;
         }
 
         private static bool LiveInventorySnapshotMatches(JToken item, WithdrawalState row)
@@ -824,6 +833,23 @@ namespace CityBankers
             List<Item> inventory = (Inventory.Items ?? new List<Item>()).Where(item =>
                 item != null && item.Slot.Type == IdentityType.Inventory &&
                 item.UniqueIdentity.Type != IdentityType.Container).ToList();
+
+            if (state?.LiveInventoryAnchorSlot.HasValue == true)
+            {
+                List<Item> anchored = inventory.Where(item =>
+                    item.Slot.Instance == state.LiveInventoryAnchorSlot.Value &&
+                    (string.Equals(
+                         item.UniqueIdentity.ToString(),
+                         state.LiveInventoryAnchorIdentity,
+                         StringComparison.Ordinal) ||
+                     string.Equals(
+                         item.Name ?? string.Empty,
+                         state.Item?.Name ?? string.Empty,
+                         StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+                if (anchored.Count == 1)
+                    return anchored[0];
+            }
 
             if (_isCentral && !string.IsNullOrWhiteSpace(state?.CentralItemIdentity))
             {
