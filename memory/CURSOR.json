@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 60,
-  "last_completed_session": 59,
-  "status": "in_progress",
+  "last_completed_session": 60,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-60-busy-tell-reassignment",
-  "base_commit": "39ed224546b6a5b0b711be4d806e0f8bb72aafad",
-  "task": "Prevent a tell assigned to a newly busy sender from blocking all donor progress messages",
-  "resume_instruction": "Inspect the ordered tell scheduler and implement an atomic, non-failure handback when the assigned sender's fresh heartbeat becomes busy. Preserve sequence order, one active assignment, sender pacing, and required-sender constraints."
+  "transaction": null,
+  "base_commit": "94967b211e38e6f321c750153310f4b0cfd0ff6c",
+  "task": "Owner build and live donor-tell timing validation",
+  "resume_instruction": "Pull master and build Release. Open a donation, add several accepted items slowly, and verify progress tells continue during the open trade through idle senders. The log may show one TELL QUEUE returned line if Central was assigned just before becoming busy; the same job should then be reassigned promptly and messages must remain ordered."
 }
