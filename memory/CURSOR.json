@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 57,
+  "current_session": 58,
   "last_completed_session": 57,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "9696dcc112e2e5a178c7041b79e289b097dbc648",
-  "task": "Owner build and live six-item Spirit dispatch retry",
-  "resume_instruction": "Pull master and build Release without moving Central's six loose Spirits. Start the runtime and verify the preserved failed Spirit batch requeues once, stages six items incrementally, completes AO trade, stores all six on Kbspirit, and clears the queue."
+  "transaction": "session-58-internal-trade-chunking",
+  "base_commit": "a4df3e675785bb853abcbed7c82b3ce818aa6c83",
+  "task": "Bound Central-to-worker batches to the proven six-item internal trade capacity",
+  "resume_instruction": "Chunk new same-role dispatches at six items and split a verified-return failed oversized batch into serialized chunks so the current ten-Spirit batch recovers as six plus four."
 }
