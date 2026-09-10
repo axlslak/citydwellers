@@ -82,10 +82,7 @@ namespace CityDwellers.Host
                 if (!CityDwellersCoordinator.Prepare(stop, out settings))
                     return 1;
 
-                return FlipperLoader.Run(
-                    new[] { toggle ? "toggle" : "probe" },
-                    null,
-                    true);
+                return FlipperProcessHost.RunManual(toggle ? "toggle" : "probe");
             }
         }
 
@@ -141,7 +138,7 @@ namespace CityDwellers.Host
             {
                 new ComponentRunner(
                     "Flipper",
-                    () => FlipperLoader.Run(new string[0], stop, false)),
+                    () => FlipperProcessHost.RunService(stop)),
                 new ComponentRunner(
                     "Buddies",
                     () => BuddiesHost.Run(new string[0], stop, false)),
