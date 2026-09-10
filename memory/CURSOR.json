@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 53,
+  "current_session": 54,
   "last_completed_session": 53,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "13e8b345a3fa00b1c483a6a82a9581d59e17cd46",
-  "task": "Owner build and live donor-message validation",
-  "resume_instruction": "Pull master and build Release. Donate as Kavem and verify each item produces one compact direct tell—not a guest-channel message—with colored position, disposition, copy/QL values, clickable item, and destination banker; internal dispatch/storage notices should remain on guest."
+  "transaction": "session-54-banker-readiness-utc-token",
+  "base_commit": "ccb5d22b5007b4010e6b232cac9626cfd84350fe",
+  "task": "Preserve UTC identity when validating Banker startup JSON timestamps",
+  "resume_instruction": "Replace readiness and enrollment JToken.ToString/DateTime.TryParse round trips with direct Date-token conversion plus UtcTimestamp.Normalize, then record the +03 live evidence and publish."
 }
