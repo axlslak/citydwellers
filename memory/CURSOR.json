@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 51,
+  "current_session": 52,
   "last_completed_session": 51,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "f1921b5721c89627d8894e939df32c4ccf0aa06b",
-  "task": "Owner build and persisted slot-0041 withdrawal recovery validation",
-  "resume_instruction": "Pull master and build Release. On startup Central should persist Kbexte slot 0041 and its live identity into the withdrawal; Kbexte should log WITHDRAWAL LIVE INVENTORY RECOVERY and trade the feet to Central without consulting the old bag slot."
+  "transaction": "session-52-remove-flipper-process-scaffolding",
+  "base_commit": "a228eaf5e4babae9bde4e85c9ae6a8830ce8311e",
+  "task": "Remove last night's standalone Flipper process experiment",
+  "resume_instruction": "Remove the Flipper executable project and process supervisor, restore FlipperLoader as a parallel in-process unified-host component, keep the established flipper-probe and flipper-toggle operator commands, and update runtime inventory and project records."
 }
