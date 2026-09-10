@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 38,
+  "current_session": 39,
   "last_completed_session": 38,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "f488a63a27400580d6968a41a5f2cc7d14b97485",
-  "task": "Owner rebuild, fresh nine-banker bag audit and live AO validation",
-  "resume_instruction": "Pull master, place the private reconciled file beside CityDwellers.exe as citydwellers.json, rebuild Release, then run CityDwellers.exe bankers-bagaudit before normal startup. Return compiler output or the complete audit/live log."
+  "transaction": "session-39-phatz-policy-and-family-search",
+  "base_commit": "8b945fdb3601f861487581ad2c4a3fcec260b28d",
+  "task": "Add in-game Phatz acceptance management and split stock browsing into family search commands",
+  "resume_instruction": "Implement admin-only phatz add/remove/list using linked AO items and a durable data-side policy with immediate Banker visibility. Make stock show all inventory; move symbiant search to symb/symbs and add spirit/spirits, dyna/nano/nanos, and phat/phatz family searches. Preserve AP-member authorization for browsing and admin-only mutation."
 }
