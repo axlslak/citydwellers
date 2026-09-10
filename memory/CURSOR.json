@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 54,
-  "last_completed_session": 53,
-  "status": "in_progress",
+  "last_completed_session": 54,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-54-banker-readiness-utc-token",
-  "base_commit": "ccb5d22b5007b4010e6b232cac9626cfd84350fe",
-  "task": "Preserve UTC identity when validating Banker startup JSON timestamps",
-  "resume_instruction": "Replace readiness and enrollment JToken.ToString/DateTime.TryParse round trips with direct Date-token conversion plus UtcTimestamp.Normalize, then record the +03 live evidence and publish."
+  "transaction": null,
+  "base_commit": "c94270dfc67613be1ac955f507359b857a241fdd",
+  "task": "Owner build and live positive-offset Banker startup validation",
+  "resume_instruction": "Pull master and build Release on the +03 host. Start the unified runtime and verify Central publishes all-bankers-ready after the eighth fresh write-front marker instead of repeating that all eight workers are missing."
 }
