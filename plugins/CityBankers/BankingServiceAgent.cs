@@ -343,10 +343,6 @@ namespace CityBankers
                     {
                         _outgoingOpened = true;
                         _activeBatchStartedUtc = DateTime.UtcNow;
-                        TellKavem(
-                            "Dispatch trade opened: " + _activeBatch.Role +
-                            " batch " + ShortId(_activeBatch.BatchId) +
-                            " items=" + (_activeBatch.Items?.Count ?? 0) + ".");
                         return;
                     }
 
@@ -1181,9 +1177,6 @@ namespace CityBankers
                 "AO server completed Central -> " + _activeBatch.Character +
                 " trade. Waiting for physical storage result.",
                 _activeBatch.Items);
-            TellKavem(
-                "Dispatch transferred: " + _activeBatch.Role + " -> " +
-                _activeBatch.Character + "; waiting for bag placement.");
             _activeWorkerIdentity = Identity.None;
             _outgoingOpened = false;
             _outgoingAwaitingOfferCount = 0;
@@ -1220,10 +1213,6 @@ namespace CityBankers
                     "Worker confirmed physical placement of " + result.StoredCount +
                     "/" + result.ExpectedCount + " item(s).",
                     _activeBatch.Items);
-                TellKavem(
-                    "Stored: " + _activeBatch.Role + " worker " +
-                    _activeBatch.Character + " placed " + result.StoredCount +
-                    " item(s) into bags.");
             }
             else
             {
@@ -1331,10 +1320,6 @@ namespace CityBankers
             _workerCommand = command;
             _workerTradeOpenedUtc = DateTime.UtcNow;
             _workerAccepted = false;
-            TellKavem(
-                "Worker trade opened: " + Client.CharacterName +
-                " expects " + (command.Items?.Count ?? 0) +
-                " " + _role + " item(s), batch " + ShortId(command.BatchId) + ".");
         }
 
         private void TickWorkerTrade()
@@ -1388,9 +1373,6 @@ namespace CityBankers
                 "Worker received " + (command.Items?.Count ?? 0) +
                 " item(s) from Central into normal inventory.",
                 command.Items);
-            TellKavem(
-                "Worker received: " + Client.CharacterName + " has " +
-                (command.Items?.Count ?? 0) + " item(s); starting physical bag placement.");
         }
 
         private void TickStorageJob()
@@ -1641,11 +1623,6 @@ namespace CityBankers
                 "STORED " + _storageJob.Expected.Name + " QL" + _storageJob.Expected.Ql +
                 " -> " + _storageJob.Bag.Source + ":" + _storageJob.Bag.OuterSlotInstance +
                 "/inner:" + _storageJob.InnerSlot + ".");
-            TellKavem(
-                "Stored " + _storageJob.Expected.Name + " QL" + _storageJob.Expected.Ql +
-                " on " + Client.CharacterName + " -> " + _storageJob.Bag.Source +
-                " bag " + _storageJob.Bag.OuterSlotInstance +
-                ", slot " + _storageJob.InnerSlot + ".");
             _storageJob.StoredCount++;
             _storageJob.Index++;
             _storageJob.Expected = null;

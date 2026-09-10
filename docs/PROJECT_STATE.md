@@ -1337,3 +1337,15 @@ resilience and restart change:
   after Central verifies its entire expected multiset has returned; the
   original batch retains its ID for the first chunk and later chunks receive
   new IDs under the same donation transaction.
+
+## Internal storage success-message policy (2026-09-10)
+
+- `[VERIFIED-LIVE]` Successful six-plus-four Spirit recovery produced a
+  Manager-channel delivery line for every routine internal trade and placement
+  confirmation, obscuring meaningful operator events.
+- `[DECISION]` Normal internal trade opening, exact transfer, worker receipt,
+  compatibility fallback acceptance, per-item placement, and successful batch
+  completion remain durable in activity/ledger state but do not enqueue tells
+  to the Manager channel.
+- `[INVARIANT]` Failures, exceptional recovery/reconciliation notices,
+  explicit command replies, and donor-facing trade messages remain visible.

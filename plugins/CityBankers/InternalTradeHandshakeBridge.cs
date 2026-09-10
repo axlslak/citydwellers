@@ -280,7 +280,6 @@ namespace CityBankers
                     Message = message,
                     Items = ToLedgerItems(command.Items, _role)
                 });
-            TellKavem(message);
         }
 
         private void TickCentralRecovery()

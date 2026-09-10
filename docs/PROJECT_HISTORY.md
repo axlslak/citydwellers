@@ -1565,3 +1565,20 @@ declared stored without the existing AO Finished and physical placement
 proofs. No assistant-side compilation or live AO test was run; Kavey owns the
 Release build and live recovery of the preserved ten-Spirit batch as six plus
 four.
+
+## 2026-09-10 — Quiet successful internal storage
+
+The successful ten-Spirit recovery validated both dispatch chunks, but also
+showed that routine progress confirmations were each routed through the
+Manager channel. Manager consequently logged many opaque `MANAGER CHANNEL
+delivered` lines during an otherwise normal six-plus-four storage pass. The
+owner had previously suppressed this locally; overlapping repository work had
+reintroduced the calls.
+
+`[IMPLEMENTED]` Ordinary internal trade-opened, transfer-completed,
+worker-received, compatibility-fallback-accepted, per-item-stored, and
+batch-stored events no longer enqueue operator tells. Their structured ledger
+and activity records remain intact. Failures and exceptional recovery notices
+remain routed to the operator, and donor-facing progress is unchanged. No
+assistant-side compilation or live AO test was run; Kavey owns Release build
+and normal-storage log verification.
