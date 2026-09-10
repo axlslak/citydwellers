@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 41,
-  "last_completed_session": 40,
-  "status": "in_progress",
+  "last_completed_session": 41,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-41-automatic-storage-enrollment-audit",
-  "base_commit": "548e37a2f126684f58f97e571f331bdc4805dea5",
-  "task": "Make normal banker startup automatically audit and enroll missing storage workers without requiring a manual bagaudit run",
-  "resume_instruction": "Recover session-41-automatic-storage-enrollment-audit. Implement a conservative normal-mode coordinator that keeps readiness closed, audits missing worker bag sets one character at a time after banks are verified open, validates every staged bag was returned, and atomically merges only the missing worker into storage-state/current-stock. Preserve established workers and ledger history; manual bankers-bagaudit remains available."
+  "transaction": null,
+  "base_commit": "52405745951b1b6643d161a8e6d076e76ae70ee1",
+  "task": "Owner Release build and live validation of automatic sequential storage enrollment for Spirit, Dyna, and Phatz",
+  "resume_instruction": "Pull master, rebuild Release, ensure Apcmanager and all nine bankers are logged out of InfoHelper/game clients, then run CityDwellers.exe normally. Return the full log from STARTUP STORAGE ENROLLMENT through final readiness. Expect Spirit, Dyna, and Phatz to audit one at a time, each report 120/120 bags opened with 102 bank bags returned, then reconcile layout/write front and release all-nine readiness."
 }
