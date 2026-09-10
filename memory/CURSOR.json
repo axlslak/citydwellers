@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 37,
-  "last_completed_session": 36,
-  "status": "in_progress",
+  "last_completed_session": 37,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-37-bank-expansion-build-fix",
-  "base_commit": "15ee48fe838b40f87643c743cb56d079b5791dfb",
-  "task": "Fix settings-directory compile errors reported by the owner build",
-  "resume_instruction": "Thread settingsDir through current-stock construction, make loose-inventory census routing use its agent instance, and replace the remaining six-census threshold with the nine-banker roster. Owner rebuild only."
+  "transaction": null,
+  "base_commit": "4a8f77509c5b36c6f82f2d2f9a33c2fcbbc59663",
+  "task": "Owner configuration, rebuild, fresh nine-banker bag audit and live AO validation",
+  "resume_instruction": "Pull master and rebuild Release. After configuring spirit/dyna/phatz, run CityDwellers.exe bankers-bagaudit once before normal startup. Return any new compiler output or live log; owner testing remains authoritative."
 }
