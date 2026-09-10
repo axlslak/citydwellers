@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 48,
-  "last_completed_session": 47,
-  "status": "in_progress",
+  "last_completed_session": 48,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-48-known-good-flipper-process-boundary",
-  "base_commit": "a2d843b48d677a67da418b4811950a3cb9c74b07",
-  "task": "Combine the proven-old Flipper lifecycle with a hard process boundary",
-  "resume_instruction": "Retain the exact known-good Flipper host/plugin sources and all current Banker functionality, but run Flipper.exe as a supervised parallel process. Do not restore the failed login-test or reconnect/fail-fast lifecycle changes."
+  "transaction": null,
+  "base_commit": "1eb2a51e0deb90f447da9bed0f583a3dbe559c3b",
+  "task": "Owner build and combined known-good isolated Flipper validation",
+  "resume_instruction": "Pull master, build Release, confirm six projects and Flipper.exe, then test CityDwellers.exe flipper-probe after AO releases the prior session. This build combines exact known-good Flipper lifecycle source with process isolation and retains current Banker features."
 }
