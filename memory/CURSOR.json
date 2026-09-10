@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 52,
+  "current_session": 53,
   "last_completed_session": 52,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "d4209498c90c9a860d897582804b0f153b7ebe00",
-  "task": "Owner build and unified-host Flipper smoke validation",
-  "resume_instruction": "Pull master and build Release. Confirm the output no longer contains Flipper.exe, normal startup still launches Flipper concurrently inside CityDwellers.exe, and the existing flipper-probe command remains available for deliberate diagnostics."
+  "transaction": "session-53-donor-progress-tells",
+  "base_commit": "20833ca2e87ff0b5196126d35dad14777c9a6c67",
+  "task": "Return donation item progress to direct donor tells and compact each addition into one colored line",
+  "resume_instruction": "Bypass the bootstrap-admin guest-channel exception for donation partners only, combine item disposition and trade progress into one compact colored direct tell with an item link and destination banker, and retain internal operational messages on Manager's guest channel."
 }
