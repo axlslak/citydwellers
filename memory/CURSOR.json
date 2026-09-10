@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 58,
+  "current_session": 59,
   "last_completed_session": 58,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "262d4c16e7efaf2b30496050df215b982cc0fbe6",
-  "task": "Owner build and live ten-Spirit recovery as six plus four",
-  "resume_instruction": "Pull master and build Release without moving the returned Spirits. Start the runtime and verify the failed ten-item batch is reported split into two safe batches, Kbspirit stores six then four, and the queue clears."
+  "transaction": "session-59-storage-success-noise",
+  "base_commit": "76ddf693b44e52fee8b299984b55a4fa8a75bcda",
+  "task": "Stop routine successful internal-storage steps from flooding Manager channel",
+  "resume_instruction": "Remove TellKavem calls for ordinary trade-opened, transferred, worker-received, per-item-stored, batch-stored, and fallback-accepted confirmations while retaining durable activity/ledger records, failures, and exceptional recovery notices."
 }
