@@ -9,10 +9,11 @@ Last continuity reconstruction: 2026-08-30
   when present and otherwise retain the top-level shared `Bankers.Password`
   fallback. This supports a mixed-password nine-banker fleet without exposing
   credentials in Git.
-- `[PRIVATE HANDOFF PENDING]` Reconcile the supplied AOQuickLauncher batches
-  into a private `citydwellers.json`; correct Extermination's AO account
-  username and include explicit policy examples for Grid Armor Mk IV and the
-  wrapped premium recharger.
+- `[PRIVATE HANDOFF COMPLETE]` The supplied AOQuickLauncher batches were
+  reconciled into a private `citydwellers.json`. Eight supplied roles use
+  batch-proven usernames and per-role passwords; Support retains its existing
+  mapping and shared-password fallback. The file includes both Grid Armor Mk IV
+  forms under Dyna and Wrapped Premium Health and Nano Recharger under Phatz.
 
 ## 2026-09-09 — Banker expansion compile repair (session 37)
 
