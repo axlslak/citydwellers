@@ -18,6 +18,7 @@ public class FlipperLoader
 {
     private const string PipeName = "citydwellers-flipper";
     private const int FailedProbeCooldownMilliseconds = 90000;
+    private const int ReconnectCapableProbeTimeoutMilliseconds = 45000;
 
     private static Config _config;
     private static AccountInfo _account;
@@ -138,9 +139,11 @@ public class FlipperLoader
             return false;
         }
 
-        _timeoutMs = _config.ProbeTimeoutMs > 0
-            ? _config.ProbeTimeoutMs
-            : 20000;
+        _timeoutMs = Math.Max(
+            ReconnectCapableProbeTimeoutMilliseconds,
+            _config.ProbeTimeoutMs > 0
+                ? _config.ProbeTimeoutMs
+                : 20000);
 
         _pluginPath = Path.Combine(_settingsDir, "CityFlipper.dll");
         if (!File.Exists(_pluginPath))

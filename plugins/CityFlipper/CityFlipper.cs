@@ -72,6 +72,7 @@ namespace CityFlipper
         private bool _resultWritten;
         private int _resultWriteScheduled;
         private int _stopping;
+        private int _disconnectCount;
 
         public override void Init(string pluginDir)
         {
@@ -172,8 +173,14 @@ namespace CityFlipper
 
             _timer.Start();
 
+            Client.Config.AutoReconnect = true;
             Client.MessageReceived += MessageReceived;
             Client.OnUpdate += Tick;
+            Client.Disconnected += Disconnected;
+
+            Logger.Information(
+                $"CityFlipper AutoReconnect={Client.Config.AutoReconnect}; " +
+                "one pre-action zoning disconnect may be recovered within this probe.");
         }
 
         public override void Teardown()
@@ -188,6 +195,51 @@ namespace CityFlipper
 
             Client.MessageReceived -= MessageReceived;
             Client.OnUpdate -= Tick;
+            Client.Disconnected -= Disconnected;
+        }
+
+        private void Disconnected()
+        {
+            bool retryAllowed;
+            bool actionAlreadySent;
+            int disconnectCount;
+
+            lock (_sync)
+            {
+                disconnectCount = ++_disconnectCount;
+                actionAlreadySent = _toggleSent;
+                retryAllowed = !actionAlreadySent && disconnectCount == 1;
+
+                if (retryAllowed)
+                {
+                    _charInPlay = false;
+                    _controllerFound = false;
+                    _gotCityInfo = false;
+                    _gotCloakInfo = false;
+                    _gotChargeInfo = false;
+                    _controllerOpenRequested = false;
+                    _haveLiveControllerIdentity = false;
+                    _liveControllerIdentity = default(Identity);
+                    _cityInfo = new Dictionary<string, string>();
+                    _cloakInfo = new Dictionary<string, string>();
+                    _controllerCharge = 0f;
+                    _chargePollCount = 0;
+                }
+                else
+                {
+                    Client.Config.AutoReconnect = false;
+                }
+            }
+
+            Logger.Warning(
+                retryAllowed
+                    ? $"CityFlipper disconnected before acting (count={disconnectCount}); " +
+                      "AutoReconnect remains enabled for one in-probe recovery."
+                    : actionAlreadySent
+                        ? "CityFlipper disconnected after sending an action; " +
+                          "AutoReconnect disabled to prevent a duplicate action."
+                        : $"CityFlipper disconnected again (count={disconnectCount}); " +
+                          "AutoReconnect disabled for this bounded probe.");
         }
 
         private void Tick(object sender, double e)

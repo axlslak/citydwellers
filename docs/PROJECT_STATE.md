@@ -202,6 +202,18 @@ Coordinates chat commands, raid lifecycle, cloak operations, helpers, admin/memb
 
 ### Flipper
 
+- `[IMPLEMENTED 2026-09-10]` A transient gameserver disconnect while
+  Apcflipper is zoning no longer leaves the one-shot probe inert until loader
+  timeout. CityFlipper enables AOSharp AutoReconnect for one pre-action
+  disconnect, clears observations from the abandoned session, and disables
+  reconnect after a second disconnect or after any cloak action was sent.
+  The loader now permits at least 45 seconds for that bounded recovery. The
+  existing post-failure 90-second cooldown and all cloak action guards remain.
+- `[VERIFIED-LIVE 2026-09-10]` The startup storage enrollment and Flipper are
+  independent: Spirit, Dyna, and Phatz completed their sequential 120-bag
+  audits while Flipper separately failed at `Zoning -> Disconnected`. Banker
+  readiness gates banker donations/dispatch, not Flipper execution.
+
 - `[IMPLEMENTED 2026-09-09]` A general historical `Flipper.Cache` observation
   may still be displayed when a live probe cannot start or finish, but it may
   not complete Manager's pending cloak recovery or cancel its live retry. A

@@ -1352,3 +1352,19 @@ by unique identity. Failure archives the evidence, stops before another bag is
 touched, and leaves readiness closed. Manual full audit mode remains available
 for deliberate operator diagnostics. No assistant-side compilation or live AO
 test was run; Kavey owns the Release build and sequential enrollment test.
+## 2026-09-10 — Bounded Flipper zoning reconnect
+
+The first normal-startup enrollment run proved that automatic Banker recovery
+and Flipper execute independently. Spirit, Dyna, and Phatz each audited all
+120 bags and returned all 102 staged bank bags. During the same run,
+Apcflipper authenticated but twice transitioned directly from zoning to
+disconnected; the attempt between them received `AlreadyLoggedIn` from the
+abandoned session. No Banker failure stopped or delayed the Flipper service.
+
+The Flipper plugin was the only child plugin without AOSharp AutoReconnect.
+It now permits one reconnect only when no cloak action has been sent, discards
+partial observations from the abandoned session, and disables reconnect after
+a second disconnect or any post-action disconnect. The loader's minimum probe
+window is 45 seconds so this recovery can complete, while the established
+90-second cooldown still follows a failed started probe. Cloak safety and
+Banker readiness boundaries are unchanged.
