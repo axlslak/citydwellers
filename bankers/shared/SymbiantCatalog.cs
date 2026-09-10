@@ -29,6 +29,9 @@ namespace CityBankers.Shared
 
         static SymbiantCatalog()
         {
+            if (SpiritSlotCodes.Length != SpiritIds.Length)
+                throw new InvalidOperationException(
+                    "The generated spirit slot catalog must cover every accepted spirit AOID exactly once.");
             AddRoutes(ArtilleryIds, "artillery");
             AddRoutes(InfantryIds, "infantry");
             AddRoutes(ControlIds, "control");
@@ -66,6 +69,36 @@ namespace CityBankers.Shared
         }
 
         public static IReadOnlyDictionary<int, string> Routes => RoutesByAoid;
+
+        public static bool TryGetSpiritSlot(int aoid, out string slot)
+        {
+            int index = Array.BinarySearch(SpiritIds, aoid);
+            if (index < 0)
+            {
+                slot = null;
+                return false;
+            }
+
+            switch (SpiritSlotCodes[index])
+            {
+                case 'e': slot = "eye"; return true;
+                case 'b': slot = "brain"; return true;
+                case 'a': slot = "ear"; return true;
+                case 'r': slot = "rightarm"; return true;
+                case 'c': slot = "chest"; return true;
+                case 'l': slot = "leftarm"; return true;
+                case 'w': slot = "rightwrist"; return true;
+                case 'm': slot = "waist"; return true;
+                case 'x': slot = "leftwrist"; return true;
+                case 'h': slot = "righthand"; return true;
+                case 't': slot = "thigh"; return true;
+                case 'd': slot = "lefthand"; return true;
+                case 'f': slot = "feet"; return true;
+                default:
+                    throw new InvalidOperationException(
+                        "Unknown generated spirit slot code for AOID " + aoid + ".");
+            }
+        }
 
         public static bool TryGetDestinationRole(int aoid, out string role)
         {
@@ -523,6 +556,19 @@ namespace CityBankers.Shared
             279087, 279088, 279089, 279090, 279091, 279092, 279093, 279094, 279095, 279096, 279097, 279098,
             279099, 279100, 279101, 279102, 279173, 279321
         };
+
+        // Generated from the owner-supplied Tinker items.zip. Each character is
+        // the StatValues Stat 298 wear location for the same sorted SpiritIds entry.
+        // Compact codes: eye, brain, ear, right arm, chest, left arm, right wrist,
+        // waist, left wrist, right hand, thigh, left hand, and feet respectively.
+        private const string SpiritSlotCodes =
+            "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeettetttteetetettetbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" +
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaarrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr" +
+            "rrrrrrmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmcccccccccccccccccccc" +
+            "ccccccccccccccccccccccccccccccccccccccccccccclllllllllllllllllllllllllllllllllllllllllllllllllll" +
+            "lllllllllllllllllllwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxhhhhhhh" +
+            "hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhttttttttttttttttttttttttddddddddddddddddddddddddddddd" +
+            "dddddffffffffffffffffffffffffffffffffffffbbbeaaaccccllllddxxrrrhhhwwmmmmttffeb";
 
         // Nano crystals classified by Nadybot as RK Dyna or RK Mob drops, plus
         // every matching instruction disc. Keep-all is the safe default; admins

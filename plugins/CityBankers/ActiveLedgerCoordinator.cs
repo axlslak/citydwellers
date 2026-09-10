@@ -927,7 +927,11 @@ namespace CityBankers
 
                 string family;
                 SymbiantCatalog.TryGetDestinationRole(settingsDir, item.AoId, out family);
-                string slot = DetectSlot(item.Name);
+                string slot;
+                if (string.Equals(family, "spirit", StringComparison.OrdinalIgnoreCase))
+                    SymbiantCatalog.TryGetSpiritSlot(item.AoId, out slot);
+                else
+                    slot = DetectSlot(item.Name);
                 int? highId = item.HighId != 0 ? (int?)item.HighId : null;
                 int? ql = item.Ql != 0 ? (int?)item.Ql : null;
 

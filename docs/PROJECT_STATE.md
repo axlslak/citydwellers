@@ -2,6 +2,25 @@
 
 Last continuity reconstruction: 2026-08-30
 
+## 2026-09-10 — authoritative Shade spirit slots (session 61)
+
+- `[IMPLEMENTED, OWNER VALIDATION PENDING]` Spirit stock grouping no longer
+  infers implant positions from item names. The shared catalog now maps each
+  accepted spirit AOID to the Tinker item database's `StatValues` Stat `298`
+  wear location, and both stock browsing and the persistent item index use
+  that AOID mapping exclusively for the Spirit family.
+- `[VERIFIED-DATA]` The owner-supplied `items.zip` contains exactly one Stat
+  `298` value for every one of the 654 accepted spirit AOIDs. The generated
+  catalog has 654 entries across exactly 13 implant slots: Eye 38, Brain 53,
+  Ear 56, Right Arm 52, Chest 69, Left Arm 74, Right Wrist 36, Waist 74,
+  Left Wrist 38, Right Hand 53, Thigh 37, Left Hand 36, and Feet 38.
+- `[INVARIANT]` Symbiant families retain their established name-based slot
+  parser. An unknown custom AOID routed to Spirit does not guess a slot from
+  its name; it remains ungrouped until authoritative slot data is added.
+- `[OPEN]` Kavey owns the Release build and live validation of the Spirit
+  family and slot windows, especially that Eye, Ear, Brain, Chest, and Thigh
+  contain only their authoritative AOID groups.
+
 ## 2026-09-10 — per-role Banker credentials (session 38)
 
 - `[IMPLEMENTED, OWNER REBUILD PENDING]` Each `Bankers.Roles` mapping may carry

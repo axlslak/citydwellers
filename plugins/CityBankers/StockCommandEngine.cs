@@ -599,10 +599,21 @@ namespace CityBankers
         {
             return (items ?? Enumerable.Empty<StockItemState>())
                 .Where(item => string.Equals(
-                    DetectSlot(item?.Name),
+                    ResolveSlot(item),
                     slot,
                     StringComparison.OrdinalIgnoreCase))
                 .ToList();
+        }
+
+        private static string ResolveSlot(StockItemState item)
+        {
+            if (item == null)
+                return null;
+            if (!string.Equals(item.Role, "spirit", StringComparison.OrdinalIgnoreCase))
+                return DetectSlot(item.Name);
+
+            string slot;
+            return SymbiantCatalog.TryGetSpiritSlot(item.AoId, out slot) ? slot : null;
         }
 
         private static List<StockTemplate> GroupTemplates(IEnumerable<StockItemState> items)

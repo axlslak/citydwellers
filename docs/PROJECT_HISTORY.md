@@ -1,5 +1,26 @@
 # City Dwellers — Persistent Project History
 
+## 2026-09-10 — Authoritative Shade spirit slot catalog
+
+The Spirit stock browser reused symbiant name parsing even though Shade spirit
+names describe effects inconsistently, sometimes omit their implant position,
+and can contain incidental slot substrings. Live inspection consequently showed
+Brain, Leg, and Chest spirits inside the Ear window. Comparing the 654 accepted
+AOIDs against the owner-supplied Tinker `items.zip` proved name inference wrong
+for 415 entries; for example, Heartsick Spirit of True Seeing contains `ear`
+but has Stat `298` wear mask `2`, meaning Eye.
+
+`[IMPLEMENTED]` The shared accepted-item catalog now carries a compact generated
+slot entry for every accepted spirit AOID. Its 13 source masks map one-to-one to
+Eye, Brain, Ear, Right Arm, Chest, Left Arm, Right Wrist, Waist, Left Wrist,
+Right Hand, Thigh, Left Hand, and Feet. Stock filtering and persistent index
+updates resolve Spirit slots by AOID, while the existing name parser remains
+limited to symbiants. Missing custom Spirit mappings fail closed instead of
+guessing from a name. Static data validation confirmed 654 unique sorted AOIDs,
+654 generated slot entries, and the expected per-slot counts. No assistant-side
+compilation or live AO test was run; Kavey owns the Release build and live stock
+window validation.
+
 This is a compact chronological engineering log. It records decisions and verified outcomes that future sessions may need in order to understand why the current code looks the way it does.
 
 ## 2026-09-10 — session 53: direct donor progress tells
