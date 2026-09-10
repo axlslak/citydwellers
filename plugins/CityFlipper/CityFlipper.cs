@@ -54,7 +54,6 @@ namespace CityFlipper
         private bool _toggleRequested;
         private bool _cancellationRequested;
         private bool _ensureEnabledOnly;
-        private bool _loginTestOnly;
         private bool _ensureDisabledReadyOnly;
         private bool _ensureDisabledWatchOnly;
         private bool _toggleSent;
@@ -73,7 +72,6 @@ namespace CityFlipper
         private bool _resultWritten;
         private int _resultWriteScheduled;
         private int _stopping;
-        private bool _probeFailed;
 
         public override void Init(string pluginDir)
         {
@@ -130,12 +128,6 @@ namespace CityFlipper
             }
 
             _toggleRequested = !string.IsNullOrWhiteSpace(requestedAction);
-            _loginTestOnly = string.Equals(
-                requestedAction,
-                "login-test",
-                StringComparison.OrdinalIgnoreCase);
-            if (_loginTestOnly)
-                _toggleRequested = false;
             _ensureEnabledOnly = string.Equals(
                 requestedAction,
                 "enable",
@@ -170,8 +162,6 @@ namespace CityFlipper
             Logger.Information(
                 _ensureEnabledOnly
                     ? "Mode: ENSURE ENABLED (may raise cloak, never lower it)."
-                    : _loginTestOnly
-                        ? "Mode: LOGIN ONLY (no city, controller, or cloak processing)."
                     : _ensureDisabledWatchOnly
                         ? $"Mode: RAID START WATCH (up to {watchSeconds}s for 75% CT charge)."
                         : _ensureDisabledReadyOnly
@@ -184,7 +174,6 @@ namespace CityFlipper
 
             Client.MessageReceived += MessageReceived;
             Client.OnUpdate += Tick;
-            Client.Disconnected += Disconnected;
         }
 
         public override void Teardown()
@@ -199,30 +188,6 @@ namespace CityFlipper
 
             Client.MessageReceived -= MessageReceived;
             Client.OnUpdate -= Tick;
-            Client.Disconnected -= Disconnected;
-        }
-
-        private void Disconnected()
-        {
-            if (Volatile.Read(ref _stopping) != 0)
-                return;
-
-            lock (_sync)
-            {
-                if (_resultWritten)
-                    return;
-
-                _probeFailed = true;
-                _toggleBlockedReason = _toggleSent
-                    ? "AO disconnected before confirming the cloak action."
-                    : "AO disconnected before the Flipper probe reached a usable in-play session.";
-                _resultWritten = true;
-            }
-
-            Logger.Warning(
-                "CityFlipper AO session disconnected; publishing a failed probe " +
-                "so the host can unload it without an in-domain reconnect.");
-            ScheduleResultWrite();
         }
 
         private void Tick(object sender, double e)
@@ -240,9 +205,6 @@ namespace CityFlipper
 
                 OnCharInPlay("Client.InPlay");
             }
-
-            if (_loginTestOnly)
-                return;
 
             bool writeTimeout = false;
             bool writeCancellation = false;
@@ -389,12 +351,6 @@ namespace CityFlipper
 
                 var n3Message = (N3Message)e.Body;
 
-                if (_loginTestOnly &&
-                    n3Message.N3MessageType != N3MessageType.CharInPlay)
-                {
-                    return;
-                }
-
                 if (_charInPlay)
                     Logger.Debug($"N3MessageType = {n3Message.N3MessageType}");
 
@@ -489,21 +445,6 @@ namespace CityFlipper
 
             Logger.Information(
                 $"CharInPlay after {_inPlayMs:F0} ms via {source}.");
-
-            if (_loginTestOnly)
-            {
-                lock (_sync)
-                {
-                    if (_resultWritten)
-                        return;
-
-                    _resultWritten = true;
-                }
-
-                Logger.Information(
-                    "Login-only test reached InPlay; no city or cloak action was attempted.");
-                ScheduleResultWrite();
-            }
         }
 
         private void HandleTransportSignal(AOTransportSignalMessage signal)
@@ -932,7 +873,6 @@ namespace CityFlipper
                     CloakInfo = _cloakInfo,
 
                     ToggleRequested = _toggleRequested,
-                    ProbeFailed = _probeFailed,
                     Canceled = _cancellationRequested,
                     ToggleSent = _toggleSent,
                     ToggleSucceeded = toggleSucceeded,
@@ -988,7 +928,6 @@ namespace CityFlipper
             public Dictionary<string, string> CloakInfo;
 
             public bool ToggleRequested;
-            public bool ProbeFailed;
             public bool Canceled;
             public bool ToggleSent;
             public bool ToggleSucceeded;

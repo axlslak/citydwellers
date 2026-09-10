@@ -17,8 +17,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Executables", "Executables"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CityDwellers", "executables\CityDwellers\CityDwellers.csproj", "{A44A13CA-F0EF-4C15-961D-E9BB102928D8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Flipper", "executables\Flipper\Flipper.csproj", "{0D4088B8-B32E-4B9E-8B10-091FDBE25924}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -45,10 +43,6 @@ Global
 		{B172CA6F-B8E0-460B-A110-688355B17930}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B172CA6F-B8E0-460B-A110-688355B17930}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B172CA6F-B8E0-460B-A110-688355B17930}.Release|Any CPU.Build.0 = Release|Any CPU
-		{0D4088B8-B32E-4B9E-8B10-091FDBE25924}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{0D4088B8-B32E-4B9E-8B10-091FDBE25924}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{0D4088B8-B32E-4B9E-8B10-091FDBE25924}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{0D4088B8-B32E-4B9E-8B10-091FDBE25924}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -59,7 +53,6 @@ Global
 		{C6C6016D-3571-4FF1-80BE-2E6428EDFEB4} = {95E29EAD-3858-43A5-9ADC-4C4B3302F99B}
 		{B172CA6F-B8E0-460B-A110-688355B17930} = {95E29EAD-3858-43A5-9ADC-4C4B3302F99B}
 		{A44A13CA-F0EF-4C15-961D-E9BB102928D8} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
-		{0D4088B8-B32E-4B9E-8B10-091FDBE25924} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A501FB96-5E9B-44D8-90BB-F5CC567B7E7B}

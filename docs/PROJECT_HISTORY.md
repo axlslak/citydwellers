@@ -2,7 +2,7 @@
 
 This is a compact chronological engineering log. It records decisions and verified outcomes that future sessions may need in order to understand why the current code looks the way it does.
 
-## 2026-09-10 — session 45: Flipper process isolation restored
+## 2026-09-10 — sessions 45–47: Flipper regression rollback
 
 Five consecutive normal-client Apcflipper logins succeeded, while the
 clientless path reproducibly disconnected during zoning and left AO's short
@@ -11,10 +11,12 @@ Manager, Buddies, or Bankers, excluding their active worker threads from that
 specific attempt but not excluding the unified executable's shared runtime and
 assembly context.
 
-The unified host now supervises a standalone `Flipper.exe`. It remains parallel
-with every other service and retains the existing named-pipe contract, cache,
-cooldown, and guarded operation logic. Manual Flipper commands also launch the
-isolated executable, so diagnostics exercise the same deployment boundary.
+Process isolation reproduced the same failure and was therefore removed. A
+controlled old-binary test then succeeded against the exact endpoint rejected
+by the current binaries, proving both the endpoint theory and the isolation
+hypothesis wrong. Flipper host and plugin code were restored to live-proven
+commit `548e37a2f126684f58f97e571f331bdc4805dea5`; later Banker functionality was
+retained.
 
 ## 2026-09-10 — session 38: per-role Banker credentials
 

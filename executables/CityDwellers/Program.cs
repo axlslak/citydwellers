@@ -34,9 +34,6 @@ namespace CityDwellers.Host
             if (HasCommand(args, "flipper-probe"))
                 return RunManualFlipper(false);
 
-            if (HasCommand(args, "flipper-login-test"))
-                return RunManualFlipperLoginTest();
-
             if (HasCommand(args, "flipper-toggle"))
                 return RunManualFlipper(true);
 
@@ -85,19 +82,10 @@ namespace CityDwellers.Host
                 if (!CityDwellersCoordinator.Prepare(stop, out settings))
                     return 1;
 
-                return FlipperProcessHost.RunManual(toggle ? "toggle" : "probe");
-            }
-        }
-
-        private static int RunManualFlipperLoginTest()
-        {
-            using (var stop = new ManualResetEvent(false))
-            {
-                HostSettings settings;
-                if (!CityDwellersCoordinator.Prepare(stop, out settings))
-                    return 1;
-
-                return FlipperProcessHost.RunManual("login-test");
+                return FlipperLoader.Run(
+                    new[] { toggle ? "toggle" : "probe" },
+                    null,
+                    true);
             }
         }
 
@@ -129,7 +117,6 @@ namespace CityDwellers.Host
             Console.WriteLine("  CityDwellers.exe install-service");
             Console.WriteLine("  CityDwellers.exe uninstall-service");
             Console.WriteLine("  CityDwellers.exe flipper-probe");
-            Console.WriteLine("  CityDwellers.exe flipper-login-test");
             Console.WriteLine("  CityDwellers.exe flipper-toggle");
             Console.WriteLine("  CityDwellers.exe bankers-bagaudit");
         }
@@ -154,7 +141,7 @@ namespace CityDwellers.Host
             {
                 new ComponentRunner(
                     "Flipper",
-                    () => FlipperProcessHost.RunService(stop)),
+                    () => FlipperLoader.Run(new string[0], stop, false)),
                 new ComponentRunner(
                     "Buddies",
                     () => BuddiesHost.Run(new string[0], stop, false)),

@@ -37,7 +37,6 @@
     <Compile Include="RuntimeLog.cs" />
     <Compile Include="ServiceCommands.cs" />
     <Compile Include="TimeReadinessGate.cs" />
-    <Compile Include="FlipperProcessHost.cs" />
     <Compile Include="WindowsService.cs" />
     <Compile Include="Bankers\BankersHost.cs" />
     <Compile Include="Bankers\BagAuditRunner.cs" />

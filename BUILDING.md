@@ -62,7 +62,6 @@ Windows directory link to durable storage.
 ```text
 release\
   CityDwellers.exe
-  Flipper.exe
   CityManager.dll
   CityFlipper.dll
   CityBuddies.dll
@@ -145,9 +144,7 @@ the alt bot is unavailable.
 
 Run `CityDwellers.exe` for an interactive console. It starts the persistent
 Manager AO client, the idle Flipper and Buddies request services, and all nine
-banker AO clients under one supervisor. Flipper runs in its own process so its
-short-lived AOSharp client domain cannot share process-global runtime state with
-Manager, Buddies, or Bankers. All components remain concurrent. Flipper does not log its
+banker AO clients inside one supervised process. Flipper does not log its
 character in until it receives an operation; Buddies starts zero helper AO
 sessions until Manager requests them. Press ENTER or CTRL+C to stop every
 component.

@@ -202,29 +202,12 @@ Coordinates chat commands, raid lifecycle, cloak operations, helpers, admin/memb
 
 ### Flipper
 
-- `[IMPLEMENTED 2026-09-10]` Flipper is again an independent executable under
-  unified-host supervision. Manager, Buddies, Bankers, and Flipper remain
-  concurrent, but Apcflipper's short-lived AOSharp `ClientDomain` now lives in
-  a separate OS process. Manual probe, login-test, and toggle commands traverse
-  the same process boundary as normal service operations.
-
-- `[IMPLEMENTED 2026-09-10]` `CityDwellers.exe flipper-login-test` is an
-  explicit manual isolation path. It uses the configured Apcflipper account,
-  the same AOSharp ClientDomain, and the same CityFlipper assembly, but ignores
-  every non-`CharInPlay` game message and performs no city, controller, charge,
-  or cloak processing. Success means only that `InPlay` was reached. Its
-  result never updates operational Flipper cache; disconnect failure retains
-  the normal cooldown.
-
-- `[SUPERSEDED 2026-09-10]` Same-domain AutoReconnect after a zoning
-  disconnect was live-disproved: AO retained Apcflipper, rejected the retry as
-  `AlreadyLoggedIn`, and AOSharp then faulted its internal Stop transition.
-- `[IMPLEMENTED 2026-09-10]` CityFlipper does not reconnect inside a failed
-  probe. A disconnect publishes an explicit failed result after returning from
-  AOSharp's callback, allowing the loader to unload promptly and enter the
-  existing 90-second cooldown. Failed results are never cached as city state.
-  The configured/default 20-second timeout remains for failures that do not
-  raise a disconnect event.
+- `[RESTORED 2026-09-10]` The Flipper host and plugin are restored exactly to
+  live-proven commit `548e37a2f126684f58f97e571f331bdc4805dea5` after current
+  binaries failed zoning while six-hour-old binaries succeeded with the same
+  JSON, data, character, and exact `37.18.193.57:7501` endpoint. The later
+  reconnect, disconnect fail-fast, login-only, and process-isolation changes
+  are superseded. All subsequent Banker functionality remains present.
 - `[VERIFIED-LIVE 2026-09-10]` The startup storage enrollment and Flipper are
   independent: Spirit, Dyna, and Phatz completed their sequential 120-bag
   audits while Flipper separately failed at `Zoning -> Disconnected`. Banker
