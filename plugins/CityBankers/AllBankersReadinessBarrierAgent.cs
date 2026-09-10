@@ -205,13 +205,12 @@ namespace CityBankers
                     JToken observed = diagnostic.GetValue(
                         "ObservedUtc",
                         StringComparison.OrdinalIgnoreCase);
-                    if (observed == null ||
-                        !DateTime.TryParse(observed.ToString(), out observedUtc))
+                    if (!RuntimeStateStore.TryReadUtc(observed, out observedUtc))
                     {
                         return false;
                     }
 
-                    if (observedUtc.ToUniversalTime() < _startedUtc)
+                    if (observedUtc < _startedUtc)
                         return false;
                 }
                 catch
@@ -258,8 +257,8 @@ namespace CityBankers
                     JToken ready = marker.GetValue(
                         "ReadyUtc",
                         StringComparison.OrdinalIgnoreCase);
-                    if (ready == null || !DateTime.TryParse(ready.ToString(), out readyUtc) ||
-                        readyUtc.ToUniversalTime() < _startedUtc)
+                    if (!RuntimeStateStore.TryReadUtc(ready, out readyUtc) ||
+                        readyUtc < _startedUtc)
                     {
                         return false;
                     }
@@ -320,8 +319,8 @@ namespace CityBankers
                     JToken ready = marker.GetValue(
                         "ReadyUtc",
                         StringComparison.OrdinalIgnoreCase);
-                    if (ready == null || !DateTime.TryParse(ready.ToString(), out readyUtc) ||
-                        readyUtc.ToUniversalTime() < _startedUtc)
+                    if (!RuntimeStateStore.TryReadUtc(ready, out readyUtc) ||
+                        readyUtc < _startedUtc)
                     {
                         return false;
                     }

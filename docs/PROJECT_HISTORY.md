@@ -1451,3 +1451,29 @@ then returns the staged bag and proceeds to Central without touching the emptied
 source slot. Ambiguous or absent
 inventory remains a hard stop. No assistant-side compilation or live AO test
 was run; Kavey owns the Release build and recovery validation.
+
+## 2026-09-10 — Banker readiness UTC token repair
+
+A startup run in local timezone `+03:00` proved that every worker completed
+layout and write-front reconciliation and wrote a valid current-run readiness
+marker. Central nevertheless rejected all eight markers indefinitely. The
+copied marker archive ruled out missing files, stale runs, character mismatch,
+baseline mismatch, and zero capacity.
+
+The remaining fault was a JSON token conversion boundary. `JObject.Parse`
+already recognizes an ISO `...Z` value as a Date token. The readiness readers
+converted that token back to text, reparsed it, and called
+`ToUniversalTime()`. On the positive-offset host that round trip could lose
+the UTC kind and subtract the local offset a second time, turning a fresh
+marker into an apparently three-hour-old marker. Moving runtime data between
+timezones exposed the defect but did not cause corrupt marker data; workers
+delete and freshly rewrite their own readiness markers during startup.
+
+`[IMPLEMENTED]` CityBankers now has one JToken-to-UTC reader that extracts
+Date tokens directly and applies the repository's existing `UtcTimestamp`
+normalization contract. All startup enrollment and readiness freshness gates
+use it for bank diagnostics, repair requests, layout markers, and write-front
+markers. Comparison thresholds, concurrency, and fail-closed readiness rules
+are unchanged. Flipper was healthy and reached InPlay during the evidentiary
+run, so this transaction makes no Flipper change. No assistant-side build or
+live AO test was run; Kavey owns Release build and `+03:00` startup validation.

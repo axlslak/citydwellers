@@ -1238,6 +1238,26 @@ resilience and restart change:
   Spirit, Dyna, and Phatz enrollment, final eight-worker readiness, occupancy,
   and stock publication.
 
+## Banker startup UTC marker parsing (2026-09-10)
+
+- `[VERIFIED-LIVE]` On a `+03:00` host, all eight workers wrote fresh
+  write-front-ready markers between `19:59:04Z` and `19:59:08Z`, after
+  Central's `19:58:47Z` start, but Central continued reporting all eight as
+  missing. The preserved markers had the expected roles, characters,
+  baseline identifier, and positive capacity.
+- `[ROOT-CAUSE]` Newtonsoft materializes ISO JSON timestamps as Date-valued
+  `JToken`s. Converting such a token to text before parsing can emit localized
+  offset-less text; the subsequent `ToUniversalTime()` then applies the host
+  offset again and makes a current marker appear three hours stale.
+- `[IMPLEMENTED]` Banker startup freshness readers now extract `DateTime`
+  directly from the token and apply the shared `UtcTimestamp` contract. The
+  fix covers bank diagnostics, repair requests, live layouts, write fronts,
+  the all-bankers barrier, and its watchdog without weakening any readiness
+  requirement.
+- `[OPEN]` Kavey owns the Release build and live `+03:00` startup check. The
+  expected result is one all-bankers-ready message after the last worker
+  marker, with no repeating all-eight-workers warning.
+
 ## Central outbound tell queue (2026-09-08)
 
 - `[IMPLEMENTED]` Manager and CityBankers no longer send application tells

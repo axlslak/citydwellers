@@ -181,11 +181,10 @@ namespace CityBankers
                 }
 
                 DateTime observedUtc;
-                if (!DateTime.TryParse(
-                        diagnostic.GetValue("ObservedUtc", StringComparison.OrdinalIgnoreCase)
-                            ?.ToString(),
+                if (!RuntimeStateStore.TryReadUtc(
+                        diagnostic.GetValue("ObservedUtc", StringComparison.OrdinalIgnoreCase),
                         out observedUtc) ||
-                    observedUtc.ToUniversalTime() < _startedUtc.AddSeconds(-1) ||
+                    observedUtc < _startedUtc.AddSeconds(-1) ||
                     !BoolValue(diagnostic, "BankOpened") ||
                     !string.Equals(
                         StringValue(diagnostic, "Character"),
@@ -517,8 +516,10 @@ namespace CityBankers
                         StringValue(request, "Character"),
                         character,
                         StringComparison.OrdinalIgnoreCase) &&
-                    DateTime.TryParse(StringValue(request, "ObservedUtc"), out observed) &&
-                    observed.ToUniversalTime() >= _startedUtc.AddSeconds(-1);
+                    RuntimeStateStore.TryReadUtc(
+                        request.GetValue("ObservedUtc", StringComparison.OrdinalIgnoreCase),
+                        out observed) &&
+                    observed >= _startedUtc.AddSeconds(-1);
             }
             catch
             {

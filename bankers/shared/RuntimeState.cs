@@ -6,7 +6,9 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 
+using CityDwellers.Shared;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace CityBankers.Shared
 {
@@ -192,6 +194,30 @@ namespace CityBankers.Shared
         private const string IdentityNoneText = "(None:0000)";
         private const int AtomicFileRetryCount = 50;
         private const int AtomicFileRetryDelayMilliseconds = 100;
+
+        public static bool TryReadUtc(JToken token, out DateTime value)
+        {
+            value = DateTime.MinValue;
+            if (token == null || token.Type == JTokenType.Null)
+                return false;
+
+            try
+            {
+                // JObject.Parse materializes ISO timestamps as Date-valued tokens.
+                // Reading that value directly preserves its Kind. Calling ToString()
+                // first can localize it and discard the trailing Z, causing a later
+                // ToUniversalTime() to apply the host offset a second time.
+                DateTime parsed = token.Type == JTokenType.Date
+                    ? token.Value<DateTime>()
+                    : token.ToObject<DateTime>();
+                value = UtcTimestamp.Normalize(parsed);
+                return value != DateTime.MinValue;
+            }
+            catch
+            {
+                return false;
+            }
+        }
 
         public static string GetDataDirectory(string settingsDir)
         {

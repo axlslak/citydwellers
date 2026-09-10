@@ -197,9 +197,8 @@ namespace CityBankers
                         character,
                         expectedCharacter,
                         StringComparison.OrdinalIgnoreCase) &&
-                    readyToken != null &&
-                    DateTime.TryParse(readyToken.ToString(), out readyUtc) &&
-                    readyUtc.ToUniversalTime() >= _startedUtc;
+                    RuntimeStateStore.TryReadUtc(readyToken, out readyUtc) &&
+                    readyUtc >= _startedUtc;
             }
             catch
             {

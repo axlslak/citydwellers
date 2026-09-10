@@ -69,6 +69,7 @@
     <Compile Include="..\..\bankers\shared\TrustedOperators.cs"><Link>Shared\TrustedOperators.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\TellQueueClient.cs"><Link>Shared\TellQueueClient.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\WithdrawalState.cs"><Link>Shared\WithdrawalState.cs</Link></Compile>
+    <Compile Include="..\..\shared\UtcTimestamp.cs"><Link>Shared\UtcTimestamp.cs</Link></Compile>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
