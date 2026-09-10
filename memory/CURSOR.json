@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 39,
-  "last_completed_session": 38,
-  "status": "in_progress",
+  "last_completed_session": 39,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-39-phatz-policy-and-family-search",
-  "base_commit": "8b945fdb3601f861487581ad2c4a3fcec260b28d",
-  "task": "Add in-game Phatz acceptance management and split stock browsing into family search commands",
-  "resume_instruction": "Implement admin-only phatz add/remove/list using linked AO items and a durable data-side policy with immediate Banker visibility. Make stock show all inventory; move symbiant search to symb/symbs and add spirit/spirits, dyna/nano/nanos, and phat/phatz family searches. Preserve AP-member authorization for browsing and admin-only mutation."
+  "transaction": null,
+  "base_commit": "903e3da7bd80a1cb057ac18ae3e754bc1068a393",
+  "task": "Owner Release build, fresh nine-banker audit, and live AO validation of family stock commands, Phatz policy, and occupancy status",
+  "resume_instruction": "Pull master, rebuild Release, run CityDwellers.exe bankers-bagaudit, then validate #status occupancy plus #stock, #symb, #spirit, #dyna, and #phatz. As an admin, add an expendable linked item with #phatz add <link> -1, confirm Central accepts/routes it, then remove it and return the full build/audit/live log."
 }
