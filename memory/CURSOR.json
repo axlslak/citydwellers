@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 55,
-  "last_completed_session": 54,
-  "status": "in_progress",
+  "last_completed_session": 55,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-55-withdrawal-return-finalization",
-  "base_commit": "e1b34597b4f4f7ca8b037c25050e0acfaa91779a",
-  "task": "Finalize safely restored withdrawal returns after ephemeral result cleanup",
-  "resume_instruction": "Allow a return-queued withdrawal to expire when its dispatch batch is absent and the exact original transaction item is restored in canonical stock, even if the transient worker result has already been consumed."
+  "transaction": null,
+  "base_commit": "6e05e5595225b3689a0b1f4d558ebc048f45d5eb",
+  "task": "Owner build and live stale withdrawal cleanup validation",
+  "resume_instruction": "Pull master and build Release. Start the unified runtime and verify the two restored Kbexte returns become expired, status drops to Orders 0/4 with no reservations, and both items reappear in stock output."
 }
