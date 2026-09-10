@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 46,
+  "current_session": 47,
   "last_completed_session": 46,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "c9e4ecc27e6462afde57820efa82a5dae40b69e0",
-  "task": "Owner rebuild and isolated Flipper validation",
-  "resume_instruction": "Pull master and rebuild. Confirm all six projects succeed and Flipper.exe is produced, then after the AO cooldown run CityDwellers.exe flipper-login-test once."
+  "transaction": "session-47-restore-known-good-flipper",
+  "base_commit": "0ba0fbc60138cca8a96dbe08aeddf99e28a4b3f9",
+  "task": "Restore the last live-proven Flipper code while retaining current Banker features",
+  "resume_instruction": "Restore Flipper host/plugin behavior from known-good commit 548e37a2f126684f58f97e571f331bdc4805dea5 and remove the disproved process-isolation experiment. Preserve all subsequent Banker functionality."
 }
