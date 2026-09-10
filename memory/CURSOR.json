@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 45,
+  "current_session": 46,
   "last_completed_session": 45,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "57ca9983ca571babd0a442b77bc6b1c45a9dc0b3",
-  "task": "Owner Release build and isolated Flipper validation",
-  "resume_instruction": "Pull master and rebuild the full Release solution, confirming Flipper.exe is produced beside CityDwellers.exe. After AO's crashed-session cooldown expires, run CityDwellers.exe flipper-login-test once. If it reaches InPlay, start CityDwellers.exe normally and test #cloak; return complete Flipper and host output for either failure."
+  "transaction": "session-46-flipper-assembly-metadata",
+  "base_commit": "6d6761127f9440027d6d1435a668b25d17467904",
+  "task": "Restore the standalone Flipper project's missing assembly metadata file",
+  "resume_instruction": "Add executables/Flipper/Properties/AssemblyInfo.cs so the restored Flipper project can compile, then publish and return the cursor to idle."
 }
