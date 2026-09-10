@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 49,
-  "last_completed_session": 48,
-  "status": "in_progress",
+  "last_completed_session": 49,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-49-live-inventory-withdrawal-recovery",
-  "base_commit": "750e214d4a4b20126b962bb0309c2434b9fd70a9",
-  "task": "Make worker inventory observable and recover successful withdrawal extraction without replaying an emptied source slot",
-  "resume_instruction": "Inspect the live-inventory withdrawal failure reported for wd-4c6469303ffd48049e8c6da81584b15b. The item was physically present loose in Kbexte inventory after WaitItemInventory timed out. Add an administrator-visible per-banker inventory listing and make extraction recovery trust/reconcile live inventory before retrying the old audited bag slot. Preserve custody and accounting fail-closed behavior."
+  "transaction": null,
+  "base_commit": "2097c3e9a54907800055c661e30412794bfddece",
+  "task": "Owner build and live Kbexte withdrawal/inventory-command validation",
+  "resume_instruction": "Pull master and build Release. Start normally; the held Kbexte withdrawal should be uniquely recognized from the fresh worker inventory heartbeat, return any staged bank bag, and continue to Central without replaying the old source slot. Verify #inventory, #inventory exte, and #inventory Kbexte as an administrator."
 }
