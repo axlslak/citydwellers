@@ -1543,3 +1543,25 @@ continues through ordinary exact matching. AO Finished plus physical worker
 inventory and bag-placement observation remain required. No assistant-side
 compilation or live AO test was run; Kavey owns Release build and the preserved
 six-item Spirit batch retry.
+
+## 2026-09-10 — Six-item internal dispatch ceiling
+
+Live validation separated incremental cache publication from capacity. The
+previous failed six-Spirit batch recovered and physically stored all six after
+one-at-a-time staging was introduced. The immediately following donation sent
+ten Spirits to one destination; that batch timed out three times with the
+worker reporting `ExpectedCount=10`, `StoredCount=0`, while Central verified
+all ten occurrences returned. Six succeeds and ten does not, establishing a
+six-item effective capacity for these internal AO trades.
+
+`[IMPLEMENTED]` The ten-item player donation limit is unchanged. Routed items
+for each worker are now emitted as ordered dispatch chunks containing at most
+six occurrences, and the existing serialized queue processes them separately.
+Recovery also upgrades an already-failed oversized pre-transfer batch: only
+after verifying the complete expected multiset on Central, it retains the
+original batch ID for the first six and inserts additional same-transaction
+chunks for the remainder. No item is guessed, moved during splitting, or
+declared stored without the existing AO Finished and physical placement
+proofs. No assistant-side compilation or live AO test was run; Kavey owns the
+Release build and live recovery of the preserved ten-Spirit batch as six plus
+four.

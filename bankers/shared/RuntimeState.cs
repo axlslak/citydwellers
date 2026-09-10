@@ -16,6 +16,7 @@ namespace CityBankers.Shared
     {
         public const string TrustedAdminName = "Kavem";
         public const int MaxTradeItems = 10;
+        public const int MaxInternalTradeItems = 6;
         public const int MaxStoredCopiesPerTemplate = 10;
         public const int DonationInactivitySeconds = 30;
         public const int EmptyTradeTimeoutSeconds = 30;

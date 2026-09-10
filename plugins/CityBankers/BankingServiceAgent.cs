@@ -968,18 +968,27 @@ namespace CityBankers
                     continue;
                 }
 
-                queue.Batches.Add(new DispatchBatchState
+                List<TransferItemState> routedItems = group.ToList();
+                for (int offset = 0; offset < routedItems.Count;
+                    offset += ServicePolicy.MaxInternalTradeItems)
                 {
-                    BatchId = "batch-" + Guid.NewGuid().ToString("N"),
-                    TransactionId = transactionId,
-                    Role = group.Key,
-                    Character = destination.Character,
-                    Status = "queued",
-                    CreatedUtc = DateTime.UtcNow,
-                    UpdatedUtc = DateTime.UtcNow,
-                    AttemptCount = 0,
-                    Items = group.ToList()
-                });
+                    DateTime createdUtc = DateTime.UtcNow;
+                    queue.Batches.Add(new DispatchBatchState
+                    {
+                        BatchId = "batch-" + Guid.NewGuid().ToString("N"),
+                        TransactionId = transactionId,
+                        Role = group.Key,
+                        Character = destination.Character,
+                        Status = "queued",
+                        CreatedUtc = createdUtc,
+                        UpdatedUtc = createdUtc,
+                        AttemptCount = 0,
+                        Items = routedItems
+                            .Skip(offset)
+                            .Take(ServicePolicy.MaxInternalTradeItems)
+                            .ToList()
+                    });
+                }
             }
         }
 

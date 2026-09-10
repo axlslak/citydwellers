@@ -1327,3 +1327,13 @@ resilience and restart change:
 - `[INVARIANT]` AO Finished and worker-side normal-inventory/bag placement
   verification remain authoritative. Partial caches alone cannot start or
   complete storage.
+- `[VERIFIED-LIVE]` The repaired six-item Spirit retry completed and stored
+  all six. A following ten-item Spirit donation then reproduced the timeout
+  with `ExpectedCount=10`, `StoredCount=0`, proving the remaining boundary was
+  batch size rather than incremental staging.
+- `[IMPLEMENTED]` Player donations may still contain ten items, but routed
+  Central-to-worker work is deterministically chunked into batches of at most
+  six per destination. A failed oversized pre-transfer batch is split only
+  after Central verifies its entire expected multiset has returned; the
+  original batch retains its ID for the first chunk and later chunks receive
+  new IDs under the same donation transaction.

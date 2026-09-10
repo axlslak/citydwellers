@@ -196,6 +196,8 @@ namespace CityBankers
                     return;
 
                 string priorError = batch.LastError;
+                List<TransferItemState> originalItems = batch.Items.ToList();
+                int splitCount = SplitOversizedBatch(queue, batch);
                 batch.Status = "queued";
                 batch.UpdatedUtc = DateTime.UtcNow;
                 batch.LastError =
@@ -220,7 +222,7 @@ namespace CityBankers
                         Message =
                             "Known pre-transfer failure recovered only after Central physically " +
                             "verified every expected occurrence. Prior error: " + priorError,
-                        Items = batch.Items.Select(item => new LedgerItem
+                        Items = originalItems.Select(item => new LedgerItem
                         {
                             UniqueIdentity = item?.UniqueIdentity,
                             AoId = item?.AoId ?? 0,
@@ -233,8 +235,11 @@ namespace CityBankers
 
                 string notice =
                     "Recovered failed " + batch.Role + " batch " + ShortId(batch.BatchId) +
-                    ": verified " + batch.Items.Count +
-                    " expected item(s) back in Central inventory; requeued for a clean retry.";
+                    ": verified " + originalItems.Count +
+                    " expected item(s) back in Central inventory; " +
+                    (splitCount > 1
+                        ? "split into " + splitCount + " safe internal batches and requeued."
+                        : "requeued for a clean retry.");
                 Logger.Information("[CityBankers] " + notice);
                 TellKavem(notice);
             }
@@ -260,6 +265,45 @@ namespace CityBankers
                    error.StartsWith(
                        "Internal worker trade timed out. Any incomplete outgoing AO trade is declined so offered items return to Central inventory.",
                        StringComparison.Ordinal);
+        }
+
+        private static int SplitOversizedBatch(
+            DispatchQueueState queue,
+            DispatchBatchState batch)
+        {
+            if (queue == null || batch == null || batch.Items == null ||
+                batch.Items.Count <= ServicePolicy.MaxInternalTradeItems)
+            {
+                return 1;
+            }
+
+            List<TransferItemState> original = batch.Items.ToList();
+            int batchIndex = queue.Batches.IndexOf(batch);
+            int splitCount = (original.Count + ServicePolicy.MaxInternalTradeItems - 1) /
+                ServicePolicy.MaxInternalTradeItems;
+            batch.Items = original.Take(ServicePolicy.MaxInternalTradeItems).ToList();
+
+            for (int part = 1; part < splitCount; part++)
+            {
+                DateTime createdUtc = DateTime.UtcNow;
+                queue.Batches.Insert(batchIndex + part, new DispatchBatchState
+                {
+                    BatchId = "batch-" + Guid.NewGuid().ToString("N"),
+                    TransactionId = batch.TransactionId,
+                    Role = batch.Role,
+                    Character = batch.Character,
+                    Status = "queued",
+                    CreatedUtc = createdUtc,
+                    UpdatedUtc = createdUtc,
+                    AttemptCount = 0,
+                    Items = original
+                        .Skip(part * ServicePolicy.MaxInternalTradeItems)
+                        .Take(ServicePolicy.MaxInternalTradeItems)
+                        .ToList()
+                });
+            }
+
+            return splitCount;
         }
 
         private static bool IsWorkerPreReceiptFailure(StorageBatchResult result)
