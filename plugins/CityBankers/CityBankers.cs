@@ -197,7 +197,22 @@ namespace CityBankers
                 ObservedUtc = DateTime.UtcNow,
                 Character = Client.CharacterName,
                 InPlay = Client.InPlay,
-                BankOpen = Inventory.Bank != null && Inventory.Bank.IsOpen
+                BankOpen = Inventory.Bank != null && Inventory.Bank.IsOpen,
+                InventoryFreeSlots = Inventory.NumFreeSlots,
+                InventoryItems = (Inventory.Items ?? new List<Item>())
+                    .Where(item => item != null && item.Slot.Type == IdentityType.Inventory)
+                    .OrderBy(item => item.Slot.Instance)
+                    .Select(item => new InventoryItemSnapshot
+                    {
+                        Slot = item.Slot.Instance,
+                        UniqueIdentity = item.UniqueIdentity.ToString(),
+                        AoId = item.Id,
+                        HighId = item.HighId,
+                        Ql = item.Ql,
+                        Name = item.Name ?? string.Empty,
+                        IsContainer = item.UniqueIdentity.Type == IdentityType.Container
+                    })
+                    .ToList()
             });
         }
 
@@ -665,6 +680,19 @@ namespace CityBankers
             public string Character;
             public bool InPlay;
             public bool BankOpen;
+            public int InventoryFreeSlots;
+            public List<InventoryItemSnapshot> InventoryItems;
+        }
+
+        public class InventoryItemSnapshot
+        {
+            public int Slot;
+            public string UniqueIdentity;
+            public int AoId;
+            public int HighId;
+            public int Ql;
+            public string Name;
+            public bool IsContainer;
         }
 
         public class PlayerSnapshot

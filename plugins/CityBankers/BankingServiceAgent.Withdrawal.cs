@@ -7,6 +7,7 @@ using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
 using CityBankers.Shared;
+using Newtonsoft.Json.Linq;
 
 namespace CityBankers
 {
@@ -162,12 +163,50 @@ namespace CityBankers
             return true;
         }
 
-        private static bool CanRetryWithdrawalExtraction(WithdrawalState row)
+        private bool CanRetryWithdrawalExtraction(WithdrawalState row)
         {
-            return WithdrawalStore.HasStatus(row, "failed") && row.RecoveryAttempts == 0 &&
+            if (!WithdrawalStore.HasStatus(row, "failed") || row.DeliveredUtc.HasValue ||
+                !string.IsNullOrWhiteSpace(row.CentralItemIdentity))
+                return false;
+
+            if (row.RecoveryAttempts <= 1 && WorkerHeartbeatHasUniqueLooseMatch(row))
+                return true;
+
+            return row.RecoveryAttempts == 0 &&
                 !row.DeliveredUtc.HasValue && string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
                 (row.Error ?? string.Empty).StartsWith(
                     "Timed out during worker extraction phase WaitItemInventory.", StringComparison.Ordinal);
+        }
+
+        private bool WorkerHeartbeatHasUniqueLooseMatch(WithdrawalState row)
+        {
+            if (row?.Item == null || string.IsNullOrWhiteSpace(row.SourceCharacter))
+                return false;
+            string token = string.Concat(row.SourceCharacter.Where(char.IsLetterOrDigit));
+            JObject heartbeat = RuntimeStateStore.ReadJson<JObject>(System.IO.Path.Combine(
+                RuntimeStateStore.GetDataDirectory(_settingsDir),
+                "citybankers-health-" + token + ".json"));
+            JArray items = heartbeat?["InventoryItems"] as JArray;
+            if (items == null)
+                return false;
+            List<JToken> matches = items.Where(item =>
+                item != null && !((bool?)(item["IsContainer"] ?? item["isContainer"]) ?? false) &&
+                LiveInventorySnapshotMatches(item, row)).ToList();
+            return matches.Count == 1;
+        }
+
+        private static bool LiveInventorySnapshotMatches(JToken item, WithdrawalState row)
+        {
+            string identity = (string)(item["UniqueIdentity"] ?? item["uniqueIdentity"]);
+            if (!string.IsNullOrWhiteSpace(row.SourceItemIdentity) &&
+                !string.Equals(row.SourceItemIdentity, "(None:0000)", StringComparison.Ordinal) &&
+                string.Equals(identity, row.SourceItemIdentity, StringComparison.Ordinal))
+                return true;
+            int ql = (int?)(item["Ql"] ?? item["ql"]) ?? -1;
+            string name = (string)(item["Name"] ?? item["name"]);
+            return ql == row.Item.Ql && string.Equals(
+                name ?? string.Empty, row.Item.Name ?? string.Empty,
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private bool TickWithdrawalWorker()
@@ -353,6 +392,11 @@ namespace CityBankers
             Item loose = FindWithdrawalInventoryItem(_withdrawal);
             if (loose != null)
             {
+                Logger.Warning(
+                    "[CityBankers] WITHDRAWAL LIVE INVENTORY RECOVERY " +
+                    (_withdrawal?.Id ?? "?") + ": uniquely recognized " +
+                    (loose.Name ?? "reserved item") + " in " + Client.CharacterName +
+                    " normal inventory; the old audited source slot will not be replayed.");
                 if (string.Equals(_withdrawal.SourceBag, "bank", StringComparison.OrdinalIgnoreCase))
                 {
                     StorageState recoveryState = RuntimeStateStore.LoadStorageState(_settingsDir);
@@ -459,6 +503,13 @@ namespace CityBankers
                 FailWithdrawal(_withdrawal, "The exact reserved item is not in its audited inner slot.");
                 return;
             }
+            _withdrawal.PreExtractionInventorySlots = (Inventory.Items ?? new List<Item>())
+                .Where(value => value != null && value.Slot.Type == IdentityType.Inventory)
+                .Select(value => value.Slot.Instance)
+                .Distinct()
+                .OrderBy(value => value)
+                .ToList();
+            WithdrawalStore.Save(_settingsDir, _withdrawal);
             item.MoveToContainer(DynelManager.LocalPlayer.Identity);
             _withdrawalItemMoveAttempts = 1;
             _withdrawalNextItemMoveRetryUtc = DateTime.UtcNow.AddSeconds(1);
@@ -499,6 +550,14 @@ namespace CityBankers
                 "[CityBankers] WITHDRAWAL ITEM OBSERVED " + (_withdrawal?.Id ?? "?") +
                 ": exact reserved item is now in " + Client.CharacterName +
                 " normal inventory; continuing extraction.");
+            if (!string.Equals(
+                    _withdrawal.ExtractedItemIdentity,
+                    extracted.UniqueIdentity.ToString(),
+                    StringComparison.Ordinal))
+            {
+                _withdrawal.ExtractedItemIdentity = extracted.UniqueIdentity.ToString();
+                WithdrawalStore.Save(_settingsDir, _withdrawal);
+            }
             if (_withdrawalBankBag)
             {
                 Item bag = FindInventoryBagByIdentity(_withdrawalBagIdentity);
@@ -741,6 +800,7 @@ namespace CityBankers
             return reservations.Any(row =>
                 WithdrawalStore.IsActive(row) && !WithdrawalStore.HasStatus(row, "return-queued") &&
                 (row.CentralItemIdentity == item.UniqueIdentity.ToString() ||
+                 row.ExtractedItemIdentity == item.UniqueIdentity.ToString() ||
                  row.SourceItemIdentity == item.UniqueIdentity.ToString() ||
                  (string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
                   (WithdrawalStore.HasStatus(row, "failed") ||
@@ -764,6 +824,16 @@ namespace CityBankers
                 return exactCentral.Count == 1 ? exactCentral[0] : null;
             }
 
+            if (!string.IsNullOrWhiteSpace(state?.ExtractedItemIdentity))
+            {
+                List<Item> exactExtracted = inventory.Where(item => string.Equals(
+                    item.UniqueIdentity.ToString(),
+                    state.ExtractedItemIdentity,
+                    StringComparison.Ordinal)).ToList();
+                if (exactExtracted.Count == 1)
+                    return exactExtracted[0];
+            }
+
             if (!string.IsNullOrWhiteSpace(state?.SourceItemIdentity) &&
                 !string.Equals(state.SourceItemIdentity, "(None:0000)", StringComparison.Ordinal))
             {
@@ -781,7 +851,24 @@ namespace CityBankers
             List<Item> matches = inventory.Where(item => MatchesWithdrawalItem(item, state) &&
                 !others.Any(row => !string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
                     row.CentralItemIdentity == item.UniqueIdentity.ToString())).ToList();
-            return matches.Count == 1 ? matches[0] : null;
+            if (matches.Count == 1)
+                return matches[0];
+
+            // AO can assign a different live identity/template representation while moving
+            // a bag item into normal inventory. The pre-move slot census still proves which
+            // single new slot appeared, and name+QL ties that occurrence to the reservation.
+            // This is deliberately unique-or-nothing so an unrelated inventory change can
+            // never be guessed as the withdrawn item.
+            var priorSlots = new HashSet<int>(state.PreExtractionInventorySlots ?? new List<int>());
+            List<Item> named = inventory.Where(item =>
+                    item.Ql == state.Item.Ql &&
+                    string.Equals(item.Name ?? string.Empty, state.Item.Name ?? string.Empty,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    (priorSlots.Count == 0 || !priorSlots.Contains(item.Slot.Instance)) &&
+                    !others.Any(row => !string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
+                        row.CentralItemIdentity == item.UniqueIdentity.ToString()))
+                .ToList();
+            return named.Count == 1 ? named[0] : null;
         }
 
         private void FailWithdrawal(WithdrawalState state, string error)

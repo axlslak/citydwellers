@@ -80,7 +80,9 @@ namespace CityManager
                 "ban",
                 "unban",
                 "dump",
-                "restart"
+                "restart",
+                "inventory",
+                "inv"
             };
 
         private readonly object _stateSync = new object();
@@ -440,6 +442,7 @@ namespace CityManager
                   command == "positions" ||
                   command == "dump" ||
                   command == "restart") && parts.Length == 1) ||
+                ((command == "inventory" || command == "inv") && parts.Length <= 2) ||
                 (command == "help" && parts.Length <= 3) ||
                 (command == "donor" && parts.Length <= 2) ||
                 ((command == "withdraw" || command == "get") && parts.Length == 2) ||
@@ -622,6 +625,11 @@ namespace CityManager
                 case "withdraw":
                 case "get":
                     ProcessBankerWithdrawalCommand(senderName, parts, replyTarget);
+                    break;
+
+                case "inventory":
+                case "inv":
+                    ProcessBankerInventoryCommand(parts, replyTarget);
                     break;
 
                 case "alts":

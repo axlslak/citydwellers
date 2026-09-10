@@ -31,6 +31,8 @@ namespace CityBankers.Shared
         public int SourceBagOuterSlot;
         public int SourceInnerSlot;
         public string SourceItemIdentity;
+        public List<int> PreExtractionInventorySlots = new List<int>();
+        public string ExtractedItemIdentity;
         public string CentralItemIdentity;
         public string ReturnBatchId;
         public string Error;

@@ -1410,3 +1410,27 @@ ignores all packets except the local character's `CharInPlay`, sends no game
 action, and reports only login success or disconnect failure. A passing result
 is deliberately excluded from cloak cache because it contains no city-state
 observation.
+
+## 2026-09-10 — Live banker inventory and withdrawal recovery
+
+A live extermination withdrawal proved that AO had moved the exact reserved
+item out of its audited bag while the withdrawal matcher continued waiting for
+normal inventory. The worker timed out, and Central's one automatic replay
+then checked the old inner slot and stopped because that slot was correctly
+empty. Manual inspection found the item loose in Kbexte inventory, establishing
+that physical extraction succeeded and observation—not custody—failed.
+
+Banker health snapshots now publish the complete ordinary inventory census.
+The administrator-only `inventory`/`inv` command shows every banker's used,
+free, and loose counts, then opens a per-role or per-character slot list with
+clickable AO items. This makes clientless inventory directly observable without
+stopping the fleet.
+
+Withdrawal extraction now records the pre-move inventory slots, retains the
+post-move live identity once recognized, and uses a unique name+QL/new-slot
+fallback only after exact identity and template matching fail. Central may
+resume a failed extraction from a fresh worker heartbeat only when exactly one
+matching loose item exists; the worker then returns the staged bag and proceeds
+to Central without touching the emptied source slot. Ambiguous or absent
+inventory remains a hard stop. No assistant-side compilation or live AO test
+was run; Kavey owns the Release build and recovery validation.

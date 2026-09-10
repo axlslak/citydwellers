@@ -1181,6 +1181,30 @@ resilience and restart change:
 - `[VERIFIED-LIVE]` All nine banker clients opened the office-building bank
   through the guarded terminal identity fallback.
 
+## Live banker inventory and withdrawal extraction recovery (2026-09-10)
+
+- `[VERIFIED-LIVE]` Withdrawal `wd-4c6469303ffd48049e8c6da81584b15b`
+  removed the reserved item from its audited Kbexte bag slot, but the existing
+  matcher did not recognize it in normal inventory. The owner verified the
+  item was physically present there. The immediate retry then failed against
+  the now-empty old slot.
+- `[IMPLEMENTED]` Every banker heartbeat contains its current normal-inventory
+  slots, identities, item template IDs, QL, names, and container flag.
+  Administrators can use `#inventory`/`#inv` for the nine-banker summary and
+  `#inventory <role|character>` for a live slot-by-slot AO-link window.
+- `[IMPLEMENTED]` Before bag extraction, the worker persists its occupied
+  inventory slots. Post-move recognition still prefers exact identity and
+  template matching, then permits only one unique name+QL item in a newly
+  occupied slot. The recognized live identity is retained for subsequent
+  trade phases.
+- `[INVARIANT]` A failed withdrawal may resume from worker inventory only when
+  its fresh heartbeat contains exactly one matching loose item. That recovery
+  bypasses the emptied audited source slot and remains bounded; ambiguity
+  continues to fail closed.
+- `[OPEN]` Kavey owns the Release build and live validation that the existing
+  Kbexte-held item resumes to Central, and that inventory windows display all
+  nine workers without stopping the host.
+
 ## Automatic startup storage enrollment (2026-09-10)
 
 - `[VERIFIED-LIVE]` The office-building identity fallback opened all nine

@@ -335,6 +335,7 @@ namespace CityManager
                 body.Append(HelpSyntaxLine(target, "invite [character]", "Invite a character to guest chat."));
                 body.Append(HelpSyntaxLine(target, "kick [character]", "Remove a character from guest chat."));
                 body.Append(HelpSyntaxLine(target, "positions", "Open live Buddy positions."));
+                body.Append(HelpSyntaxLine(target, "inventory [role|character]", "Inspect live banker inventory. Alias: inv."));
                 body.Append(HelpSyntaxLine(target, "home [level|all|status]", "Start or inspect home movement."));
                 body.Append(HelpSyntaxLine(target, "wakeup [level] [index]", "Start one Buddy."));
                 body.Append(HelpSyntaxLine(target, "sleep [index]", "Stop one Buddy."));

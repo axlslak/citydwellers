@@ -155,6 +155,117 @@ namespace CityManager
             return token != null && bool.TryParse(token.ToString(), out value) && value;
         }
 
+        private void ProcessBankerInventoryCommand(string[] parts, ReplyTarget target)
+        {
+            if (parts == null || parts.Length > 2)
+            {
+                Reply(target, Usage(target, "inventory [role|character]"));
+                return;
+            }
+
+            JObject bankers = CityBankers.Shared.SettingsPaths.ReadBankersSettings(_settingsDir);
+            JObject roles = bankers.GetValue("Roles", StringComparison.OrdinalIgnoreCase) as JObject;
+            var mappings = new List<KeyValuePair<string, string>>();
+            foreach (JProperty property in roles?.Properties() ?? Enumerable.Empty<JProperty>())
+            {
+                JObject config = property.Value as JObject;
+                string character = config?.GetValue("Character", StringComparison.OrdinalIgnoreCase)?.ToString();
+                if (!string.IsNullOrWhiteSpace(character))
+                    mappings.Add(new KeyValuePair<string, string>(property.Name, character));
+            }
+
+            if (parts.Length == 1)
+            {
+                var summary = new StringBuilder();
+                summary.Append(HelpHeader("Banker Inventory", "Live normal-inventory snapshots from each banker."));
+                foreach (KeyValuePair<string, string> mapping in mappings)
+                {
+                    JObject heartbeat = ReadBankerHeartbeat(mapping.Value);
+                    JArray items = heartbeat?["InventoryItems"] as JArray;
+                    bool live = BankerHeartbeatIsLive(heartbeat);
+                    int free = ParseDonationInt(heartbeat?["InventoryFreeSlots"]);
+                    int count = items?.Count ?? 0;
+                    int loose = items?.Count(item => !((bool?)item["IsContainer"] ?? false)) ?? 0;
+                    summary.Append("  <font color='").Append(ColorText).Append("'><b>")
+                        .Append(EscapeBlobText(mapping.Value)).Append("</b></font> ")
+                        .Append("<font color='").Append(ColorMuted).Append("'>")
+                        .Append(live && items != null
+                            ? count + " used · " + free + " free · " + loose + " loose"
+                            : "snapshot unavailable")
+                        .Append("</font> ")
+                        .Append(CommandLink(target, "inventory " + mapping.Key, "LIST"))
+                        .Append("\n");
+                }
+                Reply(target, BuildBlobLinks(target, "Banker Inventory", "Open banker inventories", summary.ToString()));
+                return;
+            }
+
+            string selector = parts[1];
+            KeyValuePair<string, string> selected = mappings.FirstOrDefault(mapping =>
+                string.Equals(mapping.Key, selector, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(mapping.Value, selector, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrWhiteSpace(selected.Value))
+            {
+                Reply(target, "Unknown banker role or character: " + selector + ".");
+                return;
+            }
+
+            JObject selectedHeartbeat = ReadBankerHeartbeat(selected.Value);
+            JArray selectedItems = selectedHeartbeat?["InventoryItems"] as JArray;
+            if (!BankerHeartbeatIsLive(selectedHeartbeat) || selectedItems == null)
+            {
+                Reply(target, selected.Value + " has not published a live inventory snapshot yet.");
+                return;
+            }
+
+            var body = new StringBuilder();
+            body.Append(HelpHeader(selected.Value + " Inventory",
+                "Live normal inventory; containers and loose items are both shown."));
+            foreach (JToken item in selectedItems.OrderBy(value => (int?)value["Slot"] ?? int.MaxValue))
+            {
+                int slot = (int?)item["Slot"] ?? -1;
+                int aoid = (int?)item["AoId"] ?? 0;
+                int highid = (int?)item["HighId"] ?? aoid;
+                int ql = (int?)item["Ql"] ?? 0;
+                string name = (string)item["Name"] ?? "Unnamed item";
+                bool container = (bool?)item["IsContainer"] ?? false;
+                body.Append("  <font color='").Append(ColorMuted).Append("'>slot ")
+                    .Append(slot.ToString("X4", CultureInfo.InvariantCulture)).Append("</font> ");
+                if (!container && aoid > 0 && highid > 0)
+                    body.Append("<a href='itemref://").Append(aoid).Append("/").Append(highid)
+                        .Append("/").Append(ql).Append("'>").Append(EscapeBlobText(name)).Append("</a>");
+                else
+                    body.Append("<font color='").Append(ColorText).Append("'>")
+                        .Append(EscapeBlobText(name)).Append("</font>");
+                body.Append(" <font color='").Append(ColorMuted).Append("'>QL ")
+                    .Append(ql).Append(container ? " · bag" : " · loose").Append("</font>\n");
+            }
+            int selectedFree = ParseDonationInt(selectedHeartbeat["InventoryFreeSlots"]);
+            body.Append("\n<font color='").Append(ColorMuted).Append("'>")
+                .Append(selectedItems.Count).Append(" used · ").Append(selectedFree)
+                .Append(" free · observed ")
+                .Append(EscapeBlobText(selectedHeartbeat["ObservedUtc"]?.ToString() ?? "unknown"))
+                .Append("</font>");
+            Reply(target, BuildBlobLinks(target, selected.Value + " Inventory",
+                "Open " + selected.Value + " inventory", body.ToString()));
+        }
+
+        private JObject ReadBankerHeartbeat(string character)
+        {
+            string token = string.Concat((character ?? string.Empty).Where(char.IsLetterOrDigit));
+            return RuntimeStateStore.ReadJson<JObject>(Path.Combine(
+                _dataDir, "citybankers-health-" + token + ".json"));
+        }
+
+        private static bool BankerHeartbeatIsLive(JObject heartbeat)
+        {
+            DateTime? observed = (DateTime?)heartbeat?["ObservedUtc"];
+            return heartbeat != null &&
+                ParseDonationInt(heartbeat["ProcessId"]) == Process.GetCurrentProcess().Id &&
+                ParseBool(heartbeat["InPlay"]) &&
+                observed.HasValue && DateTime.UtcNow - observed.Value.ToUniversalTime() < TimeSpan.FromSeconds(15);
+        }
+
         private string BuildInventoryStatusLine(int used, int capacity)
         {
             if (capacity <= 0)
