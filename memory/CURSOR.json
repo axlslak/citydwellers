@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 56,
+  "current_session": 57,
   "last_completed_session": 56,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "2ddc731f847294d735fc2109aa0c7dbb32bdb505",
-  "task": "Owner build and live Central inventory status validation",
-  "resume_instruction": "Pull master and build Release. Verify Banker status shows Kbcentral ordinary inventory occupancy from its heartbeat (currently expected near 3/30) while aggregate Storage remains the eight storage workers only."
+  "transaction": "session-57-internal-trade-staging",
+  "base_commit": "306457ee8bb4a3ffb287acb5454f611a439e2e36",
+  "task": "Make multi-item Central-to-worker trades tolerate incremental AO cache publication",
+  "resume_instruction": "Stage one outgoing item at a time after local-window acknowledgement and permit the trusted worker fallback when its remote cache is incomplete after Central accepted the exact persisted batch."
 }
