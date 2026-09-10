@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 37,
+  "current_session": 38,
   "last_completed_session": 37,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "4a8f77509c5b36c6f82f2d2f9a33c2fcbbc59663",
-  "task": "Owner configuration, rebuild, fresh nine-banker bag audit and live AO validation",
-  "resume_instruction": "Pull master and rebuild Release. After configuring spirit/dyna/phatz, run CityDwellers.exe bankers-bagaudit once before normal startup. Return any new compiler output or live log; owner testing remains authoritative."
+  "transaction": "session-38-per-role-banker-credentials",
+  "base_commit": "35960c747ef7f772b11e15243521fe7d569b2cb6",
+  "task": "Support reconciled per-role Banker credentials and deliver a corrected private configuration",
+  "resume_instruction": "Allow each Bankers.Roles entry to override Password while retaining the shared-password fallback, update the audit path and documentation, then deliver a private config reconciled from the supplied AOQuickLauncher batches with explicit Grid Armor IV and wrapped premium recharger policy examples. Never commit credentials."
 }
