@@ -17,8 +17,12 @@ namespace CityBankers
         private const int DefaultBagMoveTimeoutMs = 3000;
         private const int ProgressInterval = 25;
 
-        private string _commandPath;
-        private string _resultPath;
+        private string _manualCommandPath;
+        private string _manualResultPath;
+        private string _enrollmentCommandPath;
+        private string _enrollmentResultPath;
+        private string _activeCommandPath;
+        private string _activeResultPath;
         private BagAuditCommand _command;
         private List<BagTarget> _bags;
         private List<BagAuditEntry> _entries;
@@ -53,17 +57,23 @@ namespace CityBankers
 
             pluginDir = RuntimeStateStore.GetDataDirectory(settingsDir);
             string token = SafeFileToken(Client.CharacterName);
-            _commandPath = Path.Combine(
+            _manualCommandPath = Path.Combine(
                 pluginDir,
                 $"citybankers-bagaudit-command-{token}.json");
-            _resultPath = Path.Combine(
+            _manualResultPath = Path.Combine(
                 pluginDir,
                 $"citybankers-bagaudit-result-{token}.json");
+            _enrollmentCommandPath = Path.Combine(
+                pluginDir,
+                $"citybankers-enrollment-command-{token}.json");
+            _enrollmentResultPath = Path.Combine(
+                pluginDir,
+                $"citybankers-enrollment-result-{token}.json");
 
             Client.OnUpdate += Tick;
             Logger.Information(
                 $"CityBankers bag-audit agent initialized; runtime state root='{pluginDir}'; " +
-                "idle until an explicit bagaudit command file is present.");
+                "idle until a manual audit or startup enrollment command is present.");
         }
 
         public override void Teardown()
@@ -93,10 +103,23 @@ namespace CityBankers
 
         private void TryStart()
         {
-            if (string.IsNullOrWhiteSpace(_commandPath) ||
-                !File.Exists(_commandPath) ||
-                !Client.InPlay ||
+            if (!Client.InPlay ||
                 !Inventory.Bank.IsOpen)
+            {
+                return;
+            }
+
+            if (File.Exists(_manualCommandPath))
+            {
+                _activeCommandPath = _manualCommandPath;
+                _activeResultPath = _manualResultPath;
+            }
+            else if (File.Exists(_enrollmentCommandPath))
+            {
+                _activeCommandPath = _enrollmentCommandPath;
+                _activeResultPath = _enrollmentResultPath;
+            }
+            else
             {
                 return;
             }
@@ -105,18 +128,18 @@ namespace CityBankers
             try
             {
                 command = JsonConvert.DeserializeObject<BagAuditCommand>(
-                    File.ReadAllText(_commandPath));
+                    File.ReadAllText(_activeCommandPath));
             }
             catch (Exception ex)
             {
-                Logger.Error($"BAG AUDIT could not read command '{_commandPath}': {ex}");
+                Logger.Error($"BAG AUDIT could not read command '{_activeCommandPath}': {ex}");
                 return;
             }
 
             if (command == null || string.IsNullOrWhiteSpace(command.RunId))
             {
                 Logger.Error("BAG AUDIT command is empty or missing RunId.");
-                DeleteIfExists(_commandPath);
+                DeleteIfExists(_activeCommandPath);
                 return;
             }
 
@@ -129,8 +152,8 @@ namespace CityBankers
             _phase = AuditPhase.None;
             _active = true;
 
-            DeleteIfExists(_resultPath);
-            DeleteIfExists(_resultPath + ".tmp");
+            DeleteIfExists(_activeResultPath);
+            DeleteIfExists(_activeResultPath + ".tmp");
 
             Logger.Information(
                 $"BAG AUDIT START run={_command.RunId} character={Client.CharacterName} " +
@@ -142,7 +165,7 @@ namespace CityBankers
                 "free normal-inventory slot, opened/read there, and returned to bank before " +
                 "the next bank bag. Bag contents are never moved, added, deleted, or renamed.");
 
-            DeleteIfExists(_commandPath);
+            DeleteIfExists(_activeCommandPath);
 
             if (_bags.Count == 0)
                 Finish(null);
@@ -727,14 +750,14 @@ namespace CityBankers
                     Bags = _entries ?? new List<BagAuditEntry>()
                 };
 
-                WriteAtomicJson(_resultPath, result);
+                WriteAtomicJson(_activeResultPath, result);
 
                 Logger.Information(
                     $"BAG AUDIT COMPLETE run={result.RunId} character={result.Character} " +
                     $"bags={result.TotalBagCount} opened={result.OpenedCount} " +
                     $"failed={result.FailedCount} empty={result.EmptyCount} " +
                     $"nonempty={result.NonEmptyCount} staged={result.BankStagedCount} " +
-                    $"returned={result.BankReturnedCount} result='{_resultPath}'.");
+                    $"returned={result.BankReturnedCount} result='{_activeResultPath}'.");
             }
             catch (Exception ex)
             {
@@ -750,7 +773,9 @@ namespace CityBankers
                 _pendingEntry = null;
                 _phase = AuditPhase.None;
                 _index = 0;
-                DeleteIfExists(_commandPath);
+                DeleteIfExists(_activeCommandPath);
+                _activeCommandPath = null;
+                _activeResultPath = null;
             }
         }
 

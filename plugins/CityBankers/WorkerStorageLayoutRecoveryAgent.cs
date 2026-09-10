@@ -30,8 +30,10 @@ namespace CityBankers
     public class WorkerStorageLayoutRecoveryAgent : ClientlessPluginEntry
     {
         public const string LayoutReadyFilePrefix = "citybankers-storage-layout-ready-";
+        public const string EnrollmentRequestFilePrefix =
+            "citybankers-enrollment-request-";
 
-        private const string LayoutMutexName = "CityBankers.StorageLayoutRemap.v1";
+        public const string LayoutMutexName = "CityBankers.StorageLayoutRemap.v1";
         private const int PollMilliseconds = 100;
 
         private string _settingsDir;
@@ -41,6 +43,8 @@ namespace CityBankers
         private bool _isCentral;
         private bool _enabled;
         private bool _layoutReady;
+        private string _layoutBaselineRunId;
+        private DateTime _nextBaselineCheckUtc;
         private DateTime _nextPollUtc;
         private string _lastLayoutProblem;
         private RecoveryStorageJob _job;
@@ -85,7 +89,10 @@ namespace CityBankers
             _nextPollUtc = DateTime.UtcNow;
 
             if (!_isCentral)
+            {
                 DeleteIfExists(GetLayoutReadyPath(Client.CharacterName));
+                DeleteIfExists(GetEnrollmentRequestPath(Client.CharacterName));
+            }
 
             Client.OnUpdate += Tick;
 
@@ -101,7 +108,10 @@ namespace CityBankers
 
             Client.OnUpdate -= Tick;
             if (!_isCentral)
+            {
                 DeleteIfExists(GetLayoutReadyPath(Client.CharacterName));
+                DeleteIfExists(GetEnrollmentRequestPath(Client.CharacterName));
+            }
         }
 
         private void Tick(object sender, double deltaTime)
@@ -132,6 +142,8 @@ namespace CityBankers
 
         private void TickWorker()
         {
+            RefreshLayoutReadinessForBaselineChange();
+
             if (!_layoutReady)
             {
                 if (!TryReconcileLiveBagSlots())
@@ -242,7 +254,9 @@ namespace CityBankers
 
                     WriteLayoutReadyMarker(state.BaselineRunId, remapped);
                     _layoutReady = true;
+                    _layoutBaselineRunId = state.BaselineRunId;
                     _lastLayoutProblem = null;
+                    DeleteIfExists(GetEnrollmentRequestPath(Client.CharacterName));
 
                     string notice =
                         "Storage layout ready on " + Client.CharacterName +
@@ -259,6 +273,30 @@ namespace CityBankers
                         mutex.ReleaseMutex();
                 }
             }
+        }
+
+        private void RefreshLayoutReadinessForBaselineChange()
+        {
+            if (!_layoutReady || DateTime.UtcNow < _nextBaselineCheckUtc)
+                return;
+
+            _nextBaselineCheckUtc = DateTime.UtcNow.AddSeconds(1);
+            StorageState current = RuntimeStateStore.LoadStorageState(_settingsDir);
+            string currentRunId = current?.BaselineRunId;
+            if (string.Equals(
+                    currentRunId,
+                    _layoutBaselineRunId,
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _layoutReady = false;
+            _layoutBaselineRunId = null;
+            DeleteIfExists(GetLayoutReadyPath(Client.CharacterName));
+            Logger.Information(
+                "[CityBankers] STORAGE LAYOUT baseline changed on " +
+                Client.CharacterName + "; live reconciliation will run again.");
         }
 
         private List<Item> FindLiveBagsForStoredBag(StorageBagState bag)
@@ -300,6 +338,26 @@ namespace CityBankers
             Logger.Warning(
                 "[CityBankers] STORAGE LAYOUT NOT READY " + Client.CharacterName +
                 ": " + problem);
+            WriteEnrollmentRequest(problem);
+        }
+
+        private void WriteEnrollmentRequest(string problem)
+        {
+            string path = GetEnrollmentRequestPath(Client.CharacterName);
+            string temp = path + ".tmp";
+            var request = new EnrollmentRequest
+            {
+                Format = "citybankers-enrollment-request-v1",
+                Role = _role,
+                Character = Client.CharacterName,
+                ObservedUtc = DateTime.UtcNow,
+                Problem = problem
+            };
+
+            File.WriteAllText(temp, JsonConvert.SerializeObject(request, Formatting.Indented));
+            if (File.Exists(path))
+                File.Delete(path);
+            File.Move(temp, path);
         }
 
         private void WriteLayoutReadyMarker(string baselineRunId, int remapped)
@@ -332,6 +390,20 @@ namespace CityBankers
         private string GetLayoutReadyPath(string character)
         {
             return GetLayoutReadyPath(_settingsDir, character);
+        }
+
+        public static string GetEnrollmentRequestPath(
+            string settingsDir,
+            string character)
+        {
+            return Path.Combine(
+                RuntimeStateStore.GetDataDirectory(settingsDir),
+                EnrollmentRequestFilePrefix + SafeFileToken(character) + ".json");
+        }
+
+        private string GetEnrollmentRequestPath(string character)
+        {
+            return GetEnrollmentRequestPath(_settingsDir, character);
         }
 
         // -----------------------------------------------------------------
@@ -1135,6 +1207,15 @@ namespace CityBankers
             public string BaselineRunId;
             public DateTime ReadyUtc;
             public int RemappedBagCount;
+        }
+
+        private sealed class EnrollmentRequest
+        {
+            public string Format;
+            public string Role;
+            public string Character;
+            public DateTime ObservedUtc;
+            public string Problem;
         }
 
         private sealed class RecoveryStorageJob

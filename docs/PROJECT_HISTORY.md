@@ -1328,3 +1328,27 @@ shape already proven by CityFlipper, targeted at terminal identity instance
 general interaction guess. The existing one-attempt and eight-second bank-open
 confirmation behavior remains intact. No assistant-side compilation or live
 AO test was run; Kavey owns the Release build and terminal validation.
+
+## 2026-09-10 — Automatic startup storage enrollment
+
+Once the city office terminal opened successfully for all nine bankers, normal
+startup still remained blocked because the three new workers were absent from
+`storage-state.json`. Although each client could see its own 120 bags, the
+previous recovery boundary required an operator to stop normal service and run
+a separate full `bankers-bagaudit` process.
+
+Normal startup can now repair that authority gap itself. Central waits for
+fresh bank-open diagnostics from every banker, allows the ordinary live layout
+agents to settle, and then audits only workers whose maps are missing, empty,
+or rejected by current live reconciliation. Audits are sequential across
+workers and staged one bag at a time. Readiness has an explicit enrollment hold
+and cannot release trades or dispatch during the operation.
+
+Only a complete audit with every bag opened and every bank bag verified
+returned may be merged. The merge runs under both the live-layout and canonical
+runtime-state locks, replaces only the affected worker, preserves every other
+worker and the ledger, and carries forward known item transaction provenance
+by unique identity. Failure archives the evidence, stops before another bag is
+touched, and leaves readiness closed. Manual full audit mode remains available
+for deliberate operator diagnostics. No assistant-side compilation or live AO
+test was run; Kavey owns the Release build and sequential enrollment test.

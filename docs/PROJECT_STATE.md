@@ -1163,10 +1163,33 @@ resilience and restart change:
 - `[INVARIANT]` The fallback is one-shot and read-only, retains the existing
   eight-second `Inventory.Bank.IsOpen` confirmation timeout, and cannot fire
   in another playfield or away from the verified terminal coordinates.
-- `[OPEN]` Kavey owns the Release build and live confirmation that all banker
-  clients open the bank through this identity fallback. Missing Spirit, Dyna,
-  and Phatz storage baselines remain a separate follow-up after bank access is
-  proven.
+- `[VERIFIED-LIVE]` All nine banker clients opened the office-building bank
+  through the guarded terminal identity fallback.
+
+## Automatic startup storage enrollment (2026-09-10)
+
+- `[VERIFIED-LIVE]` The office-building identity fallback opened all nine
+  banks. Five established storage workers reconciled normally; Spirit, Dyna,
+  and Phatz each exposed 102 bank bags plus 18 inventory bags but could not
+  become ready because operational state had no worker entry for them.
+- `[IMPLEMENTED]` Normal startup now detects a missing/empty configured worker
+  map or a current-run live-layout rejection. After all nine banks have fresh
+  successful diagnostics and a ten-second settle period, Central audits one
+  affected worker at a time. No separate `bankers-bagaudit` invocation is
+  required for this repair path.
+- `[INVARIANT]` Each bank bag is staged, opened, read, and verified returned
+  before the next bag. A failed, incomplete, mismatched, or timed-out audit
+  halts enrollment for the run and keeps readiness closed.
+- `[INVARIANT]` A validated audit replaces only the affected worker under the
+  live-layout and runtime-state locks. Other workers, ledger history, and known
+  item transaction provenance remain intact. Existing workers automatically
+  repeat live reconciliation when the enrollment baseline identifier changes.
+- `[IMPLEMENTED]` An active-enrollment marker prevents readiness from opening
+  during repair. Completed and rejected audit evidence is archived beneath
+  `data/storage-enrollments`; manual full `bankers-bagaudit` remains available.
+- `[OPEN]` Kavey owns the Release build and live validation of sequential
+  Spirit, Dyna, and Phatz enrollment, final eight-worker readiness, occupancy,
+  and stock publication.
 
 ## Central outbound tell queue (2026-09-08)
 

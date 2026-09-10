@@ -288,6 +288,7 @@ namespace CityDwellers.Shared
                    string.Equals(name, "history", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "tell-queue", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "storage-baselines", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "storage-enrollments", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "physical-states", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "physical-census-v2", StringComparison.OrdinalIgnoreCase);
         }
@@ -486,6 +487,8 @@ namespace CityDwellers.Shared
                 expectedPatterns = new[] { "citybankers-*.log" };
             else if (string.Equals(directoryName, "storage-baselines", StringComparison.OrdinalIgnoreCase))
                 expectedPatterns = new[] { "storage-baseline-*.json", "physical-state-*.json" };
+            else if (string.Equals(directoryName, "storage-enrollments", StringComparison.OrdinalIgnoreCase))
+                expectedPatterns = new[] { "storage-enrollment-*.json" };
             else if (string.Equals(directoryName, "physical-states", StringComparison.OrdinalIgnoreCase))
                 expectedPatterns = new[] { "physical-state-*.json" };
             else

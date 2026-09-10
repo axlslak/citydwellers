@@ -107,7 +107,8 @@ namespace CityBankers
 
                 HoldDispatchQueueForStartup();
 
-                if (!AllFreshDiagnosticsPresent() ||
+                if (StartupStorageEnrollmentCoordinator.IsEnrollmentHoldActive(_settingsDir) ||
+                    !AllFreshDiagnosticsPresent() ||
                     !AllStorageLayoutsReady() ||
                     !AllStorageWriteFrontsReady())
                 {

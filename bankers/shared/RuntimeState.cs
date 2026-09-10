@@ -290,6 +290,104 @@ namespace CityBankers.Shared
                 });
         }
 
+        public static void MergeAuditedStorageWorker(
+            string settingsDir,
+            StorageWorkerState replacement,
+            string baselineRunId,
+            string transactionId)
+        {
+            if (replacement == null)
+                throw new ArgumentNullException("replacement");
+            if (string.IsNullOrWhiteSpace(replacement.Role) ||
+                string.IsNullOrWhiteSpace(replacement.Character))
+            {
+                throw new InvalidOperationException(
+                    "Audited storage worker is missing role or character identity.");
+            }
+
+            WithMutex(StateMutexName, delegate
+            {
+                StorageState state = ReadJson<StorageState>(GetStorageStatePath(settingsDir)) ??
+                    new StorageState();
+                if (state.Workers == null)
+                    state.Workers = new List<StorageWorkerState>();
+
+                StorageWorkerState previous = state.Workers.FirstOrDefault(worker =>
+                    worker != null &&
+                    (string.Equals(
+                         worker.Role,
+                         replacement.Role,
+                         StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(
+                         worker.Character,
+                         replacement.Character,
+                         StringComparison.OrdinalIgnoreCase)));
+                PreserveAuditedItemMetadata(previous, replacement);
+
+                state.Workers.RemoveAll(worker => worker != null &&
+                    (string.Equals(
+                         worker.Role,
+                         replacement.Role,
+                         StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(
+                         worker.Character,
+                         replacement.Character,
+                         StringComparison.OrdinalIgnoreCase)));
+                state.Workers.Add(replacement);
+                state.BaselineRunId = baselineRunId;
+                state.UpdatedUtc = DateTime.UtcNow;
+
+                WriteJsonAtomic(GetStorageStatePath(settingsDir), state);
+                WriteJsonAtomic(
+                    GetCurrentStockPath(settingsDir),
+                    BuildCurrentStock(settingsDir, state));
+            });
+
+            AppendLedger(
+                settingsDir,
+                new LedgerRecord
+                {
+                    Utc = DateTime.UtcNow,
+                    Event = "storage_worker_audit_merged",
+                    TransactionId = transactionId,
+                    Actor = "startup-enrollment",
+                    Role = replacement.Role,
+                    Character = replacement.Character,
+                    Message =
+                        "Audited worker storage map merged from completed startup self-check " +
+                        baselineRunId + "."
+                });
+        }
+
+        private static void PreserveAuditedItemMetadata(
+            StorageWorkerState previous,
+            StorageWorkerState replacement)
+        {
+            if (previous == null)
+                return;
+
+            var known = (previous.Bags ?? new List<StorageBagState>())
+                .Where(bag => bag != null)
+                .SelectMany(bag => bag.Items ?? new List<StoredItemState>())
+                .Where(item => item != null && IsUsableItemIdentity(item.UniqueIdentity))
+                .GroupBy(item => item.UniqueIdentity, StringComparer.Ordinal)
+                .Where(group => group.Count() == 1)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+
+            foreach (StoredItemState item in (replacement.Bags ?? new List<StorageBagState>())
+                .Where(bag => bag != null)
+                .SelectMany(bag => bag.Items ?? new List<StoredItemState>()))
+            {
+                StoredItemState existing;
+                if (item != null && IsUsableItemIdentity(item.UniqueIdentity) &&
+                    known.TryGetValue(item.UniqueIdentity, out existing))
+                {
+                    item.TransactionId = existing.TransactionId;
+                    item.ObservedUtc = existing.ObservedUtc;
+                }
+            }
+        }
+
         public static void SaveDispatchQueue(
             string settingsDir,
             DispatchQueueState state)
