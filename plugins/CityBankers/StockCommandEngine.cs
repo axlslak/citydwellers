@@ -11,11 +11,10 @@ namespace CityBankers
     /// AO-native, current-stock-driven query tree for accepted bank inventory.
     ///
     /// Canonical grammar:
-    ///   stock [family [slot [targetQl]]]
-    ///
-    /// Family names are also root aliases, so "support brain 50" is exactly the
-    /// same query as "stock support brain 50". Incomplete queries navigate the
-    /// current stock tree; a family+slot+QL query answers availability directly.
+    ///   stock
+    ///   symb [family [slot [targetQl]]]
+    ///   spirit [slot [targetQl]]
+    ///   dyna|phatz [partial name|ql]
     /// </summary>
     internal static class StockCommandEngine
     {
@@ -124,15 +123,23 @@ namespace CityBankers
             if (raw.Length == 0)
                 return false;
 
-            int index = 0;
+            int index = 1;
             string family = null;
             if (string.Equals(raw[0], "stock", StringComparison.OrdinalIgnoreCase))
             {
-                index = 1;
+                if (raw.Length != 1)
+                    return false;
             }
-            else if (TryNormalizeFamily(raw[0], out family))
+            else if (string.Equals(raw[0], "symb", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(raw[0], "symbs", StringComparison.OrdinalIgnoreCase))
             {
-                index = 1;
+                // Family is selected from the five symbiant destinations below.
+            }
+            else if (TryNormalizeFamily(raw[0], out family) &&
+                (string.Equals(family, "spirit", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(family, "dyna", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(family, "phatz", StringComparison.OrdinalIgnoreCase)))
+            {
             }
             else
             {
@@ -145,8 +152,10 @@ namespace CityBankers
 
             if (index >= raw.Length)
             {
-                if (family == null)
+                if (family == null && string.Equals(raw[0], "stock", StringComparison.OrdinalIgnoreCase))
                     response = BuildRoot(items, centralCharacter, commandPrefix);
+                else if (family == null)
+                    response = BuildSymbiantRoot(items, centralCharacter, commandPrefix);
                 else
                     response = BuildFamily(items, centralCharacter, commandPrefix, family);
                 return true;
@@ -154,9 +163,9 @@ namespace CityBankers
 
             if (family == null)
             {
-                if (!TryNormalizeFamily(raw[index], out family))
+                if (!TryNormalizeFamily(raw[index], out family) || !IsSymbiantFamily(family))
                 {
-                    response = BuildRoot(items, centralCharacter, commandPrefix);
+                    response = BuildSymbiantRoot(items, centralCharacter, commandPrefix);
                     return true;
                 }
                 index++;
@@ -171,9 +180,15 @@ namespace CityBankers
             if (!IsSlottedFamily(family))
             {
                 int familyQl;
-                response = int.TryParse(raw[index], out familyQl) && familyQl > 0
-                    ? BuildGenericQl(items, centralCharacter, commandPrefix, family, familyQl)
-                    : BuildFamily(items, centralCharacter, commandPrefix, family);
+                string search = string.Join(" ", raw.Skip(index));
+                if (string.Equals(search, "list", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(search, "print", StringComparison.OrdinalIgnoreCase))
+                    response = BuildFamily(items, centralCharacter, commandPrefix, family);
+                else if (int.TryParse(search, out familyQl) && familyQl > 0)
+                    response = BuildGenericQl(items, centralCharacter, commandPrefix, family, familyQl);
+                else
+                    response = BuildGenericSearch(
+                        items, centralCharacter, commandPrefix, family, search);
                 return true;
             }
 
@@ -210,24 +225,29 @@ namespace CityBankers
             string centralCharacter,
             string commandPrefix)
         {
-            var represented = FamilyOrder
-                .Select(family => new
+            var represented = new[]
                 {
-                    Family = family,
-                    Items = FamilyItems(items, family)
+                    new { Key = "symb", Label = "Symbiants", Families = FamilyOrder.Where(IsSymbiantFamily).ToArray() },
+                    new { Key = "spirit", Label = "Spirits", Families = new[] { "spirit" } },
+                    new { Key = "dyna", Label = "Dyna Nanos", Families = new[] { "dyna" } },
+                    new { Key = "phatz", Label = "Phatz", Families = new[] { "phatz" } },
+                    new { Key = (string)null, Label = "Central", Families = new[] { "central" } }
+                }
+                .Select(module => new
+                {
+                    module.Key,
+                    module.Label,
+                    Items = items.Where(item => module.Families.Any(family => string.Equals(
+                        item.Role, family, StringComparison.OrdinalIgnoreCase))).ToList()
                 })
-                .Where(entry => entry.Items.Count > 0)
                 .ToList();
-
-            if (represented.Count == 0)
-                return "CityBankers stock is empty right now.";
 
             // AO root tell has exactly one text:// window. Family labels in the tell stay
             // plain/color-coded; the general stock window itself restores the chatcmd tree.
             string inline = string.Join(
                 " | ",
                 represented.Select(entry =>
-                    CityBankersChatPalette.Cyan(DisplayFamily(entry.Family)) +
+                    CityBankersChatPalette.Cyan(entry.Label) +
                     " " + CityBankersChatPalette.Green(entry.Items.Count.ToString()) +
                     " copies"));
 
@@ -237,10 +257,9 @@ namespace CityBankers
             foreach (var entry in represented)
             {
                 int templates = CountTemplates(entry.Items);
-                body.Append(ChatCommand(
-                    DisplayFamily(entry.Family),
-                    centralCharacter,
-                    commandPrefix + "stock " + entry.Family));
+                body.Append(entry.Key == null
+                    ? CityBankersChatPalette.Cyan(entry.Label)
+                    : ChatCommand(entry.Label, centralCharacter, commandPrefix + entry.Key));
                 body.Append("  ");
                 body.Append(CityBankersChatPalette.Yellow(templates.ToString()));
                 body.Append(templates == 1 ? " type / " : " types / ");
@@ -250,6 +269,35 @@ namespace CityBankers
 
             return "CityBankers currently has: " + inline + ". " +
                 Blob("Open stock", body.ToString());
+        }
+
+        private static string BuildSymbiantRoot(
+            List<StockItemState> items,
+            string centralCharacter,
+            string commandPrefix)
+        {
+            var represented = FamilyOrder.Where(IsSymbiantFamily)
+                .Select(family => new { Family = family, Items = FamilyItems(items, family) })
+                .Where(entry => entry.Items.Count > 0).ToList();
+            if (represented.Count == 0)
+                return "No symbiants are in stock right now. " +
+                    ChatCommand("Stock", centralCharacter, commandPrefix + "stock");
+
+            var body = new StringBuilder();
+            body.Append(CityBankersChatPalette.White("Symbiant Stock"));
+            body.Append("<br><br>");
+            foreach (var entry in represented)
+            {
+                body.Append(ChatCommand(DisplayFamily(entry.Family), centralCharacter,
+                    commandPrefix + "symb " + entry.Family));
+                body.Append("  ");
+                body.Append(CityBankersChatPalette.Yellow(CountTemplates(entry.Items).ToString()));
+                body.Append(" types / ");
+                body.Append(CityBankersChatPalette.Green(entry.Items.Count.ToString()));
+                body.Append(" copies<br>");
+            }
+            return "Symbiants: " + represented.Sum(entry => entry.Items.Count) +
+                " copies in stock. " + Blob("Open symbiants", body.ToString());
         }
 
         private static string BuildFamily(
@@ -286,7 +334,7 @@ namespace CityBankers
                 body.Append(ChatCommand(
                     DisplaySlot(entry.Slot),
                     centralCharacter,
-                    commandPrefix + "stock " + family + " " + entry.Slot));
+                    commandPrefix + FamilyCommand(family, entry.Slot)));
                 body.Append("  ");
                 int templates = CountTemplates(entry.Items);
                 body.Append(Color(templates.ToString(), "#FFFF00"));
@@ -315,7 +363,7 @@ namespace CityBankers
             foreach (var tier in familyItems.GroupBy(item => item.Ql).OrderBy(group => group.Key))
             {
                 body.Append(ChatCommand("QL " + tier.Key, centralCharacter,
-                    commandPrefix + "stock " + family + " " + tier.Key));
+                    commandPrefix + FamilyCommand(family, tier.Key.ToString())));
                 body.Append("  ");
                 body.Append(Color(CountTemplates(tier).ToString(), "#FFFF00"));
                 body.Append(" types / ");
@@ -356,11 +404,51 @@ namespace CityBankers
                 " stocked types. " + Blob("Open items", body.ToString());
         }
 
+        private static string BuildGenericSearch(
+            List<StockItemState> items,
+            string centralCharacter,
+            string commandPrefix,
+            string family,
+            string search)
+        {
+            string needle = (search ?? string.Empty).Trim();
+            List<StockTemplate> templates = GroupTemplates(FamilyItems(items, family)
+                    .Where(item => (item.Name ?? string.Empty).IndexOf(
+                        needle, StringComparison.OrdinalIgnoreCase) >= 0))
+                .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(item => item.Ql)
+                .ToList();
+            if (templates.Count == 0)
+                return "No " + DisplayFamily(family) + " stock matches '" + needle + "'.";
+
+            var body = new StringBuilder();
+            body.Append(CityBankersChatPalette.White(
+                DisplayFamily(family) + " matching " + needle));
+            body.Append("<br><br>");
+            foreach (StockTemplate template in templates)
+            {
+                body.Append(ItemLink(template));
+                body.Append("  QL").Append(template.Ql).Append("  x");
+                body.Append(Color(template.Count.ToString(), "#FFFF00"));
+                body.Append("  ");
+                body.Append(ChatCommand("GET", centralCharacter,
+                    commandPrefix + "get " + template.AoId));
+                body.Append("<br>");
+            }
+            return DisplayFamily(family) + " search '" + needle + "': " +
+                templates.Count + " stocked types. " + Blob("Open matches", body.ToString());
+        }
+
         private static bool IsSlottedFamily(string family)
         {
-            return !string.Equals(family, "spirit", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(family, "dyna", StringComparison.OrdinalIgnoreCase) &&
+            return !string.Equals(family, "dyna", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(family, "phatz", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsSymbiantFamily(string family)
+        {
+            return IsSlottedFamily(family) &&
+                !string.Equals(family, "spirit", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string BuildSlot(
@@ -378,7 +466,7 @@ namespace CityBankers
                     ChatCommand(
                         DisplayFamily(family) + " stock",
                         centralCharacter,
-                        commandPrefix + "stock " + family);
+                        commandPrefix + FamilyCommand(family, null));
             }
 
             List<StockTemplate> templates = GroupTemplates(matches)
@@ -395,7 +483,7 @@ namespace CityBankers
                 body.Append(ChatCommand(
                     "QL " + template.Ql,
                     centralCharacter,
-                    commandPrefix + "stock " + family + " " + slot + " " + template.Ql));
+                    commandPrefix + FamilyCommand(family, slot + " " + template.Ql)));
                 body.Append("  ");
                 body.Append(ItemLink(template));
                 body.Append("  x");
@@ -411,7 +499,7 @@ namespace CityBankers
             body.Append(ChatCommand(
                 "Back to " + DisplayFamily(family),
                 centralCharacter,
-                commandPrefix + "stock " + family));
+                commandPrefix + FamilyCommand(family, null)));
 
             return DisplayFamily(family) + " " + DisplaySlot(slot) + ": " +
                 templates.Count + (templates.Count == 1 ? " stocked QL" : " stocked QLs") +
@@ -432,7 +520,7 @@ namespace CityBankers
             string back = ChatCommand(
                 "All " + DisplayFamily(family) + " " + DisplaySlot(slot),
                 centralCharacter,
-                commandPrefix + "stock " + family + " " + slot);
+                commandPrefix + FamilyCommand(family, slot));
 
             if (templates.Count == 0)
             {
@@ -441,7 +529,7 @@ namespace CityBankers
                     ChatCommand(
                         DisplayFamily(family) + " stock",
                         centralCharacter,
-                        commandPrefix + "stock " + family);
+                        commandPrefix + FamilyCommand(family, null));
             }
 
             List<StockTemplate> exact = templates
@@ -606,6 +694,12 @@ namespace CityBankers
             if (string.IsNullOrWhiteSpace(family))
                 return "Unknown";
             return char.ToUpperInvariant(family[0]) + family.Substring(1).ToLowerInvariant();
+        }
+
+        private static string FamilyCommand(string family, string suffix)
+        {
+            string root = IsSymbiantFamily(family) ? "symb " + family : family;
+            return string.IsNullOrWhiteSpace(suffix) ? root : root + " " + suffix;
         }
 
         private static string DisplaySlot(string slot)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 
@@ -23,6 +24,8 @@ namespace CityBankers.Shared
             };
         private static JObject CachedPolicy;
         private static bool PolicyLoaded;
+        private static PhatzPolicyState CachedPhatzPolicy;
+        private static DateTime CachedPhatzPolicyWriteUtc = DateTime.MinValue;
 
         static SymbiantCatalog()
         {
@@ -41,6 +44,25 @@ namespace CityBankers.Shared
             public int AoId;
             public string Role;
             public int MaxCopies;
+        }
+
+        public sealed class PhatzPolicyItem
+        {
+            public int AoId;
+            public int HighId;
+            public int Ql;
+            public string Name;
+            public int MaxCopies = KeepAllCopies;
+            public string AddedBy;
+            public DateTime AddedUtc;
+        }
+
+        public sealed class PhatzPolicyState
+        {
+            public string Format = "citybankers-phatz-policy-v1";
+            public DateTime UpdatedUtc;
+            public List<PhatzPolicyItem> Items = new List<PhatzPolicyItem>();
+            public List<int> DisabledAoIds = new List<int>();
         }
 
         public static IReadOnlyDictionary<int, string> Routes => RoutesByAoid;
@@ -112,6 +134,21 @@ namespace CityBankers.Shared
                 builtIn = !string.IsNullOrWhiteSpace(role);
             }
 
+            PhatzPolicyState phatz = LoadPhatzPolicy(settingsDirectory);
+            PhatzPolicyItem dynamicItem = (phatz.Items ?? new List<PhatzPolicyItem>())
+                .LastOrDefault(item => item != null && item.AoId == aoid);
+            if (dynamicItem != null)
+            {
+                role = "phatz";
+                maximum = dynamicItem.MaxCopies;
+                builtIn = true;
+            }
+            else if ((phatz.DisabledAoIds ?? new List<int>()).Contains(aoid) &&
+                string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase))
+            {
+                builtIn = false;
+            }
+
             if (!builtIn || maximum == 0)
             {
                 rule = null;
@@ -137,6 +174,12 @@ namespace CityBankers.Shared
                         "AcceptancePolicy.Items keys must be positive AOIDs; invalid key '" + property.Name + "'.");
                 ids.Add(aoid);
             }
+            foreach (PhatzPolicyItem item in LoadPhatzPolicy(settingsDirectory).Items ??
+                new List<PhatzPolicyItem>())
+            {
+                if (item != null && item.AoId > 0)
+                    ids.Add(item.AoId);
+            }
             var result = new List<AcceptanceRule>();
             foreach (int aoid in ids.OrderBy(value => value))
             {
@@ -150,6 +193,90 @@ namespace CityBankers.Shared
         {
             return rule != null && rule.MaxCopies != KeepAllCopies &&
                 storedCopies >= rule.MaxCopies;
+        }
+
+        public static PhatzPolicyState LoadPhatzPolicy(string settingsDirectory)
+        {
+            string path = Path.Combine(
+                RuntimeStateStore.GetDataDirectory(settingsDirectory),
+                "citybankers-phatz-policy.json");
+            lock (PolicySync)
+            {
+                DateTime writeUtc = File.Exists(path)
+                    ? File.GetLastWriteTimeUtc(path)
+                    : DateTime.MinValue;
+                if (CachedPhatzPolicy == null || writeUtc != CachedPhatzPolicyWriteUtc)
+                {
+                    CachedPhatzPolicy = RuntimeStateStore.ReadJson<PhatzPolicyState>(path) ??
+                        new PhatzPolicyState();
+                    if (CachedPhatzPolicy.Items == null)
+                        CachedPhatzPolicy.Items = new List<PhatzPolicyItem>();
+                    if (CachedPhatzPolicy.DisabledAoIds == null)
+                        CachedPhatzPolicy.DisabledAoIds = new List<int>();
+                    CachedPhatzPolicyWriteUtc = writeUtc;
+                }
+                return CachedPhatzPolicy;
+            }
+        }
+
+        public static void AddOrUpdatePhatzItem(
+            string settingsDirectory,
+            PhatzPolicyItem item)
+        {
+            if (item == null || item.AoId <= 0 || item.HighId <= 0 || item.Ql <= 0)
+                throw new ArgumentException("A linked AO item with positive IDs and QL is required.");
+            if (item.MaxCopies < KeepAllCopies || item.MaxCopies == 0)
+                throw new ArgumentException("MaxCopies must be -1 (keep all) or a positive number.");
+
+            lock (PolicySync)
+            {
+                PhatzPolicyState state = LoadPhatzPolicy(settingsDirectory);
+                state.Items.RemoveAll(value => value != null && value.AoId == item.AoId);
+                state.Items.Add(item);
+                state.Items = state.Items.OrderBy(value => value.AoId).ToList();
+                state.DisabledAoIds.RemoveAll(value => value == item.AoId);
+                SavePhatzPolicy(settingsDirectory, state);
+            }
+        }
+
+        public static bool RemovePhatzItem(string settingsDirectory, int aoid)
+        {
+            if (aoid <= 0) return false;
+            lock (PolicySync)
+            {
+                PhatzPolicyState state = LoadPhatzPolicy(settingsDirectory);
+                int removed = state.Items.RemoveAll(value => value != null && value.AoId == aoid);
+                JObject configuredItems = LoadPolicy(settingsDirectory)?
+                    .GetValue("Items", StringComparison.OrdinalIgnoreCase) as JObject;
+                JObject configuredItem = configuredItems?
+                    [aoid.ToString(CultureInfo.InvariantCulture)] as JObject;
+                bool acceptedAsPhatz = string.Equals(
+                    configuredItem?.GetValue("Role", StringComparison.OrdinalIgnoreCase)?.ToString(),
+                    "phatz",
+                    StringComparison.OrdinalIgnoreCase) &&
+                    ReadMaximum(configuredItem.GetValue(
+                        "MaxCopies", StringComparison.OrdinalIgnoreCase), KeepAllCopies) != 0;
+                if ((removed > 0 || acceptedAsPhatz) && !state.DisabledAoIds.Contains(aoid))
+                    state.DisabledAoIds.Add(aoid);
+                if (removed == 0 && !acceptedAsPhatz)
+                    return false;
+                state.DisabledAoIds.Sort();
+                SavePhatzPolicy(settingsDirectory, state);
+                return true;
+            }
+        }
+
+        private static void SavePhatzPolicy(string settingsDirectory, PhatzPolicyState state)
+        {
+            state.UpdatedUtc = DateTime.UtcNow;
+            RuntimeStateStore.WriteJsonAtomic(
+                Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory),
+                    "citybankers-phatz-policy.json"),
+                state);
+            CachedPhatzPolicy = state;
+            CachedPhatzPolicyWriteUtc = File.GetLastWriteTimeUtc(Path.Combine(
+                RuntimeStateStore.GetDataDirectory(settingsDirectory),
+                "citybankers-phatz-policy.json"));
         }
 
         private static int ReadMaximum(JToken token, int fallback)

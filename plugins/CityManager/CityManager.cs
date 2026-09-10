@@ -41,6 +41,15 @@ namespace CityManager
                 "cloak",
                 "status",
                 "stock",
+                "symb",
+                "symbs",
+                "spirit",
+                "spirits",
+                "dyna",
+                "nano",
+                "nanos",
+                "phat",
+                "phatz",
                 "donor",
                 "withdraw",
                 "get",
@@ -435,6 +444,10 @@ namespace CityManager
                 (command == "donor" && parts.Length <= 2) ||
                 ((command == "withdraw" || command == "get") && parts.Length == 2) ||
                 command == "stock" ||
+                command == "symb" || command == "symbs" ||
+                command == "spirit" || command == "spirits" ||
+                command == "dyna" || command == "nano" || command == "nanos" ||
+                command == "phat" || command == "phatz" ||
                 (command == "home" &&
                  (parts.Length == 1 || parts.Length == 2)) ||
                 (command == "alts" && HasTellAltsCommandShape(parts)) ||
@@ -517,6 +530,15 @@ namespace CityManager
             }
 
             if ((string.Equals(command, "stock", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "symb", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "symbs", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "spirit", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "spirits", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "dyna", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "nano", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "nanos", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "phat", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "phatz", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "donor", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "withdraw", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "get", StringComparison.OrdinalIgnoreCase)) &&
@@ -581,7 +603,16 @@ namespace CityManager
                     break;
 
                 case "stock":
-                    ProcessBankerStockCommand(rawCommand, replyTarget);
+                case "symb":
+                case "symbs":
+                case "spirit":
+                case "spirits":
+                case "dyna":
+                case "nano":
+                case "nanos":
+                case "phat":
+                case "phatz":
+                    ProcessBankerStockCommand(senderName, rawCommand, replyTarget, isAdmin);
                     break;
 
                 case "donor":

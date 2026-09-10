@@ -1071,8 +1071,9 @@ resilience and restart change:
 - `[DECISION]` Apcmanager is the integrated system's sole public command
   identity in organization and guest chat. Banker information does not require
   a second prefix or a second public bot vocabulary.
-- `[IMPLEMENTED]` Manager owns `#stock [family [slot [targetQl]]]` and the
-  `#donor` family. It reads the same mutex-protected `current-stock.json`,
+- `[IMPLEMENTED]` Manager owns the `#stock`, `#symb`, `#spirit`, `#dyna`, and
+  `#phatz` stock families and the `#donor` family. It reads the same
+  mutex-protected `current-stock.json`,
   `ledger.json`, `symbiant-index.json`, and monthly departure history that
   CityBankers maintains; no second stock, donor, admin, member, or alt database
   exists.
@@ -1122,6 +1123,30 @@ resilience and restart change:
   multiset loose on Central and no same-batch worker custody/storage evidence
   before clearing stale sidecars and returning the batch to `queued`. Trades
   created by the current process are never eligible for this recovery.
+
+## Family stock commands and live Phatz policy (2026-09-10)
+
+- `[IMPLEMENTED]` Bare `#stock` is the complete overview: Symbiants, Spirits,
+  Dyna Nanos, Phatz, and Central-held specials, including zero-count modules.
+  Symbiant searching moved to `#symb`/`#symbs`; Spirit uses the same slot/QL
+  navigation; Dyna (`#nano`/`#nanos`) and Phatz (`#phat`) search by partial
+  item name or browse by QL.
+- `[IMPLEMENTED]` Administrators can add an exact linked AO item with
+  `#phatz add <item-link> <-1|positive-limit>`, remove it by AOID, and open the
+  effective list with `#phatz list` or `#phatz print`. The list supplies an
+  administrator-only remove button for each row.
+- `[INVARIANT]` Runtime Phatz changes persist in
+  `data/citybankers-phatz-policy.json`, never rewrite credential-bearing
+  `citydwellers.json`, and overlay configured bootstrap entries on every
+  acceptance lookup. Removal tombstones can therefore suppress a configured
+  Phatz default without deleting private configuration.
+- `[IMPLEMENTED]` Public `#status` shows every configured banker as
+  `used/total slots (percentage)` with free slots. Occupancy is green below
+  75%, orange from 75% through 89.9%, and red from 90%, while process, bank,
+  readiness, queue, reservation, and retention warnings remain visible.
+- `[OPEN]` Kavey owns the Release build and live validation of AO item-link
+  parsing, cross-AppDomain policy refresh, stock navigation links, and the
+  displayed storage census.
 
 ## Central outbound tell queue (2026-09-08)
 

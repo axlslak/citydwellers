@@ -1289,3 +1289,25 @@ Central and rejects any same-batch worker receipt/storage evidence. Only with
 that proof does it clear stale same-batch sidecars and requeue normally. A trade
 started by the current process cannot match the restart-orphan predicate. No
 assistant-side build or live AO test was run; Kavey owns the controlled restart.
+
+## 2026-09-10 — Family stock commands, Phatz policy, and occupancy status
+
+The single overloaded `#stock [family ...]` tree obscured the new Banker
+modules and made Phatz additions depend on editing private configuration.
+`#stock` now presents the full module overview, while `#symb`, `#spirit`,
+`#dyna`, and `#phatz` own their respective search trees. Spirit deliberately
+uses the symbiant-style slot and target-QL flow; Dyna covers both nano crystals
+and instruction discs.
+
+Phatz acceptance can now be administered in game from an actual AO item link.
+The runtime overlay records link IDs, QL, display name, copy limit, actor, and
+time beneath `data`; configured items remain bootstrap inputs and can be
+suppressed through durable AOID tombstones. Every acceptance lookup observes
+the overlay, so Kbcentral routes a newly added item to Kbphatz without source or
+private-config edits.
+
+The member-facing status window now gives every configured banker a distinct,
+color-coded inventory occupancy line: consumed slots, total audited slots,
+percentage used, and remaining free slots. Existing online/readiness and work
+diagnostics remain separate. No assistant-side compilation or live AO test was
+run; Kavey owns the Release build and AO validation.

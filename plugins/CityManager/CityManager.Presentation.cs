@@ -95,7 +95,7 @@ namespace CityManager
                     body = CommandHelp(
                         target,
                         "status",
-                        "Open one operational view of the Manager, cloak, Flipper, Buddies, raid workflow, alt cache, and membership roster.",
+                        "Open one operational view of the Manager, cloak, workers, banker occupancy, raid workflow, alt cache, and membership roster.",
                         "This is the first command to use when something feels stuck. Manager uptime is monotonic, so clock changes cannot make it lie.",
                         "Member",
                         null);
@@ -134,6 +134,28 @@ namespace CityManager
                         "Each addition and arrival refreshes your three-minute pickup clock. Trade with Kbcentral to collect all ready items, even if another is still pending. Known alts share your order. Donations continue while orders await pickup.",
                         "Athen Paladins member",
                         "Alias: withdraw. The item leaves stock only after AO confirms the pickup trade finished.");
+                    return true;
+
+                case "stock":
+                case "symb":
+                case "symbs":
+                case "spirit":
+                case "spirits":
+                case "dyna":
+                case "nano":
+                case "nanos":
+                case "phat":
+                case "phatz":
+                    title = "Bank Stock";
+                    body = CommandHelp(
+                        target,
+                        "stock",
+                        "Show the complete CityBankers inventory overview.",
+                        "Search with symb [family [slot [QL]]], spirit [slot [QL]], dyna [name|QL], or phatz [name|QL].",
+                        "Athen Paladins member",
+                        isAdmin
+                            ? "Administrators: phatz add [linked AO item] [-1|positive max], phatz remove [AOID], and phatz list manage accepted Phatz items."
+                            : "Aliases: symbs; spirits; nano/nanos; phat.");
                     return true;
 
                 case "guest":
@@ -283,8 +305,16 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "cloak", "Check city cloak through Flipper."));
             body.Append(HelpSyntaxLine(
                 target,
-                "stock [family [slot [targetQl]]]",
-                "Browse CityBankers symbiant availability."));
+                "stock",
+                "Show all CityBankers stock families."));
+            body.Append(HelpSyntaxLine(target,
+                "symb [family [slot [targetQl]]]", "Search symbiants. Alias: symbs."));
+            body.Append(HelpSyntaxLine(target,
+                "spirit [slot [targetQl]]", "Search spirits like symbiants. Alias: spirits."));
+            body.Append(HelpSyntaxLine(target,
+                "dyna [name|QL]", "Search dyna nanos and instruction discs. Aliases: nano, nanos."));
+            body.Append(HelpSyntaxLine(target,
+                "phatz [name|QL]", "Search Phatz stock. Alias: phat."));
             body.Append(HelpSyntaxLine(
                 target,
                 "donor [top|last|member]",
@@ -319,6 +349,12 @@ namespace CityManager
                 body.Append(HelpSyntaxLine(target, "recoverraid [owner] [all|general] [level] [count]", "Recover a raid after restart."));
                 body.Append(HelpSyntaxLine(target, "dump", "Save a diagnostic snapshot."));
                 body.Append(HelpSyntaxLine(target, "restart", "Restart Apcmanager and its AO session."));
+                body.Append(HelpSyntaxLine(target,
+                    "phatz add [linked item] [-1|positive max]", "Accept and route an exact linked item to Kbphatz."));
+                body.Append(HelpSyntaxLine(target,
+                    "phatz remove [AOID]", "Remove an accepted Phatz item."));
+                body.Append(HelpSyntaxLine(target,
+                    "phatz list", "Open the accepted Phatz list with remove buttons."));
             }
 
             return body.ToString();

@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 using AOSharp.Clientless;
@@ -35,6 +36,8 @@ namespace CityManager
                 bool allUsable = true;
                 var lines = new StringBuilder();
                 var diagnostics = new List<string>();
+                IReadOnlyCollection<SymbiantCatalog.AcceptanceRule> acceptanceRules =
+                    SymbiantCatalog.GetRules(_settingsDir);
 
                 foreach (string role in new[]
                 {
@@ -88,8 +91,7 @@ namespace CityManager
                             string.Equals(value.Character, character, StringComparison.OrdinalIgnoreCase));
                     int used = worker?.Bags?.Sum(bag => bag?.Items?.Count ?? 0) ?? 0;
                     int capacity = worker?.Bags?.Sum(bag => Math.Max(0, bag?.Capacity ?? 0)) ?? 0;
-                    List<SymbiantCatalog.AcceptanceRule> roleRules = SymbiantCatalog
-                        .GetRules(_settingsDir)
+                    List<SymbiantCatalog.AcceptanceRule> roleRules = acceptanceRules
                         .Where(rule => string.Equals(rule.Role, role, StringComparison.OrdinalIgnoreCase))
                         .ToList();
                     bool unboundedPolicy = roleRules.Any(rule =>
@@ -103,9 +105,6 @@ namespace CityManager
                         !bankOpen ? "ONLINE, bank unavailable" :
                         !roleReady ? "ONLINE, starting" : withdrawalFailed ? "USABLE, some items held" :
                         busy ? "USABLE, busy" : "USABLE";
-                    string capacityText = capacity > 0
-                        ? "; storage " + used + "/" + capacity
-                        : string.Empty;
                     string workText = failed > 0 ? "; failed " + failed :
                         pending > 0 ? "; queued " + pending : string.Empty;
                     if (withdrawalHere)
@@ -117,13 +116,15 @@ namespace CityManager
                             (policySlots - capacity);
 
                     lines.Append(StatusLine(usable, character + " (" + role + ")",
-                        state + capacityText + workText));
+                        state + workText));
+                    lines.Append(BuildInventoryStatusLine(used, capacity));
                     diagnostics.Add(character + "=" + state.ToLowerInvariant() +
                         (capacity > 0 ? " " + used + "/" + capacity : string.Empty));
                 }
 
                 string total = "Storage " + totalUsed + "/" + totalCapacity +
-                    " slots used; " + Math.Max(0, totalCapacity - totalUsed) + " free. Orders " +
+                    " slots used (" + FormatOccupancyPercent(totalUsed, totalCapacity) + "); " +
+                    Math.Max(0, totalCapacity - totalUsed) + " free. Orders " +
                     withdrawals.Where(WithdrawalStore.IsActive).Select(row => row.OrderId).Distinct().Count() +
                     "/4; ready items " + withdrawals.Count(row => WithdrawalStore.HasStatus(row, "central-ready")) +
                     "; held items " + withdrawals.Count(row => WithdrawalStore.HasStatus(row, "failed")) + ".";
@@ -154,6 +155,25 @@ namespace CityManager
             return token != null && bool.TryParse(token.ToString(), out value) && value;
         }
 
+        private string BuildInventoryStatusLine(int used, int capacity)
+        {
+            if (capacity <= 0)
+                return "    <font color='" + ColorMuted + "'>Inventory census unavailable</font>\n";
+            double percent = Math.Min(100.0, Math.Max(0.0, used * 100.0 / capacity));
+            string color = percent >= 90.0 ? ColorBad : percent >= 75.0 ? ColorWarn : ColorGood;
+            return "    <font color='" + ColorMuted + "'>Inventory:</font> " +
+                "<font color='" + color + "'><b>" + used + "/" + capacity +
+                " slots used (" + FormatOccupancyPercent(used, capacity) + ")</b></font>" +
+                " <font color='" + ColorMuted + "'>· " +
+                Math.Max(0, capacity - used) + " free</font>\n";
+        }
+
+        private static string FormatOccupancyPercent(int used, int capacity)
+        {
+            if (capacity <= 0) return "n/a";
+            return (used * 100.0 / capacity).ToString("0.0", CultureInfo.InvariantCulture) + "%";
+        }
+
         private sealed class BankerStatusSnapshot
         {
             public bool IsUsable;
@@ -162,8 +182,44 @@ namespace CityManager
             public string DiagnosticText;
         }
 
-        private void ProcessBankerStockCommand(string rawCommand, ReplyTarget target)
+        private static readonly Regex PhatzAddPattern = new Regex(
+            "^\\s*phatz?\\s+add\\s+(?<link><a\\s+href\\s*=\\s*['\"]itemref://(?<aoid>\\d+)/(?<highid>\\d+)/(?<ql>\\d+)['\"][^>]*>.*?</a>)\\s*(?<max>-?\\d+)?\\s*$",
+            RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+        private void ProcessBankerStockCommand(
+            string senderName,
+            string rawCommand,
+            ReplyTarget target,
+            bool isAdmin)
         {
+            string[] parts = (rawCommand ?? string.Empty).Split(
+                new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            bool phatzCommand = parts.Length > 0 &&
+                (string.Equals(parts[0], "phat", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(parts[0], "phatz", StringComparison.OrdinalIgnoreCase));
+            if (phatzCommand && parts.Length > 1 &&
+                (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
+                 IsRemoveVerb(parts[1]) ||
+                 string.Equals(parts[1], "list", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(parts[1], "print", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (!isAdmin)
+                {
+                    Reply(target, "Phatz acceptance policy is administrator-only.");
+                    return;
+                }
+                try
+                {
+                    ProcessPhatzPolicyCommand(senderName, rawCommand, parts, target);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("PHATZ policy command failed: " + ex);
+                    Reply(target, "Phatz acceptance policy could not be updated safely.");
+                }
+                return;
+            }
+
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
             foreach (WithdrawalState row in WithdrawalStore.LoadAll(_settingsDir))
                 HideReservedWithdrawalCopy(stock, row);
@@ -175,11 +231,135 @@ namespace CityManager
                     out response,
                     CommandPrefix))
             {
-                Reply(target, Usage(target, "stock [family [slot [targetQl]]]"));
+                Reply(target, Usage(target,
+                    "stock | symb [family [slot [targetQl]]] | spirit [slot [targetQl]] | dyna|phatz [search|ql]"));
                 return;
             }
 
             Reply(target, response);
+        }
+
+        private void ProcessPhatzPolicyCommand(
+            string senderName,
+            string rawCommand,
+            string[] parts,
+            ReplyTarget target)
+        {
+            string action = parts.Length > 1 ? parts[1] : string.Empty;
+            if (string.Equals(action, "list", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(action, "print", StringComparison.OrdinalIgnoreCase))
+            {
+                Reply(target, BuildPhatzPolicyWindow(target));
+                return;
+            }
+
+            if (string.Equals(action, "add", StringComparison.OrdinalIgnoreCase))
+            {
+                Match match = PhatzAddPattern.Match(rawCommand ?? string.Empty);
+                int aoid;
+                int highid;
+                int ql;
+                int maximum = SymbiantCatalog.KeepAllCopies;
+                if (!match.Success ||
+                    !int.TryParse(match.Groups["aoid"].Value, out aoid) ||
+                    !int.TryParse(match.Groups["highid"].Value, out highid) ||
+                    !int.TryParse(match.Groups["ql"].Value, out ql) ||
+                    (match.Groups["max"].Success &&
+                     !int.TryParse(match.Groups["max"].Value, out maximum)) ||
+                    maximum < SymbiantCatalog.KeepAllCopies || maximum == 0)
+                {
+                    Reply(target, Usage(target, "phatz add [linked AO item] [-1|positive max]"));
+                    return;
+                }
+
+                string link = match.Groups["link"].Value;
+                int open = link.IndexOf('>');
+                int close = link.LastIndexOf("</a>", StringComparison.OrdinalIgnoreCase);
+                string name = open >= 0 && close > open
+                    ? Regex.Replace(link.Substring(open + 1, close - open - 1), "<.*?>", string.Empty)
+                    : "AOID " + aoid;
+                SymbiantCatalog.AddOrUpdatePhatzItem(_settingsDir,
+                    new SymbiantCatalog.PhatzPolicyItem
+                    {
+                        AoId = aoid,
+                        HighId = highid,
+                        Ql = ql,
+                        Name = name,
+                        MaxCopies = maximum,
+                        AddedBy = senderName,
+                        AddedUtc = DateTime.UtcNow
+                    });
+                Reply(target, "Phatz now accepts " + name + " (AOID " + aoid + ") with " +
+                    (maximum == SymbiantCatalog.KeepAllCopies ? "no copy limit." :
+                     "a limit of " + maximum + " copies."));
+                return;
+            }
+
+            if (IsRemoveVerb(action))
+            {
+                int aoid;
+                if (parts.Length != 3 || !int.TryParse(parts[2], out aoid) || aoid <= 0)
+                {
+                    Reply(target, Usage(target, "phatz remove [AOID]"));
+                    return;
+                }
+                Reply(target, SymbiantCatalog.RemovePhatzItem(_settingsDir, aoid)
+                    ? "Phatz no longer accepts AOID " + aoid + "."
+                    : "AOID " + aoid + " is not in the Phatz acceptance list.");
+            }
+        }
+
+        private string BuildPhatzPolicyWindow(ReplyTarget target)
+        {
+            SymbiantCatalog.PhatzPolicyState dynamicPolicy =
+                SymbiantCatalog.LoadPhatzPolicy(_settingsDir);
+            var disabled = new HashSet<int>(dynamicPolicy.DisabledAoIds ?? new List<int>());
+            var rows = new Dictionary<int, SymbiantCatalog.PhatzPolicyItem>();
+            JObject acceptance = CityBankers.Shared.SettingsPaths.ReadBankersSettings(_settingsDir)
+                .GetValue("AcceptancePolicy", StringComparison.OrdinalIgnoreCase) as JObject;
+            JObject configured = acceptance?
+                .GetValue("Items", StringComparison.OrdinalIgnoreCase) as JObject;
+            foreach (JProperty property in configured?.Properties() ?? Enumerable.Empty<JProperty>())
+            {
+                int aoid;
+                JObject item = property.Value as JObject;
+                if (!int.TryParse(property.Name, out aoid) || disabled.Contains(aoid) ||
+                    !string.Equals(item?.GetValue("Role", StringComparison.OrdinalIgnoreCase)?.ToString(),
+                        "phatz", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                JToken maximumToken = item.GetValue("MaxCopies", StringComparison.OrdinalIgnoreCase);
+                int maximum = maximumToken == null
+                    ? SymbiantCatalog.KeepAllCopies
+                    : ParseDonationInt(maximumToken);
+                if (maximum == 0) continue;
+                rows[aoid] = new SymbiantCatalog.PhatzPolicyItem
+                {
+                    AoId = aoid,
+                    Name = item.GetValue("Name", StringComparison.OrdinalIgnoreCase)?.ToString() ??
+                        ("AOID " + aoid),
+                    MaxCopies = maximum
+                };
+            }
+            foreach (SymbiantCatalog.PhatzPolicyItem item in dynamicPolicy.Items ??
+                new List<SymbiantCatalog.PhatzPolicyItem>())
+                if (item != null && !disabled.Contains(item.AoId)) rows[item.AoId] = item;
+
+            var body = new StringBuilder();
+            body.Append(HelpHeader("Phatz Acceptance", "Items Kbcentral accepts and routes to Kbphatz."));
+            if (rows.Count == 0)
+                body.Append("<font color='").Append(ColorMuted).Append("'>No accepted Phatz items.</font>");
+            foreach (SymbiantCatalog.PhatzPolicyItem item in rows.Values.OrderBy(value => value.Name))
+            {
+                body.Append("  <font color='").Append(ColorText).Append("'>")
+                    .Append(EscapeBlobText(item.Name)).Append("</font> ")
+                    .Append("<font color='").Append(ColorMuted).Append("'>AOID ")
+                    .Append(item.AoId).Append(" · ")
+                    .Append(item.MaxCopies == SymbiantCatalog.KeepAllCopies ? "unlimited" :
+                        item.MaxCopies + " max").Append("</font> ")
+                    .Append(CommandLink(target, "phatz remove " + item.AoId, "REMOVE"))
+                    .Append("\n");
+            }
+            return BuildBlobLinks(target, "Phatz Acceptance", "Open Phatz list", body.ToString());
         }
 
         private void ProcessBankerWithdrawalCommand(
