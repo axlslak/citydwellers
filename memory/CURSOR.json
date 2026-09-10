@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 42,
+  "current_session": 43,
   "last_completed_session": 42,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "a2f5344f15f78edf11f9bf80dbb2a4d68931dd32",
-  "task": "Owner Release build and live validation of bounded Flipper zoning reconnect",
-  "resume_instruction": "Pull master, rebuild Release, ensure Apcflipper is logged out of any real client or InfoHelper session, then run CityDwellers.exe normally. Return the Flipper lines from the first ENSURE ENABLED PROBE through either Observation received or final timeout. On one transient zoning disconnect, expect a CityFlipper disconnect warning, AOSharp reconnect, CharInPlay, and a result within the 45-second probe window."
+  "transaction": "session-43-revert-flipper-same-domain-reconnect",
+  "base_commit": "18aaacbc754d20e6768f889ae9e499d352c38d49",
+  "task": "Remove the live-disproved same-domain Flipper reconnect behavior",
+  "resume_instruction": "Use the owner log proving that AO retains Apcflipper after the first zoning disconnect. Remove AutoReconnect and the 45-second reconnect window, preserve the existing cooldown, make a pre-action disconnect terminate the probe promptly without invoking AOSharp Stop from its Disconnected callback, document that the Session 42 approach was disproved, then publish and seal."
 }
