@@ -65,7 +65,23 @@ namespace CityBankers
                 _nextHeartbeatUtc = now.AddSeconds(1);
             }
 
-            if (!Client.InPlay || busy ||
+            if (busy)
+            {
+                CityDwellers.Shared.TellQueueJob relinquished;
+                if (CityDwellers.Shared.TellQueue.TryRelinquishAssignment(
+                        _dataDir,
+                        Client.CharacterName,
+                        out relinquished))
+                {
+                    Logger.Information(
+                        "TELL QUEUE returned " + ShortId(relinquished.Id) +
+                        " because " + Client.CharacterName +
+                        " entered a trade; another idle sender may take it.");
+                }
+                return;
+            }
+
+            if (!Client.InPlay ||
                 (_lastSentUtc.HasValue &&
                  _lastSentUtc.Value > now.AddMilliseconds(
                      -CityDwellers.Shared.TellQueue.SenderIntervalMilliseconds)))

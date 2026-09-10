@@ -1282,8 +1282,10 @@ resilience and restart change:
   is retried up to five times; final failures and acknowledgements remain in
   the queue data tree for diagnosis.
 - `[INVARIANT]` Banker clients advertise busy while an AO trade is open and do
-  not consume tell work until idle. A stale assignment returns to the pending
-  queue after 45 seconds.
+  not consume tell work until idle. If a banker becomes busy after assignment,
+  it atomically returns that same ordered job without charging a failed attempt
+  so another idle sender can take it. A genuinely abandoned assignment returns
+  to the pending queue after 45 seconds.
 - `[INVARIANT]` Request/reply traffic whose answer returns to the sending toon,
   currently the external alt-bot lookup, is pinned to Apcmanager. Ordinary
   notices and replies may be sent by any available queue worker.

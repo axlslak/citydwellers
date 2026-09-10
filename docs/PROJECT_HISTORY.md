@@ -1582,3 +1582,20 @@ and activity records remain intact. Failures and exceptional recovery notices
 remain routed to the operator, and donor-facing progress is unchanged. No
 assistant-side compilation or live AO test was run; Kavey owns Release build
 and normal-storage log verification.
+
+## 2026-09-10 — Busy tell-sender handback
+
+A live ten-item donation exposed an ordered-queue stall without any send
+failure. The first progress tell was assigned to Kbcentral just after the
+player opened a trade. Central then correctly refused outbound tells while
+`Trade.IsTrading`, but the coordinator permits only one outstanding assignment,
+so every later progress tell waited behind it until the trade completed.
+
+`[IMPLEMENTED]` A banker that becomes trade-busy now atomically returns its
+assigned tell to the pending queue before declining sender work. The handback
+does not count as a failed delivery attempt, retains the original sequence,
+and lets the coordinator assign that same head message to another idle banker.
+Required-sender jobs remain pending until their required character is eligible.
+The existing 45-second timeout still covers genuinely abandoned assignments.
+No assistant-side compilation or live AO test was run; Kavey owns Release build
+and repeated donation timing validation.

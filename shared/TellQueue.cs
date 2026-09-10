@@ -22,6 +22,7 @@ namespace CityDwellers.Shared
         private const string AcknowledgementsName = "acknowledgements";
         private const string SendersName = "senders";
         private const string FailedName = "failed";
+        private const string AssignmentMutexName = "Local\\CityDwellersTellQueueAssignmentsV1";
 
         public static string Enqueue(
             string dataDirectory,
@@ -142,20 +143,59 @@ namespace CityDwellers.Shared
             job.AssignedUtc = nowUtc;
             job.Attempts++;
 
-            try
+            return WithAssignmentLock(() =>
             {
-                AtomicWrite(pendingPath, job);
-                File.Move(pendingPath, assignedPath);
-                return true;
-            }
-            catch (FileNotFoundException)
+                try
+                {
+                    AtomicWrite(pendingPath, job);
+                    File.Move(pendingPath, assignedPath);
+                    return true;
+                }
+                catch (FileNotFoundException)
+                {
+                    return false;
+                }
+                catch (IOException)
+                {
+                    return false;
+                }
+            });
+        }
+
+        public static bool TryRelinquishAssignment(
+            string dataDirectory,
+            string sender,
+            out TellQueueJob relinquishedJob)
+        {
+            TellQueueJob result = null;
+            bool relinquished = WithAssignmentLock(() =>
             {
-                return false;
-            }
-            catch (IOException)
-            {
-                return false;
-            }
+                TellQueueJob job;
+                string assignmentPath;
+                if (!TryReadAssignment(dataDirectory, sender, out job, out assignmentPath))
+                    return false;
+
+                job.AssignedSender = null;
+                job.AssignedUtc = null;
+                if (job.Attempts > 0)
+                    job.Attempts--;
+
+                try
+                {
+                    string pendingPath =
+                        Path.Combine(PendingDirectory(dataDirectory), job.Id + ".json");
+                    File.Move(assignmentPath, pendingPath);
+                    AtomicWrite(pendingPath, job);
+                    result = job;
+                    return true;
+                }
+                catch (IOException)
+                {
+                    return false;
+                }
+            });
+            relinquishedJob = result;
+            return relinquished;
         }
 
         public static bool TryReadAssignment(
@@ -377,6 +417,34 @@ namespace CityDwellers.Shared
                         DeleteIfExists(temp);
                     }
                     return sequence;
+                }
+                finally
+                {
+                    if (acquired)
+                        mutex.ReleaseMutex();
+                }
+            }
+        }
+
+        private static T WithAssignmentLock<T>(Func<T> action)
+        {
+            using (var mutex = new Mutex(false, AssignmentMutexName))
+            {
+                bool acquired = false;
+                try
+                {
+                    try
+                    {
+                        acquired = mutex.WaitOne(TimeSpan.FromSeconds(5));
+                    }
+                    catch (AbandonedMutexException)
+                    {
+                        acquired = true;
+                    }
+
+                    if (!acquired)
+                        return default(T);
+                    return action();
                 }
                 finally
                 {
