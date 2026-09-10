@@ -232,16 +232,20 @@ namespace CityBankers
                 return;
             }
 
-            // Normal path: when AOSharp exposes the remote items, BankingServiceAgent
-            // performs exact matching and accepts. This bridge stays out of the way.
+            // Normal path: when AOSharp exposes the complete remote item count,
+            // BankingServiceAgent performs exact matching and accepts. This bridge stays
+            // out of the way. A non-empty but incomplete cache is the same known AOSharp
+            // observation failure as an empty cache once trusted Central has accepted.
             int visibleRemoteItems = Trade.TargetWindowCache?.Items?.Count ?? 0;
-            if (visibleRemoteItems > 0)
+            int expectedItems = command.Items?.Count ?? 0;
+            if (visibleRemoteItems == expectedItems)
                 return;
 
             // Fallback path: Trade.Status=Accept means the configured Central has already
             // accepted its own outgoing window. BankingServiceAgent on Central only does
             // that after its PlayerWindowCache exactly matches the persisted dispatch.
-            // The receiver cache may nevertheless remain empty in AOSharp.Clientless.
+            // The receiver cache may nevertheless remain empty or incomplete in
+            // AOSharp.Clientless.
             if (Trade.Status != TradeStatus.Accept)
                 return;
 
@@ -251,7 +255,8 @@ namespace CityBankers
             string message =
                 "Worker " + Client.CharacterName +
                 " accepted trusted Central batch " + ShortId(command.BatchId) +
-                " using empty-target-cache fallback after Central accepted; " +
+                " using incomplete-target-cache fallback " + visibleRemoteItems +
+                "/" + expectedItems + " after Central accepted; " +
                 "AO completion and post-trade inventory verification remain authoritative.";
             Logger.Information("[CityBankers] " + message);
             RuntimeStateStore.AppendActivity(

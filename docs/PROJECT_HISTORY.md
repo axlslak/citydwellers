@@ -1517,3 +1517,29 @@ their complete canonical bag capacities, and Central's trade inventory is not
 added to the aggregate storage figure. No inventory item is moved or deleted.
 No assistant-side compilation or live AO test was run; Kavey owns Release
 build and status-window validation.
+
+## 2026-09-10 — Incremental internal trade staging
+
+A nine-item donation split into a three-item Phatz batch and a six-item Spirit
+batch. Phatz completed and physically recorded all three items, but Kbspirit
+timed out three times before receiving anything. Its preserved same-batch
+result said it never observed the complete expected Central trade contents;
+the durable failed batch and all six loose Central items proved custody was
+safe.
+
+The outgoing dispatcher previously called `Trade.AddItem` for every item in a
+single update. It then waited for its local window to expose the full multiset.
+Workers likewise waited for an exact full remote cache, while the established
+trusted fallback deliberately stopped whenever that cache was non-empty—even
+if it was incomplete. A partially published multi-item window could therefore
+make neither normal acceptance nor fallback possible.
+
+`[IMPLEMENTED]` Central now stages one occurrence at a time, waiting for the
+local trade-window count to acknowledge each request before adding another.
+It detects foreign or complete-but-mismatched contents and fails closed. After
+Central has accepted the exact persisted batch, the configured destination's
+command-bound fallback may accept an incomplete remote cache; a complete cache
+continues through ordinary exact matching. AO Finished plus physical worker
+inventory and bag-placement observation remain required. No assistant-side
+compilation or live AO test was run; Kavey owns Release build and the preserved
+six-item Spirit batch retry.

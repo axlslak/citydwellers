@@ -51,7 +51,8 @@ namespace CityBankers
         private Identity _activeWorkerIdentity = Identity.None;
         private DateTime _activeBatchStartedUtc;
         private bool _outgoingOpened;
-        private bool _outgoingItemsRequested;
+        private int _outgoingAwaitingOfferCount;
+        private readonly HashSet<int> _outgoingRequestedSlots = new HashSet<int>();
         private bool _outgoingAccepted;
 
         // Worker: expected Central -> worker receive state.
@@ -1073,7 +1074,8 @@ namespace CityBankers
             _activeWorkerIdentity = worker.Identity;
             _activeBatchStartedUtc = DateTime.UtcNow;
             _outgoingOpened = false;
-            _outgoingItemsRequested = false;
+            _outgoingAwaitingOfferCount = 0;
+            _outgoingRequestedSlots.Clear();
             _outgoingAccepted = false;
             AppendTradeLedger(
                 "dispatch_trade_opening",
@@ -1090,28 +1092,59 @@ namespace CityBankers
             if (_activeBatch == null || !Trade.IsTrading)
                 return;
 
-            if (!_outgoingItemsRequested)
+            List<Item> liveOffered = Trade.PlayerWindowCache?.Items ?? new List<Item>();
+            List<TransferItemState> offered = SnapshotTradeItems(liveOffered);
+            if (MatchesExpected(offered, _activeBatch.Items) && offered.Count > 0)
             {
-                List<Item> items = FindDistinctInventoryItems(_activeBatch.Items);
-                if (items.Count != (_activeBatch.Items?.Count ?? 0))
+                if (!_outgoingAccepted)
                 {
-                    FailActiveBatch(
-                        "Routed item multiset changed before it could be added to worker trade.");
-                    return;
+                    _outgoingAccepted = true;
+                    Trade.Accept();
                 }
-                foreach (Item item in items)
-                    Trade.AddItem(item.Slot);
-                _outgoingItemsRequested = true;
                 return;
             }
 
-            if (_outgoingAccepted)
+            if (offered.Count >= (_activeBatch.Items?.Count ?? 0))
+            {
+                FailActiveBatch(
+                    "Central trade window reached the expected item count but not the persisted batch multiset.");
                 return;
-            List<TransferItemState> offered = SnapshotTradeItems(Trade.PlayerWindowCache.Items);
-            if (!MatchesExpected(offered, _activeBatch.Items))
+            }
+
+            // AO can publish AddItem acknowledgements incrementally.  Do not burst a
+            // multi-item batch into one update or issue the next move until the local
+            // trade window has visibly grown by the prior requested occurrence.
+            if (offered.Count < _outgoingAwaitingOfferCount)
                 return;
-            _outgoingAccepted = true;
-            Trade.Accept();
+
+            var missing = new List<TransferItemState>(
+                _activeBatch.Items ?? new List<TransferItemState>());
+            foreach (TransferItemState actual in offered)
+            {
+                int index = missing.FindIndex(expected => SameTransferItem(actual, expected));
+                if (index < 0)
+                {
+                    FailActiveBatch(
+                        "Central trade window contains an item outside the persisted batch.");
+                    return;
+                }
+                missing.RemoveAt(index);
+            }
+            if (missing.Count == 0)
+                return;
+
+            Item next = FindInventoryItems(missing[0]).FirstOrDefault(item =>
+                !_outgoingRequestedSlots.Contains(item.Slot.Instance));
+            if (next == null)
+            {
+                FailActiveBatch(
+                    "Next routed item occurrence is no longer available for incremental trade staging.");
+                return;
+            }
+
+            Trade.AddItem(next.Slot);
+            _outgoingRequestedSlots.Add(next.Slot.Instance);
+            _outgoingAwaitingOfferCount = offered.Count + 1;
         }
 
         private void FinishOutgoingDispatchTrade()
@@ -1144,7 +1177,8 @@ namespace CityBankers
                 _activeBatch.Character + "; waiting for bag placement.");
             _activeWorkerIdentity = Identity.None;
             _outgoingOpened = false;
-            _outgoingItemsRequested = false;
+            _outgoingAwaitingOfferCount = 0;
+            _outgoingRequestedSlots.Clear();
             _outgoingAccepted = false;
             _activeBatchStartedUtc = DateTime.UtcNow;
         }
@@ -1235,7 +1269,8 @@ namespace CityBankers
             _activeBatch = null;
             _activeWorkerIdentity = Identity.None;
             _outgoingOpened = false;
-            _outgoingItemsRequested = false;
+            _outgoingAwaitingOfferCount = 0;
+            _outgoingRequestedSlots.Clear();
             _outgoingAccepted = false;
         }
 

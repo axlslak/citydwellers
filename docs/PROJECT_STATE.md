@@ -1308,3 +1308,22 @@ resilience and restart change:
   and free ordinary inventory slots from that heartbeat. The eight storage
   workers retain canonical bag-map occupancy, and Central is still excluded
   from the aggregate storage total.
+
+## Incremental internal trade staging (2026-09-10)
+
+- `[VERIFIED-LIVE]` A three-item Phatz dispatch completed, while a simultaneous
+  six-item Spirit dispatch timed out three times. Kbspirit's preserved result
+  reports `StoredCount=0` and `Timed out waiting for expected Central trade
+  contents`; all six Spirits remained safely on Central.
+- `[ROOT-CAUSE]` Central requested every batch item in one update and waited
+  for the complete local trade cache. The worker required a complete remote
+  cache, while the compatibility fallback ignored non-empty partial caches.
+  Incrementally published AO caches could therefore strand both sides until
+  timeout on the larger batch.
+- `[IMPLEMENTED]` Central now adds one outgoing item occurrence and waits for
+  its local offered-count acknowledgement before requesting the next. The
+  command-bound worker fallback accepts an incomplete as well as empty remote
+  cache only after Central has accepted its exact persisted multiset.
+- `[INVARIANT]` AO Finished and worker-side normal-inventory/bag placement
+  verification remain authoritative. Partial caches alone cannot start or
+  complete storage.
