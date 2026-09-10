@@ -261,7 +261,7 @@ namespace CityDwellers.Shared
 
         private static bool IsRuntimeArtifact(string name)
         {
-            foreach (string legacyHost in new[] { "Manager", "Flipper", "Buddies" })
+            foreach (string legacyHost in new[] { "Manager", "Buddies" })
             {
                 if (string.Equals(name, legacyHost + ".exe", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(name, legacyHost + ".exe.config", StringComparison.OrdinalIgnoreCase) ||
@@ -276,7 +276,8 @@ namespace CityDwellers.Shared
                    string.Equals(extension, ".pdb", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(extension, ".xml", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(extension, ".config", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(name, "CityDwellers.exe", StringComparison.OrdinalIgnoreCase);
+                   string.Equals(name, "CityDwellers.exe", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "Flipper.exe", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsBotDataDirectory(string name)

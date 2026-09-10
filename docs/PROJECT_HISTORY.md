@@ -2,6 +2,20 @@
 
 This is a compact chronological engineering log. It records decisions and verified outcomes that future sessions may need in order to understand why the current code looks the way it does.
 
+## 2026-09-10 — session 45: Flipper process isolation restored
+
+Five consecutive normal-client Apcflipper logins succeeded, while the
+clientless path reproducibly disconnected during zoning and left AO's short
+crashed-session lock. The login-only command reproduced without starting
+Manager, Buddies, or Bankers, excluding their active worker threads from that
+specific attempt but not excluding the unified executable's shared runtime and
+assembly context.
+
+The unified host now supervises a standalone `Flipper.exe`. It remains parallel
+with every other service and retains the existing named-pipe contract, cache,
+cooldown, and guarded operation logic. Manual Flipper commands also launch the
+isolated executable, so diagnostics exercise the same deployment boundary.
+
 ## 2026-09-10 — session 38: per-role Banker credentials
 
 The owner's AOQuickLauncher batches proved that the nine-bank network does not

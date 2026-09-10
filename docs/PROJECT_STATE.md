@@ -202,6 +202,12 @@ Coordinates chat commands, raid lifecycle, cloak operations, helpers, admin/memb
 
 ### Flipper
 
+- `[IMPLEMENTED 2026-09-10]` Flipper is again an independent executable under
+  unified-host supervision. Manager, Buddies, Bankers, and Flipper remain
+  concurrent, but Apcflipper's short-lived AOSharp `ClientDomain` now lives in
+  a separate OS process. Manual probe, login-test, and toggle commands traverse
+  the same process boundary as normal service operations.
+
 - `[IMPLEMENTED 2026-09-10]` `CityDwellers.exe flipper-login-test` is an
   explicit manual isolation path. It uses the configured Apcflipper account,
   the same AOSharp ClientDomain, and the same CityFlipper assembly, but ignores
