@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 55,
+  "current_session": 56,
   "last_completed_session": 55,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "6e05e5595225b3689a0b1f4d558ebc048f45d5eb",
-  "task": "Owner build and live stale withdrawal cleanup validation",
-  "resume_instruction": "Pull master and build Release. Start the unified runtime and verify the two restored Kbexte returns become expired, status drops to Orders 0/4 with no reservations, and both items reappear in stock output."
+  "transaction": "session-56-central-inventory-status",
+  "base_commit": "ddfea79cea891e0f99a789c84ee427198e29b0b4",
+  "task": "Show Central's live ordinary inventory census in banker status",
+  "resume_instruction": "Use Central's live heartbeat InventoryItems and InventoryFreeSlots for its status line while retaining canonical storage maps for the eight storage workers and aggregate storage totals."
 }
