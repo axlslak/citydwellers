@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 76,
+  "current_session": 77,
   "last_completed_session": 76,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-76-identical-withdrawals",
-  "base_commit": "9c1d1294851f1039911bc18e5ed0b842d8565288",
-  "task": "Owner build and test two identical withdrawal copies",
-  "resume_instruction": "Session76 9c1d1294851f1039911bc18e5ed0b842d8565288 binds each verified arrival to a distinct live Item occurrence, verifies bound pickup offers, logs attempt1 and direct one-shot decline notices. Owner rebuild/live two-identical pickup and repeat donation cycle next; cancellation/reopen and expiry return still require live validation. HQ packet exception owner-confirmed harmless. No builds/tests or live data changes by assistant. Never repeat historical repair. Next journal207; acquire transaction before edits."
+  "transaction": "session-77-phatz-stock-pages",
+  "base_commit": "0817d739e43e7378b414cb2d32152d934b595d58",
+  "task": "Flat counted phatz stock and one blob page per message using existing channel limits",
+  "resume_instruction": "Implement flat phatz view and shared Manager blob page delivery. Preserve existing Org/Guest/Tell blob constants. Owner builds/tests. No policy/stock edits or CRU implementation. Next journal208."
 }
