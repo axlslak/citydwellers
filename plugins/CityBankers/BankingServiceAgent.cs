@@ -79,6 +79,9 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            if (!ServicePolicy.IsBagAuditMode() && StartupCensusGate.Defer(() => Init(pluginDir)))
+                return;
+
             if (ServicePolicy.IsBagAuditMode())
                 return;
 
@@ -154,6 +157,9 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
+            if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
+                return;
+
             if (!_enabled || !Client.InPlay)
                 return;
 
@@ -161,6 +167,7 @@ namespace CityBankers
             {
                 if (_isCentral)
                 {
+                    if (TickPhysicalReceipt()) return;
                     ImportFreshBaselineIfNeeded();
                     if (TickWithdrawalCentral())
                         return;
@@ -170,6 +177,7 @@ namespace CityBankers
                 }
                 else
                 {
+                    if (TickPhysicalReceipt()) return;
                     if (TickWithdrawalWorker())
                         return;
                     TickWorkerTrade();
@@ -179,6 +187,7 @@ namespace CityBankers
             catch (Exception ex)
             {
                 Logger.Error($"BANKING SERVICE tick failed character={Client.CharacterName}: {ex}");
+                StartupCensusGate.Block("Banking operation failed; evidence retained: " + ex);
                 RuntimeStateStore.AppendActivity(
                     _settingsDir,
                     Client.CharacterName,
@@ -193,6 +202,7 @@ namespace CityBankers
 
         private void OnPrivateMessage(object sender, PrivateMessage message)
         {
+            if (!StartupCensusGate.IsOpen) return;
             if (!_isCentral || message == null)
                 return;
 
@@ -325,6 +335,7 @@ namespace CityBankers
 
         private void OnTradeOpened(Identity target)
         {
+            if (!StartupCensusGate.IsOpen) return;
             if (!_enabled || !Client.InPlay)
                 return;
 
@@ -400,12 +411,14 @@ namespace CityBankers
             catch (Exception ex)
             {
                 Logger.Error($"BANKING SERVICE TradeOpened handling failed: {ex}");
+                StartupCensusGate.Block("Trade preparation failed: " + ex);
                 TryDeclineTrade();
             }
         }
 
         private void OnTradeStatusChanged(Identity target, TradeStatus status)
         {
+            if (!StartupCensusGate.IsOpen) return;
             if (!_enabled)
                 return;
 
@@ -457,6 +470,7 @@ namespace CityBankers
                     }
 
                     _donationSnapshot = new List<TransferItemState>(offered);
+                    RecordDonationOffer();
                     _donationAccepted = true;
                     RuntimeStateStore.AppendActivity(
                         _settingsDir,
@@ -496,25 +510,33 @@ namespace CityBankers
                 {
                     if (_isCentral && _donationActive)
                     {
-                        FinishDonation();
+                        AwaitPhysicalReceipt(_donationSnapshot, FinishDonation);
                         return;
                     }
 
                     if (_isCentral && _activeBatch != null)
                     {
-                        FinishOutgoingDispatchTrade();
+                        if (string.Equals(_activeBatch.Status, "transferred", StringComparison.OrdinalIgnoreCase))
+                            return; // duplicate Finished after verified sender completion
+                        AwaitPhysicalReceipt(_activeBatch.Items, FinishOutgoingDispatchTrade);
                         return;
                     }
 
                     if (!_isCentral && _workerCommand != null)
                     {
-                        FinishWorkerReceiveTrade();
+                        AwaitPhysicalReceipt(_workerCommand.Items, FinishWorkerReceiveTrade);
                         return;
                     }
                 }
 
                 if (status == TradeStatus.Declined)
                 {
+                    if (_afterReceipt != null && _receipt != null && _receipt.Direction != 0)
+                    {
+                        StartupCensusGate.Block("Conflicting Declined after Finished; custody evidence retained.");
+                        return;
+                    }
+                    VerifyCancelledReceipt();
                     if (_isCentral && _donationActive)
                     {
                         TellDonationPartner("Donation trade declined/cancelled; nothing was recorded as received.");
@@ -538,6 +560,7 @@ namespace CityBankers
             catch (Exception ex)
             {
                 Logger.Error($"BANKING SERVICE trade-status handling failed: {ex}");
+                StartupCensusGate.Block("Trade handler failed; custody requires review: " + ex);
             }
         }
 
@@ -577,6 +600,7 @@ namespace CityBankers
             _donationPartner = partner;
             _donationPartnerName = partnerName;
             _donationTransactionId = "don-" + Guid.NewGuid().ToString("N");
+            PrepareReceipt("donation", _donationTransactionId, null, null, 1);
             _donationOpenedUtc = DateTime.UtcNow;
             _donationLastChangeUtc = _donationOpenedUtc;
             _donationPreviousOffer = new List<TransferItemState>();
@@ -654,6 +678,7 @@ namespace CityBankers
                 return;
 
             _donationSnapshot = offered;
+            RecordDonationOffer();
             _donationAccepted = true;
             TellDonationPartner(
                 "Donation stable: accepting " + offered.Count +
@@ -1101,6 +1126,7 @@ namespace CityBankers
                 next.Role,
                 "Central opening serialized internal trade to " + next.Character + ".",
                 next.Items);
+            PrepareReceipt("dispatch-send", next.TransactionId, next.BatchId, next.Items, -1);
             Trade.Open(worker.Identity);
         }
 
@@ -1287,6 +1313,7 @@ namespace CityBankers
 
         private void FailActiveBatch(string error)
         {
+            VerifyCancelledReceipt();
             if (_activeBatch == null)
                 return;
             TryDeclineTrade();
@@ -1366,6 +1393,7 @@ namespace CityBankers
                 return;
             }
             _workerCommand = command;
+            PrepareReceipt("dispatch-receive", command.TransactionId, command.BatchId, command.Items, 1);
             _workerTradeOpenedUtc = DateTime.UtcNow;
             _workerAccepted = false;
         }
@@ -1757,6 +1785,7 @@ namespace CityBankers
 
         private void FailWorkerCommand(string error)
         {
+            VerifyCancelledReceipt();
             if (_workerCommand == null)
                 return;
             DispatchCommand command = _workerCommand;

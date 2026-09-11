@@ -76,6 +76,9 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            if (!ServicePolicy.IsBagAuditMode() && StartupCensusGate.Defer(() => Init(pluginDir)))
+                return;
+
             // Bagaudit owns physical observation and must never repair while observing.
             if (ServicePolicy.IsBagAuditMode())
             {
@@ -132,6 +135,9 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
+            if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
+                return;
+
             if (!_enabled || !Client.InPlay || DateTime.UtcNow < _nextPollUtc)
                 return;
 
@@ -1097,6 +1103,7 @@ namespace CityBankers
 
         private void OnTradeOpened(Identity target)
         {
+            if (!StartupCensusGate.IsOpen) return;
             if (!_enabled || !Client.InPlay || !File.Exists(GetDataPath(RepairSentinelFile)))
                 return;
 
@@ -1136,6 +1143,7 @@ namespace CityBankers
 
         private void OnTradeStatusChanged(Identity target, TradeStatus status)
         {
+            if (!StartupCensusGate.IsOpen) return;
             if (!_enabled || !File.Exists(GetDataPath(RepairSentinelFile)))
                 return;
 

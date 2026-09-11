@@ -289,6 +289,8 @@ namespace CityDwellers.Shared
                    string.Equals(name, "tell-queue", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "storage-baselines", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "storage-enrollments", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "startup-census", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "custody-transactions", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "physical-states", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "physical-census-v2", StringComparison.OrdinalIgnoreCase);
         }
@@ -472,6 +474,18 @@ namespace CityDwellers.Shared
                         "City Dwellers does not use it.");
                 }
 
+                return;
+            }
+
+            if (string.Equals(directoryName, "startup-census", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(directoryName, "custody-transactions", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (string file in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+                {
+                    string extension = Path.GetExtension(file);
+                    if (extension == ".json" || extension == ".ready" || extension == ".blocked") continue;
+                    warnings.Add("Alien file in safety evidence directory: '" + file + "'.");
+                }
                 return;
             }
 

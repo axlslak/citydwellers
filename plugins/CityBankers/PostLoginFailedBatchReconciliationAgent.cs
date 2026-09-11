@@ -51,6 +51,9 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            if (!ServicePolicy.IsBagAuditMode() && StartupCensusGate.Defer(() => Init(pluginDir)))
+                return;
+
             // A physical bag audit must observe the incident state without dispatch or
             // failed-batch recovery moving any of the items under investigation.
             if (ServicePolicy.IsBagAuditMode())
@@ -101,6 +104,9 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
+            if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
+                return;
+
             if (!_enabled || !Client.InPlay || DateTime.UtcNow < _nextPollUtc)
                 return;
 

@@ -707,10 +707,23 @@ namespace CityManager
             JObject ledger = RuntimeStateStore.ReadJson<JObject>(
                 Path.Combine(_dataDir, "ledger.json"));
             int ordinal = 0;
+            // Donor history is not evidence of availability. Consume physical occurrences
+            // once, so duplicate historical claims cannot create additional GET buttons.
+            var availableStock = new List<StockItemState>(
+                RuntimeStateStore.LoadCurrentStock(_settingsDir)?.Items ?? new List<StockItemState>());
             foreach (JObject item in (ledger?["Items"] as JArray ?? new JArray())
                 .OfType<JObject>())
             {
-                AddDonationRecord(records, item, metadata, "active-" + ordinal++, true);
+                int physicalIndex = availableStock.FindIndex(physical =>
+                    physical.AoId == (int?)item["AoId"] &&
+                    physical.TransactionId == (string)item["TransactionId"] &&
+                    string.Equals(physical.Character, (string)item["Character"], StringComparison.OrdinalIgnoreCase) &&
+                    physical.BagSource == (string)item["Location"] &&
+                    physical.BagOuterSlot == (int?)item["Bag"] &&
+                    physical.InnerSlot == (int?)item["Slot"]);
+                bool available = physicalIndex >= 0 && TrustedOperators.IsAllBankersReady();
+                if (physicalIndex >= 0) availableStock.RemoveAt(physicalIndex);
+                AddDonationRecord(records, item, metadata, "active-" + ordinal++, available);
             }
 
             string historyDirectory = Path.Combine(_dataDir, "history");

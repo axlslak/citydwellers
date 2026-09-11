@@ -28,6 +28,9 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            if (!ServicePolicy.IsBagAuditMode() && StartupCensusGate.Defer(() => Init(pluginDir)))
+                return;
+
             // Audit output is evidence. It must not replace live operational state merely
             // because the full plugin is loaded by the audit runner.
             if (ServicePolicy.IsBagAuditMode())
@@ -65,6 +68,9 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
+            if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
+                return;
+
             if (!_enabled || !Client.InPlay)
                 return;
 

@@ -5,7 +5,7 @@
   "status": "in_progress",
   "active_project": "citydwellers",
   "transaction": "session-67-physical-custody-safety",
-  "base_commit": "b6bee67ad9b1a78a32b8e07aafb1095db2445d75",
-  "task": "Implement startup census and verified durable banker custody",
-  "resume_instruction": "Service remains stopped. Manual census now includes all nine bankers plus loose bank/inventory report; audit slots normalized. Next implement automatic startup and reconnect isolation before ANY operational writer, then durable physically verified transfers and provenance-safe availability. Do not deploy intermediate checkpoints. Owner owns builds/live tests."
+  "base_commit": "60efc231c18c7bd2f808f35ab9ba92eec340a9f6",
+  "task": "Compile-review census and physically verified custody candidate; service stays stopped",
+  "resume_instruction": "Session 67 remains in progress. Candidate automatic census gating and flushed inventory-delta verification now cover donations, dispatch, withdrawal transfers and pickups. Owner must compile only, not start. Review docs/BANKER_CUSTODY_VALIDATION.md. Legacy hold and unfinished journals block startup. Historical attribution repair and automatic interrupted-custody reconciliation remain unfinished. No assistant-side build/live test."
 }

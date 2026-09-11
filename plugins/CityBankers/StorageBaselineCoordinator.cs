@@ -41,6 +41,9 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            if (!ServicePolicy.IsBagAuditMode() && StartupCensusGate.Defer(() => Init(pluginDir)))
+                return;
+
             string error;
             if (!SettingsPaths.TryEnsureDirectory(out _settingsDir, out error))
                 throw new InvalidOperationException(error);
@@ -108,6 +111,9 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
+            if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
+                return;
+
             if (!_enabled || !Client.InPlay)
                 return;
 

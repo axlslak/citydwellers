@@ -5,16 +5,21 @@
 - The manual census now commands all nine bankers (including Central) and prints loose
   bank/inventory observations in its durable report. Missing loose snapshots fail the run.
   Central is explicitly observation-only because storage-state has no Central baseline.
-  This is census coverage, not yet automatic startup gating or verified trade custody.
+  The automatic gate now reuses the census collector for all nine normal-mode clients.
 
 - Owner has stopped service. Do not deploy intermediate checkpoints as a safe runtime.
 - Foundation changes normalize audit inner slots and absent identities, capture loose
   inventory/bank items in audit JSON, and disable additional accounting/handshake/queue
   writers in manual audit mode.
-- Still required: full automatic census of all nine bankers before operational writers,
-  generation-bound readiness across reconnect, preserved expected/live comparisons,
-  physical receipt verification and durable custody transitions, and provenance-safe
-  availability reconciliation. No assistant-side compilation or live tests.
+- Implemented candidate: deferred operational initialization, generation-bound census
+  readiness, disconnect invalidation and recensus without automatic resumption, flushed
+  before/after custody evidence, exact inventory-delta checks for donations, dispatch,
+  withdrawal transfers and pickups, and physically constrained donor GET availability.
+- Unfinished custody, managed items outside verified storage, and the old custody hold
+  intentionally block startup. No speculative loss partition or legacy replay is authorized.
+- Still required: owner compilation and controlled live validation; historical attribution
+  repair and automatic interrupted-transaction reconciliation remain separate unfinished
+  work. See docs/BANKER_CUSTODY_VALIDATION.md. No assistant-side build/live test was run.
 
 Last continuity reconstruction: 2026-08-30
 

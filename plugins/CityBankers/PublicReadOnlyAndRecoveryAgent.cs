@@ -153,6 +153,7 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
+            if (!StartupCensusGate.IsOpen) return;
             if (!_enabled || !Client.InPlay || DateTime.UtcNow < _nextPollUtc)
                 return;
             _nextPollUtc = DateTime.UtcNow.AddMilliseconds(PollMilliseconds);

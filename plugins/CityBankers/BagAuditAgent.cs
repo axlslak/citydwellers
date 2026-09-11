@@ -18,6 +18,8 @@ namespace CityBankers
         private const int ProgressInterval = 25;
 
         private string _manualCommandPath;
+        private string _startupCommandPath;
+        private string _startupResultPath;
         private string _manualResultPath;
         private string _enrollmentCommandPath;
         private string _enrollmentResultPath;
@@ -57,6 +59,10 @@ namespace CityBankers
 
             pluginDir = RuntimeStateStore.GetDataDirectory(settingsDir);
             string token = SafeFileToken(Client.CharacterName);
+            _startupCommandPath = Path.Combine(StartupCensusGate.CensusDirectory(settingsDir),
+                token + ".command.json");
+            _startupResultPath = Path.Combine(StartupCensusGate.CensusDirectory(settingsDir),
+                token + ".result.json");
             _manualCommandPath = Path.Combine(
                 pluginDir,
                 $"citybankers-bagaudit-command-{token}.json");
@@ -109,12 +115,17 @@ namespace CityBankers
                 return;
             }
 
-            if (File.Exists(_manualCommandPath))
+            if (!ServicePolicy.IsBagAuditMode() && File.Exists(_startupCommandPath))
+            {
+                _activeCommandPath = _startupCommandPath;
+                _activeResultPath = _startupResultPath;
+            }
+            else if (File.Exists(_manualCommandPath) && ServicePolicy.IsBagAuditMode())
             {
                 _activeCommandPath = _manualCommandPath;
                 _activeResultPath = _manualResultPath;
             }
-            else if (File.Exists(_enrollmentCommandPath))
+            else if (File.Exists(_enrollmentCommandPath) && StartupCensusGate.IsOpen)
             {
                 _activeCommandPath = _enrollmentCommandPath;
                 _activeResultPath = _enrollmentResultPath;

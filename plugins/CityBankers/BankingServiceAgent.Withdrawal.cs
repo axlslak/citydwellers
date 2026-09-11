@@ -282,6 +282,9 @@ namespace CityBankers
                       string.Equals(targetName, _centralCharacter, StringComparison.OrdinalIgnoreCase)));
             if (transfer != null)
             {
+                if (_receipt == null)
+                    PrepareReceipt("withdrawal-transfer", transfer.DonationTransactionId,
+                        transfer.Id, new List<TransferItemState> { transfer.Item }, _isCentral ? 1 : -1);
                 _withdrawal = transfer;
                 _withdrawalTradeOpened = true;
                 _withdrawalTradePartner = target;
@@ -309,6 +312,8 @@ namespace CityBankers
                 return claim;
             });
             if (ready.Count == 0) return false;
+            PrepareReceipt("withdrawal-pickup", ready[0].DonationTransactionId,
+                ready[0].OrderId, ready.Select(row => row.Item).ToList(), -1);
             _pickupItems = ready;
             _withdrawal = ready[0];
             _withdrawalPickupTrade = true;
@@ -350,12 +355,17 @@ namespace CityBankers
             }
             if (status == TradeStatus.Finished)
             {
+                var expected = _withdrawalPickupTrade
+                    ? _pickupItems.Select(row => row.Item).ToList()
+                    : new List<TransferItemState> { state.Item };
+                AwaitPhysicalReceipt(expected, () =>
+                {
                 if (_isCentral && _withdrawalPickupTrade)
                 {
                     if (!_withdrawalAccepted || _pickupOfferedIds.Count != _pickupItems.Count)
                     {
                         ResetWithdrawalTrade(); // persisted pickup-trading requires physical reconciliation
-                        return true;
+                        throw new InvalidOperationException("Pickup completion lacks accepted offer evidence.");
                     }
                     // Persist the entire confirmed delivery before per-item archival.
                     List<string> ids = _pickupItems.Select(row => row.Id).ToList();
@@ -377,10 +387,18 @@ namespace CityBankers
                     WithdrawalStore.Save(_settingsDir, state);
                 }
                 ResetWithdrawalTrade();
+
+                });
                 return true;
             }
             if (status == TradeStatus.Declined)
             {
+                if (_afterReceipt != null && _receipt != null && _receipt.Direction != 0)
+                {
+                    StartupCensusGate.Block("Conflicting withdrawal Declined after Finished; custody evidence retained.");
+                    return true;
+                }
+                VerifyCancelledReceipt();
                 if (_isCentral && _withdrawalPickupTrade)
                 {
                     List<string> ids = _pickupItems.Select(row => row.Id).ToList();
@@ -605,6 +623,8 @@ namespace CityBankers
             if (central == null) return;
             ResetWithdrawalTrade();
             _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitTrade;
+            PrepareReceipt("withdrawal-transfer", _withdrawal.DonationTransactionId,
+                _withdrawal.Id, new List<TransferItemState> { _withdrawal.Item }, -1);
             Trade.Open(central.Identity);
         }
 
