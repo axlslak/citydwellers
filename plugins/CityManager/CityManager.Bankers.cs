@@ -713,8 +713,7 @@ namespace CityManager
             // once, so duplicate historical claims cannot create additional GET buttons.
             var availableStock = new List<StockItemState>(
                 RuntimeStateStore.LoadCurrentStock(_settingsDir)?.Items ?? new List<StockItemState>());
-            bool allBankersReady = File.Exists(Path.Combine(
-                _dataDir, "citybankers-all-bankers-ready.json"));
+            bool allBankersReady = WithdrawalStore.IsReadyForRequests(_settingsDir);
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
             foreach (JObject item in (ledger?["Items"] as JArray ?? new JArray())
                 .OfType<JObject>())

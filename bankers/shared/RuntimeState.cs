@@ -118,6 +118,8 @@ namespace CityBankers.Shared
         public DateTime CreatedUtc;
         public DateTime UpdatedUtc;
         public int AttemptCount;
+        // Set only by a failed source check before any dispatch command/trade is issued.
+        public bool TransferNeverStarted;
         public string LastError;
         public List<TransferItemState> Items = new List<TransferItemState>();
     }

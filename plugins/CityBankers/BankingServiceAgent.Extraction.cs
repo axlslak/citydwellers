@@ -88,7 +88,7 @@ namespace CityBankers
 
         private void StartRecoveryExtraction()
         {
-            if (_extraction != null || Trade.IsTrading || !Inventory.Bank.IsOpen || Inventory.NumFreeSlots < 3 ||
+            if (_localCensus != null || _extraction != null || Trade.IsTrading || !Inventory.Bank.IsOpen || Inventory.NumFreeSlots < 3 ||
                 _receipt != null || _returnOffer != null || _storageJob != null || _workerCommand != null ||
                 _reservedDispatch != null || _withdrawal != null || _activeBatch != null || _donationActive ||
                 _donationCleanup != null || _dispatchPreparation != null || _extractionScan.ElapsedMilliseconds < 1500) return;

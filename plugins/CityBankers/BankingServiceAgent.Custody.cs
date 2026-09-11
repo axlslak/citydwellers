@@ -162,6 +162,14 @@ namespace CityBankers
         private bool TickPhysicalReceipt()
         {
             if (_afterReceipt == null) return false;
+            // A cancellation request is not a closed trade. Wait for AO to
+            // close it before treating an unchanged inventory as returned custody.
+            if (_receipt.Direction == 0 && Trade.IsTrading)
+            {
+                _settledInventory = null;
+                _inventoryStableFor.Restart();
+                return true;
+            }
             _receipt.Observed = PhysicalInventory();
             _receipt.ObservedSlots = PhysicalSlots();
             string observedSignature = string.Join(";", _receipt.Observed.Select(CustodyKey).OrderBy(key => key));

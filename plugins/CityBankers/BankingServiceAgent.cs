@@ -185,7 +185,10 @@ namespace CityBankers
                         return;
                     TickDonation();
                     TickDonationCleanup();
+                    DetectLocalInventoryDifference();
+                    if (_localCensus != null) return;
                     TickDispatch();
+                    if (_localCensus != null) return;
                     StartRecoveryExtraction();
                 }
                 else
@@ -1119,6 +1122,7 @@ namespace CityBankers
                     queue,
                     next,
                     "Expected routed item multiset is not present in Central normal inventory; refusing to guess across missing copies.");
+                StartLocalCensus("Dispatch source check failed before trading; refresh Central's physical stock and queued routing.");
                 return;
             }
 
@@ -1140,6 +1144,7 @@ namespace CityBankers
                         ? new List<TransferItemState>(next.Items)
                         : new List<TransferItemState>()
                 });
+            next.TransferNeverStarted = false;
             next.Status = "trading";
             next.AttemptCount++;
             next.UpdatedUtc = DateTime.UtcNow;
@@ -1394,6 +1399,7 @@ namespace CityBankers
         private void MarkBatchFailed(DispatchQueueState queue, DispatchBatchState batch, string error)
         {
             batch.Status = "failed";
+            batch.TransferNeverStarted = true;
             batch.LastError = error;
             batch.UpdatedUtc = DateTime.UtcNow;
             RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);

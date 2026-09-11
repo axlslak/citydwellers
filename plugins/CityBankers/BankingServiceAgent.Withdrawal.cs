@@ -31,6 +31,8 @@ namespace CityBankers
         private readonly Stopwatch _receiptWait = new Stopwatch();
         private string _extractionWaitId;
         private readonly Stopwatch _extractionWait = new Stopwatch();
+        private readonly Dictionary<string, Stopwatch> _withdrawalAccountingRetry = new Dictionary<string, Stopwatch>();
+        private readonly Dictionary<string, string> _withdrawalAccountingError = new Dictionary<string, string>();
 
         private enum WithdrawalWorkerPhase
         {
@@ -50,6 +52,9 @@ namespace CityBankers
         private bool TickWithdrawalCentral()
         {
             List<WithdrawalState> rows = WithdrawalStore.LoadAll(_settingsDir);
+            if (_withdrawal != null && !_withdrawalTradeOpened && _receipt == null &&
+                !rows.Any(row => row.Id == _withdrawal.Id && WithdrawalStore.IsActive(row)))
+                ResetWithdrawalLocal();
             if (_withdrawalTradeOpened && !Trade.IsTrading)
                 ResetWithdrawalTrade(); // recover even if AO omitted a Declined callback
             if (_withdrawalTradeOpened)
@@ -64,8 +69,8 @@ namespace CityBankers
 
             foreach (WithdrawalState row in rows.Where(WithdrawalStore.IsActive))
             {
-                if (WithdrawalStore.HasStatus(row, "delivery-confirmed"))
-                    CompleteWithdrawalAccounting(row);
+                if (WithdrawalStore.HasConfirmedDelivery(row))
+                    RetryConfirmedWithdrawalAccounting(row);
                 else if (WithdrawalStore.HasStatus(row, "returning"))
                     QueueWithdrawalReturn(row);
                 else if (WithdrawalStore.HasStatus(row, "return-queued") && WithdrawalReturnIsStored(row))
@@ -150,7 +155,7 @@ namespace CityBankers
                 !rows.Any(other => other.Id != row.Id && WithdrawalStore.HasStatus(other, "failed") &&
                     string.Equals(other.SourceCharacter, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)) &&
                 !(queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
-                    batch != null && string.Equals(batch.Character, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)));
+                    batch != null && !batch.TransferNeverStarted && string.Equals(batch.Character, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)));
             if (next == null) return false;
             bool retry = WithdrawalStore.HasStatus(next, "failed");
             JToken liveInventoryMatch = retry
@@ -741,6 +746,30 @@ namespace CityBankers
                 "Your order pickup clock is now three minutes. Open trade to collect all ready items.");
         }
 
+        private void RetryConfirmedWithdrawalAccounting(WithdrawalState state)
+        {
+            Stopwatch retry;
+            if (!_withdrawalAccountingRetry.TryGetValue(state.Id, out retry))
+                _withdrawalAccountingRetry[state.Id] = retry = Stopwatch.StartNew();
+            if (retry.ElapsedMilliseconds < 1000) return;
+            retry.Restart();
+            try
+            {
+                if (!state.DeliveredUtc.HasValue)
+                    throw new InvalidOperationException("Confirmed pickup has no recorded delivery time; original evidence retained.");
+                CompleteWithdrawalAccounting(state);
+                _withdrawalAccountingRetry.Remove(state.Id);
+                _withdrawalAccountingError.Remove(state.Id);
+            }
+            catch (Exception ex)
+            {
+                string previous;
+                if (!_withdrawalAccountingError.TryGetValue(state.Id, out previous) || previous != ex.Message)
+                    Logger.Warning("[CityBankers] Confirmed withdrawal accounting retry " + state.Id + ": " + ex.Message);
+                _withdrawalAccountingError[state.Id] = ex.Message;
+            }
+        }
+
         private void CompleteWithdrawalAccounting(WithdrawalState state)
         {
             if (!ActiveLedgerStore.ArchiveActiveItemById(
@@ -748,8 +777,7 @@ namespace CityBankers
                     state.DeliveredUtc ?? DateTime.UtcNow,
                     "withdrawn", state.RecipientMain))
             {
-                FailWithdrawal(state, "AO delivered the item, but active-ledger archival failed.");
-                return;
+                throw new InvalidOperationException("AO delivered the item, but active-ledger archival is still pending.");
             }
             state.Status = "completed";
             WithdrawalStore.Save(_settingsDir, state);

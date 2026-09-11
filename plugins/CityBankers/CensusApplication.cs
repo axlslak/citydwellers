@@ -14,7 +14,7 @@ namespace CityBankers
     {
         internal sealed class Bundle
         {
-            public string Format = "citybankers-census-application-v1";
+            public string Format = "citybankers-census-application-v2";
             public string Generation;
             public DateTime RecordedUtc;
             public List<string> Runs;
@@ -58,13 +58,17 @@ namespace CityBankers
                         observation.PreviousLocation = oldBags[0].Source;
                     }
                 }
-                var plan = PhysicalLedgerReconciliation.Build(previous.Items, observations,
+                var withdrawals = WithdrawalStore.LoadAll(settings).Where(WithdrawalStore.IsActive).ToList();
+                var deliveredIds = new HashSet<string>(withdrawals.Where(w => WithdrawalStore.HasConfirmedDelivery(w))
+                    .Select(w => w.ActiveLedgerId), StringComparer.Ordinal);
+                // Already delivered occurrences cannot donate their identity or
+                // provenance to a similar item encountered by this new census.
+                var plan = PhysicalLedgerReconciliation.Build(previous.Items.Where(i => !deliveredIds.Contains(i.Id)).ToList(), observations,
                     censuses.Select(c => c.Character));
                 // Unknown origin still needs a stable transaction for ordinary
                 // routing/accounting. This identifier makes no donor claim.
                 foreach (var item in plan.Items)
                     if (string.IsNullOrWhiteSpace(item.TransactionId)) item.TransactionId = "found-" + item.Id;
-                var withdrawals = WithdrawalStore.LoadAll(settings).Where(WithdrawalStore.IsActive).ToList();
                 bundle = new Bundle
                 {
                     Generation = generation, RecordedUtc = DateTime.UtcNow, Runs = runs,
@@ -72,11 +76,12 @@ namespace CityBankers
                     PreviousQueue = ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(settings)),
                     ReservedWithdrawals = withdrawals,
                     Plan = plan, Storage = BuildStorage(censuses, plan, generation),
-                    Queue = BuildQueue(plan, observations, censuses, withdrawals, generation)
+                    Queue = BuildQueue(plan, observations, censuses.ToDictionary(c => c.Role, c => c.Character, StringComparer.OrdinalIgnoreCase), new List<WithdrawalState>(), generation)
                 };
                 RuntimeStateStore.WriteJsonAtomic(path, bundle);
             }
-            if (bundle.Generation != generation || bundle.Runs == null || !bundle.Runs.SequenceEqual(runs) ||
+            if (bundle.Format != "citybankers-census-application-v2" || bundle.ReservedWithdrawals == null ||
+                bundle.Generation != generation || bundle.Runs == null || !bundle.Runs.SequenceEqual(runs) ||
                 bundle.Plan == null || bundle.Storage == null || bundle.Queue == null)
                 throw new InvalidOperationException("Census changed during application; retained bundle requires a new reconciliation.");
 
@@ -86,8 +91,14 @@ namespace CityBankers
                 "census-" + generation + ".json"), new
                 {
                     Format = "citybankers-census-history-v1", bundle.Generation, bundle.RecordedUtc,
-                    EventTimeKnown = false, bundle.Runs, bundle.Plan.Differences
+                    EventTimeKnown = false, bundle.Runs, bundle.Plan.Differences,
+                    Withdrawals = bundle.ReservedWithdrawals.Select(w => new
+                    { Original = w, Disposition = WithdrawalStore.HasConfirmedDelivery(w) ? "completed" : "reconciled",
+                        ObservedLedgerIds = bundle.Plan.Items.Where(i => i.Id == w.ActiveLedgerId).Select(i => i.Id).ToList() }).ToList()
                 });
+            foreach (var withdrawal in bundle.ReservedWithdrawals.Where(w => WithdrawalStore.HasConfirmedDelivery(w)))
+                ActiveLedgerStore.RecordCensusConfirmedDelivery(settings, withdrawal,
+                    bundle.PreviousLedger.Items.SingleOrDefault(i => i.Id == withdrawal.ActiveLedgerId));
             RuntimeStateStore.SaveStorageBaseline(settings, bundle.Storage, "census-" + generation);
             ActiveLedgerStore.ApplyCensus(settings, bundle.Plan.Items, censuses.SelectMany(c =>
                 PhysicalLedgerReconciliation.ReadCensus(settings, c)).Select(o => new TransferItemState
@@ -96,18 +107,18 @@ namespace CityBankers
             // Its complete record remains in application.json, without inventing
             // a successful transfer for any missing occurrence.
             RuntimeStateStore.SaveDispatchQueue(settings, bundle.Queue);
+            WithdrawalStore.ReconcileRequestsAfterCensus(settings, generation, bundle.ReservedWithdrawals);
             WithdrawalStore.ResetRecoveryAfterCensus(settings, Path.Combine(directory, "previous-recovery-reservations.json"));
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "applied.json"), new
             { Generation = generation, bundle.Runs, Count = bundle.Plan.Items.Count });
             return bundle;
         }
 
-        private static DispatchQueueState BuildQueue(PhysicalLedgerReconciliation.Plan plan,
+        internal static DispatchQueueState BuildQueue(PhysicalLedgerReconciliation.Plan plan,
             List<PhysicalLedgerReconciliation.Observation> observations,
-            IEnumerable<BagAuditAgent.BagAuditResult> censuses, List<WithdrawalState> withdrawals, string generation)
+            IDictionary<string, string> roles, List<WithdrawalState> withdrawals, string generation)
         {
             var queue = new DispatchQueueState { UpdatedUtc = DateTime.UtcNow };
-            var roles = censuses.ToDictionary(c => c.Role, c => c.Character, StringComparer.OrdinalIgnoreCase);
             string central = roles["central"];
             foreach (var entry in plan.Items.Where(e => string.Equals(e.Character, central, StringComparison.OrdinalIgnoreCase) &&
                 e.Location == "inventory" && !e.Bag.HasValue && e.Slot.HasValue))

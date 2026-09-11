@@ -707,6 +707,22 @@ namespace CityBankers
             SaveLedger(settingsDir, ledger);
         }
 
+        internal static void RecordCensusConfirmedDelivery(string settingsDir, WithdrawalState withdrawal,
+            ActiveLedgerItem original)
+        {
+            if (!WithdrawalStore.HasConfirmedDelivery(withdrawal))
+                throw new InvalidOperationException("Census cannot invent a delivery confirmation.");
+            // The full original request is also retained in census history. If
+            // historical metadata is absent, do not fabricate donor or time.
+            if (original == null || !withdrawal.DeliveredUtc.HasValue) return;
+            if (original.Id != withdrawal.ActiveLedgerId)
+                throw new InvalidOperationException("Confirmed withdrawal refers to a different ledger occurrence.");
+            DateTime when = withdrawal.DeliveredUtc.Value;
+            if (!HistoryContains(settingsDir, when, original.Id, "withdrawn"))
+                AppendHistory(settingsDir, new ActiveHistoryRecord
+                { LeftUtc = when, Reason = "withdrawn", Recipient = withdrawal.RecipientMain, Item = Clone(original) });
+        }
+
         public static bool ArchiveActiveItemById(
             string settingsDir,
             string itemId,

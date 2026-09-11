@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -39,6 +40,7 @@ namespace CityBankers.Shared
         public string LiveInventoryAnchorIdentity;
         public string CentralItemIdentity;
         public string ReturnBatchId;
+        public string ReconciledByCensus;
         public string Error;
         public TransferItemState Item;
     }
@@ -51,11 +53,29 @@ namespace CityBankers.Shared
 
     public static class WithdrawalStore
     {
+        private static readonly string HostGeneration = Process.GetCurrentProcess().Id + "-" +
+            Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+
+        public static bool IsReadyForRequests(string directory)
+        {
+            string path = Path.Combine(RuntimeStateStore.GetDataDirectory(directory), TrustedOperators.AllBankersReadyMarkerFileName);
+            try
+            {
+                if (!File.Exists(path)) return false;
+                var ready = JObject.Parse(File.ReadAllText(path));
+                return (string)ready["generation"] == HostGeneration;
+            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+            catch (JsonException) { return false; }
+        }
+
         public sealed class RecoveryReservation
         {
             public string OperationId;
             public string LedgerId;
             public string CensusCharacter;
+            public bool CensusCentral;
         }
 
         private static string RecoveryPath(string directory) => Path.Combine(
@@ -81,16 +101,16 @@ namespace CityBankers.Shared
             ReadRecovery(directory).Any(r => r.OperationId == operation &&
                 string.Equals(r.CensusCharacter, character, StringComparison.OrdinalIgnoreCase)));
 
-        public static bool TryReserveCensus(string directory, string operation, string character)
+        public static bool TryReserveCensus(string directory, string operation, string character, bool central = false)
         {
             return Locked(() =>
             {
                 if (Read(directory).Any(r => IsActive(r) &&
-                    string.Equals(r.SourceCharacter, character, StringComparison.OrdinalIgnoreCase))) return false;
+                    (central || string.Equals(r.SourceCharacter, character, StringComparison.OrdinalIgnoreCase)))) return false;
                 var rows = ReadRecovery(directory);
                 var existing = rows.FirstOrDefault(r => string.Equals(r.CensusCharacter, character, StringComparison.OrdinalIgnoreCase));
                 if (existing != null) return existing.OperationId == operation;
-                rows.Add(new RecoveryReservation { OperationId = operation, CensusCharacter = character });
+                rows.Add(new RecoveryReservation { OperationId = operation, CensusCharacter = character, CensusCentral = central });
                 RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), rows);
                 return true;
             });
@@ -139,6 +159,33 @@ namespace CityBankers.Shared
                 return true;
             });
         }
+        public static void ReconcileRequestsAfterCensus(string directory, string generation,
+            IList<WithdrawalState> originals)
+        {
+            if (originals == null) throw new InvalidOperationException("Census has no withdrawal snapshot.");
+            Update(directory, rows =>
+            {
+                var ids = new HashSet<string>(originals.Select(r => r.Id), StringComparer.Ordinal);
+                if (rows.Any(r => IsActive(r) && !ids.Contains(r.Id)))
+                    throw new InvalidOperationException("A withdrawal was added while startup census owned admission.");
+                foreach (var original in originals)
+                {
+                    var current = rows.SingleOrDefault(r => r.Id == original.Id);
+                    if (current == null) throw new InvalidOperationException("A retained withdrawal disappeared during census application.");
+                    if (current.ReconciledByCensus == generation) continue;
+                    if (current.Revision != original.Revision || current.Status != original.Status)
+                        throw new InvalidOperationException("A withdrawal changed during startup census application.");
+                    current.Status = HasConfirmedDelivery(original) ? "completed" : "reconciled";
+                    current.ReconciledByCensus = generation;
+                    current.Error = HasConfirmedDelivery(original)
+                        ? "Previously confirmed delivery retained during startup census."
+                        : "Interrupted request closed after full physical census; no delivery inferred. Please request the item again.";
+                    Touch(current);
+                }
+                return true;
+            });
+        }
+
         public const int PickupSeconds = 180;
         public const int MaximumOrders = 4;
         public const int MaximumOrderItems = 3;
@@ -259,9 +306,11 @@ namespace CityBankers.Shared
                 List<WithdrawalState> active = rows.Where(IsActive).ToList();
                 List<WithdrawalState> own = active.Where(row => string.Equals(
                     row.RecipientMain, request.RecipientMain, StringComparison.OrdinalIgnoreCase)).ToList();
-                if (active.Any(row => row.ActiveLedgerId == request.ActiveLedgerId))
+                if (!IsReadyForRequests(directory))
+                    reason = "The bank is checking its physical inventory. Please try again when it is ready.";
+                else if (active.Any(row => row.ActiveLedgerId == request.ActiveLedgerId))
                     reason = "That copy was just reserved. Please select it again.";
-                else if (ReadRecovery(directory).Any(r => r.LedgerId == request.ActiveLedgerId ||
+                else if (ReadRecovery(directory).Any(r => r.CensusCentral || r.LedgerId == request.ActiveLedgerId ||
                     string.Equals(r.CensusCharacter, request.SourceCharacter, StringComparison.OrdinalIgnoreCase)))
                     reason = "That item is being moved. Please try again shortly.";
                 else if (!RequestStillStored(directory, request))
@@ -307,9 +356,15 @@ namespace CityBankers.Shared
                     i.HighId == request.Item.HighId && i.Ql == request.Item.Ql && i.TransactionId == request.DonationTransactionId);
         }
 
+        // DeliveredUtc is written only by the verified physical pickup callback.
+        // A later archival failure may change Status to failed, but must not
+        // turn that delivered occurrence into a new extraction request.
+        public static bool HasConfirmedDelivery(WithdrawalState state) => state != null &&
+            (HasStatus(state, "delivery-confirmed") || state.DeliveredUtc.HasValue);
+
         public static bool IsTerminal(WithdrawalState state)
         {
-            return state == null || HasStatus(state, "completed") || HasStatus(state, "expired");
+            return state == null || HasStatus(state, "completed") || HasStatus(state, "expired") || HasStatus(state, "reconciled");
         }
 
         public static bool IsActive(WithdrawalState state) { return state != null && !IsTerminal(state); }

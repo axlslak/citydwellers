@@ -21,6 +21,7 @@ namespace CityBankers
         private static string _directory;
         private static bool _isCentralClient;
         private static string[] _characters;
+        private static JObject _roster;
         private static bool _invalidated;
         private static long _holdVersion;
         private string _settings;
@@ -107,6 +108,15 @@ namespace CityBankers
         {
             if (!OwnsLocalPause(version) || !Client.InPlay ||
                 !File.Exists(Path.Combine(_directory, "released.json"))) return false;
+            if (_isCentralClient)
+            {
+                string data = Directory.GetParent(Directory.GetParent(_directory).FullName).FullName;
+                RuntimeStateStore.WriteJsonAtomic(Path.Combine(data, TrustedOperators.AllBankersReadyMarkerFileName), new
+                {
+                    format = "citybankers-all-bankers-ready-v1", generation = Generation, readyUtc = DateTime.UtcNow,
+                    characters = _roster.Properties().Select(p => new { role = p.Name, character = (string)p.Value["Character"] }).ToList()
+                });
+            }
             File.WriteAllText(Path.Combine(_directory, Client.CharacterName + ".ready"), Generation);
             RuntimeStateStore.DeleteIfExists(Path.Combine(_directory, Client.CharacterName + ".blocked"));
             _invalidated = false;
@@ -121,6 +131,7 @@ namespace CityBankers
                 throw new InvalidOperationException(error);
             JObject roles = SettingsPaths.ReadBankersSettings(_settings)["Roles"] as JObject;
             if (roles == null) { Block("Missing banker roster."); return; }
+            _roster = roles;
             _characters = roles.Properties().Select(p => (string)p.Value["Character"]).ToArray();
             if (_characters.Length != 9 || _characters.Any(string.IsNullOrWhiteSpace) ||
                 _characters.Distinct(StringComparer.OrdinalIgnoreCase).Count() != 9)
