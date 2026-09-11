@@ -1,5 +1,27 @@
 # City Dwellers — Persistent Project History
 
+## 2026-09-11 — Worker fallback remote-Accept latch
+
+The complete local activity log and UTC ledger clarified the repeated internal
+trade failure across hosts/timezones. Central opened exact persisted batches;
+workers opened the matching commands; and Kbinfa twice observed the remote
+`TradeStatus.Accept` event. Nevertheless, the worker compatibility fallback did
+not accept, and both clients timed out. Its tick polled `Trade.Status`, which is
+the worker's local state and did not preserve Central's remote acceptance.
+
+`[IMPLEMENTED]` An armed worker now latches `TradeStatusChanged(Accept)` for its
+matching Central trade. The existing command-bound incomplete-cache fallback
+uses that event proof instead of polling local status. Reset paths clear the
+latch, and exact command matching, AO Finished, worker inventory receipt, and
+physical bag placement remain unchanged.
+
+The final pre-fix Artillery attempt remained open when the host was killed.
+After restart, its Intelligent Thigh was loose on Central, but its Vital Waist
+was absent from both live normal inventories and from canonical stock under the
+donation transaction. This is retained as unresolved custody evidence rather
+than misclassified as stored. No assistant-side compilation or live AO test was
+run; Kavey owns Release build and live validation.
+
 ## 2026-09-11 — Internal AddItem acknowledgement retry
 
 A completed player donation produced a two-item Artillery batch. Kbarty opened

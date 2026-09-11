@@ -46,6 +46,7 @@ namespace CityBankers
 
         private bool _workerCentralTradeOpen;
         private string _workerBatchId;
+        private bool _workerObservedCentralAccept;
         private bool _workerFallbackAccepted;
 
         // Prevent one persistently broken batch from being requeued forever in one process.
@@ -198,6 +199,7 @@ namespace CityBankers
 
             _workerCentralTradeOpen = true;
             _workerBatchId = command.BatchId;
+            _workerObservedCentralAccept = false;
             _workerFallbackAccepted = false;
 
             RuntimeStateStore.AppendActivity(
@@ -212,6 +214,12 @@ namespace CityBankers
         {
             if (!_enabled || _isCentral || !_workerCentralTradeOpen)
                 return;
+
+            if (status == TradeStatus.Accept)
+            {
+                _workerObservedCentralAccept = true;
+                return;
+            }
 
             if (status == TradeStatus.Finished || status == TradeStatus.Declined)
                 ResetWorkerTrade();
@@ -241,12 +249,14 @@ namespace CityBankers
             if (visibleRemoteItems == expectedItems)
                 return;
 
-            // Fallback path: Trade.Status=Accept means the configured Central has already
-            // accepted its own outgoing window. BankingServiceAgent on Central only does
-            // that after its PlayerWindowCache exactly matches the persisted dispatch.
+            // Fallback path: the matching trade's status event reported Accept, meaning
+            // configured Central accepted its own outgoing window. Trade.Status is the
+            // worker's local status and does not reliably retain that remote event.
+            // BankingServiceAgent on Central only accepts after its PlayerWindowCache
+            // exactly matches the persisted dispatch.
             // The receiver cache may nevertheless remain empty or incomplete in
             // AOSharp.Clientless.
-            if (Trade.Status != TradeStatus.Accept)
+            if (!_workerObservedCentralAccept)
                 return;
 
             _workerFallbackAccepted = true;
@@ -622,6 +632,7 @@ namespace CityBankers
         {
             _workerCentralTradeOpen = false;
             _workerBatchId = null;
+            _workerObservedCentralAccept = false;
             _workerFallbackAccepted = false;
         }
 

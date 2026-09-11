@@ -2,6 +2,29 @@
 
 Last continuity reconstruction: 2026-08-30
 
+## 2026-09-11 — worker remote-Accept latch (session 63)
+
+- `[VERIFIED-LIVE]` Central repeatedly reached acceptance during failed internal
+  trades: Kbinfa observed `TRADE STATUS ... status=Accept` twice. The worker
+  fallback still did not accept, and both worker and Central timed out at 20
+  seconds. Cross-timezone log and UTC-ledger events align exactly.
+- `[ROOT-CAUSE]` `TradeStatusChanged` supplies Central's remote Accept event,
+  while `Trade.Status` represents the worker's local status and did not retain
+  that remote state. `TickWorkerFallback` discarded the event and polled the
+  wrong status property.
+- `[IMPLEMENTED, OWNER VALIDATION PENDING]` The armed, command-matched worker
+  trade now latches its observed remote Accept event. The existing incomplete-
+  cache fallback consumes that proof and calls worker Accept. Finished,
+  Declined, a new trade, or command mismatch clears the latch.
+- `[INVARIANT]` The fallback remains restricted to configured Central plus the
+  exact persisted batch command. AO Finished and physical worker inventory/bag
+  placement remain mandatory before storage success.
+- `[OPEN-CUSTODY]` The third pre-fix Artillery attempt was interrupted by a hard
+  restart while its trade remained open. Intelligent Thigh AOID 235579 is loose
+  on Central. Vital Waist AOID 235524 is absent from Central, Kbarty normal
+  inventory, and canonical stock for the donation transaction; do not infer it
+  was stored or delete the hold without further AO-side evidence.
+
 ## 2026-09-11 — dropped internal AddItem recovery (session 62)
 
 - `[LIVE-ROOT-CAUSE]` A two-item Artillery dispatch opened on Kbarty but neither
