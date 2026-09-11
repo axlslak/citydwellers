@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 67,
-  "last_completed_session": 66,
-  "status": "in_progress",
+  "last_completed_session": 67,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-67-physical-custody-safety",
-  "base_commit": "1c4ae748255faae78e8ce37cfae38fae63eee12a",
-  "task": "Replace global discrepancy shutdown with physical-ledger reconciliation, local recovery and paced IPC routing",
-  "resume_instruction": "Implementation for Session67 completed locally: connection-bound available-roster census and actor retirement, offline admission, recovery-owner fallback, withdrawal/return live IPC stages and monotonic pickup/audit timers. Static source/delimiter/project/whitespace review only; no build/tests/live AO. Publish checkpoint184 implementation then seal Session67 COMMIT185 pointing to it and set cursor idle with owner build/live validation next. Service remains stopped; no restart clearance. Historical data repair already applied; never repeat. Preserve historical journal truncation text."
+  "base_commit": "6552243710b417b42c54951d2dea6270659b75a0",
+  "task": "Owner build and controlled runtime validation of completed banker recovery implementation",
+  "resume_instruction": "Session67 implementation is published at 6552243710b417b42c54951d2dea6270659b75a0 and sealed by COMMIT185. No active writer transaction remains. Owner builds and controlled startup/reconnect/dispatch/withdrawal/return validation next; assistant did static source/delimiter/project/whitespace review only, no compile/tests/live AO. Service remains stopped and is not restart-cleared by static review. Preserve completed physical-ledger reconciliation, local/paired recovery and connection-bound available-roster fallback. Broad recovery retires old pickup requests without inferring delivery; offline records remain unavailable until fresh census. Historical data repair already applied; never repeat. Next journal186; start a new transaction only for newly authorized code work or returned build/log fixes. Preserve historical journal truncation text."
 }
