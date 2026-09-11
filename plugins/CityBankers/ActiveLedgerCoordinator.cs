@@ -428,6 +428,30 @@ namespace CityBankers
             SaveLedger(settingsDir, ledger);
         }
 
+        internal static void RecordWithdrawalArrival(string settingsDir, WithdrawalState state,
+            string central, TransferItemState item, int inventorySlot)
+        {
+            // Called only after a physically verified worker receipt has become
+            // central-received, before central-ready. Keep the existing occurrence ID.
+            if (!WithdrawalStore.HasStatus(state, "central-received"))
+                throw new InvalidOperationException("Withdrawal arrival lacks verified received state.");
+            var ledger = LoadLedger(settingsDir);
+            var entry = ledger?.Items?.SingleOrDefault(value => value.Id == state.ActiveLedgerId);
+            if (entry == null || entry.TransactionId != state.DonationTransactionId || entry.AoId != item.AoId ||
+                (entry.HighId.HasValue && entry.HighId != item.HighId) ||
+                (entry.Ql.HasValue && entry.Ql != item.Ql) ||
+                (!string.Equals(entry.Character, state.SourceCharacter, StringComparison.OrdinalIgnoreCase) &&
+                 !string.Equals(entry.Character, central, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("Verified withdrawal arrival cannot identify its ledger occurrence.");
+            entry.Character = central;
+            entry.Location = "inventory";
+            entry.Bag = null;
+            entry.Slot = inventorySlot & 65535;
+            entry.HighId = item.HighId;
+            entry.Ql = item.Ql;
+            SaveLedger(settingsDir, ledger);
+        }
+
         internal static void RecordExtraction(string settingsDir, ExtractionProof proof)
         {
             var ledger = LoadLedger(settingsDir);

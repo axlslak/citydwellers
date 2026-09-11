@@ -345,6 +345,8 @@ namespace CityBankers
             _withdrawalTradePartner = target;
             _pickupOfferedIds.Clear();
             _withdrawalAccepted = false;
+            ReportTransferProgress("PICKUP OPENED", ready[0].OrderId,
+                "collector=" + targetName + "; items=" + ready.Count, ready.Select(row => row.Item));
             return true;
         }
 
@@ -692,18 +694,25 @@ namespace CityBankers
             }
         }
 
+        private void DeclinePickup(WithdrawalState state, string reason)
+        {
+            ReportTransferProgress("PICKUP DECLINED", state.OrderId, "request=" + state.Id + "; " + reason);
+            try { TellPlayer(state.RequestedBy, reason); }
+            catch (Exception ex) { Logger.Warning("Pickup decline notice unavailable: " + ex.Message); }
+            TryDeclineTrade();
+        }
+
         private void TickWithdrawalPickupTrade(WithdrawalState state)
         {
             if (!Trade.IsTrading) return;
             if ((Trade.TargetWindowCache?.Items?.Count ?? 0) > 0)
             {
-                TellPlayer(state.RequestedBy, "This trade collects your ready order. Please donate in a separate trade after pickup.");
-                TryDeclineTrade();
+                DeclinePickup(state, "This trade collects your ready order. Please donate in a separate trade after pickup.");
                 return;
             }
             if (_pickupItems.Any(row => !WithdrawalStore.PickupWindowOpen(row)))
             {
-                TryDeclineTrade();
+                DeclinePickup(state, "Your pickup window expired while the trade was open. Please request the item again after it returns to storage.");
                 return; // Declined callback restores all claimed items together
             }
             foreach (WithdrawalState row in _pickupItems)
@@ -712,7 +721,7 @@ namespace CityBankers
                 Item item = FindWithdrawalInventoryItem(row);
                 if (item == null)
                 {
-                    TryDeclineTrade();
+                    DeclinePickup(state, "Central cannot uniquely identify a reserved item for this pickup. Nothing will be handed out; your order remains pending.");
                     return;
                 }
                 if (_managedAddWait.ElapsedMilliseconds < 500) return;
@@ -760,10 +769,13 @@ namespace CityBankers
             }
             Item received = FindWithdrawalInventoryItem(state);
             if (received == null) return;
+            ActiveLedgerStore.RecordWithdrawalArrival(_settingsDir, state, Client.CharacterName,
+                SnapshotTradeItems(new[] { received }).Single(), received.Slot.Instance);
             WithdrawalStore.Update(_settingsDir, rows =>
             {
                 WithdrawalState fresh = rows.First(row => row.Id == state.Id);
-                fresh.CentralItemIdentity = received.UniqueIdentity.ToString();
+                fresh.CentralItemIdentity = IsUsableIdentity(received.UniqueIdentity.ToString())
+                    ? received.UniqueIdentity.ToString() : null;
                 fresh.Status = "central-ready";
                 foreach (WithdrawalState row in rows.Where(row => row.OrderId == fresh.OrderId &&
                     WithdrawalStore.HasStatus(row, "central-ready")))
@@ -908,10 +920,10 @@ namespace CityBankers
             if (!_isCentral || item == null) return false;
             return reservations.Any(row =>
                 WithdrawalStore.IsActive(row) && !WithdrawalStore.HasStatus(row, "return-queued") &&
-                (row.CentralItemIdentity == item.UniqueIdentity.ToString() ||
-                 row.ExtractedItemIdentity == item.UniqueIdentity.ToString() ||
-                 row.SourceItemIdentity == item.UniqueIdentity.ToString() ||
-                 (string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
+                ((IsUsableIdentity(row.CentralItemIdentity) && row.CentralItemIdentity == item.UniqueIdentity.ToString()) ||
+                 (IsUsableIdentity(row.ExtractedItemIdentity) && row.ExtractedItemIdentity == item.UniqueIdentity.ToString()) ||
+                 (IsUsableIdentity(row.SourceItemIdentity) && row.SourceItemIdentity == item.UniqueIdentity.ToString()) ||
+                 (!IsUsableIdentity(row.CentralItemIdentity) &&
                   (WithdrawalStore.HasStatus(row, "failed") ||
                    WithdrawalStore.HasStatus(row, "central-received") ||
                    WithdrawalStore.HasStatus(row, "central-ready") ||
@@ -926,31 +938,31 @@ namespace CityBankers
                 item != null && item.Slot.Type == IdentityType.Inventory &&
                 item.UniqueIdentity.Type != IdentityType.Container).ToList();
 
-            if (state?.LiveInventoryAnchorSlot.HasValue == true)
+            if (!_isCentral && state?.LiveInventoryAnchorSlot.HasValue == true)
             {
                 List<Item> anchored = inventory.Where(item =>
                     item.Slot.Instance == state.LiveInventoryAnchorSlot.Value &&
-                    (string.Equals(
+                    ((IsUsableIdentity(state.LiveInventoryAnchorIdentity) && string.Equals(
                          item.UniqueIdentity.ToString(),
                          state.LiveInventoryAnchorIdentity,
-                         StringComparison.Ordinal) ||
+                         StringComparison.Ordinal)) ||
                      string.Equals(
                          item.Name ?? string.Empty,
                          state.Item?.Name ?? string.Empty,
-                         StringComparison.OrdinalIgnoreCase)))
+                         StringComparison.OrdinalIgnoreCase) && item.Ql == state.Item.Ql))
                     .ToList();
                 if (anchored.Count == 1)
                     return anchored[0];
             }
 
-            if (_isCentral && !string.IsNullOrWhiteSpace(state?.CentralItemIdentity))
+            if (_isCentral && IsUsableIdentity(state?.CentralItemIdentity))
             {
                 List<Item> exactCentral = inventory.Where(item =>
                     item.UniqueIdentity.ToString() == state.CentralItemIdentity).ToList();
                 return exactCentral.Count == 1 ? exactCentral[0] : null;
             }
 
-            if (!string.IsNullOrWhiteSpace(state?.ExtractedItemIdentity))
+            if (IsUsableIdentity(state?.ExtractedItemIdentity))
             {
                 List<Item> exactExtracted = inventory.Where(item => string.Equals(
                     item.UniqueIdentity.ToString(),
@@ -975,10 +987,11 @@ namespace CityBankers
             List<WithdrawalState> others = WithdrawalStore.LoadAll(_settingsDir)
                 .Where(row => WithdrawalStore.IsActive(row) && row.Id != state.Id).ToList();
             List<Item> matches = inventory.Where(item => MatchesWithdrawalItem(item, state) &&
-                !others.Any(row => !string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
+                !others.Any(row => IsUsableIdentity(row.CentralItemIdentity) &&
                     row.CentralItemIdentity == item.UniqueIdentity.ToString())).ToList();
             if (matches.Count == 1)
                 return matches[0];
+            if (_isCentral) return null; // Never reuse a worker-side extraction slot on Central.
 
             // AO can assign a different live identity/template representation while moving
             // a bag item into normal inventory. The pre-move slot census still proves which
@@ -990,7 +1003,7 @@ namespace CityBankers
                     string.Equals(item.Name ?? string.Empty, state.Item.Name ?? string.Empty,
                         StringComparison.OrdinalIgnoreCase) &&
                     (priorSlots.Count == 0 || !priorSlots.Contains(item.Slot.Instance)) &&
-                    !others.Any(row => !string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
+                    !others.Any(row => IsUsableIdentity(row.CentralItemIdentity) &&
                         row.CentralItemIdentity == item.UniqueIdentity.ToString()))
                 .ToList();
             return named.Count == 1 ? named[0] : null;

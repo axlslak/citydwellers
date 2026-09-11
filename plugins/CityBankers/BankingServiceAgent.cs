@@ -462,6 +462,14 @@ namespace CityBankers
         // AO trade callbacks
         // ---------------------------------------------------------------------
 
+        private void DeclineIncomingTrade(string targetName, string reason)
+        {
+            ReportTransferProgress("TRADE DECLINED", null, "partner=" + targetName + "; " + reason);
+            try { TellDirectPlayer(targetName, reason); }
+            catch (Exception ex) { Logger.Warning("Trade decline notice unavailable: " + ex.Message); }
+            Trade.Decline();
+        }
+
         private void OnTradeOpened(Identity target)
         {
             if (!StartupCensusGate.IsOpen) return;
@@ -473,8 +481,9 @@ namespace CityBankers
                 string targetName = FindPlayerName(target);
                 if (_withdrawalCensus != null || _withdrawalDispute ||
                     WithdrawalStore.GetWithdrawalCensusId(_settingsDir, Client.CharacterName) != null)
-                { Trade.Decline(); return; }
-                if (_extraction != null || _storageRecovery != null) { Trade.Decline(); return; }
+                { DeclineIncomingTrade(targetName, "Central is reconciling withdrawal custody. Please retry after recovery completes."); return; }
+                if (_extraction != null || _storageRecovery != null)
+                { DeclineIncomingTrade(targetName, "Central is moving a reserved item or recovering storage. Please retry shortly."); return; }
                 RuntimeStateStore.AppendActivity(
                     _settingsDir,
                     Client.CharacterName,
