@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 74,
-  "last_completed_session": 73,
-  "status": "in_progress",
+  "last_completed_session": 74,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-74-withdrawal-pickup",
-  "base_commit": "1af775144813baf1368d79108e42e4647a92c8cc",
-  "task": "Fix pickup placeholder identity lookup and missing Central ledger custody update",
-  "resume_instruction": "Publish BEGIN201, fix None identity handling and verified withdrawal arrival ledger update; explain pickup declines. Static review only, owner builds/live tests. No data repair."
+  "base_commit": "4737f55a55af150f5ac6a85de46d0d49683e070f",
+  "task": "Owner rebuild and verify actual pickup plus separate expired return",
+  "resume_instruction": "Session74 4737f55a55af150f5ac6a85de46d0d49683e070f rejects placeholder identities in pickup matching/reservation checks, disallows worker anchor on Central, updates verified arrival ledger custody before ready, and explains pickup closes. Owner remove/cancel test passed earlier; latest pickup failed and census returned item, not a successful withdrawal. Owner rebuild/live pickup/history removal and separate three-minute return test next. Static review only; no assistant builds/tests/live data changes. Next journal203. Acquire new transaction before edits; preserve history; no repeat historical repair."
 }
