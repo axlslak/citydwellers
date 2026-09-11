@@ -174,8 +174,15 @@ namespace CityBankers
             }
             else if (retry)
                 next.RecoveryAttempts++;
-            next.Status = "extracting";
-            WithdrawalStore.Save(_settingsDir, next);
+            if (StartupCensusGate.UsesPhysicalRecovery)
+            {
+                if (!WithdrawalStore.TryBeginExtraction(_settingsDir, next)) return false;
+            }
+            else
+            {
+                next.Status = "extracting";
+                WithdrawalStore.Save(_settingsDir, next);
+            }
             _extractionWaitId = next.Id;
             _extractionWait.Restart();
             if (retry)

@@ -171,6 +171,7 @@ namespace CityBankers
             {
                 TickBankerIpc();
                 TickCancellationOutbox();
+                if (TickStorageRecovery()) return;
                 TickInternalConfirmation();
                 if (TickPhysicalReceipt()) return;
                 if (TickRecoveryExtraction()) return;
@@ -363,7 +364,7 @@ namespace CityBankers
             try
             {
                 string targetName = FindPlayerName(target);
-                if (_extraction != null) { Trade.Decline(); return; }
+                if (_extraction != null || _storageRecovery != null) { Trade.Decline(); return; }
                 RuntimeStateStore.AppendActivity(
                     _settingsDir,
                     Client.CharacterName,
@@ -1098,7 +1099,9 @@ namespace CityBankers
             if (Trade.IsTrading)
                 return;
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
             DispatchBatchState next = queue.Batches.FirstOrDefault(b =>
+                !censusing.Contains(b.Character) &&
                 string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase) &&
                 WorkerRetryDue(b.Character) &&
                 DynelManager.Players.Any(player => player != null &&
@@ -1335,6 +1338,7 @@ namespace CityBankers
                 if (stored != null)
                     queue.Batches.Remove(stored);
                 RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                if (batch.AttemptId != null) _appliedDispatchReceipts.Remove(batch.AttemptId);
                 AppendTradeLedger(
                     "dispatch_stored",
                     batch.TransactionId,
@@ -1362,7 +1366,7 @@ namespace CityBankers
                     batch.Items);
                 TellKavem(
                     "STORAGE FAILURE " + batch.Role + ": " + result.Error +
-                    " Items remain physical AO truth; inspect/reconcile before retrying.");
+                    " Physical custody is retained; automatic recovery requires both transfer receipts and a fresh worker audit.");
             }
             _storageInquiryIntervals.Remove(batch.BatchId);
         }
@@ -1792,6 +1796,7 @@ namespace CityBankers
                 _role,
                 "STORAGE BATCH COMPLETE batch=" + job.Command.BatchId +
                 " stored=" + job.StoredCount + ".");
+            if (job.Command?.AttemptId != null) _appliedDispatchReceipts.Remove(job.Command.AttemptId);
             _storageJob = null;
         }
 
@@ -1839,6 +1844,7 @@ namespace CityBankers
                 "STORAGE FAILURE on " + Client.CharacterName + ": " + error +
                 " No further items in this batch will be moved until reconciliation.");
             _storageJob = null;
+            if (!job.LocalRecovery) RequestStorageRecovery(job);
             if (job.LocalRecovery && job.Phase != StoragePhase.FindBag)
                 StartLocalCensus("Local storage move requires a fresh physical census: " + error);
         }

@@ -41,6 +41,7 @@
     <Compile Include="BankingServiceAgent.cs" />
     <Compile Include="BankingServiceAgent.Custody.cs" />
     <Compile Include="BankingServiceAgent.Cancellation.cs" />
+    <Compile Include="BankingServiceAgent.StorageRecovery.cs" />
     <Compile Include="BankingServiceAgent.Ipc.cs" />
     <Compile Include="BankingServiceAgent.Recovery.cs" />
     <Compile Include="BankingServiceAgent.Returns.cs" />

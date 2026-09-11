@@ -106,12 +106,63 @@ namespace CityBankers.Shared
             return Locked(() =>
             {
                 if (Read(directory).Any(r => IsActive(r) &&
-                    (central || string.Equals(r.SourceCharacter, character, StringComparison.OrdinalIgnoreCase)))) return false;
+                    (central || (string.Equals(r.SourceCharacter, character, StringComparison.OrdinalIgnoreCase) &&
+                        !HasStatus(r, "requested"))))) return false;
                 var rows = ReadRecovery(directory);
                 var existing = rows.FirstOrDefault(r => string.Equals(r.CensusCharacter, character, StringComparison.OrdinalIgnoreCase));
                 if (existing != null) return existing.OperationId == operation;
                 rows.Add(new RecoveryReservation { OperationId = operation, CensusCharacter = character, CensusCentral = central });
                 RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), rows);
+                return true;
+            });
+        }
+
+        // Serialize extraction admission with the census lease. A queued GET
+        // has not moved anything and must not prevent the source from auditing.
+        public static bool TryBeginExtraction(string directory, WithdrawalState request)
+        {
+            return Update(directory, rows =>
+            {
+                var current = rows.SingleOrDefault(r => r.Id == request.Id);
+                if (current == null || current.Revision != request.Revision ||
+                    !HasStatus(current, "requested") || !IsReadyForRequests(directory) ||
+                    ReadRecovery(directory).Any(r => r.CensusCentral || r.LedgerId == request.ActiveLedgerId ||
+                        string.Equals(r.CensusCharacter, request.SourceCharacter, StringComparison.OrdinalIgnoreCase)))
+                    return false;
+                request.Status = "extracting";
+                Touch(request);
+                rows[rows.IndexOf(current)] = request;
+                return true;
+            });
+        }
+
+        public static void ReconcileQueuedRequestsAfterLocalCensus(string directory, string run,
+            string character, IList<WithdrawalState> originals)
+        {
+            if (originals == null) throw new InvalidOperationException("Local census has no request snapshot.");
+            Update(directory, rows =>
+            {
+                if (!ReadRecovery(directory).Any(r => r.OperationId == run &&
+                    string.Equals(r.CensusCharacter, character, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException("Local census no longer owns its source.");
+                var ids = new HashSet<string>(originals.Select(r => r.Id), StringComparer.Ordinal);
+                if (rows.Any(r => IsActive(r) && string.Equals(r.SourceCharacter, character, StringComparison.OrdinalIgnoreCase) &&
+                    (!HasStatus(r, "requested") || !ids.Contains(r.Id))))
+                    throw new InvalidOperationException("Source withdrawal changed while its census owned admission.");
+                foreach (var original in originals)
+                {
+                    if (!HasStatus(original, "requested") ||
+                        !string.Equals(original.SourceCharacter, character, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidOperationException("Local census cannot retire an active transfer.");
+                    var current = rows.SingleOrDefault(r => r.Id == original.Id);
+                    if (current?.ReconciledByCensus == run) continue;
+                    if (current == null || current.Revision != original.Revision || current.Status != original.Status)
+                        throw new InvalidOperationException("Retained request changed during local census.");
+                    current.Status = "reconciled";
+                    current.ReconciledByCensus = run;
+                    current.Error = "Source inventory refreshed before extraction; no delivery inferred. Please request the item again.";
+                    Touch(current);
+                }
                 return true;
             });
         }

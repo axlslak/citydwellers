@@ -94,6 +94,7 @@ namespace CityBankers
                 return true;
             }
             bool idle = StartupCensusGate.IsOpen && Client.InPlay && Inventory.Bank.IsOpen &&
+                !WithdrawalStore.GetCensusCharacters(_settingsDir).Contains(offer.Source) &&
                 !Trade.IsTrading && _receipt == null && _activeBatch == null && !_donationActive &&
                 _donationCleanup == null && _withdrawal == null && _extraction == null && Inventory.NumFreeSlots >= 2 &&
                 !WithdrawalStore.LoadAll(_settingsDir).Any(WithdrawalStore.OwnsCentralTrade) &&

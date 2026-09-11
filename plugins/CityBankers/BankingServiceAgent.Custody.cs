@@ -219,6 +219,7 @@ namespace CityBankers
                 apply();
                 PersistReceipt("applied");
                 RetainCancellationForPeer(_receipt);
+                RetainAppliedDispatchReceipt(_receipt);
                 _receipt = null;
             }
             catch (Exception ex)

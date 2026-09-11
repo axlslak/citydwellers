@@ -23,6 +23,8 @@ namespace CityBankers
             public StorageWorkerState Storage;
             public DispatchQueueState PreviousQueue;
             public DispatchQueueState Queue;
+            public List<WithdrawalState> QueuedRequests;
+            public StorageRecoveryGrant StorageGrant;
         }
 
         private string _localCensus;
@@ -38,8 +40,8 @@ namespace CityBankers
         private string _localCensusMismatch;
         private string _localCensusError;
 
-        // A local bag move has no remote participant. Never use this path to
-        // discard an unresolved trade, dispatch receipt or withdrawal.
+        // A local move needs no peer. Failed dispatch storage additionally
+        // requires a grant backed by both peers' applied physical receipts.
         private bool CanStartLocalCensus() => StartupCensusGate.IsOpen &&
             !Trade.IsTrading && Inventory.Bank.IsOpen && _receipt == null && _afterReceipt == null &&
             _returnOffer == null && _workerCommand == null && _reservedDispatch == null &&
@@ -47,22 +49,27 @@ namespace CityBankers
             _storageJob == null && _dispatchPreparation == null &&
             (_extractionCommit == null || _extractionCommit.IsCompleted);
 
-        private bool HasPendingPeerWork(string character)
+        private bool HasPendingPeerWork(string character, string run = null)
         {
             if (string.Equals(_returnOffer?.Source, character, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(_activeBatch?.Character, character, StringComparison.OrdinalIgnoreCase)) return true;
+            var grant = ReadStorageGrant(run, character);
             bool central = string.Equals(character, _centralCharacter, StringComparison.OrdinalIgnoreCase);
-            return RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b =>
+            var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
+            if (queue?.Batches == null) throw new InvalidOperationException("Dispatch queue unavailable for local census admission.");
+            return queue.Batches.Any(b =>
                 (central || string.Equals(b.Character, character, StringComparison.OrdinalIgnoreCase)) &&
+                !(grant != null && b.BatchId == grant.OriginalBatch.BatchId && b.AttemptId == grant.OriginalBatch.AttemptId &&
+                    (b.Status == "failed" || b.Status == "transferred")) &&
                 !(b.Status == "failed" && b.TransferNeverStarted) &&
                 b.Status != "queued" && b.Status != "stored" && b.Status != "completed" && b.Status != "cancelled");
         }
 
-        private bool StartLocalCensus(string reason)
+        private bool StartLocalCensus(string reason, string requestedRun = null)
         {
             if (_localCensus != null) return true;
-            if (!CanStartLocalCensus() || HasPendingPeerWork(Client.CharacterName)) return false;
-            string run = Guid.NewGuid().ToString("N");
+            if (!CanStartLocalCensus() || HasPendingPeerWork(Client.CharacterName, requestedRun)) return false;
+            string run = requestedRun ?? Guid.NewGuid().ToString("N");
             if (!WithdrawalStore.TryReserveCensus(_settingsDir, run, Client.CharacterName, _isCentral)) return false;
             _localCensus = run;
             _localCensusReason = reason;
@@ -152,6 +159,12 @@ namespace CityBankers
                     }
                     WithdrawalStore.ReleaseRecovery(_settingsDir, _localCensus);
                     if (!StartupCensusGate.ResumeLocalCensus(_localCensusPause)) return true;
+                    if (_storageRecovery != null && _storageRecovery.RunId == _localCensus)
+                    {
+                        _appliedDispatchReceipts.Remove(_storageRecovery.Received.AttemptId);
+                        _storageRecovery = null;
+                        _storageRecoveryReply = null;
+                    }
                     _localCensus = null;
                     _localCensusResult = null;
                     _localCensusIssued = false;
@@ -204,7 +217,7 @@ namespace CityBankers
                 }
                 else
                 {
-                    if (!WithdrawalStore.OwnsCensus(_settingsDir, census.RunId, census.Character) || HasPendingPeerWork(census.Character))
+                    if (!WithdrawalStore.OwnsCensus(_settingsDir, census.RunId, census.Character) || HasPendingPeerWork(census.Character, census.RunId))
                     { proposal.Reply.TrySetResult("pending"); return true; }
                     ApplyLocalCensus(directory, census);
                     RuntimeStateStore.WriteJsonAtomic(completed, census);
@@ -245,7 +258,12 @@ namespace CityBankers
                 foreach (var item in plan.Items)
                     if (string.IsNullOrWhiteSpace(item.TransactionId)) item.TransactionId = "found-" + item.Id;
                 bundle = new LocalCensusBundle { Census = census, Previous = previous, PreviousStorage = previousStorage,
-                    Plan = plan, Storage = CensusApplication.BuildStorage(new[] { census }, plan, census.RunId).Workers.Single() };
+                    Plan = plan, Storage = CensusApplication.BuildStorage(new[] { census }, plan, census.RunId).Workers.Single(),
+                    StorageGrant = ReadStorageGrant(census.RunId, census.Character),
+                    QueuedRequests = WithdrawalStore.LoadAll(_settingsDir).Where(r => WithdrawalStore.IsActive(r) &&
+                        string.Equals(r.SourceCharacter, census.Character, StringComparison.OrdinalIgnoreCase)).ToList() };
+                if (bundle.QueuedRequests.Any(r => !WithdrawalStore.HasStatus(r, "requested")))
+                    throw new InvalidOperationException("Local census cannot supersede an active withdrawal transfer.");
                 if (string.Equals(census.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase))
                 {
                     bundle.PreviousQueue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
@@ -259,7 +277,9 @@ namespace CityBankers
                 throw new InvalidOperationException("Local census application changed during retry.");
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(ActiveLedgerStore.GetHistoryDirectory(_settingsDir),
                 "census-local-" + census.RunId + ".json"), new
-                { census.RunId, census.Character, census.ObservedUtc, EventTimeKnown = false, bundle.Plan.Differences });
+                { census.RunId, census.Character, census.ObservedUtc, EventTimeKnown = false, bundle.Plan.Differences,
+                    Dispatch = bundle.StorageGrant,
+                    Withdrawals = bundle.QueuedRequests?.Select(r => new { Original = r, Disposition = "reconciled", DeliveryInferred = false }) });
             RuntimeStorageStateTransactions.ReplaceCensusedWorker(_settingsDir, bundle.Storage);
             // Reload unaffected characters on EVERY retry. Never replay an old
             // global ledger/storage snapshot while other bankers are working.
@@ -283,6 +303,9 @@ namespace CityBankers
                 // Original records remain in the immutable application bundle.
                 RuntimeStateStore.SaveDispatchQueue(_settingsDir, bundle.Queue);
             }
+            WithdrawalStore.ReconcileQueuedRequestsAfterLocalCensus(_settingsDir, census.RunId,
+                census.Character, bundle.QueuedRequests);
+            CompleteStorageRecoveryCensus(bundle.StorageGrant);
         }
 
         private void DetectLocalInventoryDifference()

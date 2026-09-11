@@ -25,6 +25,7 @@ namespace CityBankers
             public ExtractionProof Extraction;
             public BagAuditAgent.BagAuditResult Census;
             public ReceiptEvidence Cancellation;
+            public StorageRecoveryRequest StorageRecovery;
             [JsonIgnore]
             public readonly TaskCompletionSource<string> Reply =
                 new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -126,6 +127,7 @@ namespace CityBankers
                 if (proposal.Reply.Task.IsCompleted) continue;
                 try
                 {
+                    if (HandleStorageRecoveryProposal(proposal)) continue;
                     if (HandleCancellationProposal(proposal)) continue;
                     if (HandleLocalCensusProposal(proposal)) continue;
                     if (HandleExtractionProposal(proposal)) continue;
@@ -153,7 +155,7 @@ namespace CityBankers
                 DispatchCommand command = proposal.Command;
                 Guid commandAttempt;
                 bool ready = proposal.Kind == "prepare" && !_isCentral && StartupCensusGate.IsOpen && Client.InPlay &&
-                    Inventory.Bank.IsOpen && !Trade.IsTrading && _storageJob == null &&
+                    Inventory.Bank.IsOpen && !Trade.IsTrading && _storageJob == null && _storageRecovery == null &&
                     _workerCommand == null && _receipt == null && _withdrawal == null && _returnOffer == null && _extraction == null &&
                     command != null && command.Items != null && command.Items.Count > 0 &&
                     Inventory.NumFreeSlots >= command.Items.Count + 1 &&
