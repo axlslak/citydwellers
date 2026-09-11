@@ -63,6 +63,8 @@ namespace CityBankers
             public string Kind;
             public string TransactionId;
             public string BatchId;
+            public string AttemptId;
+            public List<TransferItemState> PreparedItems;
             public string Character;
             public string Phase;
             public List<TransferItemState> Before;
@@ -114,15 +116,20 @@ namespace CityBankers
             _receiptSequence = 0;
             _receipt = new ReceiptEvidence { Kind = kind, TransactionId = transaction,
                 BatchId = batch, Character = Client.CharacterName, Before = PhysicalInventory(), BeforeSlots = PhysicalSlots(),
-                Expected = expected == null ? null : new List<TransferItemState>(expected), Direction = direction };
+                Expected = expected == null ? null : new List<TransferItemState>(expected), Direction = direction,
+                PreparedItems = expected == null ? null : new List<TransferItemState>(expected),
+                AttemptId = kind == "dispatch-send" ? _activeBatch?.AttemptId :
+                    kind == "dispatch-receive" ? _workerCommand?.AttemptId : null };
             if (kind == "dispatch-send")
             {
                 var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
                 _receipt.LedgerIds = new List<string>();
-                foreach (var group in expected.GroupBy(item => item.AoId))
+                foreach (var group in expected.GroupBy(CustodyKey))
                 {
+                    var template = group.First();
                     var matches = (ledger?.Items ?? new List<ActiveLedgerItem>()).Where(item =>
-                        item.AoId == group.Key && item.TransactionId == transaction &&
+                        item.AoId == template.AoId && item.HighId == template.HighId && item.Ql == template.Ql &&
+                        item.TransactionId == transaction &&
                         string.Equals(item.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                         item.Location == "inventory" && item.Bag == null)
                         .OrderBy(item => item.Id, StringComparer.Ordinal).Take(group.Count()).ToList();
@@ -211,6 +218,7 @@ namespace CityBankers
             {
                 apply();
                 PersistReceipt("applied");
+                RetainCancellationForPeer(_receipt);
                 _receipt = null;
             }
             catch (Exception ex)

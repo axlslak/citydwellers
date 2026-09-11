@@ -289,6 +289,12 @@ namespace CityBankers
         {
             if (_extraction != null || !CanStartLocalCensus() || _localCensusScan.ElapsedMilliseconds < 5000) return;
             _localCensusScan.Restart();
+            if (_isCentral && RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b =>
+                b.Status == "cancelled" && !string.IsNullOrWhiteSpace(b.LastCancelledAttempt)))
+            {
+                StartLocalCensus("Both dispatch peers confirmed cancellation; refresh remaining Central custody before routing.");
+                return;
+            }
             var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
             if (ledger?.Items == null) return;
             var expected = ledger.Items.Where(e => string.Equals(e.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&

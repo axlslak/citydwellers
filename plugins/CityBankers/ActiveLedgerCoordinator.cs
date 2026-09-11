@@ -487,10 +487,10 @@ namespace CityBankers
             ActiveLedgerState ledger = LoadLedger(settingsDir) ?? NewLedger();
             bool changed = false;
 
-            foreach (IGrouping<int, TransferItemState> group in incoming.GroupBy(item => item.AoId))
+            foreach (var group in incoming.GroupBy(item => new { item.AoId, item.HighId, item.Ql }))
             {
                 int existingCount = ledger.Items.Count(entry =>
-                    entry.AoId == group.Key &&
+                    entry.AoId == group.Key.AoId && entry.HighId == group.Key.HighId && entry.Ql == group.Key.Ql &&
                     string.Equals(entry.TransactionId, transactionId, StringComparison.Ordinal));
 
                 foreach (TransferItemState item in group.Skip(existingCount))
@@ -501,6 +501,8 @@ namespace CityBankers
                     {
                         Id = "cb-" + Guid.NewGuid().ToString("N"),
                         AoId = item.AoId,
+                        HighId = item.HighId,
+                        Ql = item.Ql,
                         TransactionId = transactionId,
                         From = donor,
                         ReceivedUtc = receivedUtc == DateTime.MinValue ? DateTime.UtcNow : receivedUtc,

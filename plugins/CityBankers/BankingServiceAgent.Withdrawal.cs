@@ -189,6 +189,10 @@ namespace CityBankers
 
         private bool CanRetryWithdrawalExtraction(WithdrawalState row)
         {
+            // A cached heartbeat/name match is not a new physical observation
+            // or a peer acknowledgement. Paired custody recovery owns retries
+            // in normal mode; keep the legacy path out of that runtime.
+            if (StartupCensusGate.UsesPhysicalRecovery) return false;
             if (!WithdrawalStore.HasStatus(row, "failed") || row.DeliveredUtc.HasValue ||
                 !string.IsNullOrWhiteSpace(row.CentralItemIdentity))
                 return false;

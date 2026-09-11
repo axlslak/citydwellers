@@ -111,6 +111,8 @@ namespace CityBankers.Shared
     public class DispatchBatchState
     {
         public string BatchId;
+        public string AttemptId;
+        public string LastCancelledAttempt;
         public string TransactionId;
         public string Role;
         public string Character;
@@ -137,6 +139,7 @@ namespace CityBankers.Shared
     {
         public string Format = "citybankers-dispatch-command-v1";
         public string BatchId;
+        public string AttemptId;
         public string TransactionId;
         public string Role;
         public string SourceCharacter;

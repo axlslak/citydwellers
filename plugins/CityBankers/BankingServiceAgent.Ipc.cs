@@ -24,6 +24,7 @@ namespace CityBankers
             public ReturnOffer Return;
             public ExtractionProof Extraction;
             public BagAuditAgent.BagAuditResult Census;
+            public ReceiptEvidence Cancellation;
             [JsonIgnore]
             public readonly TaskCompletionSource<string> Reply =
                 new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -125,6 +126,7 @@ namespace CityBankers
                 if (proposal.Reply.Task.IsCompleted) continue;
                 try
                 {
+                    if (HandleCancellationProposal(proposal)) continue;
                     if (HandleLocalCensusProposal(proposal)) continue;
                     if (HandleExtractionProposal(proposal)) continue;
                     if (HandleReturnProposal(proposal)) continue;
@@ -149,17 +151,18 @@ namespace CityBankers
                     continue;
                 }
                 DispatchCommand command = proposal.Command;
+                Guid commandAttempt;
                 bool ready = proposal.Kind == "prepare" && !_isCentral && StartupCensusGate.IsOpen && Client.InPlay &&
                     Inventory.Bank.IsOpen && !Trade.IsTrading && _storageJob == null &&
                     _workerCommand == null && _receipt == null && _withdrawal == null && _returnOffer == null && _extraction == null &&
                     command != null && command.Items != null && command.Items.Count > 0 &&
                     Inventory.NumFreeSlots >= command.Items.Count + 1 &&
-                    !string.IsNullOrWhiteSpace(command.BatchId) &&
+                    !string.IsNullOrWhiteSpace(command.BatchId) && Guid.TryParseExact(command.AttemptId, "N", out commandAttempt) &&
                     string.Equals(command.Role, _role, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(command.SourceCharacter, _centralCharacter, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(command.DestinationCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                     (_reservedDispatch == null || (_reservedDispatch.BatchId == command.BatchId &&
-                        _reservedDispatch.TransactionId == command.TransactionId &&
+                        _reservedDispatch.TransactionId == command.TransactionId && _reservedDispatch.AttemptId == command.AttemptId &&
                         MatchesExpected(_reservedDispatch.Items, command.Items)));
                 if (ready)
                 {
@@ -181,7 +184,7 @@ namespace CityBankers
 
         private bool WorkerPrepared(DispatchBatchState batch)
         {
-            string contents = batch.Character + "/" + batch.TransactionId + "/" +
+            string contents = batch.Character + "/" + batch.TransactionId + "/" + batch.AttemptId + "/" +
                 string.Join(";", (batch.Items ?? new List<TransferItemState>()).Select(CustodyKey).OrderBy(key => key));
             if (_dispatchPreparation == null || _preparingBatch != batch.BatchId || _preparingContents != contents)
             {
@@ -191,7 +194,7 @@ namespace CityBankers
                 _preparingAge.Restart();
                 _dispatchPreparation = AskWorkerToPrepare(new DispatchCommand
                 {
-                    BatchId = batch.BatchId, TransactionId = batch.TransactionId, Role = batch.Role,
+                    BatchId = batch.BatchId, AttemptId = batch.AttemptId, TransactionId = batch.TransactionId, Role = batch.Role,
                     SourceCharacter = Client.CharacterName, DestinationCharacter = batch.Character,
                     Items = batch.Items, CreatedUtc = DateTime.UtcNow
                 });

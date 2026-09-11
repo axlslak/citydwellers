@@ -170,6 +170,7 @@ namespace CityBankers
             try
             {
                 TickBankerIpc();
+                TickCancellationOutbox();
                 TickInternalConfirmation();
                 if (TickPhysicalReceipt()) return;
                 if (TickRecoveryExtraction()) return;
@@ -1112,6 +1113,11 @@ namespace CityBankers
             if (worker == null)
                 return;
 
+            if (string.IsNullOrWhiteSpace(next.AttemptId))
+            {
+                next.AttemptId = Guid.NewGuid().ToString("N");
+                RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+            }
             if (!WorkerPrepared(next))
                 return;
 
@@ -1135,6 +1141,7 @@ namespace CityBankers
                 new DispatchCommand
                 {
                     BatchId = next.BatchId,
+                    AttemptId = next.AttemptId,
                     TransactionId = next.TransactionId,
                     Role = next.Role,
                     SourceCharacter = Client.CharacterName,
@@ -1365,7 +1372,6 @@ namespace CityBankers
             VerifyCancelledReceipt();
             if (_activeBatch == null)
                 return;
-            TryDeclineTrade();
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             DispatchBatchState stored = FindBatch(queue, _activeBatch.BatchId);
             if (stored != null)
@@ -1394,6 +1400,7 @@ namespace CityBankers
             _outgoingPendingSlotSet = false;
             _outgoingPendingAddAttempts = 0;
             _outgoingAccepted = false;
+            TryDeclineTrade();
         }
 
         private void MarkBatchFailed(DispatchQueueState queue, DispatchBatchState batch, string error)
@@ -1861,6 +1868,7 @@ namespace CityBankers
             TellKavem("Worker trade failure on " + Client.CharacterName + ": " + error);
             _workerCommand = null;
             _workerAccepted = false;
+            TryDeclineTrade();
         }
 
         // ---------------------------------------------------------------------
