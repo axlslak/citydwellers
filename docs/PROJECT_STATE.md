@@ -1,3 +1,11 @@
+## Session 67 — verified loose-item returns through IPC
+
+- Added BankingService-owned worker-to-Central return for ledger-anchored loose items routed elsewhere or unknown to the catalog. Withdrawal reservations are excluded. Central reserves capacity over the shared named pipe; only the originating worker and Central participate.
+- Sender submits one exact source slot with settling/retry; both parties accept only the exact template/QL and an empty reciprocal offer. Existing physical before/after receipt verification proves removal and arrival independently. Central waits for sender proof via IPC before moving the ledger occurrence and acknowledging completion.
+- Original ledger ID, transaction and donor are preserved. Recognized returns enter a deterministic onward dispatch batch; alien returns remain on Central with a review notification. Durable prepared/sent/received/acknowledged/completed records permit duplicate acknowledgement without repeating accounting or queue insertion. Timestamps are audit metadata; leases and delays use Stopwatch.
+- Return ownership excludes competing donation, withdrawal, dispatch and storage actions. Notifications cannot invalidate an already-committed return. Delayed Confirm is retained until the local return side has accepted.
+- OPEN: bag and loose-bank extraction, runtime unknown/unanchored item import, automatic local recensus/resumption, partial-roster boot and remaining withdrawal/custody coordination. This checkpoint is not runtime completion or restart clearance. Static source review only; owner compilation/live validation pending.
+
 ## Session 67 — startup routing and local storage recovery
 
 - Startup dispatch is rebuilt from physically observed Central loose items after census application; the complete prior queue is retained in the application bundle. No missing occurrence is called successfully transferred. Active withdrawal templates are excluded from automatic routing to avoid reallocating ambiguous reserved copies.

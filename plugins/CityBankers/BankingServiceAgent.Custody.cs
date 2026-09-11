@@ -50,9 +50,12 @@ namespace CityBankers
             if (!Trade.IsTrading || Trade.CurrentTarget != _pendingConfirmation)
             { _pendingConfirmation = Identity.None; return; }
             if (_confirmationWait.ElapsedMilliseconds < 500) return;
-            _pendingConfirmation = Identity.None;
-            if ((_activeBatch != null && _outgoingAccepted) || _workerCommand != null)
+            if ((_activeBatch != null && _outgoingAccepted) || _workerCommand != null ||
+                (_returnOffer != null && _returnAccepted))
+            {
+                _pendingConfirmation = Identity.None;
                 Trade.Confirm();
+            }
         }
 
         private sealed class ReceiptEvidence

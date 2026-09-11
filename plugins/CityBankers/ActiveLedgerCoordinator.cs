@@ -405,6 +405,29 @@ namespace CityBankers
             SaveLedger(settingsDir, new ActiveLedgerState { Items = items });
         }
 
+        internal static void RecordPhysicalReturn(string settingsDir, string ledgerId, string transaction,
+            string source, string central, TransferItemState item, int? slot)
+        {
+            var ledger = LoadLedger(settingsDir);
+            var entry = ledger?.Items?.SingleOrDefault(e => e.Id == ledgerId);
+            if (entry == null || entry.TransactionId != transaction || entry.AoId != item.AoId ||
+                (entry.HighId.HasValue && entry.HighId != item.HighId) ||
+                (entry.Ql.HasValue && entry.Ql != item.Ql))
+                throw new InvalidOperationException("Verified return cannot identify its ledger occurrence.");
+            // A persistence retry must not rewrite a location already committed.
+            if (string.Equals(entry.Character, central, StringComparison.OrdinalIgnoreCase)) return;
+            if (!string.Equals(entry.Character, source, StringComparison.OrdinalIgnoreCase) ||
+                entry.Location != "inventory" || entry.Bag.HasValue)
+                throw new InvalidOperationException("Return occurrence changed custody before accounting.");
+            entry.Character = central;
+            entry.Location = "inventory";
+            entry.Bag = null;
+            entry.Slot = slot.HasValue ? slot.Value & 65535 : (int?)null;
+            entry.HighId = item.HighId;
+            entry.Ql = item.Ql;
+            SaveLedger(settingsDir, ledger);
+        }
+
         public static SymbiantIndexState LoadIndex(string settingsDir)
         {
             SymbiantIndexState state = RuntimeStateStore.ReadJson<SymbiantIndexState>(

@@ -170,9 +170,10 @@ namespace CityBankers
             {
                 TickBankerIpc();
                 TickInternalConfirmation();
+                if (TickPhysicalReceipt()) return;
+                if (TickReturnTransfer()) return;
                 if (_isCentral)
                 {
-                    if (TickPhysicalReceipt()) return;
                     foreach (var pending in RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches
                         .Where(batch => batch.Status == "transferred").ToList())
                         PollStorageResult(pending);
@@ -186,12 +187,12 @@ namespace CityBankers
                 }
                 else
                 {
-                    if (TickPhysicalReceipt()) return;
                     if (_storageJob != null) { TickStorageJob(); return; }
                     if (_reservedDispatch == null && _workerCommand == null && TickWithdrawalWorker())
                         return;
                     TickWorkerTrade();
                     TickLocalStorageRecovery();
+                    TickLooseReturnRecovery();
                 }
             }
             catch (Exception ex)
@@ -358,6 +359,7 @@ namespace CityBankers
                     _role,
                     "TRADE OPEN target=" + (targetName ?? target.ToString()) + ".");
 
+                if (TryReturnTradeOpened(target, targetName)) return;
                 if (TryHandleWithdrawalTradeOpened(target, targetName))
                     return;
                 if (WithdrawalStore.LoadAll(_settingsDir).Any(WithdrawalStore.OwnsCentralTrade))
@@ -440,6 +442,7 @@ namespace CityBankers
 
             try
             {
+                if (TryReturnTradeStatus(status)) return;
                 if (TryHandleWithdrawalTradeStatus(target, status))
                     return;
                 if (status == TradeStatus.Accept && _isCentral && _donationActive)
