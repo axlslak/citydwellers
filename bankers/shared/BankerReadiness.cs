@@ -64,6 +64,11 @@ namespace CityBankers.Shared
                 !File.Exists(Path.Combine(root, character + ".presence.json")) ||
                 File.Exists(Path.Combine(root, character + ".blocked")) ||
                 RuntimeStateStore.ReadTextStrict(Path.Combine(root, character + ".ready")) != cycle + "/" + connection) return false;
+            var operational = RuntimeStateStore.ReadJsonStrict<JObject>(Path.Combine(root, character + ".operational.json"));
+            if (operational == null || (string)operational["Cycle"] != cycle ||
+                (string)operational["Connection"] != connection) return false;
+            long operationalAge = Stopwatch.GetTimestamp() - ((long?)operational["Stamp"] ?? long.MaxValue);
+            if (operationalAge < 0 || operationalAge >= Stopwatch.Frequency * 10) return false;
             var presence = RuntimeStateStore.ReadJsonStrict<JObject>(Path.Combine(root, character + ".presence.json"));
             if (presence == null) return false;
             long age = Stopwatch.GetTimestamp() - ((long?)presence["Stamp"] ?? long.MaxValue);

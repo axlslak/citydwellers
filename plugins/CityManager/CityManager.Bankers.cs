@@ -39,6 +39,7 @@ namespace CityManager
                 IReadOnlyCollection<SymbiantCatalog.AcceptanceRule> acceptanceRules =
                     SymbiantCatalog.GetRules(_settingsDir);
 
+                var operationalCharacters = BankerReadiness.GetReadyCharacters(_settingsDir);
                 foreach (string role in new[]
                 {
                     "central", "artillery", "infantry", "control", "support", "extermination",
@@ -82,7 +83,8 @@ namespace CityManager
                     bool withdrawalHere = localOrders.Count > 0;
                     bool withdrawalFailed = localOrders.Any(row => WithdrawalStore.HasStatus(row, "failed"));
                     bool stuck = failed > 0 || (withdrawalFailed && role != "central");
-                    bool usable = online && bankOpen && roleReady && !stuck;
+                    bool operational = operationalCharacters.Contains(character);
+                    bool usable = online && bankOpen && roleReady && operational && !stuck;
                     bool busy = !stuck && (pending > 0 || withdrawalHere);
                     allUsable &= usable;
 
@@ -117,6 +119,7 @@ namespace CityManager
 
                     string state = !online ? "OFFLINE" : stuck ? "STUCK" :
                         !bankOpen ? "ONLINE, bank unavailable" :
+                        !operational ? "ONLINE, banking service not ready" :
                         !roleReady ? "ONLINE, starting" : withdrawalFailed ? "USABLE, some items held" :
                         busy ? "USABLE, busy" : "USABLE";
                     string workText = failed > 0 ? "; failed " + failed :

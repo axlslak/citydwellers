@@ -101,6 +101,21 @@ namespace CityBankers
             }
         }
 
+        // Written only by the running banking actor, never by census completion.
+        internal static void PublishOperational()
+        {
+            if (!IsOpen) return;
+            var cycle = Current();
+            RuntimeStateStore.WriteJsonAtomic(MemberPath(MemberCharacter, ".operational.json"),
+                new { Cycle = cycle.Id, Connection = _connection, Stamp = Stopwatch.GetTimestamp() });
+        }
+
+        internal static void ClearOperational()
+        {
+            if (_directory != null)
+                RuntimeStateStore.DeleteIfExists(MemberPath(MemberCharacter, ".operational.json"));
+        }
+
         public static bool Defer(Action initialize)
         {
             if (ServicePolicy.IsBagAuditMode()) return true;
@@ -119,7 +134,12 @@ namespace CityBankers
             {
                 if (!IsOpen) return;
                 Deferred.Remove(initialize);
-                try { initialize(); }
+                try
+                {
+                    Logger.Information("[CityBankers] Starting deferred component " +
+                        initialize.Method.DeclaringType?.FullName + "." + initialize.Method.Name);
+                    initialize();
+                }
                 catch (Exception ex) { Block("Operational initialization failed: " + ex); return; }
             }
         }

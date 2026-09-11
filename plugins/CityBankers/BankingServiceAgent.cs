@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 using AOSharp.Clientless;
 using AOSharp.Clientless.Chat;
@@ -80,12 +81,40 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
-            if (!ServicePolicy.IsBagAuditMode() && StartupCensusGate.Defer(() => Init(pluginDir)))
-                return;
+            // Keep dependency-heavy startup outside this method: the loader suppresses
+            // Init exceptions, including failures while the CLR prepares its body.
+            try
+            {
+                if (ServicePolicy.IsBagAuditMode()) return;
+                Logger.Information("BANKING SERVICE startup registered character=" + Client.CharacterName);
+                if (StartupCensusGate.Defer(StartOperational)) return;
+                StartOperational();
+            }
+            catch (Exception ex) { ReportStartupFailure(ex); }
+        }
 
-            if (ServicePolicy.IsBagAuditMode())
-                return;
+        private void StartOperational()
+        {
+            try
+            {
+                if (_enabled) return;
+                Logger.Information("BANKING SERVICE startup entering character=" + Client.CharacterName);
+                InitializeOperational();
+            }
+            catch (Exception ex) { ReportStartupFailure(ex); }
+        }
 
+        private void ReportStartupFailure(Exception error)
+        {
+            Logger.Error("BANKING SERVICE initialization failed character=" + Client.CharacterName + ": " + error);
+            try { Teardown(); }
+            catch (Exception cleanup) { Logger.Error("BANKING SERVICE startup cleanup failed: " + cleanup); }
+            // Do not hide a deterministic startup error behind repeated physical audits.
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void InitializeOperational()
+        {
             string error;
             if (!SettingsPaths.TryEnsureDirectory(out _settingsDir, out error))
                 throw new InvalidOperationException(error);
@@ -176,6 +205,7 @@ namespace CityBankers
 
         public override void Teardown()
         {
+            StartupCensusGate.CancelDeferred(StartOperational);
             if (_resumeAfterCensus != null) StartupCensusGate.CancelDeferred(_resumeAfterCensus);
             _resumeAfterCensus = null;
             _successor?.Teardown();
@@ -187,7 +217,11 @@ namespace CityBankers
             Trade.TradeStatusChanged -= OnTradeStatusChanged;
             Client.OnUpdate -= Tick;
             _ipcLifetime?.Cancel();
-            if (_ipcOwner == this) _ipcOwner = null;
+            if (_ipcOwner == this)
+            {
+                _ipcOwner = null;
+                StartupCensusGate.ClearOperational();
+            }
             if (_isCentral && Client.Chat != null)
                 Client.Chat.PrivateMessageReceived -= OnPrivateMessage;
 
@@ -195,6 +229,8 @@ namespace CityBankers
             try { RuntimeStateStore.AppendActivity(_settingsDir, Client.CharacterName, _role, "BANKING SERVICE teardown."); }
             catch (Exception ex) { Logger.Warning("[CityBankers] Teardown activity unavailable: " + ex.Message); }
         }
+
+        private readonly Stopwatch _operationalHeartbeatAge = Stopwatch.StartNew();
 
         private string _blockedRecovery;
         private readonly Stopwatch _blockedRecoveryAge = Stopwatch.StartNew();
@@ -231,7 +267,14 @@ namespace CityBankers
 
             try
             {
+                if (_ipcServer == null || _ipcServer.IsCompleted)
+                    throw new InvalidOperationException("Banker IPC server is not running.", _ipcServer?.Exception);
                 TickBankerIpc();
+                if (_operationalHeartbeatAge.ElapsedMilliseconds >= 500)
+                {
+                    StartupCensusGate.PublishOperational();
+                    _operationalHeartbeatAge.Restart();
+                }
                 if (_localCensus != null || !StartupCensusGate.IsOpen) return;
                 TickCancellationOutbox();
                 if (TickStorageRecovery()) return;
