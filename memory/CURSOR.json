@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 74,
+  "current_session": 75,
   "last_completed_session": 74,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-74-withdrawal-pickup",
-  "base_commit": "4737f55a55af150f5ac6a85de46d0d49683e070f",
-  "task": "Owner rebuild and verify actual pickup plus separate expired return",
-  "resume_instruction": "Session74 4737f55a55af150f5ac6a85de46d0d49683e070f rejects placeholder identities in pickup matching/reservation checks, disallows worker anchor on Central, updates verified arrival ledger custody before ready, and explains pickup closes. Owner remove/cancel test passed earlier; latest pickup failed and census returned item, not a successful withdrawal. Owner rebuild/live pickup/history removal and separate three-minute return test next. Static review only; no assistant builds/tests/live data changes. Next journal203. Acquire new transaction before edits; preserve history; no repeat historical repair."
+  "transaction": "session-75-withdrawal-notices",
+  "base_commit": "cac378b1bb1017ab9a853a327fcddc341cae7bac",
+  "task": "Add withdrawal journey dev telemetry and direct requester ready tell",
+  "resume_instruction": "Publish BEGIN203; add extraction/opening/verified receipt/ready milestones; use TellDirectPlayer for ready notice; static review only then publish/seal. Owner confirms actual pickup now works; expiry test still pending."
 }
