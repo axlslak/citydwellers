@@ -165,7 +165,8 @@ namespace CityManager
                     "<font color='#89D2E8'>[" + source + "]</font> " + job.Message);
                 ManagerChannelQueue.Complete(path);
                 Logger.Information(
-                    "MANAGER CHANNEL delivered " + job.Id + " from " + source + ".");
+                    "MANAGER CHANNEL delivered " + job.Id + " from " + source +
+                    ": " + job.Message);
             }
             catch (Exception ex)
             {

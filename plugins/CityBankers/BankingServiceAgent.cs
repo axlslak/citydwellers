@@ -53,6 +53,10 @@ namespace CityBankers
         private bool _outgoingOpened;
         private int _outgoingAwaitingOfferCount;
         private readonly HashSet<int> _outgoingRequestedSlots = new HashSet<int>();
+        private Identity _outgoingPendingSlot = Identity.None;
+        private bool _outgoingPendingSlotSet;
+        private DateTime _outgoingLastAddUtc;
+        private int _outgoingPendingAddAttempts;
         private bool _outgoingAccepted;
 
         // Worker: expected Central -> worker receive state.
@@ -1081,6 +1085,9 @@ namespace CityBankers
             _outgoingOpened = false;
             _outgoingAwaitingOfferCount = 0;
             _outgoingRequestedSlots.Clear();
+            _outgoingPendingSlot = Identity.None;
+            _outgoingPendingSlotSet = false;
+            _outgoingPendingAddAttempts = 0;
             _outgoingAccepted = false;
             AppendTradeLedger(
                 "dispatch_trade_opening",
@@ -1120,7 +1127,33 @@ namespace CityBankers
             // multi-item batch into one update or issue the next move until the local
             // trade window has visibly grown by the prior requested occurrence.
             if (offered.Count < _outgoingAwaitingOfferCount)
+            {
+                if (_outgoingPendingSlotSet &&
+                    _outgoingPendingAddAttempts < ServicePolicy.InternalAddItemMaxAttempts &&
+                    (DateTime.UtcNow - _outgoingLastAddUtc).TotalMilliseconds >=
+                    ServicePolicy.InternalAddItemRetryMilliseconds)
+                {
+                    // AO can drop an AddItem request without changing the local window.
+                    // Resend only the same pending slot: never advance to another item
+                    // until the expected offered count acknowledges this occurrence.
+                    Trade.AddItem(_outgoingPendingSlot);
+                    _outgoingPendingAddAttempts++;
+                    _outgoingLastAddUtc = DateTime.UtcNow;
+                    RuntimeStateStore.AppendActivity(
+                        _settingsDir,
+                        Client.CharacterName,
+                        _role,
+                        "INTERNAL TRADE resent pending AddItem for batch=" +
+                        _activeBatch.BatchId + "; attempt=" +
+                        _outgoingPendingAddAttempts + "/" +
+                        ServicePolicy.InternalAddItemMaxAttempts + ".");
+                }
                 return;
+            }
+
+            _outgoingPendingSlot = Identity.None;
+            _outgoingPendingSlotSet = false;
+            _outgoingPendingAddAttempts = 0;
 
             var missing = new List<TransferItemState>(
                 _activeBatch.Items ?? new List<TransferItemState>());
@@ -1150,6 +1183,10 @@ namespace CityBankers
             Trade.AddItem(next.Slot);
             _outgoingRequestedSlots.Add(next.Slot.Instance);
             _outgoingAwaitingOfferCount = offered.Count + 1;
+            _outgoingPendingSlot = next.Slot;
+            _outgoingPendingSlotSet = true;
+            _outgoingPendingAddAttempts = 1;
+            _outgoingLastAddUtc = DateTime.UtcNow;
         }
 
         private void FinishOutgoingDispatchTrade()
@@ -1181,6 +1218,9 @@ namespace CityBankers
             _outgoingOpened = false;
             _outgoingAwaitingOfferCount = 0;
             _outgoingRequestedSlots.Clear();
+            _outgoingPendingSlot = Identity.None;
+            _outgoingPendingSlotSet = false;
+            _outgoingPendingAddAttempts = 0;
             _outgoingAccepted = false;
             _activeBatchStartedUtc = DateTime.UtcNow;
         }
@@ -1269,6 +1309,9 @@ namespace CityBankers
             _outgoingOpened = false;
             _outgoingAwaitingOfferCount = 0;
             _outgoingRequestedSlots.Clear();
+            _outgoingPendingSlot = Identity.None;
+            _outgoingPendingSlotSet = false;
+            _outgoingPendingAddAttempts = 0;
             _outgoingAccepted = false;
         }
 

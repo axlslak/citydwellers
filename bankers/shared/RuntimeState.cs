@@ -21,6 +21,8 @@ namespace CityBankers.Shared
         public const int DonationInactivitySeconds = 30;
         public const int EmptyTradeTimeoutSeconds = 30;
         public const int TradeTimeoutSeconds = 20;
+        public const int InternalAddItemRetryMilliseconds = 1200;
+        public const int InternalAddItemMaxAttempts = 4;
         public const int ItemMoveTimeoutMs = 5000;
         public const int BagMoveTimeoutMs = 5000;
         public const int BagOpenTimeoutMs = 3000;

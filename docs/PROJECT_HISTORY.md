@@ -1,5 +1,28 @@
 # City Dwellers — Persistent Project History
 
+## 2026-09-11 — Internal AddItem acknowledgement retry
+
+A completed player donation produced a two-item Artillery batch. Kbarty opened
+the matching internal trade, but at the 20-second deadline Kbarty reported the
+first failure and Central timed out immediately afterward. The recovery bridge
+then found both expected items back in Central and requeued them, proving safe
+custody and isolating the failure before AO trade completion.
+
+`[ROOT-CAUSE]` Incremental staging repaired burst loss by sending one occurrence
+at a time, but each `Trade.AddItem` was still a single-shot request. If AO did
+not reflect that request in Central's `PlayerWindowCache`, Central waited forever
+for `_outgoingAwaitingOfferCount`; it never added another item or accepted, so
+the worker's trusted fallback could not activate either.
+
+`[IMPLEMENTED]` Central now resends only the same pending slot after a 1.2-second
+unacknowledged interval, capped at four total attempts. An acknowledgement
+clears the pending retry before the next exact occurrence is selected. Existing
+multiset validation, timeout, serialization, AO completion, and physical storage
+proofs are unchanged. Manager-channel delivery logging now retains diagnostic
+message text, ensuring any later internal failure is present in an owner-supplied
+console capture. No assistant-side compilation or live AO test was run; Kavey
+owns Release build and live validation.
+
 ## 2026-09-10 — Authoritative Shade spirit slot catalog
 
 The Spirit stock browser reused symbiant name parsing even though Shade spirit

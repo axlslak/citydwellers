@@ -2,6 +2,28 @@
 
 Last continuity reconstruction: 2026-08-30
 
+## 2026-09-11 — dropped internal AddItem recovery (session 62)
+
+- `[LIVE-ROOT-CAUSE]` A two-item Artillery dispatch opened on Kbarty but neither
+  side reached acceptance. It failed at the 20-second trade timeout, after
+  which the recovery bridge verified both items safely back in Central and
+  requeued the batch. Incremental staging issued each `Trade.AddItem` only
+  once and then waited indefinitely if AO omitted that request's local-window
+  acknowledgement.
+- `[IMPLEMENTED, OWNER VALIDATION PENDING]` While the offered count remains
+  below the single pending occurrence, Central resends only that same inventory
+  slot after 1.2 seconds, for at most four total attempts. It cannot select or
+  add the next occurrence until the local window acknowledges the pending one.
+- `[INVARIANT]` The 20-second trade timeout, exact persisted multiset match,
+  six-item internal ceiling, serialized queue, AO Finished event, and physical
+  worker placement confirmation remain unchanged.
+- `[IMPLEMENTED]` Successful Manager-channel delivery logs now include the
+  delivered diagnostic text as well as its ID and source, so future storage or
+  trade failures remain identifiable in captured console logs.
+- `[OPEN]` Kavey owns the Release build and repeated two-item same-worker live
+  dispatch. A recovered retry may log `INTERNAL TRADE resent pending AddItem`;
+  it should then complete without the old 20-second failure/requeue cycle.
+
 ## 2026-09-10 — authoritative Shade spirit slots (session 61)
 
 - `[IMPLEMENTED, OWNER VALIDATION PENDING]` Spirit stock grouping no longer
