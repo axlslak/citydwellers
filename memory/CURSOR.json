@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 72,
-  "last_completed_session": 71,
-  "status": "in_progress",
+  "last_completed_session": 72,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-72-transfer-telemetry",
-  "base_commit": "1f4f246e2f12490d73c5ad789e0f3e86f877eb3a",
-  "task": "Restore operational transfer and verified storage telemetry to Manager dev channel and console",
-  "resume_instruction": "Publish BEGIN197 before edits; mirror trade milestones and verified storage with IDs/items; rate-limit waits and isolate telemetry failures. Owner builds/tests; no live data edits."
+  "base_commit": "61964ec16d5f22815c484f43b674d9c082ed4b97",
+  "task": "Owner rebuild and verify donation transfer/storage debugging channel milestones",
+  "resume_instruction": "Session72 transfer telemetry published at 61964ec16d5f22815c484f43b674d9c082ed4b97. Donation queue/trade milestones and per-item verified storage/batch completion now go to Logger and existing Manager dev queue; wait messages throttled per batch. Owner rebuild/small donation verifies channel delivery. Startup live success confirmed; withdrawal/reconnect/long-run validation and separate Manager packet decode error remain open. Static review only, no assistant build/tests/live data changes; historical repair must not repeat. Next journal199; acquire transaction before edits."
 }
