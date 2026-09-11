@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 63,
-  "last_completed_session": 62,
-  "status": "in_progress",
+  "last_completed_session": 63,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-63-worker-accept-latch",
-  "base_commit": "278edf9df54907df6b4a8a9260cd53a1511115e2",
-  "task": "Latch Central Accept events for the internal worker fallback",
-  "resume_instruction": "The worker logs observe remote TradeStatus.Accept, but TickWorkerFallback polls Trade.Status and never accepts. Latch the matching event and retain all command, cache, AO Finished, and physical-placement checks."
+  "transaction": null,
+  "base_commit": "01cb17285011718f23248c90b4129b511ef1212a",
+  "task": "Build and live-test the internal worker Accept latch repair",
+  "resume_instruction": "Pull master, clear old output, build Release, and restart all bankers. A fresh internal trade should let the worker consume Central's observed Accept event and complete. Existing artillery batch 801bf00d remains blocked because AOID 235524 has unresolved physical custody; do not mark it stored or discard it without an explicit recovery decision."
 }
