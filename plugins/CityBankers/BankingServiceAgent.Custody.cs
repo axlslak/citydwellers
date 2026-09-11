@@ -77,6 +77,11 @@ namespace CityBankers
             public List<TransferItemState> Before;
             public List<TransferItemState> Expected;
             public List<TransferItemState> Observed;
+            // Live object references are valid only in this actor/cache lifetime.
+            // Persisted slot evidence remains separate; never deserialize references.
+            [Newtonsoft.Json.JsonIgnore]
+            public List<Item> LiveBeforeItems;
+            public int? WithdrawalArrivalSlot;
             public object BeforeSlots;
             public object ObservedSlots;
             public int Direction;
@@ -127,6 +132,7 @@ namespace CityBankers
             _receiptSequence = 0;
             _receipt = new ReceiptEvidence { Kind = kind, TransactionId = transaction,
                 BatchId = batch, Character = Client.CharacterName, Before = PhysicalInventory(), BeforeSlots = PhysicalSlots(),
+                LiveBeforeItems = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory).ToList(),
                 Expected = expected == null ? null : new List<TransferItemState>(expected), Direction = direction,
                 PreparedItems = expected == null ? null : new List<TransferItemState>(expected),
                 AttemptId = kind == "dispatch-send" ? _activeBatch?.AttemptId :

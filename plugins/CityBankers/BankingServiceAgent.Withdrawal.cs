@@ -27,6 +27,11 @@ namespace CityBankers
         private bool _withdrawalAccepted;
         private Identity _withdrawalTradePartner = Identity.None;
         private bool _withdrawalPickupTrade;
+        private bool _pickupDeclineSent;
+        // Clientless keeps the same Item object when offering/returning a local item,
+        // even if cancellation returns it to a different inventory slot. A new cache
+        // or actor cannot inherit these bindings; existing census recovery owns that case.
+        private readonly Dictionary<string, Item> _centralWithdrawalItems = new Dictionary<string, Item>();
         private int _withdrawalItemMoveAttempts;
         private DateTime _withdrawalNextItemMoveRetryUtc;
         private string _receiptWaitId;
@@ -388,9 +393,11 @@ namespace CityBankers
                         }
                         return true;
                     });
+                    foreach (string id in ids) _centralWithdrawalItems.Remove(id);
                 }
                 else if (_isCentral)
                 {
+                    BindVerifiedWithdrawalArrival(state);
                     state.Status = "central-received";
                     WithdrawalStore.Save(_settingsDir, state);
                     ReportTransferProgress("WITHDRAWAL RECEIVED VERIFIED", state.Id,
@@ -559,6 +566,10 @@ namespace CityBankers
                 .OrderBy(value => value)
                 .ToList();
             WithdrawalStore.Save(_settingsDir, _withdrawal);
+            ReportTransferProgress("WITHDRAWAL ITEM MOVE", _withdrawal.Id,
+                "attempt=1; requester=" + _withdrawal.RequestedBy + "; source=" + Client.CharacterName +
+                "; bag=" + _withdrawal.SourceBag + "; innerSlot=" + _withdrawal.SourceInnerSlot +
+                "; sending move to normal inventory", new[] { _withdrawal.Item });
             item.MoveToContainer(DynelManager.LocalPlayer.Identity);
             _withdrawalItemMoveAttempts = 1;
             _withdrawalNextItemMoveRetryUtc = DateTime.UtcNow.AddSeconds(1);
@@ -589,7 +600,8 @@ namespace CityBankers
                             "[CityBankers] WITHDRAWAL ITEM MOVE RETRY " +
                             (_withdrawal?.Id ?? "?") + ": attempt " +
                             _withdrawalItemMoveAttempts +
-                            " reissued for the same exact reserved item still visible in its source slot.");
+                            "; requester=" + _withdrawal.RequestedBy +
+                            "; still awaiting inventory confirmation; source bag slot remains visible; reissuing move.");
                         stillInBag.MoveToContainer(DynelManager.LocalPlayer.Identity);
                     }
                 }
@@ -705,8 +717,10 @@ namespace CityBankers
 
         private void DeclinePickup(WithdrawalState state, string reason)
         {
+            if (_pickupDeclineSent) { TryDeclineTrade(); return; }
+            _pickupDeclineSent = true;
             ReportTransferProgress("PICKUP DECLINED", state.OrderId, "request=" + state.Id + "; " + reason);
-            try { TellPlayer(state.RequestedBy, reason); }
+            try { TellDirectPlayer(state.RequestedBy, reason); }
             catch (Exception ex) { Logger.Warning("Pickup decline notice unavailable: " + ex.Message); }
             TryDeclineTrade();
         }
@@ -714,6 +728,7 @@ namespace CityBankers
         private void TickWithdrawalPickupTrade(WithdrawalState state)
         {
             if (!Trade.IsTrading) return;
+            if (_pickupDeclineSent) { TryDeclineTrade(); return; }
             if ((Trade.TargetWindowCache?.Items?.Count ?? 0) > 0)
             {
                 DeclinePickup(state, "This trade collects your ready order. Please donate in a separate trade after pickup.");
@@ -746,7 +761,10 @@ namespace CityBankers
                 bool exact = offered.Count == _pickupItems.Count;
                 foreach (WithdrawalState row in _pickupItems)
                 {
-                    Item match = available.FirstOrDefault(item => MatchesWithdrawalItem(item, row));
+                    Item bound;
+                    bool hasBinding = _centralWithdrawalItems.TryGetValue(row.Id, out bound);
+                    Item match = available.FirstOrDefault(item => MatchesWithdrawalItem(item, row) &&
+                        (!hasBinding || ReferenceEquals(item, bound)));
                     if (match == null) { exact = false; break; }
                     available.Remove(match);
                 }
@@ -944,11 +962,49 @@ namespace CityBankers
                   MatchesWithdrawalItem(item, row))));
         }
 
+        private void BindVerifiedWithdrawalArrival(WithdrawalState state)
+        {
+            if (_receipt == null || _receipt.Kind != "withdrawal-transfer" ||
+                _receipt.Direction != 1 || _receipt.BatchId != state.Id ||
+                _receipt.LiveBeforeItems == null)
+                throw new InvalidOperationException("Withdrawal arrival lacks live receipt evidence.");
+
+            List<Item> inventory = Inventory.Items.Where(item => item != null &&
+                item.Slot.Type == IdentityType.Inventory).ToList();
+            // The full count delta has already been verified. Also require all prior
+            // live occurrences to remain present and exactly one new occurrence.
+            List<Item> added = inventory.Where(item => !_receipt.LiveBeforeItems.Any(
+                before => ReferenceEquals(before, item))).ToList();
+            if (added.Count != 1 || !MatchesWithdrawalItem(added[0], state) ||
+                _receipt.LiveBeforeItems.Any(before => !inventory.Any(item => ReferenceEquals(before, item))))
+                throw new InvalidOperationException("Cannot bind the single verified withdrawal arrival to a live occurrence.");
+
+            var activeIds = new HashSet<string>(WithdrawalStore.LoadAll(_settingsDir)
+                .Where(WithdrawalStore.IsActive).Select(row => row.Id));
+            foreach (string id in _centralWithdrawalItems.Keys.Where(id => !activeIds.Contains(id)).ToList())
+                _centralWithdrawalItems.Remove(id);
+            if (_centralWithdrawalItems.Any(pair => pair.Key != state.Id && ReferenceEquals(pair.Value, added[0])))
+                throw new InvalidOperationException("Withdrawal arrival already belongs to another request.");
+            _centralWithdrawalItems[state.Id] = added[0];
+            _receipt.WithdrawalArrivalSlot = added[0].Slot.Instance;
+            ReportTransferProgress("WITHDRAWAL COPY BOUND", state.Id,
+                "requester=" + state.RequestedBy + "; character=" + Client.CharacterName +
+                "; inventorySlot=" + added[0].Slot + "; verified new occurrence", new[] { state.Item });
+        }
+
         private Item FindWithdrawalInventoryItem(WithdrawalState state)
         {
             List<Item> inventory = (Inventory.Items ?? new List<Item>()).Where(item =>
                 item != null && item.Slot.Type == IdentityType.Inventory &&
                 item.UniqueIdentity.Type != IdentityType.Container).ToList();
+
+            Item bound;
+            if (_isCentral && state != null && _centralWithdrawalItems.TryGetValue(state.Id, out bound))
+            {
+                // Do not substitute another identical copy if this occurrence disappears.
+                return inventory.Any(item => ReferenceEquals(item, bound)) && MatchesWithdrawalItem(bound, state)
+                    ? bound : null;
+            }
 
             if (!_isCentral && state?.LiveInventoryAnchorSlot.HasValue == true)
             {
@@ -999,6 +1055,8 @@ namespace CityBankers
             List<WithdrawalState> others = WithdrawalStore.LoadAll(_settingsDir)
                 .Where(row => WithdrawalStore.IsActive(row) && row.Id != state.Id).ToList();
             List<Item> matches = inventory.Where(item => MatchesWithdrawalItem(item, state) &&
+                (!_isCentral || !_centralWithdrawalItems.Any(pair => pair.Key != state.Id &&
+                    others.Any(row => row.Id == pair.Key) && ReferenceEquals(pair.Value, item))) &&
                 !others.Any(row => IsUsableIdentity(row.CentralItemIdentity) &&
                     row.CentralItemIdentity == item.UniqueIdentity.ToString())).ToList();
             if (matches.Count == 1)
@@ -1062,6 +1120,7 @@ namespace CityBankers
             _withdrawalAccepted = false;
             _withdrawalTradePartner = Identity.None;
             _withdrawalPickupTrade = false;
+            _pickupDeclineSent = false;
             _withdrawalClosedAge = null;
             _pickupItems.Clear();
             _pickupOfferedIds.Clear();
