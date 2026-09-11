@@ -2,6 +2,31 @@
 
 Last continuity reconstruction: 2026-08-30
 
+## 2026-09-11 — finish recoverable old donation first (session 65)
+
+- `[OWNER CORRECTION]` A passive custody hold prevents unsafe guesses but does
+  not finish an interrupted donation. Recovery must be owned by the system and
+  must run before asking the owner to supply a new test donation.
+- `[IMPLEMENTED, OWNER VALIDATION PENDING]` After all nine bankers and write
+  fronts are ready, Central now partitions each startup custody hold against
+  transaction-bound current stock and its live loose inventory. Occurrences
+  already present in stock are reconciled; occurrences physically on Central
+  are placed in a new queued recovery batch with the original transaction,
+  role, character, and exact item data.
+- `[ORDERING]` The queued recovery child is ordinary actionable dispatch work,
+  so the existing gate keeps new donations behind it until the worker confirms
+  physical storage. A marker on the retained hold prevents duplicate recovery
+  children across later restarts.
+- `[LOSS ACCOUNTING]` Only occurrences absent from both transaction-bound live
+  stock and Central inventory remain on the custody-hold row. A durable ledger
+  partition event records original count, stored count, Central recovery count,
+  missing count, and recovery child. Missing items are explicitly recorded as
+  a loss incident and never classified as stored.
+- `[EXPECTED LIVE RESULT]` Existing batch `801bf00d` should produce a one-item
+  Artillery recovery child for Intelligent Thigh AOID 235579. Vital Waist AOID
+  235524 remains the sole loss occurrence unless the reconciled transaction
+  stock proves it physically exists.
+
 ## 2026-09-11 — isolated unresolved-custody batches (session 64)
 
 - `[LIVE-ROOT-CAUSE]` All nine bankers and write fronts became ready, but the

@@ -30,6 +30,7 @@ namespace CityBankers
     {
         private const int PollMilliseconds = 750;
         private const string CustodyHoldStatus = "custody-hold";
+        private const string CustodyRecoveryMarker = "Custody recovery child=";
         private const string WorkerLocalFullBagFailure =
             "Live bag is full even though persisted state expected free space. Reconcile before continuing.";
         private const string WorkerLocalPlacementPersistenceFailurePrefix =
@@ -40,6 +41,8 @@ namespace CityBankers
         private readonly HashSet<string> _startupFailedBatchIds =
             new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _startupTradingBatchIds =
+            new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _startupCustodyHoldBatchIds =
             new HashSet<string>(StringComparer.Ordinal);
 
         private string _settingsDir;
@@ -70,6 +73,8 @@ namespace CityBankers
                     _startupFailedBatchIds.Add(batch.BatchId);
                 else if (string.Equals(batch.Status, "trading", StringComparison.OrdinalIgnoreCase))
                     _startupTradingBatchIds.Add(batch.BatchId);
+                else if (string.Equals(batch.Status, CustodyHoldStatus, StringComparison.OrdinalIgnoreCase))
+                    _startupCustodyHoldBatchIds.Add(batch.BatchId);
             }
             _nextPollUtc = DateTime.UtcNow;
             Client.OnUpdate += Tick;
@@ -86,6 +91,7 @@ namespace CityBankers
             _lastDecisionByBatch.Clear();
             _startupFailedBatchIds.Clear();
             _startupTradingBatchIds.Clear();
+            _startupCustodyHoldBatchIds.Clear();
         }
 
         private void Tick(object sender, double deltaTime)
@@ -105,7 +111,8 @@ namespace CityBankers
                     .Where(batch =>
                         batch != null &&
                         (IsStartupFailedBatch(batch) ||
-                         IsRestartOrphanedTradingBatch(batch)))
+                         IsRestartOrphanedTradingBatch(batch) ||
+                         IsStartupCustodyHoldBatch(batch)))
                     .ToList();
 
                 foreach (DispatchBatchState batch in candidates)
@@ -128,6 +135,9 @@ namespace CityBankers
         {
             if (batch == null)
                 return false;
+
+            if (IsStartupCustodyHoldBatch(batch))
+                return RecoverCustodyHeldBatch(queue, batch);
 
             if (string.Equals(
                     batch.LastError,
@@ -318,6 +328,196 @@ namespace CityBankers
             return true;
         }
 
+        private bool RecoverCustodyHeldBatch(
+            DispatchQueueState queue,
+            DispatchBatchState hold)
+        {
+            string holdId = hold?.BatchId ?? string.Empty;
+            if (hold == null || hold.Items == null || hold.Items.Count == 0)
+            {
+                _startupCustodyHoldBatchIds.Remove(holdId);
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(hold.LastError) &&
+                hold.LastError.IndexOf(CustodyRecoveryMarker, StringComparison.Ordinal) >= 0)
+            {
+                _startupCustodyHoldBatchIds.Remove(holdId);
+                return false;
+            }
+
+            List<TransferItemState> original = new List<TransferItemState>(hold.Items);
+            List<TransferItemState> remaining = new List<TransferItemState>(original);
+            List<StockItemState> transactionStock =
+                (RuntimeStateStore.LoadCurrentStock(_settingsDir)?.Items ??
+                 new List<StockItemState>())
+                .Where(item =>
+                    item != null && string.Equals(
+                        item.TransactionId,
+                        hold.TransactionId,
+                        StringComparison.Ordinal))
+                .ToList();
+            var alreadyStored = new List<TransferItemState>();
+            foreach (StockItemState stored in transactionStock)
+            {
+                int index = FindExpectedMatchIndex(remaining, stored);
+                if (index < 0)
+                    continue;
+                alreadyStored.Add(remaining[index]);
+                remaining.RemoveAt(index);
+            }
+
+            List<Item> centralInventory = Inventory.Items == null
+                ? new List<Item>()
+                : Inventory.Items
+                    .Where(item =>
+                        item != null && item.Slot.Type == IdentityType.Inventory &&
+                        item.UniqueIdentity.Type != IdentityType.Container)
+                    .OrderBy(item => item.Slot.Instance)
+                    .ToList();
+            var recoverable = new List<TransferItemState>();
+            foreach (TransferItemState expected in remaining.ToList())
+            {
+                int index = FindCentralMatchIndex(centralInventory, expected);
+                if (index < 0)
+                    continue;
+                recoverable.Add(expected);
+                centralInventory.RemoveAt(index);
+                remaining.Remove(expected);
+            }
+
+            DispatchBatchState child = null;
+            if (recoverable.Count > 0)
+            {
+                DateTime now = DateTime.UtcNow;
+                child = new DispatchBatchState
+                {
+                    BatchId = "batch-" + Guid.NewGuid().ToString("N"),
+                    TransactionId = hold.TransactionId,
+                    Role = hold.Role,
+                    Character = hold.Character,
+                    Status = "queued",
+                    CreatedUtc = now,
+                    UpdatedUtc = now,
+                    AttemptCount = 0,
+                    LastError =
+                        "Recovery child of custody-held batch " + hold.BatchId + ".",
+                    Items = recoverable
+                };
+                queue.Batches.Add(child);
+            }
+
+            if (remaining.Count == 0)
+                queue.Batches.Remove(hold);
+            else
+            {
+                hold.Items = remaining;
+                hold.UpdatedUtc = DateTime.UtcNow;
+                hold.LastError =
+                    CustodyRecoveryMarker + (child?.BatchId ?? "none") +
+                    "; originalExpected=" + original.Count +
+                    "; transactionStock=" + alreadyStored.Count +
+                    "; queuedFromCentral=" + recoverable.Count +
+                    "; missing=" + remaining.Count +
+                    ". Missing occurrences remain a recorded loss incident; they are not " +
+                    "classified as stored.";
+            }
+            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+
+            RuntimeStateStore.AppendLedger(
+                _settingsDir,
+                new LedgerRecord
+                {
+                    Utc = DateTime.UtcNow,
+                    Event = "dispatch_custody_recovery_partitioned",
+                    TransactionId = hold.TransactionId,
+                    BatchId = hold.BatchId,
+                    Actor = Client.CharacterName,
+                    Role = hold.Role,
+                    Character = Client.CharacterName,
+                    Source = "custody-hold",
+                    Destination = child != null ? "dispatch-queue" : "loss-incident",
+                    Message =
+                        "Partitioned old donation after complete startup readiness: expected=" +
+                        original.Count + ", transactionStock=" + alreadyStored.Count +
+                        ", queuedFromCentral=" + recoverable.Count + ", missing=" +
+                        remaining.Count + ", recoveryChild=" +
+                        (child?.BatchId ?? "none") + ".",
+                    Items = original.Select(item => new LedgerItem
+                    {
+                        UniqueIdentity = item?.UniqueIdentity,
+                        AoId = item?.AoId ?? 0,
+                        HighId = item?.HighId ?? 0,
+                        Ql = item?.Ql ?? 0,
+                        Name = item?.Name,
+                        Role = hold.Role
+                    }).ToList()
+                });
+
+            string notice =
+                "OLD DONATION RECOVERY " + BatchLabel(hold) + ": " +
+                alreadyStored.Count + " already stored, " + recoverable.Count +
+                " recovered on Central and queued" +
+                (child != null ? " as " + ShortId(child.BatchId) : string.Empty) +
+                ", " + remaining.Count + " genuinely absent occurrence(s) retained as " +
+                "a loss incident. New donations remain behind the recovery queue.";
+            Logger.Warning("[CityBankers] " + notice);
+            TellKavem(notice);
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                "central",
+                notice);
+            _startupCustodyHoldBatchIds.Remove(holdId);
+            return true;
+        }
+
+        private static int FindExpectedMatchIndex(
+            List<TransferItemState> expectedItems,
+            StockItemState stored)
+        {
+            if (expectedItems == null || stored == null)
+                return -1;
+
+            if (IsUsableIdentity(stored.UniqueIdentity))
+            {
+                int identityIndex = expectedItems.FindIndex(expected =>
+                    expected != null && IsUsableIdentity(expected.UniqueIdentity) &&
+                    string.Equals(
+                        expected.UniqueIdentity,
+                        stored.UniqueIdentity,
+                        StringComparison.Ordinal));
+                if (identityIndex >= 0)
+                    return identityIndex;
+            }
+
+            return expectedItems.FindIndex(expected =>
+                expected != null && expected.AoId == stored.AoId &&
+                expected.HighId == stored.HighId && expected.Ql == stored.Ql);
+        }
+
+        private static int FindCentralMatchIndex(
+            List<Item> items,
+            TransferItemState expected)
+        {
+            if (items == null || expected == null)
+                return -1;
+
+            if (IsUsableIdentity(expected.UniqueIdentity))
+            {
+                int identityIndex = items.FindIndex(item => string.Equals(
+                    item.UniqueIdentity.ToString(),
+                    expected.UniqueIdentity,
+                    StringComparison.Ordinal));
+                if (identityIndex >= 0)
+                    return identityIndex;
+            }
+
+            return items.FindIndex(item =>
+                item.Id == expected.AoId && item.HighId == expected.HighId &&
+                item.Ql == expected.Ql);
+        }
+
         private bool PlaceOnCustodyHold(
             DispatchQueueState queue,
             DispatchBatchState batch,
@@ -380,7 +580,7 @@ namespace CityBankers
             _lastDecisionByBatch.Remove(batch.BatchId ?? string.Empty);
             _startupFailedBatchIds.Remove(batch.BatchId ?? string.Empty);
             _startupTradingBatchIds.Remove(batch.BatchId ?? string.Empty);
-            return true;
+            return RecoverCustodyHeldBatch(queue, batch);
         }
 
         private bool IsStartupFailedBatch(DispatchBatchState batch)
@@ -398,6 +598,16 @@ namespace CityBankers
                 return false;
 
             return _startupTradingBatchIds.Contains(batch.BatchId);
+        }
+
+        private bool IsStartupCustodyHoldBatch(DispatchBatchState batch)
+        {
+            return batch != null && !string.IsNullOrWhiteSpace(batch.BatchId) &&
+                string.Equals(
+                    batch.Status,
+                    CustodyHoldStatus,
+                    StringComparison.OrdinalIgnoreCase) &&
+                _startupCustodyHoldBatchIds.Contains(batch.BatchId);
         }
 
         private static bool IsRecoverablePreTransferFailure(string error)

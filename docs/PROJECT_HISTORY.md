@@ -1,5 +1,20 @@
 # City Dwellers — Persistent Project History
 
+## 2026-09-11 — Old donation recovery partition
+
+The owner correctly rejected passive custody containment as completion of the
+old donation. Startup recovery now owns the decision after the readiness barrier:
+it matches the held expected multiset against transaction-bound current stock
+and Central's live loose inventory, then queues the Central-resident portion
+under the original donation transaction before admitting new donations.
+
+The retained hold is reduced to genuinely absent occurrences and becomes an
+explicit loss incident. The original counts and partition are written to the
+ledger, and a recovery-child marker prevents duplicate dispatch after restart.
+For batch `801bf00d`, the expected partition is one recoverable Intelligent
+Thigh queued to Kbarty and one missing Vital Waist retained as loss evidence.
+No absent occurrence is invented, silently discarded, or marked stored.
+
 ## 2026-09-11 — Worker fallback remote-Accept latch
 
 The complete local activity log and UTC ledger clarified the repeated internal
