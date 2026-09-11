@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 75,
-  "last_completed_session": 74,
-  "status": "in_progress",
+  "last_completed_session": 75,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-75-withdrawal-notices",
-  "base_commit": "cac378b1bb1017ab9a853a327fcddc341cae7bac",
-  "task": "Add withdrawal journey dev telemetry and direct requester ready tell",
-  "resume_instruction": "Publish BEGIN203; add extraction/opening/verified receipt/ready milestones; use TellDirectPlayer for ready notice; static review only then publish/seal. Owner confirms actual pickup now works; expiry test still pending."
+  "base_commit": "882ccd00aa1a370447c4eadeb92f3a001bfd3bef",
+  "task": "Owner rebuild and verify withdrawal journey dev logs and direct ready tell",
+  "resume_instruction": "Session75 882ccd00aa1a370447c4eadeb92f3a001bfd3bef adds extraction/transfer opening/verified arrival/ready dev milestones and sends readiness through TellDirectPlayer(RequestedBy), including bootstrap admin. Owner confirms actual pickup succeeded after Session74. Verify direct tell/dev journey after rebuild; separate expiry return still unverified. Static review only, no assistant builds/tests/live data changes. Next journal205; acquire transaction before edits; no historical repair repeat."
 }
