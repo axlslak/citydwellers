@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 66,
+  "current_session": 67,
   "last_completed_session": 66,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "4fd80d0e39146aaeab621a41bc52f30343cd1a4e",
-  "task": "Build and run the full expected-versus-live bankers bagaudit",
-  "resume_instruction": "Pull master, build Release, and run only CityDwellers.exe bankers-bagaudit. Return the generated diagnostic-dumps/citybankers-bagaudit-*.log. Do not start normal banker service or act on Session 65 recovery until the complete physical difference report is reviewed."
+  "transaction": "session-67-physical-custody-safety",
+  "base_commit": "e84da3b38f24a011ff2786c54b141149ae9e3545",
+  "task": "Implement startup census and verified durable banker custody",
+  "resume_instruction": "Service is stopped by owner. Establish full census before operational writers; verify physical receipt rather than trade snapshots; preserve provenance and unresolved custody. No builds/live tests by assistant. Session 66 audit slot comparison needs low-16-bit normalization. Latest private archive is data-current.M9OrH1/data; never publish private data."
 }
