@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 64,
-  "last_completed_session": 63,
-  "status": "in_progress",
+  "last_completed_session": 64,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-64-isolate-custody-hold",
-  "base_commit": "acc8a4b6aca169dfc6029c2a0b9a1b5087ccdbb3",
-  "task": "Quarantine an irreconcilable startup batch without freezing unrelated banker traffic",
-  "resume_instruction": "Startup batch 801bf00d has only 1/2 expected items on Central and currently makes HasUnresolvedDispatchWork reject every donation because it counts every queue row. Introduce an explicit non-dispatchable custody-hold state for incomplete startup custody, retain the batch and item evidence, and exclude only that state from the global donation gate."
+  "transaction": null,
+  "base_commit": "289cc8bacfaebd988680ea35b1b703aeabb8561e",
+  "task": "Build and live-test custody-hold isolation plus the worker Accept latch",
+  "resume_instruction": "Pull master, clear old output, build Release, and restart all bankers. Startup should convert artillery batch 801bf00d from failed to custody-hold, log CUSTODY HOLD, retain both expected items as evidence, and allow a new donation to reach normal queued dispatch. Validate that a fresh Central-to-worker trade completes with the Session 63 Accept latch."
 }
