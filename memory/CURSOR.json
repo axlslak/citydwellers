@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 65,
-  "last_completed_session": 64,
-  "status": "in_progress",
+  "last_completed_session": 65,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-65-finish-old-donation",
-  "base_commit": "b20cf8a8c80a65ed945415892b9fe44a4c458d68",
-  "task": "Finish the recoverable portion of the old damaged donation before admitting a new one",
-  "resume_instruction": "Turn custody hold from passive containment into deterministic recovery: partition the old expected multiset against transaction-bound live stock and Central loose inventory after readiness, queue the Central-resident subset under the original transaction, retain only genuinely absent occurrences as a durable loss incident, and let that recovery batch keep new donations blocked until storage completes."
+  "transaction": null,
+  "base_commit": "7dd87f8165694590f5a573647bdb12074a01fdbe",
+  "task": "Build and live-test automatic recovery of old donation batch 801bf00d",
+  "resume_instruction": "Pull master, clear old output, build Release, and restart all bankers. Expect OLD DONATION RECOVERY for batch 801bf00d, with one Central item queued in a recovery child and one missing occurrence retained. The recovery child must dispatch to Kbarty and store successfully before a new donation is accepted."
 }
