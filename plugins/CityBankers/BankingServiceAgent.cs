@@ -161,6 +161,7 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
+            if (TickWithdrawalCensus()) return;
             if (TickDispatchCensus()) return;
             if (TickLocalCensus()) return;
             if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
@@ -368,6 +369,9 @@ namespace CityBankers
             try
             {
                 string targetName = FindPlayerName(target);
+                if (_withdrawalCensus != null || _withdrawalDispute ||
+                    WithdrawalStore.GetWithdrawalCensusId(_settingsDir, Client.CharacterName) != null)
+                { Trade.Decline(); return; }
                 if (_extraction != null || _storageRecovery != null) { Trade.Decline(); return; }
                 RuntimeStateStore.AppendActivity(
                     _settingsDir,
@@ -458,6 +462,8 @@ namespace CityBankers
 
             try
             {
+                if (_withdrawalCensus != null || _withdrawalDispute ||
+                    WithdrawalStore.GetWithdrawalCensusId(_settingsDir, Client.CharacterName) != null) return;
                 if (TryReturnTradeStatus(status)) return;
                 if (TryHandleWithdrawalTradeStatus(target, status))
                     return;

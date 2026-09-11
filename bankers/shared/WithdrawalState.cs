@@ -41,6 +41,7 @@ namespace CityBankers.Shared
         public string CentralItemIdentity;
         public string ReturnBatchId;
         public string ReconciledByCensus;
+        public string RecoveryCensusId;
         public string Error;
         public TransferItemState Item;
     }
@@ -76,6 +77,7 @@ namespace CityBankers.Shared
             public string LedgerId;
             public string CensusCharacter;
             public bool CensusCentral;
+            public string WithdrawalCensusId;
         }
 
         private static string RecoveryPath(string directory) => Path.Combine(
@@ -100,6 +102,82 @@ namespace CityBankers.Shared
         public static bool OwnsCensus(string directory, string operation, string character) => Locked(() =>
             ReadRecovery(directory).Any(r => r.OperationId == operation &&
                 string.Equals(r.CensusCharacter, character, StringComparison.OrdinalIgnoreCase)));
+
+        public static string GetWithdrawalCensusId(string directory, string character) => Locked(() =>
+            ReadRecovery(directory).Where(r => string.Equals(r.CensusCharacter, character, StringComparison.OrdinalIgnoreCase))
+                .Select(r => r.WithdrawalCensusId).SingleOrDefault());
+
+        public static bool TryReserveWithdrawalCensus(string directory, string id, string central,
+            IDictionary<string, string> runs, IList<WithdrawalState> originals)
+        {
+            return Update(directory, rows =>
+            {
+                var scope = new HashSet<string>(runs.Keys, StringComparer.OrdinalIgnoreCase);
+                var ids = new HashSet<string>(originals.Select(r => r.Id), StringComparer.Ordinal);
+                if (rows.Any(r => IsActive(r) && (!HasStatus(r, "requested") || scope.Contains(r.SourceCharacter)) &&
+                    !ids.Contains(r.Id))) return false;
+                foreach (var original in originals)
+                {
+                    var current = rows.SingleOrDefault(r => r.Id == original.Id);
+                    bool frozen = current?.RecoveryCensusId == id && HasStatus(current, "reconciling") &&
+                        current.Revision == original.Revision + 1;
+                    if (!frozen && (current == null || current.Revision != original.Revision ||
+                        current.Status != original.Status || !IsActive(current) || current.RecoveryCensusId != null)) return false;
+                }
+                var reservations = ReadRecovery(directory);
+                if (reservations.Any(r => !string.IsNullOrWhiteSpace(r.CensusCharacter) && scope.Contains(r.CensusCharacter) &&
+                    (r.WithdrawalCensusId != id || r.OperationId != runs[r.CensusCharacter]))) return false;
+                foreach (var run in runs)
+                    if (!reservations.Any(r => r.OperationId == run.Value))
+                        reservations.Add(new RecoveryReservation { OperationId = run.Value, CensusCharacter = run.Key,
+                            CensusCentral = string.Equals(run.Key, central, StringComparison.OrdinalIgnoreCase), WithdrawalCensusId = id });
+                // Leases precede status changes under the same admission mutex.
+                // If either write fails, the retained grant and exact revisions
+                // let the same recovery finish freezing the requests on retry.
+                RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), reservations);
+                foreach (var row in rows.Where(r => ids.Contains(r.Id) && r.RecoveryCensusId != id))
+                {
+                    row.Status = "reconciling";
+                    row.RecoveryCensusId = id;
+                    Touch(row);
+                }
+                return true;
+            });
+        }
+
+        public static void RestoreRequestsAfterWithdrawalCensus(string directory, string id,
+            IDictionary<string, string> runs, IList<WithdrawalState> originals, IList<WithdrawalState> dispositions)
+        {
+            Update(directory, rows =>
+            {
+                var leases = ReadRecovery(directory);
+                if (runs.Any(run => !leases.Any(r => r.OperationId == run.Value && r.WithdrawalCensusId == id &&
+                    string.Equals(r.CensusCharacter, run.Key, StringComparison.OrdinalIgnoreCase))))
+                    throw new InvalidOperationException("Withdrawal census lost a participant reservation.");
+                if (originals.Count != dispositions.Count || dispositions.Select(r => r.Id).Distinct().Count() != originals.Count)
+                    throw new InvalidOperationException("Withdrawal census has incomplete request dispositions.");
+                foreach (var original in originals)
+                {
+                    var current = rows.SingleOrDefault(r => r.Id == original.Id);
+                    if (current?.ReconciledByCensus == id && current.RecoveryCensusId == null) continue;
+                    if (current?.RecoveryCensusId != id || !HasStatus(current, "reconciling") ||
+                        current.Revision != original.Revision + 1)
+                        throw new InvalidOperationException("Withdrawal changed while its census owned it.");
+                    var restored = JsonConvert.DeserializeObject<WithdrawalState>(JsonConvert.SerializeObject(
+                        dispositions.Single(r => r.Id == original.Id)));
+                    if (restored.Status != "requested" && restored.Status != "central-ready" &&
+                        restored.Status != "completed" && restored.Status != "reconciled")
+                        throw new InvalidOperationException("Invalid post-census withdrawal status.");
+                    restored.Revision = current.Revision;
+                    restored.RecoveryCensusId = null;
+                    restored.ReconciledByCensus = id;
+                    if (HasStatus(restored, "central-ready")) restored.PickupExpiresUtc = DateTime.UtcNow.AddSeconds(PickupSeconds);
+                    Touch(restored);
+                    rows[rows.IndexOf(current)] = restored;
+                }
+                return true;
+            });
+        }
 
         public static bool TryReserveCensus(string directory, string operation, string character, bool central = false)
         {
@@ -249,6 +327,7 @@ namespace CityBankers.Shared
                         throw new InvalidOperationException("A withdrawal changed during startup census application.");
                     current.Status = HasConfirmedDelivery(original) ? "completed" : "reconciled";
                     current.ReconciledByCensus = generation;
+                    current.RecoveryCensusId = null;
                     current.Error = HasConfirmedDelivery(original)
                         ? "Previously confirmed delivery retained during startup census."
                         : "Interrupted request closed after full physical census; no delivery inferred. Please request the item again.";

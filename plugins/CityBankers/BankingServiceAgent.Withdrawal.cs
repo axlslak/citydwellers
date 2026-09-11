@@ -16,7 +16,8 @@ namespace CityBankers
         private const int WithdrawalPhaseTimeoutSeconds = 30;
         private WithdrawalState _withdrawal;
         private WithdrawalWorkerPhase _withdrawalWorkerPhase;
-        private DateTime _withdrawalDeadlineUtc;
+        private readonly Stopwatch _withdrawalPhaseAge = Stopwatch.StartNew();
+        private Stopwatch _withdrawalClosedAge;
         private StorageBagState _withdrawalBag;
         private string _withdrawalBagIdentity;
         private bool _withdrawalBankBag;
@@ -56,7 +57,10 @@ namespace CityBankers
                 !rows.Any(row => row.Id == _withdrawal.Id && WithdrawalStore.IsActive(row)))
                 ResetWithdrawalLocal();
             if (_withdrawalTradeOpened && !Trade.IsTrading)
-                ResetWithdrawalTrade(); // recover even if AO omitted a Declined callback
+            {
+                if (CheckClosedWithdrawalTrade()) return true;
+                ResetWithdrawalTrade();
+            }
             if (_withdrawalTradeOpened)
             {
                 if (_withdrawalPickupTrade && _pickupItems.Count > 0)
@@ -280,7 +284,7 @@ namespace CityBankers
             // followed immediately by a successful recovery retry.
             if (phaseAtStart != WithdrawalWorkerPhase.WaitTrade &&
                 _withdrawalWorkerPhase == phaseAtStart &&
-                DateTime.UtcNow >= _withdrawalDeadlineUtc)
+                _withdrawalPhaseAge.Elapsed.TotalSeconds >= WithdrawalPhaseTimeoutSeconds)
             {
                 FailWithdrawal(state, "Timed out during worker extraction phase " +
                     _withdrawalWorkerPhase + ". Physical state requires reconciliation.");
@@ -411,7 +415,8 @@ namespace CityBankers
             {
                 if (_afterReceipt != null && _receipt != null && _receipt.Direction != 0)
                 {
-                    StartupCensusGate.Block("Conflicting withdrawal Declined after Finished; custody evidence retained.");
+                    if (!BeginWithdrawalDispute("Conflicting withdrawal Declined after Finished; custody evidence retained."))
+                        StartupCensusGate.Block("Conflicting withdrawal Declined after Finished; custody evidence retained.");
                     return true;
                 }
                 VerifyCancelledReceipt();
@@ -646,7 +651,8 @@ namespace CityBankers
 
         private void WithdrawalTickWorkerTrade()
         {
-            if (DateTime.UtcNow >= _withdrawalDeadlineUtc)
+            if (CheckClosedWithdrawalTrade()) return;
+            if (_withdrawalPhaseAge.Elapsed.TotalSeconds >= WithdrawalPhaseTimeoutSeconds)
             {
                 TryDeclineTrade();
                 FailWithdrawal(_withdrawal, "Timed out returning the reserved item to Central.");
@@ -981,15 +987,31 @@ namespace CityBankers
             state.Status = "failed";
             state.Error = error;
             WithdrawalStore.Save(_settingsDir, state);
-            Logger.Error("[CityBankers] WITHDRAWAL FAILED " + state.Id + ": " + error);
-            TellPlayer(state.RequestedBy, "Withdrawal stopped safely: " + error);
+            VerifyCancelledReceipt();
             TryDeclineTrade();
             ResetWithdrawalLocal();
+            Logger.Error("[CityBankers] WITHDRAWAL FAILED " + state.Id + ": " + error);
+            try { TellPlayer(state.RequestedBy, "Withdrawal paused for physical recovery: " + error); }
+            catch (Exception ex) { Logger.Warning("[CityBankers] Withdrawal failure notice unavailable: " + ex.Message); }
         }
 
         private void SetWithdrawalDeadline()
         {
-            _withdrawalDeadlineUtc = DateTime.UtcNow.AddSeconds(WithdrawalPhaseTimeoutSeconds);
+            _withdrawalPhaseAge.Restart();
+        }
+
+        private bool CheckClosedWithdrawalTrade()
+        {
+            if (!_withdrawalTradeOpened || Trade.IsTrading || !WithdrawalReceipt(_receipt))
+            { _withdrawalClosedAge = null; return false; }
+            if (_afterReceipt != null) return true;
+            if (_withdrawalClosedAge == null) _withdrawalClosedAge = Stopwatch.StartNew();
+            if (_withdrawalClosedAge.ElapsedMilliseconds < 1000) return true;
+            // Closure alone says neither delivered nor returned. A complete
+            // unchanged receipt is safe to retry; any changed inventory takes
+            // the full affected-character census path.
+            VerifyCancelledReceipt();
+            return true;
         }
 
         private void ResetWithdrawalTrade()
@@ -999,6 +1021,7 @@ namespace CityBankers
             _withdrawalAccepted = false;
             _withdrawalTradePartner = Identity.None;
             _withdrawalPickupTrade = false;
+            _withdrawalClosedAge = null;
             _pickupItems.Clear();
             _pickupOfferedIds.Clear();
         }

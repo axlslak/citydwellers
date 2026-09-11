@@ -167,6 +167,7 @@ namespace CityBankers
                         _storageRecoveryReply = null;
                     }
                     FinishDispatchCensus();
+                    FinishWithdrawalCensus();
                     _localCensus = null;
                     _localCensusResult = null;
                     _localCensusIssued = false;
@@ -219,6 +220,12 @@ namespace CityBankers
                 }
                 else
                 {
+                    if (HandleWithdrawalCensusResult(census))
+                    {
+                        RuntimeStateStore.WriteJsonAtomic(completed, census);
+                        proposal.Reply.TrySetResult("complete:" + census.RunId);
+                        return true;
+                    }
                     if (HandlePairedCensusResult(census))
                     {
                         RuntimeStateStore.WriteJsonAtomic(completed, census);

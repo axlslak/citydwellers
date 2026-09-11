@@ -55,7 +55,7 @@ namespace CityBankers
 
         private bool DispatchCensusInventorySettled()
         {
-            if (_dispatchCensus == null) return true;
+            if (_dispatchCensus == null && _withdrawalCensus == null) return true;
             if (Inventory.Items == null || Inventory.Bank.Items == null) return false;
             string signature = string.Join(";", Inventory.Items.Concat(Inventory.Bank.Items).Where(i => i != null)
                 .Select(i => i.Slot + "/" + i.UniqueIdentity + "/" + i.Id + "/" + i.HighId + "/" + i.Ql).OrderBy(s => s));
