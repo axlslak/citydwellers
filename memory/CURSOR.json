@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 67,
+  "current_session": 68,
   "last_completed_session": 67,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-67-physical-custody-safety",
-  "base_commit": "6552243710b417b42c54951d2dea6270659b75a0",
-  "task": "Owner build and controlled runtime validation of completed banker recovery implementation",
-  "resume_instruction": "Session67 implementation is published at 6552243710b417b42c54951d2dea6270659b75a0 and sealed by COMMIT185. No active writer transaction remains. Owner builds and controlled startup/reconnect/dispatch/withdrawal/return validation next; assistant did static source/delimiter/project/whitespace review only, no compile/tests/live AO. Service remains stopped and is not restart-cleared by static review. Preserve completed physical-ledger reconciliation, local/paired recovery and connection-bound available-roster fallback. Broad recovery retires old pickup requests without inferring delivery; offline records remain unavailable until fresh census. Historical data repair already applied; never repeat. Next journal186; start a new transaction only for newly authorized code work or returned build/log fixes. Preserve historical journal truncation text."
+  "transaction": "session-68-owner-build-fixes",
+  "base_commit": "c45939947b7aba4baf48707b0615164b153df7f6",
+  "task": "Fix four compiler errors from owner Release build",
+  "resume_instruction": "Owner log reports missing WithdrawalStore in executable TrustedOperators, missing TrustedOperators in manager WithdrawalState, static TryDeclineTrade instance call, and missing return in HandleStorageRecoveryProposal. Extract standalone shared readiness source and link all three consuming projects; fix static call and handled return. Static review only; owner owns compilation/live testing. Service stopped; repair already applied. BEGIN186; publish fixes then seal."
 }
