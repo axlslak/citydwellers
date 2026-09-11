@@ -1665,3 +1665,13 @@ Required-sender jobs remain pending until their required character is eligible.
 The existing 45-second timeout still covers genuinely abandoned assignments.
 No assistant-side compilation or live AO test was run; Kavey owns Release build
 and repeated donation timing validation.
+# Session 64 — unresolved custody isolation (2026-09-11)
+
+- Live restart evidence showed the readiness barrier completing normally while
+  one retained Artillery failure had only 1/2 expected items on Central.
+- Identified the remaining global outage as queue gating: any retained batch,
+  including an irreconcilable failed evidence row, blocked all new donations.
+- Added a durable `custody-hold` state for incomplete startup custody. It keeps
+  the original evidence and affected-worker isolation while allowing unrelated
+  donations, dispatch, and withdrawals to proceed.
+- No item was marked stored or removed from the custody record.

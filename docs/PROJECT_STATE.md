@@ -2,6 +2,27 @@
 
 Last continuity reconstruction: 2026-08-30
 
+## 2026-09-11 — isolated unresolved-custody batches (session 64)
+
+- `[LIVE-ROOT-CAUSE]` All nine bankers and write fronts became ready, but the
+  retained failed Artillery batch `801bf00d` contained only one of two expected
+  items on Central. `HasUnresolvedDispatchWork` treated every retained queue row
+  as active work, so this non-dispatchable evidence row rejected every new
+  donation before the repaired internal handshake could run.
+- `[IMPLEMENTED, OWNER VALIDATION PENDING]` Startup reconciliation now converts
+  a failed or restart-orphan batch whose complete multiset is not physically on
+  Central to explicit `custody-hold` status. The original batch, item list,
+  transaction, prior failure, and observed count remain persisted and a durable
+  ledger event plus operator warning record the transition.
+- `[INVARIANT]` A custody hold is never selected for dispatch, never inferred
+  stored, and never deleted automatically. It no longer blocks unrelated
+  donations, ordinary queued dispatch, or unrelated-role withdrawal work; the
+  affected worker remains excluded from withdrawal extraction while its batch
+  row exists.
+- `[OPEN-CUSTODY]` Vital Waist AOID 235524 from batch `801bf00d` remains
+  unresolved. This change isolates that uncertainty; it does not manufacture a
+  stock row or claim where the item went.
+
 ## 2026-09-11 — worker remote-Accept latch (session 63)
 
 - `[VERIFIED-LIVE]` Central repeatedly reached acceptance during failed internal

@@ -24,6 +24,8 @@ namespace CityBankers
     /// </summary>
     public partial class BankingServiceAgent : ClientlessPluginEntry
     {
+        private const string CustodyHoldStatus = "custody-hold";
+
         private string _settingsDir;
         private ServiceConfig _config;
         private string _role;
@@ -1934,7 +1936,11 @@ namespace CityBankers
             if (_activeBatch != null || _donationCleanup != null)
                 return true;
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            return queue != null && queue.Batches != null && queue.Batches.Count > 0;
+            return queue != null && queue.Batches != null && queue.Batches.Any(batch =>
+                batch != null && !string.Equals(
+                    batch.Status,
+                    CustodyHoldStatus,
+                    StringComparison.OrdinalIgnoreCase));
         }
 
         private void AnnounceDonationChanges(List<TransferItemState> offered)

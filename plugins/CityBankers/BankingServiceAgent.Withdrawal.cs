@@ -139,7 +139,9 @@ namespace CityBankers
             // Existing dispatch drains before another extraction; waiting pickups do not gate it.
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             if ((queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
-                batch != null && !string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase)))
+                batch != null &&
+                !string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(batch.Status, CustodyHoldStatus, StringComparison.OrdinalIgnoreCase)))
                 return false;
             if (!TrustedOperators.IsAllBankersReady() || Inventory.NumFreeSlots < 12)
                 return false; // retain room for a full donation even with waiting orders

@@ -29,6 +29,7 @@ namespace CityBankers
     public class PostLoginFailedBatchReconciliationAgent : ClientlessPluginEntry
     {
         private const int PollMilliseconds = 750;
+        private const string CustodyHoldStatus = "custody-hold";
         private const string WorkerLocalFullBagFailure =
             "Live bag is full even though persisted state expected free space. Reconcile before continuing.";
         private const string WorkerLocalPlacementPersistenceFailurePrefix =
@@ -167,13 +168,7 @@ namespace CityBankers
             int matchedCount = CountExpectedMultisetInCentral(batch.Items);
             if (matchedCount != expectedCount)
             {
-                ReportDecisionOnce(
-                    batch,
-                    "central-" + matchedCount + "-of-" + expectedCount,
-                    "RECONCILE BLOCKED " + BatchLabel(batch) +
-                    ": Central physically sees " + matchedCount + "/" + expectedCount +
-                    " expected item(s) loose in normal inventory; leaving it failed.");
-                return false;
+                return PlaceOnCustodyHold(queue, batch, matchedCount, expectedCount);
             }
 
             string resultPath = RuntimeStateStore.GetStorageResultPath(
@@ -317,6 +312,71 @@ namespace CityBankers
                 "requeued for normal dispatch.";
             Logger.Information("[CityBankers] " + notice);
             TellKavem(notice);
+            _lastDecisionByBatch.Remove(batch.BatchId ?? string.Empty);
+            _startupFailedBatchIds.Remove(batch.BatchId ?? string.Empty);
+            _startupTradingBatchIds.Remove(batch.BatchId ?? string.Empty);
+            return true;
+        }
+
+        private bool PlaceOnCustodyHold(
+            DispatchQueueState queue,
+            DispatchBatchState batch,
+            int matchedCount,
+            int expectedCount)
+        {
+            string priorStatus = batch.Status;
+            string priorError = batch.LastError;
+            batch.Status = CustodyHoldStatus;
+            batch.UpdatedUtc = DateTime.UtcNow;
+            batch.LastError =
+                "Custody hold: Central physically sees " + matchedCount + "/" +
+                expectedCount + " expected item(s) after restart. The retained batch is " +
+                "not dispatchable and does not block unrelated donations. Prior status=" +
+                priorStatus + "; prior failure: " + priorError;
+            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+
+            RuntimeStateStore.AppendLedger(
+                _settingsDir,
+                new LedgerRecord
+                {
+                    Utc = DateTime.UtcNow,
+                    Event = "dispatch_custody_hold",
+                    TransactionId = batch.TransactionId,
+                    BatchId = batch.BatchId,
+                    Actor = Client.CharacterName,
+                    Role = batch.Role,
+                    Character = Client.CharacterName,
+                    Source = "dispatch-queue",
+                    Destination = "custody-hold",
+                    Message =
+                        "Retained incomplete batch as non-dispatchable custody evidence: " +
+                        "Central physically sees " + matchedCount + "/" + expectedCount +
+                        " expected item(s). Unrelated donations may continue. Prior status=" +
+                        priorStatus + "; prior failure: " + priorError,
+                    Items = (batch.Items ?? new List<TransferItemState>())
+                        .Select(item => new LedgerItem
+                        {
+                            UniqueIdentity = item?.UniqueIdentity,
+                            AoId = item?.AoId ?? 0,
+                            HighId = item?.HighId ?? 0,
+                            Ql = item?.Ql ?? 0,
+                            Name = item?.Name,
+                            Role = batch.Role
+                        }).ToList()
+                });
+
+            string notice =
+                "CUSTODY HOLD " + BatchLabel(batch) + ": Central physically sees " +
+                matchedCount + "/" + expectedCount +
+                " expected item(s). The batch and evidence remain retained, but unrelated " +
+                "donations and dispatch may continue.";
+            Logger.Warning("[CityBankers] " + notice);
+            TellKavem(notice);
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                "central",
+                notice);
             _lastDecisionByBatch.Remove(batch.BatchId ?? string.Empty);
             _startupFailedBatchIds.Remove(batch.BatchId ?? string.Empty);
             _startupTradingBatchIds.Remove(batch.BatchId ?? string.Empty);
