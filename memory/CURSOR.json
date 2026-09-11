@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 77,
+  "current_session": 78,
   "last_completed_session": 77,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-77-phatz-stock-pages",
-  "base_commit": "c2c247e119d007e3e556c6efa5ee1910de36b6a4",
-  "task": "Owner build and verify phatz flat stock plus separate blob pages in org/guest/tell",
-  "resume_instruction": "Session77 c2c247e119d007e3e556c6efa5ee1910de36b6a4 displays all phatz exact types with copy counts and sends shared Manager blob pages separately. Existing CityManager.Presentation.cs limits remain 5600 org/6500 guest/7200 tell. Owner build/live phatz and donor multi-page checks next. Session76 duplicate withdrawal live result remains pending. No policy aliases, CRU code, or live data edits. Next journal209; acquire transaction before edits; never repeat historical repair."
+  "transaction": "session-78-player-pickup-handshake",
+  "base_commit": "eb12d06d2d47e707813a41c75e15ab1065a10447",
+  "task": "Give player pickup explicit Accept/Confirm handshake instead of internal bot confirmation path",
+  "resume_instruction": "Mirror proven player donation ordering for pickup with exact bound offer validation, stage logs, reset/cancel guards. Owner builds/live tests; presentation deferred. Next journal210."
 }
