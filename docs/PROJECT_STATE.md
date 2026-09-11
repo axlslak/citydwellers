@@ -4,6 +4,19 @@
 
 ### Owner revision: availability and automatic routing
 
+- Historical repair package prepared separately from the public repository: active
+  ledger 2699 -> 2300, 395 excess claims removed, four owner-authorized loss history
+  entries with responsibility Kavey and original donors retained; remaining Vital
+  dispatch closed inside its loss history record. Not yet applied to owner's runtime.
+  All 2300 retained rows uniquely match supplied stock by transaction/location; the
+  eight-worker audit matches those items after inner-slot normalization. All 395
+  excess claims duplicate occupied same-AOID slots after the same normalization.
+- Package preserves existing history bytes, validates original/replacement SHA-256
+  hashes, backs up before replacement and supports resume after partial application.
+  Windows installer was statically reviewed, not executed here. Payload counts and
+  audit multiset were checked. This is approved historical cleanup, not a fresh
+  Central census or completed automatic recovery implementation.
+
 - IPC checkpoint: shared/LocalIpc.cs is the common named-pipe transport for Manager,
   Flipper, Buddies and Banker dispatch requests. Workers reserve inbound capacity on
   their AO update thread and acknowledge preparation before Central opens a trade.

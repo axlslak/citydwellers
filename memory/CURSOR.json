@@ -5,7 +5,7 @@
   "status": "in_progress",
   "active_project": "citydwellers",
   "transaction": "session-67-physical-custody-safety",
-  "base_commit": "b47ade7ad10ccc549005c8c191c5373ed2c321bd",
+  "base_commit": "2ea7ebf114f259ec4ee6bc9d254f366ea5e955dd",
   "task": "Replace global discrepancy shutdown with physical-ledger reconciliation, local recovery and paced IPC routing",
-  "resume_instruction": "Shared named-pipe transport, dispatch reservation/storage IPC, 500ms settling, Central backlog isolation and host sibling isolation implemented but uncompiled. BankersEnabled=false can run nonbanker components after owner compile. Next replace global census/discrepancy gates with local physical reconciliation and routing; alien items to Central, known items by family regardless of provenance. Owner already authorized 395 excess claim removal and four history losses assigned to Kavey. No need to ask that permission again. No repair data package written yet. Owner builds/tests; banker runtime not cleared."
+  "resume_instruction": "IPC checkpoint 2ea7ebf awaits owner compile. Historical repair ZIP is now prepared privately (2300 retained,395 excess removed,four loss history entries assigned to Kavey,old Vital queue closed); owner application pending. Original history preserved and source/payload hash guards included. Do not repeat permission or create another repair without checking application status. Next implement runtime physical-ledger census reconciliation and automatic known/alien routing, replacing global discrepancy gates. BankersEnabled=false permits nonbanker operation after compilation. Owner builds/tests; banker runtime not cleared."
 }
