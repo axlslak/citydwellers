@@ -122,6 +122,9 @@ namespace CityBankers.Shared
         public int AttemptCount;
         // Set only by a failed source check before any dispatch command/trade is issued.
         public bool TransferNeverStarted;
+        // Central has since rebuilt routing from a full physical census.
+        // Old cancellation receipts must not enqueue a second copy of that plan.
+        public bool RequiresPairedCensus;
         public string LastError;
         public List<TransferItemState> Items = new List<TransferItemState>();
     }

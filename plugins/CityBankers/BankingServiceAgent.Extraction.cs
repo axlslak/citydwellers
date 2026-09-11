@@ -93,6 +93,7 @@ namespace CityBankers
                 _reservedDispatch != null || _withdrawal != null || _activeBatch != null || _donationActive ||
                 _donationCleanup != null || _dispatchPreparation != null || _extractionScan.ElapsedMilliseconds < 1500) return;
             _extractionScan.Restart();
+            if (CensusReservedHere()) return;
             var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
             if (ledger == null) return;
             var withdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();

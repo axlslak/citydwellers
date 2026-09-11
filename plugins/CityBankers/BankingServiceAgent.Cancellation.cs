@@ -136,6 +136,8 @@ namespace CityBankers
                     var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
                     if (queue?.Batches == null) throw new InvalidOperationException("Cancellation requires the current dispatch queue.");
                     var batch = queue.Batches.SingleOrDefault(b => b.BatchId == source.BatchId);
+                    if (batch?.RequiresPairedCensus == true)
+                    { proposal.Reply.TrySetResult("pending"); return true; }
                     if (pair == null)
                     {
                         if (batch == null || batch.AttemptId != source.AttemptId || batch.Status != "failed" ||

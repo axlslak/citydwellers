@@ -161,6 +161,7 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
+            if (TickDispatchCensus()) return;
             if (TickLocalCensus()) return;
             if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
                 return;
@@ -171,6 +172,7 @@ namespace CityBankers
             try
             {
                 TickBankerIpc();
+                if (_localCensus != null || !StartupCensusGate.IsOpen) return;
                 TickCancellationOutbox();
                 if (TickStorageRecovery()) return;
                 TickInternalConfirmation();
@@ -190,6 +192,7 @@ namespace CityBankers
                     TickDonationCleanup();
                     DetectLocalInventoryDifference();
                     if (_localCensus != null) return;
+                    if (TryRecoverFailedDispatch()) return;
                     TickDispatch();
                     if (_localCensus != null) return;
                     StartRecoveryExtraction();
@@ -1112,8 +1115,10 @@ namespace CityBankers
                 WorkerRetryDue(b.Character) &&
                 DynelManager.Players.Any(player => player != null &&
                     string.Equals(player.Name, b.Character, StringComparison.OrdinalIgnoreCase)) &&
-                !queue.Batches.Any(pending => pending.Status == "transferred" &&
-                    string.Equals(pending.Character, b.Character, StringComparison.OrdinalIgnoreCase)));
+                !queue.Batches.Any(pending => UnresolvedDispatch(pending) &&
+                    (string.Equals(pending.Character, b.Character, StringComparison.OrdinalIgnoreCase) ||
+                     (pending.Items ?? new List<TransferItemState>()).Any(item =>
+                        (b.Items ?? new List<TransferItemState>()).Any(candidate => CustodyKey(candidate) == CustodyKey(item))))));
             if (next == null)
                 return;
 
@@ -1821,7 +1826,13 @@ namespace CityBankers
                 _role,
                 "STORAGE BATCH COMPLETE batch=" + job.Command.BatchId +
                 " stored=" + job.StoredCount + ".");
-            if (job.Command?.AttemptId != null) _appliedDispatchReceipts.Remove(job.Command.AttemptId);
+            if (job.Command?.AttemptId != null)
+            {
+                ReceiptEvidence storedReceipt;
+                if (_appliedDispatchReceipts.TryGetValue(job.Command.AttemptId, out storedReceipt))
+                    _lastStoredDispatchReceipt = storedReceipt;
+                _appliedDispatchReceipts.Remove(job.Command.AttemptId);
+            }
             _storageJob = null;
         }
 

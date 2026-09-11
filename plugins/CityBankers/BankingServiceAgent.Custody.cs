@@ -215,7 +215,10 @@ namespace CityBankers
             {
                 if (_custodyVerificationWait.Elapsed.TotalSeconds >= 10)
                 {
+                    if (IsDispatchEvidence(_receipt) && !Trade.IsTrading && _inventoryStableFor.ElapsedMilliseconds < 1000)
+                        return true;
                     PersistReceipt("inventory-mismatch");
+                    if (BeginDispatchDispute()) return true;
                     StartupCensusGate.Block("Physical inventory delta did not match " +
                         _receipt.Kind + " transaction " + _receipt.TransactionId +
                         ". Evidence retained; no receipt inferred from the trade window.");
@@ -237,6 +240,7 @@ namespace CityBankers
             }
             catch (Exception ex)
             {
+                if (BeginDispatchDispute()) return true;
                 StartupCensusGate.Block("Verified custody could not be committed: " + ex);
             }
             return true;

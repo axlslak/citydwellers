@@ -108,6 +108,7 @@ namespace CityBankers
                 string resultPath = Path.Combine(collector, Client.CharacterName + ".result.json");
                 if (!_localCensusIssued)
                 {
+                    if (!DispatchCensusInventorySettled()) return true;
                     if (_localCensusAttempt > 0 && _localCensusRetry.ElapsedMilliseconds < 30000) return true;
                     _localCensusAttempt++;
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "intent.json"), new
@@ -165,6 +166,7 @@ namespace CityBankers
                         _storageRecovery = null;
                         _storageRecoveryReply = null;
                     }
+                    FinishDispatchCensus();
                     _localCensus = null;
                     _localCensusResult = null;
                     _localCensusIssued = false;
@@ -217,6 +219,12 @@ namespace CityBankers
                 }
                 else
                 {
+                    if (HandlePairedCensusResult(census))
+                    {
+                        RuntimeStateStore.WriteJsonAtomic(completed, census);
+                        proposal.Reply.TrySetResult("complete:" + census.RunId);
+                        return true;
+                    }
                     if (!WithdrawalStore.OwnsCensus(_settingsDir, census.RunId, census.Character) || HasPendingPeerWork(census.Character, census.RunId))
                     { proposal.Reply.TrySetResult("pending"); return true; }
                     ApplyLocalCensus(directory, census);

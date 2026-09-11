@@ -21,6 +21,7 @@ namespace CityBankers
                 _workerCommand != null || _reservedDispatch != null || _receipt != null || _withdrawal != null || _returnOffer != null ||
                 _looseRecoveryPoll.ElapsedMilliseconds < 1000) return;
             _looseRecoveryPoll.Restart();
+            if (CensusReservedHere()) return;
             var inventory = Inventory.Items.Where(item => item != null && item.Slot.Type == IdentityType.Inventory)
                 .OrderBy(item => item.Slot.Instance).ToList();
             string signature = string.Join(";", inventory.Select(item =>

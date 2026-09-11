@@ -117,6 +117,27 @@ namespace CityBankers.Shared
             });
         }
 
+        public static bool TryReserveDispatchCensus(string directory, string centralRun, string central,
+            string workerRun, string worker)
+        {
+            return Locked(() =>
+            {
+                // Requested rows have no AO action in flight. Existing pickup
+                // or extraction transactions need their own recovery protocol.
+                if (Read(directory).Any(r => IsActive(r) && !HasStatus(r, "requested"))) return false;
+                var rows = ReadRecovery(directory);
+                if (rows.Any(r => !string.IsNullOrWhiteSpace(r.CensusCharacter) &&
+                    ((string.Equals(r.CensusCharacter, central, StringComparison.OrdinalIgnoreCase) && r.OperationId != centralRun) ||
+                     (string.Equals(r.CensusCharacter, worker, StringComparison.OrdinalIgnoreCase) && r.OperationId != workerRun)))) return false;
+                if (!rows.Any(r => r.OperationId == centralRun))
+                    rows.Add(new RecoveryReservation { OperationId = centralRun, CensusCharacter = central, CensusCentral = true });
+                if (!rows.Any(r => r.OperationId == workerRun))
+                    rows.Add(new RecoveryReservation { OperationId = workerRun, CensusCharacter = worker });
+                RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), rows);
+                return true;
+            });
+        }
+
         // Serialize extraction admission with the census lease. A queued GET
         // has not moved anything and must not prevent the source from auditing.
         public static bool TryBeginExtraction(string directory, WithdrawalState request)

@@ -21,6 +21,7 @@ namespace CityBankers
             public string Kind;
             public string BatchId;
             public string Stage;
+            public DispatchCensusGrant DispatchCensus;
             public DispatchCommand Command;
             public ReturnOffer Return;
             public ExtractionProof Extraction;
@@ -128,6 +129,7 @@ namespace CityBankers
                 if (proposal.Reply.Task.IsCompleted) continue;
                 try
                 {
+                    if (HandleDispatchCensusProposal(proposal)) continue;
                     if (HandleTradeStageProposal(proposal)) continue;
                     if (HandleStorageRecoveryProposal(proposal)) continue;
                     if (HandleCancellationProposal(proposal)) continue;
@@ -157,6 +159,7 @@ namespace CityBankers
                 DispatchCommand command = proposal.Command;
                 Guid commandAttempt;
                 bool ready = proposal.Kind == "prepare" && !_isCentral && StartupCensusGate.IsOpen && Client.InPlay &&
+                    !CensusReservedHere() &&
                     Inventory.Bank.IsOpen && !Trade.IsTrading && _storageJob == null && _storageRecovery == null &&
                     _workerCommand == null && _receipt == null && _withdrawal == null && _returnOffer == null && _extraction == null &&
                     command != null && command.Items != null && command.Items.Count > 0 &&

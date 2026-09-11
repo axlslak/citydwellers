@@ -175,7 +175,7 @@ namespace CityBankers
                 var item = FindReturnSourceItem();
                 var central = DynelManager.Players.FirstOrDefault(p => p != null &&
                     string.Equals(p.Name, _centralCharacter, StringComparison.OrdinalIgnoreCase));
-                if (response != "ready:" + _returnOffer.Id || item == null || central == null)
+                if (response != "ready:" + _returnOffer.Id || item == null || central == null || CensusReservedHere())
                 { ResetReturn(); return false; }
                 _returnPartner = central.Identity;
                 PrepareReceipt("recovery-return-send", _returnOffer.TransactionId, _returnOffer.Id,
@@ -335,6 +335,7 @@ namespace CityBankers
                 _reservedDispatch != null || _receipt != null || _withdrawal != null || Trade.IsTrading ||
                 _returnPoll.ElapsedMilliseconds < 1000) return;
             _returnPoll.Restart();
+            if (CensusReservedHere()) return;
             var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
             if (ledger == null) return;
             var withdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();
