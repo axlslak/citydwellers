@@ -82,6 +82,7 @@ namespace CityBankers
 
             Client.Config.AutoReconnect = true;
             Client.MessageReceived += MessageReceived;
+            Logger.Information("TRADE CACHE remote offer removal guard installed.");
             Client.OnUpdate += Tick;
             Client.Disconnected += Disconnected;
 
@@ -108,6 +109,11 @@ namespace CityBankers
                     return;
 
                 var n3Message = (N3Message)e.Body;
+                if (n3Message.N3MessageType == N3MessageType.Trade)
+                {
+                    CorrectRemoteOfferRemoval((TradeMessage)e.Body);
+                    return;
+                }
                 if (n3Message.N3MessageType != N3MessageType.CharInPlay)
                     return;
 
@@ -128,8 +134,30 @@ namespace CityBankers
             }
             catch (Exception ex)
             {
-                Logger.Error($"CityBankers CharInPlay handling failed: {ex}");
+                Logger.Error($"CityBankers incoming-message handling failed: {ex}");
             }
+        }
+
+        private static void CorrectRemoteOfferRemoval(TradeMessage message)
+        {
+            // Clientless 1.0.16 dispatches MessageReceived before its built-in
+            // trade callback. Its RemoveItemAction returns items from BOTH offer
+            // windows to local Inventory. Remove only the remote window entry
+            // first, so that callback finds nothing to return. Local removals,
+            // cancellation and completed-trade receipt processing remain native.
+            if (message.Action != TradeAction.RemoveItem || DynelManager.LocalPlayer == null ||
+                message.Identity != DynelManager.LocalPlayer.Identity ||
+                message.Param2 == DynelManager.LocalPlayer.Identity.Instance ||
+                Trade.CurrentTarget == Identity.None || message.Param2 != Trade.CurrentTarget.Instance)
+                return;
+
+            var offered = Trade.TargetWindowCache?.Items;
+            var item = offered?.FirstOrDefault(value => value != null && value.Slot.Instance == message.Param4);
+            if (item == null) return; // Unknown/duplicate removal: no item may be invented.
+            offered.Remove(item);
+            Logger.Information("TRADE CACHE remote offer removed: " + item.Name + " QL" + item.Ql +
+                " AOID=" + item.Id + "; offer slot=" + message.Param4 +
+                "; local inventory unchanged.");
         }
 
         private void Tick(object sender, double deltaTime)

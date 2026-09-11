@@ -238,6 +238,9 @@ namespace CityBankers
                 PersistReceipt("applied");
                 RetainCancellationForPeer(_receipt);
                 RetainAppliedDispatchReceipt(_receipt);
+                if (_receipt.Direction == 0 && _receipt.Kind == "donation")
+                    ReportTransferProgress("CANCELLATION VERIFIED", _receipt.BatchId,
+                        "transaction=" + _receipt.TransactionId + "; inventory unchanged; no donation received and no audit required.");
                 _receipt = null;
             }
             catch (Exception ex)
