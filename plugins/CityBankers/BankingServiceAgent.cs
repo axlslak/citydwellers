@@ -742,6 +742,11 @@ namespace CityBankers
             string transactionId = _donationTransactionId;
             string donorName = _donationPartnerName;
 
+            // This method is entered only after the physical inventory gain is verified.
+            // Persist accounting before disposition; logs are diagnostic, not the commit path.
+            ActiveLedgerStore.RecordDonation(_settingsDir, transactionId, donorName,
+                Client.CharacterName, DateTime.UtcNow, received);
+
             AppendTradeLedger(
                 "player_trade_completed",
                 transactionId,
@@ -808,6 +813,8 @@ namespace CityBankers
                 if (remaining.Count < cleanup.PendingBeforeCount)
                 {
                     TransferItemState deleted = cleanup.PendingDelete;
+                    ActiveLedgerStore.ArchiveActiveItem(_settingsDir, cleanup.TransactionId,
+                        deleted.AoId, DateTime.UtcNow, "deleted_overcap", null, Client.CharacterName);
                     cleanup.DeletedCount++;
                     cleanup.DeleteIndex++;
                     cleanup.PendingDelete = null;
@@ -1224,6 +1231,9 @@ namespace CityBankers
         {
             if (_activeBatch == null)
                 return;
+
+            ActiveLedgerStore.MarkDispatched(_settingsDir, _activeBatch.TransactionId,
+                _activeBatch.Character, _activeBatch.Items, Client.CharacterName, _receipt.LedgerIds);
 
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             DispatchBatchState stored = FindBatch(queue, _activeBatch.BatchId);

@@ -54,7 +54,8 @@ namespace CityBankers
                 Client.CharacterName,
                 RuntimeStateStore.LoadCurrentStock(_settingsDir));
 
-            InitializeEventOffsets();
+            // Accounting is committed by the physically verified action path.
+            // Diagnostic logs are never replayed as a second accounting writer.
             _nextTickUtc = DateTime.UtcNow;
             Client.OnUpdate += Tick;
 
@@ -83,13 +84,13 @@ namespace CityBankers
 
             try
             {
-                ProcessNewLegacyEvents();
                 ActiveLedgerStore.SyncStoredLocations(
                     _settingsDir,
                     RuntimeStateStore.LoadCurrentStock(_settingsDir));
             }
             catch (Exception ex)
             {
+                StartupCensusGate.Block("Active ledger persistence failed: " + ex.Message);
                 Logger.Error($"ACTIVE LEDGER coordinator tick failed: {ex}");
                 RuntimeStateStore.AppendActivity(
                     _settingsDir,
@@ -457,11 +458,16 @@ namespace CityBankers
             string settingsDir,
             string transactionId,
             string workerCharacter,
-            IEnumerable<TransferItemState> items)
+            IEnumerable<TransferItemState> items,
+            string sourceCharacter = null,
+            IEnumerable<string> occurrenceIds = null)
         {
+            if (string.IsNullOrWhiteSpace(sourceCharacter) || occurrenceIds == null)
+                throw new InvalidOperationException("Dispatch accounting requires the prepared sender and occurrence IDs.");
+            var selectedIds = new HashSet<string>(occurrenceIds, StringComparer.Ordinal);
             ActiveLedgerState ledger = LoadLedger(settingsDir);
             if (ledger == null)
-                return;
+                throw new InvalidOperationException("Dispatch accounting has no active ledger.");
 
             bool changed = false;
             foreach (IGrouping<int, TransferItemState> group in
@@ -470,13 +476,24 @@ namespace CityBankers
                 List<ActiveLedgerItem> entries = ledger.Items
                     .Where(entry =>
                         entry.AoId == group.Key &&
-                        string.Equals(entry.TransactionId, transactionId, StringComparison.Ordinal))
+                        string.Equals(entry.TransactionId, transactionId, StringComparison.Ordinal) &&
+                        selectedIds.Contains(entry.Id))
                     .OrderBy(entry => entry.Id, StringComparer.Ordinal)
                     .Take(group.Count())
                     .ToList();
 
+                if (entries.Count != group.Count())
+                    throw new InvalidOperationException("Dispatch accounting cannot identify enough sender-held occurrences for " + transactionId + "/" + group.Key);
+
                 foreach (ActiveLedgerItem entry in entries)
                 {
+                    // Worker storage can be observed before Central's Finished callback.
+                    // Do not move that exact, already-arrived occurrence back to inventory.
+                    if (string.Equals(entry.Character, workerCharacter, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!string.Equals(entry.Character, sourceCharacter, StringComparison.OrdinalIgnoreCase) ||
+                        entry.Location != "inventory" || entry.Bag != null || entry.Slot != null)
+                        throw new InvalidOperationException("Prepared dispatch occurrence changed custody unexpectedly: " + entry.Id);
                     entry.Character = workerCharacter;
                     entry.Location = "inventory";
                     entry.Bag = null;
@@ -537,10 +554,26 @@ namespace CityBankers
                     changed = true;
                 }
 
+                // Reserve existing slot matches before assigning any unmatched copy.
+                physicalItems = physicalItems.OrderByDescending(item => entries.Any(candidate =>
+                    string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(candidate.Location, item.BagSource, StringComparison.OrdinalIgnoreCase) &&
+                    candidate.Bag == item.BagOuterSlot && candidate.Slot == item.InnerSlot)).ToList();
+
                 for (int index = 0; index < physicalItems.Count; index++)
                 {
                     StockItemState item = physicalItems[index];
-                    ActiveLedgerItem entry = entries[index];
+                    // Keep a stable assignment for occurrences already at this slot.
+                    // Sorting IDs again on each sync can swap an in-transit duplicate
+                    // with the copy that was stored by an earlier one-item dispatch.
+                    ActiveLedgerItem entry = entries.FirstOrDefault(candidate =>
+                        string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(candidate.Location, item.BagSource, StringComparison.OrdinalIgnoreCase) &&
+                        candidate.Bag == item.BagOuterSlot && candidate.Slot == item.InnerSlot)
+                        ?? entries.FirstOrDefault(candidate => candidate.Bag == null && candidate.Slot == null &&
+                            string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase))
+                        ?? entries.First();
+                    entries.Remove(entry);
                     string location = string.IsNullOrWhiteSpace(item.BagSource)
                         ? "inventory"
                         : item.BagSource;
@@ -575,15 +608,21 @@ namespace CityBankers
             int aoId,
             DateTime leftUtc,
             string reason,
-            string recipient)
+            string recipient,
+            string sourceCharacter = null)
         {
             ActiveLedgerState ledger = LoadLedger(settingsDir);
             if (ledger == null)
-                return;
+                throw new InvalidOperationException("Cannot archive custody without an active ledger.");
 
-            ActiveLedgerItem entry = FindActive(ledger, transactionId, aoId);
+            ActiveLedgerItem entry = string.IsNullOrWhiteSpace(sourceCharacter)
+                ? FindActive(ledger, transactionId, aoId)
+                : ledger.Items.FirstOrDefault(candidate => candidate.AoId == aoId &&
+                    string.Equals(candidate.TransactionId, transactionId, StringComparison.Ordinal) &&
+                    string.Equals(candidate.Character, sourceCharacter, StringComparison.OrdinalIgnoreCase) &&
+                    candidate.Location == "inventory" && candidate.Bag == null && candidate.Slot == null);
             if (entry == null)
-                return;
+                throw new InvalidOperationException("Cannot identify the occurrence leaving custody: " + transactionId + "/" + aoId);
 
             DateTime when = leftUtc == DateTime.MinValue ? DateTime.UtcNow : leftUtc;
             if (!HistoryContains(settingsDir, when, entry.Id, reason))

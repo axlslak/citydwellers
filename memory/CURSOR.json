@@ -5,7 +5,7 @@
   "status": "in_progress",
   "active_project": "citydwellers",
   "transaction": "session-67-physical-custody-safety",
-  "base_commit": "4c8ab49c70f5b7b98453a662c866732d480fb6e8",
-  "task": "Compile-review census and physically verified custody candidate; service stays stopped",
-  "resume_instruction": "Session 67 remains in progress. Candidate automatic census gating and flushed inventory-delta verification now cover donations, dispatch, withdrawal transfers and pickups. Owner must compile only, not start. Review docs/BANKER_CUSTODY_VALIDATION.md. Legacy hold and unfinished journals block startup. Historical attribution repair and automatic interrupted-custody reconciliation remain unfinished. No assistant-side build/live test."
+  "base_commit": "22d4e992b426a4c9ef63f1bcb2696ca98541932c",
+  "task": "Finish historical incident policy and interrupted custody recovery; service stays stopped",
+  "resume_instruction": "Session 67 remains in progress. Owner confirmed 22d4e99 compiles. Latest candidate removes live log-driven accounting, reserves dispatch ledger IDs, and preserves stable stored occurrence matching. Latest revision not compiled. Historical incident archive/active queue disposition needs owner agreement; never fabricate delivery/deletion/loss. Automatic interrupted-custody reconciliation remains unfinished. No assistant-side build/live test. Keep service stopped."
 }

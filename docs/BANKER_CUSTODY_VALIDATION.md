@@ -5,6 +5,14 @@ service stopped. Compile first; no data is to be deleted to bypass a safety hold
 
 ## Implemented boundaries
 
+- Donation receipt, outgoing dispatch and verified overcap accounting now commit
+  directly in the action path; the coordinator no longer consumes logs to perform
+  these mutations. Dispatch preparation persists selected ledger IDs, and a delayed
+  Central confirmation does not undo already-observed worker storage. Existing
+  slot matches are reserved before assigning unmatched ledger occurrences.
+  Owner confirmed the preceding candidate compiled; this accounting revision has
+  only received static review, not compilation or live validation.
+
 - Every configured banker, including Central, runs a staged full census before
   operational initialization. Process-generation paths prevent an earlier process's
   readiness files from authorizing a new process.

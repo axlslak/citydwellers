@@ -32,6 +32,7 @@ namespace CityBankers
             public object BeforeSlots;
             public object ObservedSlots;
             public int Direction;
+            public List<string> LedgerIds;
         }
 
         private List<TransferItemState> PhysicalInventory()
@@ -72,6 +73,24 @@ namespace CityBankers
             _receipt = new ReceiptEvidence { Kind = kind, TransactionId = transaction,
                 BatchId = batch, Character = Client.CharacterName, Before = PhysicalInventory(), BeforeSlots = PhysicalSlots(),
                 Expected = expected == null ? null : new List<TransferItemState>(expected), Direction = direction };
+            if (kind == "dispatch-send")
+            {
+                var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
+                _receipt.LedgerIds = new List<string>();
+                foreach (var group in expected.GroupBy(item => item.AoId))
+                {
+                    var matches = (ledger?.Items ?? new List<ActiveLedgerItem>()).Where(item =>
+                        item.AoId == group.Key && item.TransactionId == transaction &&
+                        string.Equals(item.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
+                        item.Location == "inventory" && item.Bag == null && item.Slot == null)
+                        .OrderBy(item => item.Id, StringComparer.Ordinal).Take(group.Count()).ToList();
+                    if (matches.Count != group.Count() || matches.Any(item => string.IsNullOrWhiteSpace(item.Id)))
+                        throw new InvalidOperationException("Dispatch has no matching sender-held ledger occurrences.");
+                    _receipt.LedgerIds.AddRange(matches.Select(item => item.Id));
+                }
+                if (_receipt.LedgerIds.Distinct().Count() != expected.Count)
+                    throw new InvalidOperationException("Dispatch ledger occurrence IDs are not unique.");
+            }
             PersistReceipt("prepared");
         }
 

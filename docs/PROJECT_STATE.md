@@ -2,6 +2,17 @@
 
 ## Session 67 safety overhaul — in progress
 
+- Owner confirmed candidate 22d4e99 compiles; service remains stopped.
+- New accounting candidate commits donation/dispatch/verified-overcap accounting
+  directly instead of replaying diagnostic logs. Dispatch journals reserve ledger
+  occurrence IDs before trade, and later accounting preserves already-stored copies.
+  Stock synchronization reserves existing location matches before unmatched copies.
+  Accounting failures close the safety gate. These changes are not yet owner-built.
+- Historical repair remains pending: unmatched claims must not become fabricated
+  delivery/deletion/loss events. Need owner agreement on retaining an unresolved
+  incident archive while removing those claims from active availability/queue work.
+  Automatic interrupted-custody replay is still not implemented; do not start.
+
 - Owner compile found CS0103 in CityManager donor availability: banker-only
   TrustedOperators was unavailable. Replaced it with City's existing shared
   readiness-marker check, retaining physical-occurrence matching. Recompile
