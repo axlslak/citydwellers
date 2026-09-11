@@ -1548,6 +1548,13 @@ namespace CityManager
                 pipeName, request, connectTimeoutMs);
         }
 
+        // Each text:// page is a separate transport message, including queued tells.
+        private void Reply(ReplyTarget target, IEnumerable<string> messages)
+        {
+            foreach (string message in messages)
+                Reply(target, message);
+        }
+
         private void Reply(ReplyTarget target, string text)
         {
             try

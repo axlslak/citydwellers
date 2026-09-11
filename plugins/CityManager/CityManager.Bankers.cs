@@ -353,6 +353,12 @@ namespace CityManager
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
             foreach (WithdrawalState row in WithdrawalStore.LoadAll(_settingsDir))
                 HideReservedWithdrawalCopy(stock, row);
+            if (parts.Length == 1 && (string.Equals(parts[0], "phatz", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(parts[0], "phat", StringComparison.OrdinalIgnoreCase)))
+            {
+                ReplyPhatzStock(target, stock);
+                return;
+            }
             string response;
             if (!StockCommandEngine.TryBuildResponse(
                     rawCommand,
@@ -367,6 +373,32 @@ namespace CityManager
             }
 
             Reply(target, response);
+        }
+
+        private void ReplyPhatzStock(ReplyTarget target, CurrentStockState stock)
+        {
+            var items = (stock.Items ?? new List<StockItemState>()).Where(item => item != null &&
+                string.Equals(item.Role, "phatz", StringComparison.OrdinalIgnoreCase)).ToList();
+            // Same exact-template definition as stock search; QL variants retain their
+            // own item/GET links, while repeated copies occupy just one row.
+            var types = items.GroupBy(item => new { item.AoId, item.HighId, item.Ql })
+                .OrderBy(group => group.First().Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(group => group.Key.Ql).ThenBy(group => group.Key.AoId).ToList();
+            if (types.Count == 0) { Reply(target, "No Phatz items are in stock right now."); return; }
+            string summary = "Phatz " + types.Count + " types / " + items.Count + " copies";
+            var body = new StringBuilder();
+            body.Append(EscapeBlobText(summary)).Append("\n\n");
+            foreach (var group in types)
+            {
+                StockItemState item = group.First();
+                body.Append(BuildDonationItemLink(new DonationRecord {
+                    AoId = item.AoId, HighId = item.HighId, Ql = item.Ql, Name = item.Name }))
+                    .Append(" <font color='").Append(ColorGood).Append("'>(x")
+                    .Append(group.Count()).Append(")</font>  ")
+                    .Append(CommandLink(target, "get " + item.AoId, "GET")).Append("\n");
+            }
+            Reply(target, BuildBlobLinks(target, "Phatz Stock", "Open Phatz stock", body.ToString())
+                .Select(link => summary + " — " + link));
         }
 
         private void ProcessPhatzPolicyCommand(
@@ -439,7 +471,7 @@ namespace CityManager
             }
         }
 
-        private string BuildPhatzPolicyWindow(ReplyTarget target)
+        private List<string> BuildPhatzPolicyWindow(ReplyTarget target)
         {
             SymbiantCatalog.PhatzPolicyState dynamicPolicy =
                 SymbiantCatalog.LoadPhatzPolicy(_settingsDir);
@@ -699,8 +731,8 @@ namespace CityManager
 
             Reply(
                 target,
-                "<font color='" + ColorTitle + "'>CityBankers donors</font> " +
-                BuildBlobLinks(target, title, label, body));
+                BuildBlobLinks(target, title, label, body).Select(link =>
+                    "<font color='" + ColorTitle + "'>CityBankers donors</font> " + link));
         }
 
         private List<DonationRecord> LoadDonationHistory()

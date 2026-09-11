@@ -47,10 +47,10 @@ namespace CityManager
                 return;
             }
 
-            string links = BuildBlobLinks(target, title, "Help: " + title, body);
+            List<string> links = BuildBlobLinks(target, title, "Help: " + title, body);
             Reply(
                 target,
-                "<font color='" + ColorTitle + "'>City Dwellers Help</font> " + links);
+                links.Select(link => "<font color='" + ColorTitle + "'>City Dwellers Help</font> " + link));
         }
 
         private bool TryBuildHelpTopic(
@@ -598,17 +598,17 @@ namespace CityManager
                     orgOutput,
                     bankers);
 
-                string links = BuildBlobLinks(target, "System Status", "Open status", body);
+                List<string> links = BuildBlobLinks(target, "System Status", "Open status", body);
                 string healthColor = flipper.IsUsable && buddies.IsUsable && bankers.IsUsable
                     ? ColorGood
                     : ColorWarn;
 
                 Reply(
                     target,
-                    "<font color='" + healthColor + "'>Manager online</font> " +
+                    links.Select(link => "<font color='" + healthColor + "'>Manager online</font> " +
                     "<font color='" + ColorMuted + "'>uptime " +
                     EscapeBlobText(FormatDuration(_managerUptime.Elapsed)) +
-                    "</font> " + links);
+                    "</font> " + link));
             });
         }
 
@@ -889,13 +889,17 @@ namespace CityManager
             });
         }
 
-        private string BuildBlobLinks(
+        private List<string> BuildBlobLinks(
             ReplyTarget target,
             string title,
             string label,
             string content)
         {
-            List<string> pages = PaginateBlob(content, BlobPageSize(target));
+            // Existing channel constants remain the sole page limits. Reserve room
+            // for the escaped title/link, page numbering and callers' short summaries.
+            int envelope = Encoding.UTF8.GetByteCount(EscapeTextUri(title ?? string.Empty)) +
+                Encoding.UTF8.GetByteCount(EscapeBlobText(label ?? string.Empty)) + 512;
+            List<string> pages = PaginateBlob(content, Math.Max(256, BlobPageSize(target) - envelope));
             var links = new List<string>();
 
             for (int index = 0; index < pages.Count; index++)
@@ -916,7 +920,7 @@ namespace CityManager
                     EscapeBlobText(pageLabel) + "]</font></a>");
             }
 
-            return string.Join(" ", links);
+            return links;
         }
 
         private int BlobPageSize(ReplyTarget target)
@@ -931,23 +935,24 @@ namespace CityManager
         private List<string> PaginateBlob(string content, int maxLength)
         {
             var pages = new List<string>();
-            string remaining = content ?? string.Empty;
-
-            while (remaining.Length > maxLength)
+            var page = new StringBuilder();
+            int pageBytes = 0;
+            // Page only between complete rows, never inside a link or font tag.
+            foreach (string line in (content ?? string.Empty).Replace("\r", string.Empty).Split('\n'))
             {
-                int split = remaining.LastIndexOf("\n\n", maxLength, StringComparison.Ordinal);
-                if (split < maxLength / 2)
-                    split = remaining.LastIndexOf('\n', maxLength);
-                if (split < maxLength / 2)
-                    split = remaining.LastIndexOf(' ', maxLength);
-                if (split <= 0)
-                    split = maxLength;
-
-                pages.Add(remaining.Substring(0, split).Trim());
-                remaining = remaining.Substring(split).TrimStart();
+                int lineBytes = Encoding.UTF8.GetByteCount(EscapeTextUri(line)) + 1;
+                if (lineBytes > maxLength)
+                    throw new InvalidOperationException("A blob row exceeds the channel page budget.");
+                if (pageBytes + lineBytes > maxLength && page.Length > 0)
+                {
+                    pages.Add(page.ToString().Trim());
+                    page.Clear();
+                    pageBytes = 0;
+                }
+                page.Append(line).Append('\n');
+                pageBytes += lineBytes;
             }
-
-            pages.Add(remaining.Trim());
+            if (page.Length > 0 || pages.Count == 0) pages.Add(page.ToString().Trim());
             return pages;
         }
 
