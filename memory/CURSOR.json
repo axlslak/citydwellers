@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 68,
+  "current_session": 69,
   "last_completed_session": 68,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-68-owner-build-fixes",
-  "base_commit": "507887349a1ad988e6235512e133a590476e1017",
-  "task": "Owner rebuild and controlled runtime validation",
-  "resume_instruction": "Session68 fixes for the four owner-reported compiler errors are published at 507887349a1ad988e6235512e133a590476e1017; sealed by COMMIT188. Shared BankerReadiness source is linked by executable, manager and bankers; static call and missing return corrected. Static source/project review only; owner rebuild next, no assistant compilation/tests/live run. Service remains stopped; runtime acceptance pending. Historical repair already applied; never repeat. Next journal189, acquire a new transaction for returned build/log fixes. Preserve historical journal truncation text."
+  "transaction": "session-69-census-handoff",
+  "base_commit": "04c2cd4b68440c08f876abe9ca786d658e241ea0",
+  "task": "Fix live census file-sharing contention and make operational handoff explicit",
+  "resume_instruction": "Owner build passed. Live log reaches nine-banker census release at 13:14:08 but has repeated presence-file sharing errors and no banking-service initialization/dispatch; central symbiant remains. Implement strict mutex-coordinated JSON reads, explicit gate-owned deferred initialization and local release diagnostics. Do not claim item destination known without evidence. Owner asked to stop test; actual stop not yet confirmed. No assistant build/tests/live run; repair must not repeat. BEGIN189; fix then publish/seal."
 }
