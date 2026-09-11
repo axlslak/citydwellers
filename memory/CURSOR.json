@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 64,
+  "current_session": 65,
   "last_completed_session": 64,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "289cc8bacfaebd988680ea35b1b703aeabb8561e",
-  "task": "Build and live-test custody-hold isolation plus the worker Accept latch",
-  "resume_instruction": "Pull master, clear old output, build Release, and restart all bankers. Startup should convert artillery batch 801bf00d from failed to custody-hold, log CUSTODY HOLD, retain both expected items as evidence, and allow a new donation to reach normal queued dispatch. Validate that a fresh Central-to-worker trade completes with the Session 63 Accept latch."
+  "transaction": "session-65-finish-old-donation",
+  "base_commit": "b20cf8a8c80a65ed945415892b9fe44a4c458d68",
+  "task": "Finish the recoverable portion of the old damaged donation before admitting a new one",
+  "resume_instruction": "Turn custody hold from passive containment into deterministic recovery: partition the old expected multiset against transaction-bound live stock and Central loose inventory after readiness, queue the Central-resident subset under the original transaction, retain only genuinely absent occurrences as a durable loss incident, and let that recovery batch keep new donations blocked until storage completes."
 }
