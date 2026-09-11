@@ -92,7 +92,7 @@ namespace CityBankers
             }
             bool idle = StartupCensusGate.IsOpen && Client.InPlay && Inventory.Bank.IsOpen &&
                 !Trade.IsTrading && _receipt == null && _activeBatch == null && !_donationActive &&
-                _donationCleanup == null && _withdrawal == null && Inventory.NumFreeSlots >= 2 &&
+                _donationCleanup == null && _withdrawal == null && _extraction == null && Inventory.NumFreeSlots >= 2 &&
                 !WithdrawalStore.LoadAll(_settingsDir).Any(WithdrawalStore.OwnsCentralTrade) &&
                 (_returnOffer == null || SameReturn(_returnOffer, offer)) &&
                 _config.Roles.Any(pair => !string.Equals(pair.Key, "central", StringComparison.OrdinalIgnoreCase) &&
@@ -311,7 +311,7 @@ namespace CityBankers
 
         private void TickLooseReturnRecovery()
         {
-            if (_isCentral || _returnOffer != null || _storageJob != null || _workerCommand != null ||
+            if (_isCentral || _extraction != null || _returnOffer != null || _storageJob != null || _workerCommand != null ||
                 _reservedDispatch != null || _receipt != null || _withdrawal != null || Trade.IsTrading ||
                 _returnPoll.ElapsedMilliseconds < 1000) return;
             _returnPoll.Restart();

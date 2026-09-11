@@ -291,6 +291,8 @@ namespace CityDwellers.Shared
                    string.Equals(name, "storage-enrollments", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "startup-census", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "custody-transactions", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "banker-returns", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "banker-extractions", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "physical-states", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "physical-census-v2", StringComparison.OrdinalIgnoreCase);
         }
@@ -326,6 +328,7 @@ namespace CityDwellers.Shared
                 "ledger.json",
                 "symbiant-index.json",
                 "withdrawal.json",
+                "recovery-reservations.json",
                 "storage-baseline.json",
                 "physical-state.json",
                 "route-repair-active.json",
@@ -478,12 +481,14 @@ namespace CityDwellers.Shared
             }
 
             if (string.Equals(directoryName, "startup-census", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(directoryName, "custody-transactions", StringComparison.OrdinalIgnoreCase))
+                string.Equals(directoryName, "custody-transactions", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(directoryName, "banker-returns", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(directoryName, "banker-extractions", StringComparison.OrdinalIgnoreCase))
             {
                 foreach (string file in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
                 {
                     string extension = Path.GetExtension(file);
-                    if (extension == ".json" || extension == ".ready" || extension == ".blocked") continue;
+                    if (extension == ".json" || extension == ".ready" || extension == ".blocked" || extension == ".observed") continue;
                     warnings.Add("Alien file in safety evidence directory: '" + file + "'.");
                 }
                 return;
@@ -496,7 +501,7 @@ namespace CityDwellers.Shared
             else if (string.Equals(directoryName, "diagnostic-dumps", StringComparison.OrdinalIgnoreCase))
                 expectedPatterns = new[] { "apcmanager-dump-*.log", "citybankers-bagaudit-*.log" };
             else if (string.Equals(directoryName, "history", StringComparison.OrdinalIgnoreCase))
-                expectedPatterns = new[] { "history-*.jsonl" };
+                expectedPatterns = new[] { "history-*.jsonl", "census-*.json" };
             else if (string.Equals(directoryName, "logs", StringComparison.OrdinalIgnoreCase))
                 expectedPatterns = new[] { "citybankers-*.log" };
             else if (string.Equals(directoryName, "storage-baselines", StringComparison.OrdinalIgnoreCase))

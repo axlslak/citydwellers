@@ -51,6 +51,70 @@ namespace CityBankers.Shared
 
     public static class WithdrawalStore
     {
+        public sealed class RecoveryReservation
+        {
+            public string OperationId;
+            public string LedgerId;
+        }
+
+        private static string RecoveryPath(string directory) => Path.Combine(
+            RuntimeStateStore.GetDataDirectory(directory), "recovery-reservations.json");
+        private static List<RecoveryReservation> ReadRecovery(string directory)
+        {
+            string path = RecoveryPath(directory);
+            if (!File.Exists(path)) return new List<RecoveryReservation>();
+            var rows = JsonConvert.DeserializeObject<List<RecoveryReservation>>(File.ReadAllText(path));
+            if (rows == null || rows.Any(r => r == null || string.IsNullOrWhiteSpace(r.OperationId) || string.IsNullOrWhiteSpace(r.LedgerId)))
+                throw new InvalidDataException("Invalid recovery reservation state.");
+            return rows;
+        }
+
+        public static HashSet<string> GetRecoveryReservedIds(string directory) => Locked(() =>
+            new HashSet<string>(ReadRecovery(directory).Select(r => r.LedgerId), StringComparer.Ordinal));
+
+        public static bool OwnsRecovery(string directory, string operation, string ledgerId) => Locked(() =>
+            ReadRecovery(directory).Any(r => r.OperationId == operation && r.LedgerId == ledgerId));
+
+        public static bool TryReserveRecovery(string directory, string operation, string ledgerId)
+        {
+            return Locked(() =>
+            {
+                if (Read(directory).Any(r => IsActive(r) && r.ActiveLedgerId == ledgerId)) return false;
+                var rows = ReadRecovery(directory);
+                var existing = rows.FirstOrDefault(r => r.LedgerId == ledgerId);
+                if (existing != null) return existing.OperationId == operation;
+                rows.Add(new RecoveryReservation { OperationId = operation, LedgerId = ledgerId });
+                RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), rows);
+                return true;
+            });
+        }
+
+        public static void ReleaseRecovery(string directory, string operation)
+        {
+            Locked(() =>
+            {
+                var rows = ReadRecovery(directory);
+                if (rows.RemoveAll(r => r.OperationId == operation) != 0)
+                    RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), rows);
+                return true;
+            });
+        }
+
+        public static void ResetRecoveryAfterCensus(string directory, string archivePath)
+        {
+            Locked(() =>
+            {
+                // A completed census supersedes old movement leases even if
+                // their cache is malformed. Preserve the original text first.
+                if (!File.Exists(archivePath)) RuntimeStateStore.WriteJsonAtomic(archivePath, new
+                {
+                    OriginalContents = File.Exists(RecoveryPath(directory)) ? File.ReadAllText(RecoveryPath(directory)) : null,
+                    Reason = "superseded-by-complete-physical-census"
+                });
+                RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), new List<RecoveryReservation>());
+                return true;
+            });
+        }
         public const int PickupSeconds = 180;
         public const int MaximumOrders = 4;
         public const int MaximumOrderItems = 3;
@@ -173,6 +237,10 @@ namespace CityBankers.Shared
                     row.RecipientMain, request.RecipientMain, StringComparison.OrdinalIgnoreCase)).ToList();
                 if (active.Any(row => row.ActiveLedgerId == request.ActiveLedgerId))
                     reason = "That copy was just reserved. Please select it again.";
+                else if (ReadRecovery(directory).Any(r => r.LedgerId == request.ActiveLedgerId))
+                    reason = "That item is being moved. Please try again shortly.";
+                else if (!RequestStillStored(directory, request))
+                    reason = "That item has moved. Please refresh stock and select it again.";
                 else if (own.Any(row => HasStatus(row, "pickup-trading")))
                     reason = "Finish your open pickup trade before adding another item.";
                 else if (own.Count >= MaximumOrderItems)
@@ -194,6 +262,24 @@ namespace CityBankers.Shared
             });
             error = reason;
             return added;
+        }
+
+        private static bool RequestStillStored(string directory, WithdrawalState request)
+        {
+            string path = Path.Combine(RuntimeStateStore.GetDataDirectory(directory), "ledger.json");
+            if (!File.Exists(path) || request.Item == null) return false;
+            var ledger = JObject.Parse(File.ReadAllText(path));
+            var entries = (ledger["Items"] as JArray)?.Where(e => (string)e["Id"] == request.ActiveLedgerId).ToList();
+            if (entries == null || entries.Count != 1) return false;
+            var entry = entries[0];
+            return string.Equals((string)entry["Character"], request.SourceCharacter, StringComparison.OrdinalIgnoreCase) &&
+                (string)entry["Location"] == request.SourceBag && (int?)entry["Bag"] == request.SourceBagOuterSlot &&
+                (int?)entry["Slot"] == request.SourceInnerSlot && (int?)entry["AoId"] == request.Item.AoId &&
+                (string)entry["TransactionId"] == request.DonationTransactionId &&
+                RuntimeStateStore.LoadCurrentStock(directory).Items.Any(i => i.Character == request.SourceCharacter &&
+                    i.BagSource == request.SourceBag && i.BagOuterSlot == request.SourceBagOuterSlot &&
+                    i.InnerSlot == request.SourceInnerSlot && i.AoId == request.Item.AoId &&
+                    i.HighId == request.Item.HighId && i.Ql == request.Item.Ql && i.TransactionId == request.DonationTransactionId);
         }
 
         public static bool IsTerminal(WithdrawalState state)

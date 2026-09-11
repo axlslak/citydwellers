@@ -527,6 +527,7 @@ namespace CityManager
             List<WithdrawalState> reservations = WithdrawalStore.LoadAll(_settingsDir);
             var reservedIds = new HashSet<string>(reservations.Where(WithdrawalStore.IsActive)
                 .Select(row => row.ActiveLedgerId), StringComparer.Ordinal);
+            reservedIds.UnionWith(WithdrawalStore.GetRecoveryReservedIds(_settingsDir));
 
             JObject ledger = RuntimeStateStore.ReadJson<JObject>(
                 Path.Combine(_dataDir, "ledger.json"));
@@ -781,6 +782,11 @@ namespace CityManager
                 if (!string.IsNullOrWhiteSpace(withdrawal.ActiveLedgerId) &&
                     records.TryGetValue(withdrawal.ActiveLedgerId, out reserved))
                     reserved.Available = false;
+            }
+            foreach (string id in WithdrawalStore.GetRecoveryReservedIds(_settingsDir))
+            {
+                DonationRecord reserved;
+                if (records.TryGetValue(id, out reserved)) reserved.Available = false;
             }
 
             return records.Values

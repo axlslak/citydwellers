@@ -96,6 +96,7 @@ namespace CityBankers
             // Its complete record remains in application.json, without inventing
             // a successful transfer for any missing occurrence.
             RuntimeStateStore.SaveDispatchQueue(settings, bundle.Queue);
+            WithdrawalStore.ResetRecoveryAfterCensus(settings, Path.Combine(directory, "previous-recovery-reservations.json"));
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "applied.json"), new
             { Generation = generation, bundle.Runs, Count = bundle.Plan.Items.Count });
             return bundle;
@@ -137,7 +138,7 @@ namespace CityBankers
             PhysicalLedgerReconciliation.Plan plan, string generation)
         {
             var state = new StorageState { BaselineRunId = "census-" + generation, UpdatedUtc = DateTime.UtcNow };
-            foreach (var census in censuses.Where(c => !string.Equals(c.Role, "central", StringComparison.OrdinalIgnoreCase)))
+            foreach (var census in censuses)
             {
                 var worker = new StorageWorkerState { Character = census.Character, Role = census.Role,
                     ObservedUtc = census.ObservedUtc };

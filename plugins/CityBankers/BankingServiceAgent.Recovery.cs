@@ -17,7 +17,7 @@ namespace CityBankers
 
         private void TickLocalStorageRecovery()
         {
-            if (_isCentral || !Inventory.Bank.IsOpen || Trade.IsTrading || _storageJob != null ||
+            if (_isCentral || _extraction != null || !Inventory.Bank.IsOpen || Trade.IsTrading || _storageJob != null ||
                 _workerCommand != null || _reservedDispatch != null || _receipt != null || _withdrawal != null || _returnOffer != null ||
                 _looseRecoveryPoll.ElapsedMilliseconds < 1000) return;
             _looseRecoveryPoll.Restart();

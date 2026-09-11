@@ -171,6 +171,7 @@ namespace CityBankers
                 TickBankerIpc();
                 TickInternalConfirmation();
                 if (TickPhysicalReceipt()) return;
+                if (TickRecoveryExtraction()) return;
                 if (TickReturnTransfer()) return;
                 if (_isCentral)
                 {
@@ -184,6 +185,7 @@ namespace CityBankers
                     TickDonation();
                     TickDonationCleanup();
                     TickDispatch();
+                    StartRecoveryExtraction();
                 }
                 else
                 {
@@ -193,6 +195,7 @@ namespace CityBankers
                     TickWorkerTrade();
                     TickLocalStorageRecovery();
                     TickLooseReturnRecovery();
+                    StartRecoveryExtraction();
                 }
             }
             catch (Exception ex)
@@ -353,6 +356,7 @@ namespace CityBankers
             try
             {
                 string targetName = FindPlayerName(target);
+                if (_extraction != null) { Trade.Decline(); return; }
                 RuntimeStateStore.AppendActivity(
                     _settingsDir,
                     Client.CharacterName,

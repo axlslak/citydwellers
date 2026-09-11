@@ -635,6 +635,9 @@ namespace CityBankers.Shared
             {
                 if (worker == null || worker.Bags == null)
                     continue;
+                // Central keeps a physical bag map for extraction/review, but
+                // these contents are not ordinary worker stock until routed.
+                if (string.Equals(worker.Role, "central", StringComparison.OrdinalIgnoreCase)) continue;
 
                 foreach (StorageBagState bag in worker.Bags)
                 {

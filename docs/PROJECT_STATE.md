@@ -1,3 +1,11 @@
+## Session 67 — verified extraction and withdrawal exclusion
+
+- Added exclusive BankingService extraction from worker/Central bags and loose bank storage. The exact source slot must disappear, the remaining source must match, and normal inventory must gain exactly one matching item. The observed result settles before bank-bag return; return is verified before accounting. Same-slot item requests retry only while both source and inventory remain unchanged.
+- Central owns extraction accounting over IPC: remove the verified source occurrence under the runtime storage mutex, rebuild stock, update the same ledger ID to its actual loose slot, and propagate a returned bag's outer-slot remap to remaining ledger rows. Retained evidence and deterministic completion/queue IDs support persistence/acknowledgement retries.
+- Central bag topology is now retained in storage-state alongside the eight worker maps, but Central bags are excluded from ordinary current-stock. Central extracts recognized items for onward dispatch; workers extract misplaced/alien bag items for verified return, or own-category loose-bank items for local storage. Central's unfamiliar held items stay in place for review.
+- Added recovery item reservations under the existing withdrawal mutex. Admission revalidates current ledger/storage location, preventing a stale GET from taking an item recovery is moving. Manager selection and donor GET availability exclude reservations. A complete startup census preserves and resets superseded reservations. New evidence directories/files are recognized by runtime layout inspection.
+- OPEN: automatic local recensus/resumption, runtime unknown/unanchored item import, partial-roster boot and remaining withdrawal/custody coordination. Source review only; owner compilation/live validation pending. Service stays stopped and this remains an intermediate checkpoint.
+
 ## Session 67 — verified loose-item returns through IPC
 
 - Added BankingService-owned worker-to-Central return for ledger-anchored loose items routed elsewhere or unknown to the catalog. Withdrawal reservations are excluded. Central reserves capacity over the shared named pipe; only the originating worker and Central participate.

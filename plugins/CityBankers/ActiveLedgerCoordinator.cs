@@ -428,6 +428,38 @@ namespace CityBankers
             SaveLedger(settingsDir, ledger);
         }
 
+        internal static void RecordExtraction(string settingsDir, ExtractionProof proof)
+        {
+            var ledger = LoadLedger(settingsDir);
+            var entry = ledger?.Items?.SingleOrDefault(e => e.Id == proof.LedgerId);
+            if (entry == null || entry.TransactionId != proof.TransactionId || entry.AoId != proof.Item.AoId ||
+                (entry.HighId.HasValue && entry.HighId != proof.Item.HighId) || (entry.Ql.HasValue && entry.Ql != proof.Item.Ql) ||
+                !string.Equals(entry.Character, proof.Character, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Extraction cannot identify its ledger occurrence.");
+            bool alreadyApplied = entry.Location == "inventory" && !entry.Bag.HasValue && entry.Slot == proof.InventorySlot;
+            if (!alreadyApplied && (entry.Location != proof.Source || entry.Bag != proof.Bag || entry.Slot != proof.SourceSlot))
+                throw new InvalidOperationException("Extraction ledger source changed before accounting.");
+            if (proof.Bag.HasValue)
+            {
+                if (!proof.FinalBagSlot.HasValue) throw new InvalidOperationException("Extraction has not returned its source bag.");
+                Func<ExtractionSlot, RuntimeStorageStateTransactions.LiveBagItemSnapshot> snapshot = s =>
+                    new RuntimeStorageStateTransactions.LiveBagItemSnapshot { InnerSlot = s.Slot, AoId = s.Item.AoId,
+                        HighId = s.Item.HighId, Ql = s.Item.Ql, Name = s.Item.Name, UniqueIdentity = s.Item.UniqueIdentity };
+                RuntimeStorageStateTransactions.CommitVerifiedExtraction(settingsDir, proof.Character, proof.Source,
+                    proof.Bag.Value, proof.BagIdentity, proof.FinalBagSlot.Value, proof.SourceSlot,
+                    proof.BeforeSource.Select(snapshot), proof.AfterSource.Select(snapshot));
+                foreach (var other in ledger.Items.Where(e => e.Id != proof.LedgerId &&
+                    string.Equals(e.Character, proof.Character, StringComparison.OrdinalIgnoreCase) &&
+                    e.Location == proof.Source && e.Bag == proof.Bag)) other.Bag = proof.FinalBagSlot;
+            }
+            entry.Location = "inventory";
+            entry.Bag = null;
+            entry.Slot = proof.InventorySlot;
+            entry.HighId = proof.Item.HighId;
+            entry.Ql = proof.Item.Ql;
+            SaveLedger(settingsDir, ledger);
+        }
+
         public static SymbiantIndexState LoadIndex(string settingsDir)
         {
             SymbiantIndexState state = RuntimeStateStore.ReadJson<SymbiantIndexState>(

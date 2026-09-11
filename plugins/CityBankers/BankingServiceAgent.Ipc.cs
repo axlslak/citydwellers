@@ -21,6 +21,7 @@ namespace CityBankers
             public string BatchId;
             public DispatchCommand Command;
             public ReturnOffer Return;
+            public ExtractionProof Extraction;
             [JsonIgnore]
             public readonly TaskCompletionSource<string> Reply =
                 new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -44,7 +45,7 @@ namespace CityBankers
         internal static DispatchCommand CurrentInboundDispatch =>
             _ipcOwner?._workerCommand ?? _ipcOwner?._reservedDispatch;
         internal static bool CentralTransferBusy => _ipcOwner != null &&
-            (_ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null ||
+            (_ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null || _ipcOwner._extraction != null ||
              (_ipcOwner._receipt != null && !_ipcOwner._donationActive));
 
         private static string BankerPipe(string character)
@@ -119,6 +120,7 @@ namespace CityBankers
             while (_dispatchProposals.TryDequeue(out proposal))
             {
                 if (proposal.Reply.Task.IsCompleted) continue;
+                if (HandleExtractionProposal(proposal)) continue;
                 if (HandleReturnProposal(proposal)) continue;
                 if (proposal.Kind == "storage-result")
                 {
@@ -131,7 +133,7 @@ namespace CityBankers
                 DispatchCommand command = proposal.Command;
                 bool ready = proposal.Kind == "prepare" && !_isCentral && StartupCensusGate.IsOpen && Client.InPlay &&
                     Inventory.Bank.IsOpen && !Trade.IsTrading && _storageJob == null &&
-                    _workerCommand == null && _receipt == null && _withdrawal == null && _returnOffer == null &&
+                    _workerCommand == null && _receipt == null && _withdrawal == null && _returnOffer == null && _extraction == null &&
                     command != null && command.Items != null && command.Items.Count > 0 &&
                     Inventory.NumFreeSlots >= command.Items.Count + 1 &&
                     !string.IsNullOrWhiteSpace(command.BatchId) &&

@@ -15,6 +15,37 @@ namespace CityBankers.Shared
         private const string RuntimeStateMutexName = "CityBankers.RuntimeState.v1";
         private const string IdentityNoneText = "(None:0000)";
 
+        public static void CommitVerifiedExtraction(string settingsDir, string character, string source,
+            int outerSlot, string bagIdentity, int finalOuterSlot, int removedSlot,
+            IEnumerable<LiveBagItemSnapshot> before, IEnumerable<LiveBagItemSnapshot> after)
+        {
+            WithRuntimeStateMutex(delegate
+            {
+                var state = RuntimeStateStore.LoadStorageState(settingsDir);
+                var worker = state?.Workers?.SingleOrDefault(w => string.Equals(w.Character, character, StringComparison.OrdinalIgnoreCase));
+                var bag = worker?.Bags?.SingleOrDefault(b => b.Source == source &&
+                    (IsUsableIdentity(bagIdentity) ? b.LastUniqueIdentity == bagIdentity : (b.OuterSlotInstance & 65535) == outerSlot));
+                if (bag?.Items == null) throw new InvalidOperationException("Verified extraction source bag is unavailable.");
+                Func<LiveBagItemSnapshot, string> key = i => (i.InnerSlot & 65535) + "/" + i.AoId + "/" + i.HighId + "/" + i.Ql;
+                var actual = bag.Items.Select(i => (i.InnerSlot & 65535) + "/" + i.AoId + "/" + i.HighId + "/" + i.Ql).OrderBy(k => k).ToList();
+                var expectedBefore = before.Select(key).OrderBy(k => k).ToList();
+                var expectedAfter = after.Select(key).OrderBy(k => k).ToList();
+                if (actual.SequenceEqual(expectedBefore))
+                    bag.Items = bag.Items.Where(i => (i.InnerSlot & 65535) != removedSlot).ToList();
+                else if (!actual.SequenceEqual(expectedAfter))
+                    throw new InvalidOperationException("Source storage changed while extraction was awaiting accounting.");
+                if (!bag.Items.Select(i => (i.InnerSlot & 65535) + "/" + i.AoId + "/" + i.HighId + "/" + i.Ql)
+                    .OrderBy(k => k).SequenceEqual(expectedAfter))
+                    throw new InvalidOperationException("Extraction would remove more than its verified occurrence.");
+                if (worker.Bags.Any(other => other != bag && other.Source == source && (other.OuterSlotInstance & 65535) == finalOuterSlot))
+                    throw new InvalidOperationException("Returned extraction bag conflicts with another persisted bag slot.");
+                bag.OuterSlotInstance = finalOuterSlot;
+                state.UpdatedUtc = DateTime.UtcNow;
+                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetStorageStatePath(settingsDir), state);
+                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetCurrentStockPath(settingsDir), RuntimeStateStore.BuildCurrentStock(settingsDir, state));
+            });
+        }
+
         public sealed class LiveBagItemSnapshot
         {
             public string UniqueIdentity;
