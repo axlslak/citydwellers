@@ -291,6 +291,8 @@ namespace CityBankers
     {
         public string Id;
         public int AoId;
+        public int? HighId;
+        public int? Ql;
         public string TransactionId;
         public string From;
         public DateTime ReceivedUtc;
@@ -856,10 +858,9 @@ namespace CityBankers
                 Id = "cb-" + Guid.NewGuid().ToString("N"),
                 AoId = item.AoId,
                 TransactionId = item.TransactionId,
-                From = source?.Donor ??
-                    ((item.TransactionId ?? string.Empty).StartsWith("don-", StringComparison.OrdinalIgnoreCase)
-                        ? TrustedOperators.BootstrapAdmin
-                        : null),
+                From = source?.Donor,
+                HighId = item.HighId,
+                Ql = item.Ql,
                 ReceivedUtc = source != null && source.Utc != DateTime.MinValue
                     ? source.Utc
                     : item.ObservedUtc,
@@ -1193,6 +1194,8 @@ namespace CityBankers
             {
                 Id = item.Id,
                 AoId = item.AoId,
+                HighId = item.HighId,
+                Ql = item.Ql,
                 TransactionId = item.TransactionId,
                 From = item.From,
                 ReceivedUtc = item.ReceivedUtc,

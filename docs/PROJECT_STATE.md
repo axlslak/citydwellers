@@ -1,3 +1,11 @@
+# Current session 67 checkpoint — physical reconciliation foundation
+
+- Historical repair is owner-confirmed applied: 2300 active entries, 395 excess claims removed, four loss history entries, old Vital dispatch closed. Earlier pending-repair statements below are superseded.
+- Owner keeps the whole service stopped. BankersEnabled=false is saved for future use only.
+- PhysicalLedgerReconciliation validates complete per-character census including loose bank/inventory and returned bags, normalizes slots, and proposes one ledger row per observed item. Exact anchors are reserved before unique remaining occurrence matches; ambiguous provenance remains unknown. Unmatched claims are not described as proven physical losses. Unknown items target Central; misplaced/loose worker items appear in routing work.
+- Startup writes a durable proposal alongside each census; it DOES NOT apply it or release the existing gate. Ledger metadata now supports optional HighId/QL. Legacy stock import no longer invents a bootstrap-admin donor.
+- OPEN: central-owned proposal application/history/storage commit, cross-character scope, unfinished custody disposition, automatic extraction/return/sorting, and replacement of conflicting global guards. This is an intermediate source checkpoint, not runtime completion. Owner compilation and live validation pending.
+
 # City Dwellers — Persistent Project State
 
 ## Session 67 safety overhaul — in progress

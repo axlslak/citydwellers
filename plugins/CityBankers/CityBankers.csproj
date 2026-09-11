@@ -32,6 +32,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="ActiveLedgerCoordinator.cs" />
+    <Compile Include="PhysicalLedgerReconciliation.cs" />
     <Compile Include="AllBankersReadinessBarrierAgent.cs" />
     <Compile Include="AuditRecoveryHoldGuard.cs" />
     <Compile Include="BagAuditAgent.cs" />

@@ -159,6 +159,29 @@ namespace CityBankers
                 File.Copy(_result, Path.Combine(_directory, _character + "." + _auditRun + ".evidence.json"), false);
                 _finished = true;
                 var errors = new List<string>();
+                // Keep a physical-ledger proposal alongside the raw census. This
+                // does not release the old gate or mutate stock: the replacement
+                // routing coordinator must own that transition, not a second writer.
+                if (result != null && result.RunId == _auditRun && result.Character == _character &&
+                    result.Role == _role)
+                {
+                    try
+                    {
+                        var observations = PhysicalLedgerReconciliation.ReadCensus(_settings, result);
+                        var ledger = ActiveLedgerStore.LoadLedger(_settings);
+                        var proposal = PhysicalLedgerReconciliation.Build(
+                            ledger?.Items ?? new List<ActiveLedgerItem>(), observations, new[] { _character });
+                        RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory,
+                            _character + "." + _auditRun + ".reconciliation.json"), proposal);
+                        Logger.Information("[CityBankers] PHYSICAL RECONCILIATION proposal " + _character +
+                            ": observed=" + observations.Count + " differences=" + proposal.Differences.Count +
+                            " routing=" + proposal.Routing.Count + "; proposal only, not applied.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Warning("[CityBankers] Physical reconciliation proposal unavailable: " + ex.Message);
+                    }
+                }
                 if (result == null || result.RunId != _auditRun || result.Character != _character ||
                     result.Role != _role || !result.BankOpened || result.FatalError != null ||
                     result.FailedCount != 0 || result.BankReturnFailureCount != 0 ||

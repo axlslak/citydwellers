@@ -1,3 +1,7 @@
+# Session 67 continuation — census reconciliation proposals
+
+Owner applied the authorized historical repair and chose to keep the whole service stopped. Added a pure physical-census reconciliation component and per-character durable proposals without introducing another live ledger writer. Complete observations include bag contents and loose bank/inventory; duplicate physical addresses and incomplete reads are rejected. Exact location claims are matched first, then unique compatible remaining occurrences; ambiguous copies get unknown provenance and unmatched old claims remain explicit differences. Optional high-template/QL fields preserve stronger future matching. Removed the legacy fabricated bootstrap-admin donor fallback. Application, automatic routing and replacement of global gates remain unfinished; source review only, no assistant builds/tests.
+
 # City Dwellers — Persistent Project History
 
 ## 2026-09-11 — Old donation recovery partition

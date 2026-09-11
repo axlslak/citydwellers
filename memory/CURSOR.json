@@ -5,7 +5,7 @@
   "status": "in_progress",
   "active_project": "citydwellers",
   "transaction": "session-67-physical-custody-safety",
-  "base_commit": "2ea7ebf114f259ec4ee6bc9d254f366ea5e955dd",
+  "base_commit": "ac88b241884cd78b315ab7fad9dc6f94084e89cb",
   "task": "Replace global discrepancy shutdown with physical-ledger reconciliation, local recovery and paced IPC routing",
-  "resume_instruction": "IPC checkpoint 2ea7ebf awaits owner compile. Historical repair ZIP is now prepared privately (2300 retained,395 excess removed,four loss history entries assigned to Kavey,old Vital queue closed); owner application pending. Original history preserved and source/payload hash guards included. Do not repeat permission or create another repair without checking application status. Next implement runtime physical-ledger census reconciliation and automatic known/alien routing, replacing global discrepancy gates. BankersEnabled=false permits nonbanker operation after compilation. Owner builds/tests; banker runtime not cleared."
+  "resume_instruction": "Owner confirmed historical repair applied successfully:2300 active entries,395 excess claims removed,four loss history entries,old Vital dispatch closed. Do not reapply. Owner voluntarily keeps entire service stopped and saved BankersEnabled=false only for future. PhysicalLedgerReconciliation now validates full per-character census, constructs one-row-per-observation proposals, matches exact anchors before unique remaining copies, preserves unknown provenance and reports routing/unmatched claims. Startup writes proposal only; NO application or gate replacement yet. Next implement central-owned durable application across census scope, storage baseline replacement, queued-custody disposition, and automatic worker/Central routing; retire conflicting legacy actors before releasing local readiness. Latest code uncompiled; owner builds/tests. Session67 remains active."
 }
