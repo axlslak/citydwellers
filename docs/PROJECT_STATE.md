@@ -2,6 +2,11 @@
 
 ## Session 67 safety overhaul — in progress
 
+- Owner compile found CS0103 in CityManager donor availability: banker-only
+  TrustedOperators was unavailable. Replaced it with City's existing shared
+  readiness-marker check, retaining physical-occurrence matching. Recompile
+  pending; service remains stopped.
+
 - The manual census now commands all nine bankers (including Central) and prints loose
   bank/inventory observations in its durable report. Missing loose snapshots fail the run.
   Central is explicitly observation-only because storage-state has no Central baseline.

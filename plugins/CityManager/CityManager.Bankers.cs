@@ -711,6 +711,8 @@ namespace CityManager
             // once, so duplicate historical claims cannot create additional GET buttons.
             var availableStock = new List<StockItemState>(
                 RuntimeStateStore.LoadCurrentStock(_settingsDir)?.Items ?? new List<StockItemState>());
+            bool allBankersReady = File.Exists(Path.Combine(
+                _dataDir, "citybankers-all-bankers-ready.json"));
             foreach (JObject item in (ledger?["Items"] as JArray ?? new JArray())
                 .OfType<JObject>())
             {
@@ -721,7 +723,7 @@ namespace CityManager
                     physical.BagSource == (string)item["Location"] &&
                     physical.BagOuterSlot == (int?)item["Bag"] &&
                     physical.InnerSlot == (int?)item["Slot"]);
-                bool available = physicalIndex >= 0 && TrustedOperators.IsAllBankersReady();
+                bool available = physicalIndex >= 0 && allBankersReady;
                 if (physicalIndex >= 0) availableStock.RemoveAt(physicalIndex);
                 AddDonationRecord(records, item, metadata, "active-" + ordinal++, available);
             }
