@@ -678,7 +678,7 @@ namespace CityBankers
                     {
                         TellDonationPartner("Donation trade declined/cancelled; nothing was recorded as received.");
                         AppendTradeLedger("player_trade_declined", _donationTransactionId, null, null,
-                            "Kavem donation did not complete.", _donationSnapshot);
+                            "Player donation did not complete.", _donationSnapshot);
                         ResetDonation();
                         return;
                     }
@@ -757,7 +757,7 @@ namespace CityBankers
                 _donationTransactionId,
                 null,
                 null,
-                "Trusted Kavem donation trade opened.",
+                "Player donation trade opened.",
                 null);
         }
 
@@ -889,7 +889,7 @@ namespace CityBankers
                 transactionId,
                 null,
                 null,
-                "AO server completed trusted Kavem donation; received items are now in Central normal inventory.",
+                "AO server completed player donation; received items are now in Central normal inventory.",
                 received);
 
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
@@ -1088,6 +1088,9 @@ namespace CityBankers
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             AddDonationDispatchBatches(queue, transactionId, storeItems);
             RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+            foreach (var batch in queue.Batches.Where(b => b.TransactionId == transactionId && b.Status == "queued"))
+                ReportTransferProgress("QUEUED", batch.BatchId,
+                    "transaction=" + transactionId + "; Central -> " + batch.Character + "; awaiting transfer", batch.Items);
             int queuedBatches = queue.Batches.Count(b =>
                 string.Equals(b.TransactionId, transactionId, StringComparison.Ordinal) &&
                 string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase));
@@ -1228,7 +1231,14 @@ namespace CityBankers
                      (pending.Items ?? new List<TransferItemState>()).Any(item =>
                         (b.Items ?? new List<TransferItemState>()).Any(candidate => CustodyKey(candidate) == CustodyKey(item))))));
             if (next == null)
+            {
+                var waiting = queue.Batches.FirstOrDefault(b => string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase));
+                if (waiting != null)
+                    ReportTransferWait(waiting, censusing.Contains(waiting.Character) ? "Worker is in census recovery." :
+                        !DynelManager.Players.Any(player => player != null && string.Equals(player.Name, waiting.Character, StringComparison.OrdinalIgnoreCase)) ?
+                        "Worker is not visible nearby." : "Worker retry delay or unresolved earlier transfer prevents dispatch.");
                 return;
+            }
 
             PlayerChar worker = DynelManager.Players.FirstOrDefault(p =>
                 p != null && string.Equals(p.Name, next.Character, StringComparison.OrdinalIgnoreCase));
@@ -1241,7 +1251,11 @@ namespace CityBankers
                 RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
             }
             if (!WorkerPrepared(next))
+            {
+                ReportTransferWait(next, "Awaiting worker preparation acknowledgement; items remain on Central.");
                 return;
+            }
+            _transferWaits.Remove(next.BatchId);
 
             List<Item> centralItems = FindDistinctInventoryItems(next.Items);
             if (centralItems.Count != (next.Items?.Count ?? 0))
@@ -1456,7 +1470,11 @@ namespace CityBankers
                     result.BatchId,
                     batch.BatchId,
                     StringComparison.Ordinal))
+            {
+                ReportTransferWait(batch, "Transfer completed; awaiting verified storage acknowledgement.");
                 return;
+            }
+            _transferWaits.Remove(batch.BatchId);
 
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             DispatchBatchState stored = FindBatch(queue, batch.BatchId);
@@ -1899,6 +1917,11 @@ namespace CityBankers
                 "STORED " + _storageJob.Expected.Name + " QL" + _storageJob.Expected.Ql +
                 " -> " + _storageJob.Bag.Source + ":" + _storageJob.Bag.OuterSlotInstance +
                 "/inner:" + _storageJob.InnerSlot + ".");
+            ReportTransferProgress("STORED VERIFIED", _storageJob.Command.BatchId,
+                "transaction=" + _storageJob.Command.TransactionId + "; destination=" + Client.CharacterName +
+                "; " + _storageJob.Expected.Name + " QL" + _storageJob.Expected.Ql +
+                " AOID=" + _storageJob.Expected.AoId + "; " + _storageJob.Bag.Source + ":" +
+                _storageJob.Bag.OuterSlotInstance + "/inner:" + _storageJob.InnerSlot);
             _storageJob.StoredCount++;
             _storageJob.Index++;
             _storageJob.Expected = null;
@@ -1934,6 +1957,9 @@ namespace CityBankers
                 _role,
                 "STORAGE BATCH COMPLETE batch=" + job.Command.BatchId +
                 " stored=" + job.StoredCount + ".");
+            ReportTransferProgress("STORAGE BATCH COMPLETE", job.Command.BatchId,
+                "destination=" + Client.CharacterName + "; verified stored=" + job.StoredCount +
+                "/" + (job.Command.Items?.Count ?? 0));
             if (job.Command?.AttemptId != null)
             {
                 ReceiptEvidence storedReceipt;
@@ -1984,6 +2010,8 @@ namespace CityBankers
                 Client.CharacterName,
                 _role,
                 "STORAGE FAILURE: " + error);
+            ReportTransferProgress("STORAGE FAILURE", job.Command?.BatchId,
+                "destination=" + Client.CharacterName + "; verified stored=" + job.StoredCount + "; " + error);
             TellKavem(
                 "STORAGE FAILURE on " + Client.CharacterName + ": " + error +
                 " No further items in this batch will be moved until reconciliation.");
@@ -2591,6 +2619,53 @@ namespace CityBankers
             TellPlayer(TrustedOperators.BootstrapAdmin, message);
         }
 
+        // Observability is independent of custody/accounting: a channel failure
+        // must never retry a physical move or invalidate its verified result.
+        private void ReportTransferProgress(string stage, string batchId, string message,
+            IEnumerable<TransferItemState> items = null)
+        {
+            try
+            {
+                string prefix = "BANKERS " + stage + " batch=" + (batchId ?? "-") + " ";
+                var details = new List<string> { message ?? string.Empty };
+                if (items != null)
+                    details.AddRange(items.Where(item => item != null).Select(item =>
+                        item.Name + " QL" + item.Ql + " AOID=" + item.AoId));
+                foreach (string detail in details)
+                {
+                    Logger.Information(prefix + detail);
+                    // Keep each channel message bounded, including long failure text.
+                    for (int offset = 0; offset < Math.Max(1, detail.Length); offset += 400)
+                    {
+                        string part = detail.Substring(offset, Math.Min(400, detail.Length - offset));
+                        try
+                        {
+                            CityDwellers.Shared.ManagerChannelQueue.Enqueue(
+                                RuntimeStateStore.GetDataDirectory(_settingsDir), Client.CharacterName,
+                                System.Security.SecurityElement.Escape(prefix + part));
+                        }
+                        catch (Exception ex) { Logger.Warning("BANKERS telemetry channel unavailable: " + ex.Message); }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                try { Logger.Warning("BANKERS telemetry unavailable: " + ex.Message); }
+                catch { } // Reporting must not change the outcome of the operation.
+            }
+        }
+
+        private readonly Dictionary<string, Stopwatch> _transferWaits =
+            new Dictionary<string, Stopwatch>();
+        private void ReportTransferWait(DispatchBatchState batch, string reason)
+        {
+            Stopwatch previous;
+            if (_transferWaits.TryGetValue(batch.BatchId, out previous) &&
+                previous.ElapsedMilliseconds < 30000) return;
+            _transferWaits[batch.BatchId] = Stopwatch.StartNew();
+            ReportTransferProgress("WAITING", batch.BatchId, "Destination=" + batch.Character + "; " + reason);
+        }
+
         private void AppendTradeLedger(
             string eventName,
             string transactionId,
@@ -2622,6 +2697,10 @@ namespace CityBankers
                         null,
                         null)).ToList()
                 });
+            if (batchId != null && (eventName == "dispatch_stored" || eventName == "dispatch_failed" ||
+                eventName == "dispatch_storage_failed")) _transferWaits.Remove(batchId);
+            ReportTransferProgress(eventName, batchId,
+                "transaction=" + transactionId + "; role=" + role + "; " + message, items);
         }
 
         private static LedgerItem ToLedgerItem(
