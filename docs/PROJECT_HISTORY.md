@@ -1,3 +1,11 @@
+## Session 67 — startup routing and local storage recovery
+
+- Startup dispatch is rebuilt from physically observed Central loose items after census application; the complete prior queue is retained in the application bundle. No missing occurrence is called successfully transferred. Active withdrawal templates are excluded from automatic routing to avoid reallocating ambiguous reserved copies.
+- Workers can store their own category's loose items without a new trade. Recovery uses exact census slot anchors or a unique unanchored occurrence, monotonic settling/backoff, and the existing verified storage phases. Local jobs do not overwrite a previous dispatch result awaiting IPC consumption. Storage jobs now retain exclusive movement ownership ahead of withdrawal extraction.
+- Retired 17 legacy normal-mode recovery/hold agents plus Central's old bridge queue recovery. Startup discrepancies now flow through physical reconciliation, not permanent comparison holds. Initial startup still requires all nine complete censuses. After release, census holds are per-banker and a worker hold does not clear Central's public readiness marker.
+- IPC prepare also checks aggregate storage capacity. released.json is written last, after application and readiness publication; no worker can move items while application remains retryable.
+- OPEN: automatic worker-to-Central misplaced/alien returns, extraction from worker/Central bags and loose bank, automatic local recensus/resumption, partial-roster boot, remaining withdrawal/custody reconciliation and live trade-stage IPC. This remains an intermediate implementation; service stays stopped. Owner compilation and live validation pending; no assistant builds/tests.
+
 ## Session 67 — combined census application implemented, runtime still incomplete
 
 - Central now waits for nine complete, request-bound census results before applying physical state. The startup gate also requires the completed application marker.

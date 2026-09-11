@@ -141,6 +141,15 @@ namespace CityBankers
                         MatchesExpected(_reservedDispatch.Items, command.Items)));
                 if (ready)
                 {
+                    var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+                    var worker = storage?.Workers?.SingleOrDefault(w =>
+                        string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(w.Role, _role, StringComparison.OrdinalIgnoreCase));
+                    ready = worker?.Bags != null && worker.Bags.Sum(b => b == null ? 0 :
+                        Math.Max(0, b.Capacity - (b.Items?.Count ?? b.Capacity))) >= command.Items.Count;
+                }
+                if (ready)
+                {
                     _reservedDispatch = command;
                     _reservationAge = Stopwatch.StartNew();
                 }

@@ -129,7 +129,7 @@ namespace CityBankers
             {
                 if (_isCentral)
                 {
-                    TickCentralRecovery();
+                    // Central recovery is owned by physical census and BankingService.
                     return;
                 }
 

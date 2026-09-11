@@ -76,6 +76,9 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            // Full physical census and BankingService now own normal-mode recovery.
+            if (StartupCensusGate.UsesPhysicalRecovery) return;
+
             if (!ServicePolicy.IsBagAuditMode() && StartupCensusGate.Defer(() => Init(pluginDir)))
                 return;
 

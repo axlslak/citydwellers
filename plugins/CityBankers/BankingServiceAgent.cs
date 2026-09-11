@@ -187,10 +187,11 @@ namespace CityBankers
                 else
                 {
                     if (TickPhysicalReceipt()) return;
-                    if (_reservedDispatch == null && TickWithdrawalWorker())
+                    if (_storageJob != null) { TickStorageJob(); return; }
+                    if (_reservedDispatch == null && _workerCommand == null && TickWithdrawalWorker())
                         return;
                     TickWorkerTrade();
-                    TickStorageJob();
+                    TickLocalStorageRecovery();
                 }
             }
             catch (Exception ex)
@@ -1526,7 +1527,7 @@ namespace CityBankers
                 return;
             }
             TransferItemState expected = _storageJob.Command.Items[_storageJob.Index];
-            Item inventoryItem = FindInventoryItem(expected);
+            Item inventoryItem = FindStorageInventoryItem(expected);
             if (inventoryItem == null)
             {
                 if (DateTime.UtcNow < _storageJob.DeadlineUtc)
@@ -1599,7 +1600,7 @@ namespace CityBankers
             Container container = FindContainerByIdentity(_storageJob.BagLiveIdentity);
             if (container != null && container.IsOpen)
             {
-                Item item = FindInventoryItem(_storageJob.Expected);
+                Item item = FindStorageInventoryItem(_storageJob.Expected);
                 if (item == null)
                 {
                     FailStorageJob("Received item disappeared from normal inventory before bag insertion.");
@@ -1749,7 +1750,7 @@ namespace CityBankers
         private void CompleteStorageJob()
         {
             StorageJob job = _storageJob;
-            RuntimeStateStore.WriteStorageResult(
+            if (!job.LocalRecovery) RuntimeStateStore.WriteStorageResult(
                 _settingsDir,
                 new StorageBatchResult
                 {
@@ -1779,7 +1780,7 @@ namespace CityBankers
             Logger.Error(
                 $"BANKING SERVICE storage failure character={Client.CharacterName} " +
                 $"batch={job.Command?.BatchId}: {error}");
-            RuntimeStateStore.WriteStorageResult(
+            if (!job.LocalRecovery) RuntimeStateStore.WriteStorageResult(
                 _settingsDir,
                 new StorageBatchResult
                 {
@@ -2545,6 +2546,8 @@ namespace CityBankers
 
         private sealed class StorageJob
         {
+            public bool LocalRecovery;
+            public int RecoverySlot;
             public DispatchCommand Command;
             public int Index;
             public int StoredCount;

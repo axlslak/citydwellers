@@ -19,6 +19,7 @@ namespace CityBankers
         private static readonly string Generation = Process.GetCurrentProcess().Id + "-" +
             Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
         private static string _directory;
+        private static bool _isCentralClient;
         private static string[] _characters;
         private static bool _invalidated;
         private string _settings;
@@ -35,6 +36,8 @@ namespace CityBankers
         private readonly Stopwatch _applicationPoll = Stopwatch.StartNew();
         private string _applicationError;
 
+        public static bool UsesPhysicalRecovery => !ServicePolicy.IsBagAuditMode();
+
         public static bool IsOpen
         {
             get
@@ -44,9 +47,9 @@ namespace CityBankers
                     return false;
                 try
                 {
-                    return File.Exists(Path.Combine(_directory, "applied.json")) &&
-                        _characters.All(name => File.Exists(Path.Combine(_directory, name + ".ready"))) &&
-                        !Directory.EnumerateFiles(_directory, "*.blocked").Any();
+                    return File.Exists(Path.Combine(_directory, "released.json")) &&
+                        File.Exists(Path.Combine(_directory, Client.CharacterName + ".ready")) &&
+                        !File.Exists(Path.Combine(_directory, Client.CharacterName + ".blocked"));
                 }
                 catch (IOException) { return false; }
                 catch (UnauthorizedAccessException) { return false; }
@@ -76,12 +79,17 @@ namespace CityBankers
             _invalidated = true;
             if (_directory != null)
             {
-                File.WriteAllText(Path.Combine(_directory, Client.CharacterName + ".blocked"), reason);
-                string data = Directory.GetParent(Directory.GetParent(_directory).FullName).FullName;
-                string ready = Path.Combine(data, TrustedOperators.AllBankersReadyMarkerFileName);
-                if (File.Exists(ready)) File.Delete(ready);
+                try
+                {
+                    File.WriteAllText(Path.Combine(_directory, Client.CharacterName + ".blocked"), reason);
+                    string data = Directory.GetParent(Directory.GetParent(_directory).FullName).FullName;
+                    string ready = Path.Combine(data, TrustedOperators.AllBankersReadyMarkerFileName);
+                    if (_isCentralClient && File.Exists(ready)) File.Delete(ready);
+                }
+                catch (IOException ex) { Logger.Error("[CityBankers] Local hold record unavailable: " + ex.Message); }
+                catch (UnauthorizedAccessException ex) { Logger.Error("[CityBankers] Local hold record unavailable: " + ex.Message); }
             }
-            Logger.Error("[CityBankers] CENSUS SAFETY HOLD: " + reason);
+            Logger.Error("[CityBankers] LOCAL CENSUS HOLD " + Client.CharacterName + ": " + reason);
         }
 
         public override void Init(string pluginDir)
@@ -99,6 +107,7 @@ namespace CityBankers
             _character = Client.CharacterName;
             _role = roles.Properties().Where(p => string.Equals((string)p.Value["Character"],
                 _character, StringComparison.OrdinalIgnoreCase)).Select(p => p.Name).Single();
+            _isCentralClient = string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase);
             _directory = Path.Combine(RuntimeStateStore.GetDataDirectory(_settings),
                 "startup-census", Generation);
             Directory.CreateDirectory(_directory);
@@ -171,89 +180,17 @@ namespace CityBankers
                 var result = JsonConvert.DeserializeObject<BagAuditAgent.BagAuditResult>(File.ReadAllText(_result));
                 File.Copy(_result, Path.Combine(_directory, _character + "." + _auditRun + ".evidence.json"), false);
                 _finished = true;
-                var errors = new List<string>();
-                // Keep a physical-ledger proposal alongside the raw census. This
-                // does not release the old gate or mutate stock: the replacement
-                // routing coordinator must own that transition, not a second writer.
-                if (result != null && result.RunId == _auditRun && result.Character == _character &&
-                    result.Role == _role)
-                {
-                    try
-                    {
-                        var observations = PhysicalLedgerReconciliation.ReadCensus(_settings, result);
-                        File.WriteAllText(Path.Combine(_directory, _character + ".observed"), _auditRun);
-                        var ledger = ActiveLedgerStore.LoadLedger(_settings);
-                        var proposal = PhysicalLedgerReconciliation.Build(
-                            ledger?.Items ?? new List<ActiveLedgerItem>(), observations, new[] { _character });
-                        RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory,
-                            _character + "." + _auditRun + ".reconciliation.json"), proposal);
-                        Logger.Information("[CityBankers] PHYSICAL RECONCILIATION proposal " + _character +
-                            ": observed=" + observations.Count + " differences=" + proposal.Differences.Count +
-                            " routing=" + proposal.Routing.Count + "; proposal only, not applied.");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning("[CityBankers] Physical reconciliation proposal unavailable: " + ex.Message);
-                    }
-                }
-                if (result == null || result.RunId != _auditRun || result.Character != _character ||
-                    result.Role != _role || !result.BankOpened || result.FatalError != null ||
-                    result.FailedCount != 0 || result.BankReturnFailureCount != 0 ||
-                    result.OpenedCount != result.TotalBagCount || result.BankReturnedCount != result.BankBagCount ||
-                    result.LooseBankItems == null || result.LooseInventoryItems == null)
-                    errors.Add("Incomplete or mismatched census result.");
-                else if (!string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (_expected == null) errors.Add("No expected worker baseline; enrollment requires review.");
-                    else
-                    {
-                        var bags = new List<BagAuditAgent.BagAuditEntry>(result.Bags);
-                        foreach (StorageBagState expectedBag in _expected.Bags)
-                        {
-                            var matches = bags.Where(b => b.UniqueIdentity == expectedBag.LastUniqueIdentity).ToList();
-                            if (matches.Count != 1) { errors.Add("Bag identity absent/ambiguous: " + expectedBag.LastUniqueIdentity); continue; }
-                            var bag = matches[0]; bags.Remove(bag);
-                            var expectedItems = expectedBag.Items.Select(i => (i.InnerSlot & 65535) + "/" + i.AoId + "/" + i.HighId + "/" + i.Ql).OrderBy(x => x);
-                            var liveItems = bag.Items.Select(i => (i.SlotInstance & 65535) + "/" + i.LowId + "/" + i.HighId + "/" + i.Ql).OrderBy(x => x);
-                            if (!bag.Opened || !expectedItems.SequenceEqual(liveItems))
-                                errors.Add("Bag contents differ: " + expectedBag.LastUniqueIdentity);
-                        }
-                        if (bags.Count != 0) errors.Add("Unexpected bags: " + bags.Count);
-                    }
-                }
-                if (result?.LooseInventoryItems != null && result.LooseBankItems != null)
-                {
-                    var outsideStorage = result.LooseInventoryItems.Concat(result.LooseBankItems);
-                    if (string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
-                        outsideStorage = outsideStorage.Concat((result.Bags ?? new List<BagAuditAgent.BagAuditEntry>())
-                            .SelectMany(bag => bag.Items ?? new List<BagAuditAgent.BagInnerItem>()));
-                    foreach (var item in outsideStorage)
-                    {
-                        SymbiantCatalog.AcceptanceRule rule;
-                        if (SymbiantCatalog.TryGetRule(_settings, item.LowId, out rule))
-                            errors.Add("Managed item outside verified storage: " + item.Name +
-                                " AOID=" + item.LowId + " QL=" + item.Ql + " slot=" + item.Slot +
-                                ". Retained for custody reconciliation, not imported or deleted.");
-                    }
-                }
-                if (string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
-                {
-                    string custody = Path.Combine(RuntimeStateStore.GetDataDirectory(_settings), "custody-transactions");
-                    if (Directory.Exists(custody) && Directory.EnumerateDirectories(custody)
-                        .Any(path => !Directory.EnumerateFiles(path, "*-applied.json").Any()))
-                        errors.Add("Unfinished durable custody transaction; evidence must be reconciled before release.");
-                    var queue = RuntimeStateStore.LoadDispatchQueue(_settings);
-                    if (queue?.Batches?.Any(b => b.Status == "custody-hold" || b.Status == "trading" ||
-                        b.Status == "transferred") == true)
-                        errors.Add("Unresolved persisted custody. Automatic speculative recovery is disabled.");
-                }
-                File.WriteAllText(Path.Combine(_directory, _character + "." + _auditRun + ".comparison.json"),
-                    JsonConvert.SerializeObject(errors, Formatting.Indented));
-                if (errors.Count != 0) { Block(string.Join("; ", errors)); return; }
-                if (_invalidated) return; // recensus is evidence, not permission to resume old in-flight work
+                if (result == null || result.RunId != _auditRun || result.Character != _character || result.Role != _role)
+                    throw new InvalidOperationException("Mismatched census result.");
+                var observations = PhysicalLedgerReconciliation.ReadCensus(_settings, result);
+                File.WriteAllText(Path.Combine(_directory, _character + ".observed"), _auditRun);
+                // Differences are data to reconcile, not a readiness failure.
+                // Central records and applies the combined physical plan before
+                // released.json permits any operational actor to start.
+                if (_invalidated) return;
                 File.WriteAllText(_ready, Generation);
-                Logger.Information("[CityBankers] FULL CENSUS VERIFIED " + _character +
-                    "; waiting for all nine bankers before operational initialization.");
+                Logger.Information("[CityBankers] FULL CENSUS COLLECTED " + _character +
+                    "; observed items=" + observations.Count + "; awaiting physical ledger application.");
             }
             catch (Exception ex) { _finished = true; Block("Census failed: " + ex); }
         }
@@ -284,6 +221,17 @@ namespace CityBankers
                     censuses.Add(result);
                 }
                 var bundle = CensusApplication.Apply(_settings, _directory, Generation, censuses);
+                RuntimeStateStore.WriteJsonAtomic(Path.Combine(RuntimeStateStore.GetDataDirectory(_settings),
+                    TrustedOperators.AllBankersReadyMarkerFileName), new
+                {
+                    format = "citybankers-all-bankers-ready-v1", generation = Generation,
+                    readyUtc = DateTime.UtcNow,
+                    characters = censuses.Select(c => new { role = c.Role, character = c.Character }).ToList()
+                });
+                // Release last: if readiness publication failed, no worker could
+                // have started moving items before the retained bundle is retried.
+                RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, "released.json"), new
+                { Generation, Count = bundle.Plan.Items.Count });
                 _applicationFinished = true;
                 Logger.Information("[CityBankers] PHYSICAL LEDGER APPLIED: items=" + bundle.Plan.Items.Count +
                     " differences=" + bundle.Plan.Differences.Count + " routing=" + bundle.Plan.Routing.Count +

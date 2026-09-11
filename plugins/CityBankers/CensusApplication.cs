@@ -20,8 +20,11 @@ namespace CityBankers
             public List<string> Runs;
             public ActiveLedgerState PreviousLedger;
             public StorageState PreviousStorage;
+            public DispatchQueueState PreviousQueue;
+            public List<WithdrawalState> ReservedWithdrawals;
             public PhysicalLedgerReconciliation.Plan Plan;
             public StorageState Storage;
+            public DispatchQueueState Queue;
         }
 
         internal static Bundle Apply(string settings, string directory, string generation,
@@ -61,16 +64,20 @@ namespace CityBankers
                 // routing/accounting. This identifier makes no donor claim.
                 foreach (var item in plan.Items)
                     if (string.IsNullOrWhiteSpace(item.TransactionId)) item.TransactionId = "found-" + item.Id;
+                var withdrawals = WithdrawalStore.LoadAll(settings).Where(WithdrawalStore.IsActive).ToList();
                 bundle = new Bundle
                 {
                     Generation = generation, RecordedUtc = DateTime.UtcNow, Runs = runs,
                     PreviousLedger = previous, PreviousStorage = previousStorage,
-                    Plan = plan, Storage = BuildStorage(censuses, plan, generation)
+                    PreviousQueue = ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(settings)),
+                    ReservedWithdrawals = withdrawals,
+                    Plan = plan, Storage = BuildStorage(censuses, plan, generation),
+                    Queue = BuildQueue(plan, observations, censuses, withdrawals, generation)
                 };
                 RuntimeStateStore.WriteJsonAtomic(path, bundle);
             }
             if (bundle.Generation != generation || bundle.Runs == null || !bundle.Runs.SequenceEqual(runs) ||
-                bundle.Plan == null || bundle.Storage == null)
+                bundle.Plan == null || bundle.Storage == null || bundle.Queue == null)
                 throw new InvalidOperationException("Census changed during application; retained bundle requires a new reconciliation.");
 
             // Immutable investigation history is written before removing claims.
@@ -85,9 +92,45 @@ namespace CityBankers
             ActiveLedgerStore.ApplyCensus(settings, bundle.Plan.Items, censuses.SelectMany(c =>
                 PhysicalLedgerReconciliation.ReadCensus(settings, c)).Select(o => new TransferItemState
                 { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }));
+            // Old batch status is not a physical instruction after a full census.
+            // Its complete record remains in application.json, without inventing
+            // a successful transfer for any missing occurrence.
+            RuntimeStateStore.SaveDispatchQueue(settings, bundle.Queue);
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "applied.json"), new
             { Generation = generation, bundle.Runs, Count = bundle.Plan.Items.Count });
             return bundle;
+        }
+
+        private static DispatchQueueState BuildQueue(PhysicalLedgerReconciliation.Plan plan,
+            List<PhysicalLedgerReconciliation.Observation> observations,
+            IEnumerable<BagAuditAgent.BagAuditResult> censuses, List<WithdrawalState> withdrawals, string generation)
+        {
+            var queue = new DispatchQueueState { UpdatedUtc = DateTime.UtcNow };
+            var roles = censuses.ToDictionary(c => c.Role, c => c.Character, StringComparer.OrdinalIgnoreCase);
+            string central = roles["central"];
+            foreach (var entry in plan.Items.Where(e => string.Equals(e.Character, central, StringComparison.OrdinalIgnoreCase) &&
+                e.Location == "inventory" && !e.Bag.HasValue && e.Slot.HasValue))
+            {
+                if (withdrawals.Any(w => w.ActiveLedgerId == entry.Id ||
+                    (w.Item != null && w.Item.AoId == entry.AoId &&
+                    (!entry.HighId.HasValue || w.Item.HighId == entry.HighId) &&
+                    (!entry.Ql.HasValue || w.Item.Ql == entry.Ql)))) continue;
+                string destination;
+                if (string.Equals(entry.Family, "central", StringComparison.OrdinalIgnoreCase) ||
+                    !roles.TryGetValue(entry.Family, out destination)) continue;
+                var observed = observations.Single(o => string.Equals(o.Character, central, StringComparison.OrdinalIgnoreCase) &&
+                    o.Location == "inventory" && !o.Bag.HasValue && o.Slot == entry.Slot);
+                queue.Batches.Add(new DispatchBatchState
+                {
+                    BatchId = "census-" + generation + "-" + entry.Id,
+                    TransactionId = entry.TransactionId, Role = entry.Family, Character = destination,
+                    Status = "queued", CreatedUtc = DateTime.UtcNow, UpdatedUtc = DateTime.UtcNow,
+                    Items = new List<TransferItemState> { new TransferItemState
+                    { AoId = observed.Item.LowId, HighId = observed.Item.HighId, Ql = observed.Item.Ql,
+                        Name = observed.Item.Name, UniqueIdentity = observed.Item.UniqueIdentity } }
+                });
+            }
+            return queue;
         }
 
         private static StorageState BuildStorage(IEnumerable<BagAuditAgent.BagAuditResult> censuses,
