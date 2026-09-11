@@ -393,6 +393,9 @@ namespace CityBankers
                 {
                     state.Status = "central-received";
                     WithdrawalStore.Save(_settingsDir, state);
+                    ReportTransferProgress("WITHDRAWAL RECEIVED VERIFIED", state.Id,
+                        state.SourceCharacter + " -> " + Client.CharacterName + "; receipt verified; preparing pickup",
+                        new[] { state.Item });
                 }
                 ResetWithdrawalTrade();
 
@@ -596,6 +599,9 @@ namespace CityBankers
                 "[CityBankers] WITHDRAWAL ITEM OBSERVED " + (_withdrawal?.Id ?? "?") +
                 ": exact reserved item is now in " + Client.CharacterName +
                 " normal inventory; continuing extraction.");
+            ReportTransferProgress("WITHDRAWAL EXTRACTED", _withdrawal.Id,
+                "source=" + Client.CharacterName + "; reserved item observed in normal inventory; preparing return to " + _centralCharacter,
+                new[] { _withdrawal.Item });
             if (!string.Equals(
                     _withdrawal.ExtractedItemIdentity,
                     extracted.UniqueIdentity.ToString(),
@@ -649,6 +655,9 @@ namespace CityBankers
             _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitTrade;
             PrepareReceipt("withdrawal-transfer", _withdrawal.DonationTransactionId,
                 _withdrawal.Id, new List<TransferItemState> { _withdrawal.Item }, -1);
+            ReportTransferProgress("WITHDRAWAL TRANSFER OPENING", _withdrawal.Id,
+                "attempt=" + _withdrawal.TransferAttemptId + "; " + Client.CharacterName + " -> " + _centralCharacter,
+                new[] { _withdrawal.Item });
             Trade.Open(central.Identity);
         }
 
@@ -785,7 +794,10 @@ namespace CityBankers
                 }
                 return true;
             });
-            TellPlayer(state.RequestedBy,
+            ReportTransferProgress("WITHDRAWAL READY", state.Id,
+                "collector=" + state.RequestedBy + "; destination=" + Client.CharacterName + "; pickup window three minutes",
+                new[] { state.Item });
+            TellDirectPlayer(state.RequestedBy,
                 (state.Item?.Name ?? "Your item") + " is ready on Kbcentral. " +
                 "Your order pickup clock is now three minutes. Open trade to collect all ready items.");
         }

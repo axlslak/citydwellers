@@ -1,3 +1,10 @@
+## Session 75 — withdrawal journey telemetry and requester readiness tell
+
+- [OWNER VERIFIED] Actual pickup completed after Session74; requester received the item and completion was reported. A separate expired-return test is still pending.
+- [CHANGE] Add dev-channel/console milestones for reserved-item extraction, worker-to-Central transfer opening, physically verified Central receipt, and persisted pickup readiness. Each carries withdrawal ID, source/destination or collector, and item name/QL/AOID through the existing isolated telemetry helper. Opening is not described as completed receipt.
+- [DELIVERY] Ready-for-pickup notice now uses TellDirectPlayer to the original RequestedBy character. It remains queued/rate-limited but bypasses bootstrap-admin dev-channel redirection. The independent WITHDRAWAL READY event retains operator visibility.
+- [VALIDATION/NEXT] Focused static placement/API/diff/whitespace review only; no assistant build/tests/live run. Owner rebuild and verify dev journey plus requester tell, including bootstrap admin. No trade/custody/data changes. Existing expiry-return and wider recovery/packet decode checks remain open; historical repair must not repeat.
+
 ## Session 74 — withdrawal pickup identity and Central custody accounting
 
 - [OWNER EVIDENCE] Remote offer/remove/cancel test passed: ten corrections and CANCELLATION VERIFIED, with no new audit in supplied excerpt. Later withdrawal reached Central-ready but owner pickup silently closed. On expiry the return failed with no matching sender-held ledger occurrences; census subsequently returned/stored the item with explicit verification. That is recovered storage, not successful pickup.
