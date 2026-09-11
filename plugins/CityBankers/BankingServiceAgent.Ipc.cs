@@ -20,6 +20,7 @@ namespace CityBankers
         {
             public string Kind;
             public string BatchId;
+            public string Stage;
             public DispatchCommand Command;
             public ReturnOffer Return;
             public ExtractionProof Extraction;
@@ -127,6 +128,7 @@ namespace CityBankers
                 if (proposal.Reply.Task.IsCompleted) continue;
                 try
                 {
+                    if (HandleTradeStageProposal(proposal)) continue;
                     if (HandleStorageRecoveryProposal(proposal)) continue;
                     if (HandleCancellationProposal(proposal)) continue;
                     if (HandleLocalCensusProposal(proposal)) continue;

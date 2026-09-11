@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 
@@ -51,19 +52,19 @@ namespace CityBankers
         // Central: Central -> worker serialized dispatch state.
         private DispatchBatchState _activeBatch;
         private Identity _activeWorkerIdentity = Identity.None;
-        private DateTime _activeBatchStartedUtc;
+        private readonly Stopwatch _dispatchTradeAge = Stopwatch.StartNew();
         private bool _outgoingOpened;
         private int _outgoingAwaitingOfferCount;
         private readonly HashSet<int> _outgoingRequestedSlots = new HashSet<int>();
         private Identity _outgoingPendingSlot = Identity.None;
         private bool _outgoingPendingSlotSet;
-        private DateTime _outgoingLastAddUtc;
+        private readonly Stopwatch _outgoingAddAge = Stopwatch.StartNew();
         private int _outgoingPendingAddAttempts;
         private bool _outgoingAccepted;
 
         // Worker: expected Central -> worker receive state.
         private DispatchCommand _workerCommand;
-        private DateTime _workerTradeOpenedUtc;
+        private readonly Stopwatch _workerTradeAge = Stopwatch.StartNew();
         private bool _workerAccepted;
         private StorageJob _storageJob;
 
@@ -386,7 +387,7 @@ namespace CityBankers
                     if (_activeBatch != null && target == _activeWorkerIdentity)
                     {
                         _outgoingOpened = true;
-                        _activeBatchStartedUtc = DateTime.UtcNow;
+                        _dispatchTradeAge.Restart();
                         return;
                     }
 
@@ -520,13 +521,13 @@ namespace CityBankers
 
                     if (_isCentral && _activeBatch != null)
                     {
-                        QueueInternalConfirmation(target);
+                        QueueInternalConfirmation(_activeWorkerIdentity);
                         return;
                     }
 
                     if (!_isCentral && _workerCommand != null)
                     {
-                        QueueInternalConfirmation(target);
+                        QueueInternalConfirmation(Trade.CurrentTarget);
                         return;
                     }
                 }
@@ -1084,11 +1085,16 @@ namespace CityBankers
                     _activeBatch = null;
                     return;
                 }
-                if ((DateTime.UtcNow - _activeBatchStartedUtc).TotalSeconds >=
+                if (_dispatchTradeAge.Elapsed.TotalSeconds >=
                     ServicePolicy.TradeTimeoutSeconds)
                 {
                     FailActiveBatch(
                         "Internal worker trade timed out. Any incomplete outgoing AO trade is declined so offered items return to Central inventory.");
+                    return;
+                }
+                if (_outgoingOpened && DispatchClosedWithoutResult())
+                {
+                    FailActiveBatch("Dispatch trade closed without a terminal callback; checking physical cancellation.");
                     return;
                 }
                 if (_outgoingOpened)
@@ -1162,7 +1168,7 @@ namespace CityBankers
             RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
             _activeBatch = next;
             _activeWorkerIdentity = worker.Identity;
-            _activeBatchStartedUtc = DateTime.UtcNow;
+            _dispatchTradeAge.Restart();
             _outgoingOpened = false;
             _outgoingAwaitingOfferCount = 0;
             _outgoingRequestedSlots.Clear();
@@ -1185,6 +1191,13 @@ namespace CityBankers
         {
             if (_activeBatch == null || !Trade.IsTrading)
                 return;
+            if (!DispatchPeerReady("opened")) return;
+            if (Trade.TargetWindowCache?.Items == null) return;
+            if (Trade.TargetWindowCache.Items.Count != 0)
+            {
+                FailActiveBatch("Worker offered an unexpected reciprocal item during dispatch.");
+                return;
+            }
 
             List<Item> liveOffered = Trade.PlayerWindowCache?.Items ?? new List<Item>();
             List<TransferItemState> offered = SnapshotTradeItems(liveOffered);
@@ -1194,11 +1207,18 @@ namespace CityBankers
                 if (!_outgoingAccepted)
                 {
                     _outgoingAccepted = true;
+                    _localDispatchAcceptAge.Restart();
+                    PersistReceipt("local-offer-accepted");
                     Trade.Accept();
                 }
                 return;
             }
 
+            if (_outgoingAccepted)
+            {
+                FailActiveBatch("Central's offered manifest changed after acceptance; declining before confirmation.");
+                return;
+            }
             if (offered.Count >= (_activeBatch.Items?.Count ?? 0))
             {
                 FailActiveBatch(
@@ -1213,7 +1233,7 @@ namespace CityBankers
             {
                 if (_outgoingPendingSlotSet &&
                     _outgoingPendingAddAttempts < ServicePolicy.InternalAddItemMaxAttempts &&
-                    (DateTime.UtcNow - _outgoingLastAddUtc).TotalMilliseconds >=
+                    _outgoingAddAge.ElapsedMilliseconds >=
                     ServicePolicy.InternalAddItemRetryMilliseconds)
                 {
                     // AO can drop an AddItem request without changing the local window.
@@ -1221,7 +1241,7 @@ namespace CityBankers
                     // until the expected offered count acknowledges this occurrence.
                     Trade.AddItem(_outgoingPendingSlot);
                     _outgoingPendingAddAttempts++;
-                    _outgoingLastAddUtc = DateTime.UtcNow;
+                    _outgoingAddAge.Restart();
                     RuntimeStateStore.AppendActivity(
                         _settingsDir,
                         Client.CharacterName,
@@ -1269,7 +1289,7 @@ namespace CityBankers
             _outgoingPendingSlot = next.Slot;
             _outgoingPendingSlotSet = true;
             _outgoingPendingAddAttempts = 1;
-            _outgoingLastAddUtc = DateTime.UtcNow;
+            _outgoingAddAge.Restart();
         }
 
         private void FinishOutgoingDispatchTrade()
@@ -1308,7 +1328,7 @@ namespace CityBankers
             _outgoingPendingSlotSet = false;
             _outgoingPendingAddAttempts = 0;
             _outgoingAccepted = false;
-            _activeBatchStartedUtc = DateTime.UtcNow;
+            _dispatchTradeAge.Restart();
             // Sender custody is confirmed. Waiting for this worker's storage must not
             // occupy Central's trade slot or block another destination.
             _activeBatch = null;
@@ -1455,33 +1475,38 @@ namespace CityBankers
             _workerCommand = command;
             _reservedDispatch = null;
             PrepareReceipt("dispatch-receive", command.TransactionId, command.BatchId, command.Items, 1);
-            _workerTradeOpenedUtc = DateTime.UtcNow;
+            _workerTradeAge.Restart();
             _workerAccepted = false;
         }
 
         private void TickWorkerTrade()
         {
-            if (_isCentral || _workerCommand == null || _storageJob != null || !Trade.IsTrading)
+            if (_isCentral || _workerCommand == null || _storageJob != null)
                 return;
-            if ((DateTime.UtcNow - _workerTradeOpenedUtc).TotalSeconds >= ServicePolicy.TradeTimeoutSeconds)
+            if (DispatchClosedWithoutResult())
             {
-                TryDeclineTrade();
-                FailWorkerCommand("Timed out waiting for expected Central trade contents.");
+                FailWorkerCommand("Dispatch trade closed without a terminal callback; checking physical cancellation.");
                 return;
             }
-            if (_workerAccepted)
+            if (_workerTradeAge.Elapsed.TotalSeconds >= ServicePolicy.TradeTimeoutSeconds)
+            {
+                FailWorkerCommand("Timed out waiting for Central's attempt-bound offer acknowledgement.");
                 return;
+            }
+            if (!Trade.IsTrading || Trade.TargetWindowCache?.Items == null || Trade.PlayerWindowCache?.Items == null) return;
             List<TransferItemState> offered = SnapshotTradeItems(Trade.TargetWindowCache.Items);
-            if (offered.Count > (_workerCommand.Items?.Count ?? 0))
+            if (Trade.PlayerWindowCache.Items.Count != 0 || !IsManifestSubset(offered, _workerCommand.Items))
             {
-                TryDeclineTrade();
-                FailWorkerCommand("Central trade offered more items than its dispatch command.");
+                FailWorkerCommand("Dispatch trade windows contradict the prepared item manifest.");
                 return;
             }
-            if (!InternalOfferSettled(offered)) return;
-            if (!MatchesExpected(offered, _workerCommand.Items) || offered.Count == 0)
-                return;
+            if (_workerAccepted) return;
+            if (!InternalOfferSettled(offered) || !DispatchPeerReady("accepted")) return;
+            // An incomplete receiver cache is permitted only after live IPC
+            // confirms Central accepted its exact complete local offer.
             _workerAccepted = true;
+            _localDispatchAcceptAge.Restart();
+            PersistReceipt("local-offer-accepted");
             Trade.Accept();
         }
 

@@ -56,6 +56,9 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            // BankingService owns live attempt-bound IPC staging and acceptance.
+            // The old cache/accept-event fallback must not bypass those stages.
+            if (StartupCensusGate.UsesPhysicalRecovery) return;
             if (!ServicePolicy.IsBagAuditMode() && StartupCensusGate.Defer(() => Init(pluginDir)))
                 return;
 

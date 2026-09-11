@@ -50,7 +50,16 @@ namespace CityBankers
             if (!Trade.IsTrading || Trade.CurrentTarget != _pendingConfirmation)
             { _pendingConfirmation = Identity.None; return; }
             if (_confirmationWait.ElapsedMilliseconds < 500) return;
-            if ((_activeBatch != null && _outgoingAccepted) || _workerCommand != null ||
+            if (_activeBatch != null || _workerCommand != null)
+            {
+                if (_dispatchConfirmed) { _pendingConfirmation = Identity.None; return; }
+                if (_localDispatchAcceptAge.ElapsedMilliseconds < 500 ||
+                    !(_isCentral ? _outgoingAccepted : _workerAccepted) ||
+                    !DispatchWindowsConsistent(CurrentDispatchCommand()) || !DispatchPeerReady("accepted")) return;
+                PersistReceipt("both-accepted-confirming");
+                _dispatchConfirmed = true;
+            }
+            if ((_activeBatch != null && _outgoingAccepted) || (_workerCommand != null && _workerAccepted) ||
                 (_returnOffer != null && _returnAccepted))
             {
                 _pendingConfirmation = Identity.None;
@@ -107,6 +116,10 @@ namespace CityBankers
         {
             if (_receipt != null)
                 throw new InvalidOperationException("Unresolved custody evidence prevents another trade.");
+            _dispatchConfirmed = false;
+            _dispatchClosedAge = null;
+            _tradeStages.Clear();
+            _recordedTradeStages.Clear();
             _settledOffer = null;
             _settledInventory = null;
             _pendingConfirmation = Identity.None;
