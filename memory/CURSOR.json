@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 77,
-  "last_completed_session": 76,
-  "status": "in_progress",
+  "last_completed_session": 77,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-77-phatz-stock-pages",
-  "base_commit": "0817d739e43e7378b414cb2d32152d934b595d58",
-  "task": "Flat counted phatz stock and one blob page per message using existing channel limits",
-  "resume_instruction": "Implement flat phatz view and shared Manager blob page delivery. Preserve existing Org/Guest/Tell blob constants. Owner builds/tests. No policy/stock edits or CRU implementation. Next journal208."
+  "base_commit": "c2c247e119d007e3e556c6efa5ee1910de36b6a4",
+  "task": "Owner build and verify phatz flat stock plus separate blob pages in org/guest/tell",
+  "resume_instruction": "Session77 c2c247e119d007e3e556c6efa5ee1910de36b6a4 displays all phatz exact types with copy counts and sends shared Manager blob pages separately. Existing CityManager.Presentation.cs limits remain 5600 org/6500 guest/7200 tell. Owner build/live phatz and donor multi-page checks next. Session76 duplicate withdrawal live result remains pending. No policy aliases, CRU code, or live data edits. Next journal209; acquire transaction before edits; never repeat historical repair."
 }
