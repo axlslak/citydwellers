@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 63,
+  "current_session": 64,
   "last_completed_session": 63,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "01cb17285011718f23248c90b4129b511ef1212a",
-  "task": "Build and live-test the internal worker Accept latch repair",
-  "resume_instruction": "Pull master, clear old output, build Release, and restart all bankers. A fresh internal trade should let the worker consume Central's observed Accept event and complete. Existing artillery batch 801bf00d remains blocked because AOID 235524 has unresolved physical custody; do not mark it stored or discard it without an explicit recovery decision."
+  "transaction": "session-64-isolate-custody-hold",
+  "base_commit": "acc8a4b6aca169dfc6029c2a0b9a1b5087ccdbb3",
+  "task": "Quarantine an irreconcilable startup batch without freezing unrelated banker traffic",
+  "resume_instruction": "Startup batch 801bf00d has only 1/2 expected items on Central and currently makes HasUnresolvedDispatchWork reject every donation because it counts every queue row. Introduce an explicit non-dispatchable custody-hold state for incomplete startup custody, retain the batch and item evidence, and exclude only that state from the global donation gate."
 }
