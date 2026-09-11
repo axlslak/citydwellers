@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 76,
-  "last_completed_session": 75,
-  "status": "in_progress",
+  "last_completed_session": 76,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-76-identical-withdrawals",
-  "base_commit": "b07f305af659f8b927738161d9f8ac1181d58f0c",
-  "task": "Bind identical withdrawal arrivals to separate live Central occurrences and clarify extraction attempts",
-  "resume_instruction": "Implement verified receipt occurrence bindings, review duplicate pickup/cancellation and log first extraction attempt. Owner builds/live tests. No live data repair; next journal206."
+  "base_commit": "9c1d1294851f1039911bc18e5ed0b842d8565288",
+  "task": "Owner build and test two identical withdrawal copies",
+  "resume_instruction": "Session76 9c1d1294851f1039911bc18e5ed0b842d8565288 binds each verified arrival to a distinct live Item occurrence, verifies bound pickup offers, logs attempt1 and direct one-shot decline notices. Owner rebuild/live two-identical pickup and repeat donation cycle next; cancellation/reopen and expiry return still require live validation. HQ packet exception owner-confirmed harmless. No builds/tests or live data changes by assistant. Never repeat historical repair. Next journal207; acquire transaction before edits."
 }
