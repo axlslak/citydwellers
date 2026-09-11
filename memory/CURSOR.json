@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 69,
-  "last_completed_session": 68,
-  "status": "in_progress",
+  "last_completed_session": 69,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-69-census-handoff",
-  "base_commit": "f315d16786dd6b5779500f49f7331cfc8ca5051c",
-  "task": "Fix live census file-sharing contention and make operational handoff explicit",
-  "resume_instruction": "Session69 source fixes prepared: strict mutex-coordinated snapshot reads, gate-owned deferred initialization for original/replacement actors, local ready/handoff and queue count diagnostics. Log confirms nine-bank census release but no operational init; item routing not yet proven. Static review only. Publish checkpoint190 then seal COMMIT191 idle; owner rebuild/controlled run with new readiness/routing logs next. Stop requested not confirmed; historical repair must not repeat. Preserve journal historical truncation."
+  "base_commit": "b906906694f0bcc8e296ce53a0536f7ca0c9c9eb",
+  "task": "Owner rebuild and live census-to-routing verification",
+  "resume_instruction": "Session69 fixes published at b906906694f0bcc8e296ce53a0536f7ca0c9c9eb and sealed by COMMIT191. Strict census/readiness reads share atomic-writer mutex; initial/replacement actors start through gate-owned deferred queue. Look for BANKER READY, BANKING SERVICE initialized and queued routes after release. Owner build passed before these changes; this update has static review only. Central symbiant routing still unverified; if unchanged obtain item identity, current queue/cycle/ready records. Stop was requested, not confirmed. No assistant build/tests/live run; historical repair must not repeat. Next journal192; new transaction for further fixes. Preserve historical journal truncation."
 }
