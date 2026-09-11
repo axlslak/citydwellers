@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 65,
+  "current_session": 66,
   "last_completed_session": 65,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "7dd87f8165694590f5a573647bdb12074a01fdbe",
-  "task": "Build and live-test automatic recovery of old donation batch 801bf00d",
-  "resume_instruction": "Pull master, clear old output, build Release, and restart all bankers. Expect OLD DONATION RECOVERY for batch 801bf00d, with one Central item queued in a recovery child and one missing occurrence retained. The recovery child must dispatch to Kbarty and store successfully before a new donation is accepted."
+  "transaction": "session-66-bagaudit-expected-diff",
+  "base_commit": "31d849f2b4bcd865e7094c73abb65246c0c6e03a",
+  "task": "Make full bagaudit report every difference from persisted expected storage",
+  "resume_instruction": "Snapshot storage-state before audit, compare every live bag/item result against it, and emit exact missing/unexpected bags, missing/unexpected item locations, and per-template count deltas to both console summary and the combined audit dump. Do not alter the baseline. Session 65 runtime recovery remains validation-blocked."
 }
