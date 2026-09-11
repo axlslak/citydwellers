@@ -2,6 +2,11 @@
 
 ## Session 67 safety overhaul — in progress
 
+- The manual census now commands all nine bankers (including Central) and prints loose
+  bank/inventory observations in its durable report. Missing loose snapshots fail the run.
+  Central is explicitly observation-only because storage-state has no Central baseline.
+  This is census coverage, not yet automatic startup gating or verified trade custody.
+
 - Owner has stopped service. Do not deploy intermediate checkpoints as a safe runtime.
 - Foundation changes normalize audit inner slots and absent identities, capture loose
   inventory/bank items in audit JSON, and disable additional accounting/handshake/queue

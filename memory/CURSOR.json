@@ -5,7 +5,7 @@
   "status": "in_progress",
   "active_project": "citydwellers",
   "transaction": "session-67-physical-custody-safety",
-  "base_commit": "e84da3b38f24a011ff2786c54b141149ae9e3545",
+  "base_commit": "b6bee67ad9b1a78a32b8e07aafb1095db2445d75",
   "task": "Implement startup census and verified durable banker custody",
-  "resume_instruction": "Service is stopped by owner. Establish full census before operational writers; verify physical receipt rather than trade snapshots; preserve provenance and unresolved custody. No builds/live tests by assistant. Session 66 audit slot comparison needs low-16-bit normalization. Latest private archive is data-current.M9OrH1/data; never publish private data."
+  "resume_instruction": "Service remains stopped. Manual census now includes all nine bankers plus loose bank/inventory report; audit slots normalized. Next implement automatic startup and reconnect isolation before ANY operational writer, then durable physically verified transfers and provenance-safe availability. Do not deploy intermediate checkpoints. Owner owns builds/live tests."
 }

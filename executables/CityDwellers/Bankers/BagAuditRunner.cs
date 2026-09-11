@@ -187,9 +187,11 @@ internal static class BagAuditRunner
             }
 
             Console.WriteLine();
+            // Central also has a bank and may own bags; it is not just a login anchor.
+            workers.Insert(0, central);
             Console.WriteLine(
-                "Issuing one audit command to each storage worker. Each worker processes " +
-                $"its own bags serially while all {workers.Count} workers run in parallel.");
+                "Issuing one census command to every banker, including Central. " +
+                "Each banker reads its bags serially and reports loose inventory/bank items.");
 
             foreach (AuditRuntime worker in workers)
             {
@@ -275,11 +277,15 @@ internal static class BagAuditRunner
                 .Sum(w => w.Audit.NonEmptyCount);
             int fatalResults = workers.Count(w =>
                 w.Audit != null && !string.IsNullOrWhiteSpace(w.Audit.FatalError));
+            int incompleteLooseCensuses = workers.Count(w =>
+                w.Audit == null || w.Audit.LooseInventoryItems == null ||
+                w.Audit.LooseBankItems == null);
 
             Console.WriteLine();
             Console.WriteLine(
                 $"Result: {complete}/{workers.Count} worker results; audit failures={failures}; " +
                 $"bank-return failures={returnFailures}; fatalResults={fatalResults}; " +
+                $"incompleteLooseCensuses={incompleteLooseCensuses}; " +
                 $"non-empty bags={nonempty}.");
             Console.WriteLine($"Diagnostic dump created: {dumpPath}");
             Console.WriteLine(
@@ -301,7 +307,8 @@ internal static class BagAuditRunner
             if (complete != workers.Count ||
                 failures != 0 ||
                 returnFailures != 0 ||
-                fatalResults != 0)
+                fatalResults != 0 ||
+                incompleteLooseCensuses != 0)
             {
                 Environment.ExitCode = 1;
             }
@@ -582,6 +589,8 @@ internal static class BagAuditRunner
             text.AppendLine("ObservedUtc: " + result.ObservedUtc.ToString("O"));
             text.AppendLine("PlayfieldModelId: " + result.PlayfieldModelId);
             text.AppendLine("BankOpened: " + result.BankOpened);
+            AppendLooseCensus(text, "LOOSE_INVENTORY", result.LooseInventoryItems);
+            AppendLooseCensus(text, "LOOSE_BANK", result.LooseBankItems);
             text.AppendLine(
                 $"SUMMARY total={result.TotalBagCount} bank={result.BankBagCount} " +
                 $"inventory={result.InventoryBagCount} opened={result.OpenedCount} " +
@@ -686,6 +695,13 @@ internal static class BagAuditRunner
         int detailCountBeforeWorker = summary.Details.Count;
         text.AppendLine();
         text.AppendLine("  EXPECTED_STATE_COMPARISON");
+
+        if (string.Equals(runtime.Role, "central", StringComparison.OrdinalIgnoreCase))
+        {
+            text.AppendLine("    CENTRAL_OBSERVATION_ONLY: storage-state has no Central " +
+                "baseline. Bag and loose-item observations are evidence, not a custody verdict.");
+            return;
+        }
 
         StorageWorkerState expectedWorker = (expectedStorage?.Workers ??
             new List<StorageWorkerState>()).FirstOrDefault(worker =>
@@ -1040,6 +1056,23 @@ internal static class BagAuditRunner
         summary.Details.Add(value);
     }
 
+    private static void AppendLooseCensus(
+        StringBuilder text, string section, List<BagInnerItem> items)
+    {
+        if (items == null)
+        {
+            text.AppendLine(section + " UNVERIFIED: no item census supplied");
+            return;
+        }
+        text.AppendLine(section + " count=" + items.Count);
+        foreach (BagInnerItem item in items.OrderBy(value => value.SlotInstance))
+        {
+            text.AppendLine("  ITEM slot=" + item.Slot + " unique=" + item.UniqueIdentity +
+                " name=" + Quote(item.Name) + " lowId=" + item.LowId +
+                " highId=" + item.HighId + " ql=" + item.Ql);
+        }
+    }
+
     private static int DistinctUniqueIdentities(BagAuditResult result)
     {
         return result != null && result.Bags != null
@@ -1181,6 +1214,8 @@ internal static class BagAuditRunner
 
     private class BagAuditResult
     {
+        public List<BagInnerItem> LooseInventoryItems;
+        public List<BagInnerItem> LooseBankItems;
         public string RunId;
         public string Role;
         public string Character;
