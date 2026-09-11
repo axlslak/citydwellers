@@ -1,5 +1,16 @@
 # City Dwellers — Persistent Project State
 
+## Session 67 safety overhaul — in progress
+
+- Owner has stopped service. Do not deploy intermediate checkpoints as a safe runtime.
+- Foundation changes normalize audit inner slots and absent identities, capture loose
+  inventory/bank items in audit JSON, and disable additional accounting/handshake/queue
+  writers in manual audit mode.
+- Still required: full automatic census of all nine bankers before operational writers,
+  generation-bound readiness across reconnect, preserved expected/live comparisons,
+  physical receipt verification and durable custody transitions, and provenance-safe
+  availability reconciliation. No assistant-side compilation or live tests.
+
 Last continuity reconstruction: 2026-08-30
 
 ## 2026-09-11 — finish recoverable old donation first (session 65)

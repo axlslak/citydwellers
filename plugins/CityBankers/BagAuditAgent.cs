@@ -747,6 +747,15 @@ namespace CityBankers
                             !e.ReturnedToBank)
                         : 0,
                     FatalError = fatalError,
+                    // Bag contents alone are not a custody census. Preserve loose items
+                    // separately, including Central's ordinary trade inventory.
+                    LooseInventoryItems = Inventory.Items == null ? null : Inventory.Items
+                        .Where(item => item != null &&
+                            item.Slot.Type == IdentityType.Inventory && !IsBag(item))
+                        .Select(SnapshotInnerItem).ToList(),
+                    LooseBankItems = Inventory.Bank.Items == null ? null : Inventory.Bank.Items
+                        .Where(item => item != null && !IsBag(item))
+                        .Select(SnapshotInnerItem).ToList(),
                     Bags = _entries ?? new List<BagAuditEntry>()
                 };
 
@@ -838,6 +847,8 @@ namespace CityBankers
 
         public class BagAuditResult
         {
+            public List<BagInnerItem> LooseInventoryItems;
+            public List<BagInnerItem> LooseBankItems;
             public string RunId;
             public string Role;
             public string Character;

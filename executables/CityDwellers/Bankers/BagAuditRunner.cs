@@ -829,14 +829,15 @@ internal static class BagAuditRunner
                 expectedBag.Items ?? new List<StoredItemState>())
             {
                 int observedIndex = unmatchedObserved.FindIndex(item =>
-                    item != null && item.SlotInstance == expectedItem.InnerSlot &&
+                    item != null && (item.SlotInstance & 0xFFFF) ==
+                        (expectedItem.InnerSlot & 0xFFFF) &&
                     SameTemplate(expectedItem, item));
                 if (observedIndex >= 0)
                 {
                     BagInnerItem observedItem = unmatchedObserved[observedIndex];
                     if (!string.Equals(
-                            expectedItem.UniqueIdentity,
-                            observedItem.UniqueIdentity,
+                            IsUsableIdentity(expectedItem.UniqueIdentity) ? expectedItem.UniqueIdentity : null,
+                            IsUsableIdentity(observedItem.UniqueIdentity) ? observedItem.UniqueIdentity : null,
                             StringComparison.Ordinal))
                     {
                         summary.MetadataChanges++;
