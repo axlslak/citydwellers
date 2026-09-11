@@ -5,7 +5,7 @@
   "status": "in_progress",
   "active_project": "citydwellers",
   "transaction": "session-67-physical-custody-safety",
-  "base_commit": "22d4e992b426a4c9ef63f1bcb2696ca98541932c",
-  "task": "Finish historical incident policy and interrupted custody recovery; service stays stopped",
-  "resume_instruction": "Session 67 remains in progress. Owner confirmed 22d4e99 compiles. Latest candidate removes live log-driven accounting, reserves dispatch ledger IDs, and preserves stable stored occurrence matching. Latest revision not compiled. Historical incident archive/active queue disposition needs owner agreement; never fabricate delivery/deletion/loss. Automatic interrupted-custody reconciliation remains unfinished. No assistant-side build/live test. Keep service stopped."
+  "base_commit": "a1d3b3f1f8db5c60e22dea6e78a963c7ea81b238",
+  "task": "Replace global discrepancy shutdown with physical-ledger reconciliation, local recovery and paced IPC routing",
+  "resume_instruction": "Owner resumed work and superseded global holds: route known items by family regardless of provenance, alien/uncertain items to Central, missing claims to history without stopping unrelated services. Scrub 395 excess claims; four unmatched losses attributed to Kavey with original donor preserved. Implement coherent local recovery before removing gates. Owner builds/live tests; service currently stopped. Read newest PROJECT_STATE policy before prior safety notes."
 }

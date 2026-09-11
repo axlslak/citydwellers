@@ -2,6 +2,22 @@
 
 ## Session 67 safety overhaul — in progress
 
+### Owner revision: availability and automatic routing
+
+- This supersedes the session-67 global discrepancy shutdown design below.
+  The active ledger represents physical custody, including unknown-origin items.
+  Missing items leave availability and enter history/errors; unrelated work continues.
+- Recognized misplaced items go to their designated banker. Alien or unresolved
+  items go to Central for owner review, subject to physical movability and space.
+  No provenance gap should stop the shop, cloak or Buddies.
+- Owner authorized removal of 395 excess historical claims and recording the four
+  unmatched claims as lost with responsibility assigned to Kavey. Preserve original
+  donor attribution in history. The excess rows span multiple donor/baseline labels;
+  do not select them by donor name or invent a single source batch.
+- Implement paced, acknowledged IPC coordination and per-banker recovery. Do not
+  merely remove the existing global gate while stale transfer actors remain active.
+  Service is still stopped for implementation; no restart clearance has been given.
+
 - Owner confirmed candidate 22d4e99 compiles; service remains stopped.
 - New accounting candidate commits donation/dispatch/verified-overcap accounting
   directly instead of replaying diagnostic logs. Dispatch journals reserve ledger
