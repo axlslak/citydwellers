@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 62,
+  "current_session": 63,
   "last_completed_session": 62,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
-  "base_commit": "083790ef6ee802045b5ec6a8ecf14e6dbd8c4fa8",
-  "task": "Owner build and live internal banker-trade retry validation",
-  "resume_instruction": "Pull master and build Release. Retry a donation that routes at least two items to one worker. If AO drops an AddItem acknowledgement, Central may log INTERNAL TRADE resent pending AddItem and the batch should complete; report any STORAGE FAILURE, Dispatch failure, or Worker trade failure text now included in the Manager log."
+  "transaction": "session-63-worker-accept-latch",
+  "base_commit": "278edf9df54907df6b4a8a9260cd53a1511115e2",
+  "task": "Latch Central Accept events for the internal worker fallback",
+  "resume_instruction": "The worker logs observe remote TradeStatus.Accept, but TickWorkerFallback polls Trade.Status and never accepts. Latch the matching event and retain all command, cache, AO Finished, and physical-placement checks."
 }
