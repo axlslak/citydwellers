@@ -50,6 +50,9 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            if (ServicePolicy.IsBagAuditMode())
+                return;
+
             string error;
             if (!SettingsPaths.TryEnsureDirectory(out _settingsDir, out error))
                 throw new InvalidOperationException(error);

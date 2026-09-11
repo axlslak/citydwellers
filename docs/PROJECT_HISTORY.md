@@ -1690,3 +1690,18 @@ and repeated donation timing validation.
   the original evidence and affected-worker isolation while allowing unrelated
   donations, dispatch, and withdrawals to proceed.
 - No item was marked stored or removed from the custody record.
+
+# Session 66 — full bagaudit difference report (2026-09-11)
+
+- The supplied incident archive did not contain a post-incident full open/read
+  audit of every Artillery bag. Startup layout and write-front readiness were
+  therefore insufficient to establish whether the disputed item was stored.
+- Enhanced the manual full audit to compare the complete pre-run persisted
+  storage snapshot with every live result and print exact, reusable
+  differences rather than merely recording a new observed state.
+- Added explicit audit-mode stops to operational agents that could move items,
+  reconcile storage, recover queue work, or seed the audit result into live
+  state while evidence is being collected.
+- Session 65's speculative old-donation recovery is not validated by the
+  available physical evidence and remains blocked pending this audit.
+- No assistant-side compilation or live AO test was run; Kavey owns both.

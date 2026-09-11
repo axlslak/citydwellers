@@ -28,6 +28,11 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            // Audit output is evidence. It must not replace live operational state merely
+            // because the full plugin is loaded by the audit runner.
+            if (ServicePolicy.IsBagAuditMode())
+                return;
+
             string error;
             if (!SettingsPaths.TryEnsureDirectory(out _settingsDir, out error))
                 throw new InvalidOperationException(error);

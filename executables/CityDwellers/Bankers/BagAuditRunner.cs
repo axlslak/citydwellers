@@ -84,6 +84,11 @@ internal static class BagAuditRunner
             .MinimumLevel.Debug()
             .CreateLogger();
 
+        // The audit is observational. Capture the expected state before any client is
+        // started so the report can explain every live difference without replacing the
+        // baseline that it is comparing against.
+        StorageState expectedStorage = RuntimeStateStore.LoadStorageState(settingsDir);
+
         string runId =
             DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) +
             "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
@@ -224,7 +229,13 @@ internal static class BagAuditRunner
                 }
             }
 
-            string dumpPath = WriteCombinedDump(baseDir, runId, workers);
+            AuditDifferenceSummary differences;
+            string dumpPath = WriteCombinedDump(
+                baseDir,
+                runId,
+                workers,
+                expectedStorage,
+                out differences);
 
             Console.WriteLine();
             Console.WriteLine("======================================");
@@ -271,6 +282,18 @@ internal static class BagAuditRunner
                 $"bank-return failures={returnFailures}; fatalResults={fatalResults}; " +
                 $"non-empty bags={nonempty}.");
             Console.WriteLine($"Diagnostic dump created: {dumpPath}");
+            Console.WriteLine(
+                $"Expected-state differences: incompleteWorkers={differences.IncompleteWorkers}; " +
+                $"missingBags={differences.MissingBags}; " +
+                $"unexpectedBags={differences.UnexpectedBags}; " +
+                $"unverifiedBags={differences.UnverifiedBags}; " +
+                $"unverifiedItems={differences.UnverifiedItems}; " +
+                $"missingItems={differences.MissingItems}; " +
+                $"unexpectedItems={differences.UnexpectedItems}; " +
+                $"metadataChanges={differences.MetadataChanges}; " +
+                $"templateCountChanges={differences.TemplateCountChanges}.");
+            foreach (string detail in differences.Details)
+                Console.WriteLine("  DIFF " + detail);
             Console.WriteLine(
                 "Run CityDwellers.exe bankers-bagaudit again after a clean relog, without manually " +
                 "rearranging bags, to create the identity-stability comparison dump.");
@@ -486,7 +509,9 @@ internal static class BagAuditRunner
     private static string WriteCombinedDump(
         string baseDir,
         string runId,
-        List<AuditRuntime> workers)
+        List<AuditRuntime> workers,
+        StorageState expectedStorage,
+        out AuditDifferenceSummary differences)
     {
         string directory = Path.Combine(baseDir, "diagnostic-dumps");
         Directory.CreateDirectory(directory);
@@ -507,9 +532,14 @@ internal static class BagAuditRunner
             "or renamed.");
         text.AppendLine("WorkerCount: " + workers.Count);
         text.AppendLine(
+            "ExpectedBaseline: " +
+            (expectedStorage?.BaselineRunId ?? "<missing storage-state>"));
+        text.AppendLine(
             "ComparisonHint: compare UNIQUE identities across runs. For bank bags also compare " +
             "OUTER_ORIGINAL and RETURNED_BANK to see whether physical position survives staging/relog.");
         text.AppendLine();
+
+        differences = new AuditDifferenceSummary();
 
         foreach (AuditRuntime worker in workers)
         {
@@ -523,6 +553,12 @@ internal static class BagAuditRunner
                 text.AppendLine("RESULT: MISSING");
                 if (!string.IsNullOrWhiteSpace(worker.ReadError))
                     text.AppendLine("READ_ERROR: " + SingleLine(worker.ReadError));
+                differences.IncompleteWorkers++;
+                AddDifference(
+                    text,
+                    differences,
+                    "AUDIT_RESULT_MISSING role=" + worker.Role + " character=" +
+                    worker.Character + " parseError=" + Quote(worker.ReadError));
                 text.AppendLine();
                 continue;
             }
@@ -611,11 +647,396 @@ internal static class BagAuditRunner
                 }
             }
 
+            AppendExpectedStateComparison(
+                text,
+                worker,
+                expectedStorage,
+                differences);
+
             text.AppendLine();
         }
 
+        text.AppendLine(new string('=', 78));
+        text.AppendLine("EXPECTED-STATE DIFFERENCE TOTALS");
+        text.AppendLine(new string('=', 78));
+        text.AppendLine(
+            $"missingBags={differences.MissingBags} " +
+            $"unexpectedBags={differences.UnexpectedBags} " +
+            $"unverifiedBags={differences.UnverifiedBags} " +
+            $"unverifiedItems={differences.UnverifiedItems} " +
+            $"incompleteWorkers={differences.IncompleteWorkers} " +
+            $"missingItems={differences.MissingItems} " +
+            $"unexpectedItems={differences.UnexpectedItems} " +
+            $"metadataChanges={differences.MetadataChanges} " +
+            $"templateCountChanges={differences.TemplateCountChanges}");
+        text.AppendLine(
+            "BaselineMutation: NONE. This report compared the pre-run storage-state " +
+            "snapshot with live audit results and did not replace it.");
+
         File.WriteAllText(path, text.ToString());
         return Path.GetFullPath(path);
+    }
+
+    private static void AppendExpectedStateComparison(
+        StringBuilder text,
+        AuditRuntime runtime,
+        StorageState expectedStorage,
+        AuditDifferenceSummary summary)
+    {
+        int detailCountBeforeWorker = summary.Details.Count;
+        text.AppendLine();
+        text.AppendLine("  EXPECTED_STATE_COMPARISON");
+
+        StorageWorkerState expectedWorker = (expectedStorage?.Workers ??
+            new List<StorageWorkerState>()).FirstOrDefault(worker =>
+                worker != null &&
+                string.Equals(worker.Role, runtime.Role, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(
+                    worker.Character,
+                    runtime.Character,
+                    StringComparison.OrdinalIgnoreCase));
+        if (expectedWorker == null)
+        {
+            AddDifference(
+                text,
+                summary,
+                "EXPECTED_WORKER_MISSING role=" + runtime.Role +
+                " character=" + runtime.Character);
+            return;
+        }
+
+        List<StorageBagState> unmatchedExpected =
+            new List<StorageBagState>(expectedWorker.Bags ?? new List<StorageBagState>());
+        var observedItems = new List<ObservedAuditItem>();
+        var expectedItems = new List<ExpectedAuditItem>();
+        bool completeContentComparison = true;
+
+        foreach (StorageBagState expectedBag in unmatchedExpected)
+        {
+            foreach (StoredItemState item in expectedBag?.Items ?? new List<StoredItemState>())
+            {
+                if (item != null)
+                    expectedItems.Add(new ExpectedAuditItem(expectedBag, item));
+            }
+        }
+
+        foreach (BagAuditEntry observedBag in runtime.Audit?.Bags ??
+            new List<BagAuditEntry>())
+        {
+            int expectedBagIndex = FindExpectedBagIndex(unmatchedExpected, observedBag);
+            if (expectedBagIndex < 0)
+            {
+                summary.UnexpectedBags++;
+                AddDifference(
+                    text,
+                    summary,
+                    "UNEXPECTED_BAG role=" + runtime.Role + " character=" +
+                    runtime.Character + " live=" + AuditBagLabel(observedBag));
+                if (!observedBag.Opened)
+                {
+                    summary.UnverifiedBags++;
+                    completeContentComparison = false;
+                    continue;
+                }
+                foreach (BagInnerItem item in observedBag.Items ?? new List<BagInnerItem>())
+                {
+                    observedItems.Add(new ObservedAuditItem(observedBag, item));
+                    summary.UnexpectedItems++;
+                    AddDifference(
+                        text,
+                        summary,
+                        "UNEXPECTED_ITEM role=" + runtime.Role + " character=" +
+                        runtime.Character + " live=" + AuditItemLabel(observedBag, item));
+                }
+                continue;
+            }
+
+            StorageBagState expectedBag = unmatchedExpected[expectedBagIndex];
+            unmatchedExpected.RemoveAt(expectedBagIndex);
+
+            if (!string.Equals(
+                    expectedBag.Source,
+                    observedBag.Source,
+                    StringComparison.OrdinalIgnoreCase) ||
+                expectedBag.OuterSlotInstance != observedBag.OuterSlotInstance)
+            {
+                summary.MetadataChanges++;
+                AddDifference(
+                    text,
+                    summary,
+                    "BAG_LOCATION_CHANGED role=" + runtime.Role + " character=" +
+                    runtime.Character + " expected=" + StorageBagLabel(expectedBag) +
+                    " live=" + AuditBagLabel(observedBag));
+            }
+            if (!string.Equals(
+                    expectedBag.LastUniqueIdentity,
+                    observedBag.UniqueIdentity,
+                    StringComparison.Ordinal))
+            {
+                summary.MetadataChanges++;
+                AddDifference(
+                    text,
+                    summary,
+                    "BAG_IDENTITY_CHANGED role=" + runtime.Role + " character=" +
+                    runtime.Character + " expected=" + StorageBagLabel(expectedBag) +
+                    " live=" + AuditBagLabel(observedBag));
+            }
+            if (!observedBag.Opened)
+            {
+                summary.UnverifiedBags++;
+                completeContentComparison = false;
+                AddDifference(
+                    text,
+                    summary,
+                    "UNVERIFIED_BAG role=" + runtime.Role + " character=" +
+                    runtime.Character + " expected=" + StorageBagLabel(expectedBag) +
+                    " live=" + AuditBagLabel(observedBag) + " error=" +
+                    Quote(observedBag.Error));
+                foreach (StoredItemState item in
+                    expectedBag.Items ?? new List<StoredItemState>())
+                {
+                    summary.UnverifiedItems++;
+                    AddDifference(
+                        text,
+                        summary,
+                        "EXPECTED_ITEM_UNVERIFIED role=" + runtime.Role +
+                        " character=" + runtime.Character +
+                        " reason=bag-open-failed expected=" +
+                        StorageItemLabel(expectedBag, item));
+                }
+                continue;
+            }
+
+            int observedCapacity = observedBag.ItemCount + observedBag.FreeSlots;
+            if (expectedBag.Capacity != observedCapacity)
+            {
+                summary.MetadataChanges++;
+                AddDifference(
+                    text,
+                    summary,
+                    "BAG_CAPACITY_CHANGED role=" + runtime.Role + " character=" +
+                    runtime.Character + " expected=" + expectedBag.Capacity +
+                    " observed=" + observedCapacity + " bag=" +
+                    AuditBagLabel(observedBag));
+            }
+
+            List<BagInnerItem> unmatchedObserved =
+                new List<BagInnerItem>(observedBag.Items ?? new List<BagInnerItem>());
+            foreach (BagInnerItem item in unmatchedObserved)
+                observedItems.Add(new ObservedAuditItem(observedBag, item));
+
+            foreach (StoredItemState expectedItem in
+                expectedBag.Items ?? new List<StoredItemState>())
+            {
+                int observedIndex = unmatchedObserved.FindIndex(item =>
+                    item != null && item.SlotInstance == expectedItem.InnerSlot &&
+                    SameTemplate(expectedItem, item));
+                if (observedIndex >= 0)
+                {
+                    BagInnerItem observedItem = unmatchedObserved[observedIndex];
+                    if (!string.Equals(
+                            expectedItem.UniqueIdentity,
+                            observedItem.UniqueIdentity,
+                            StringComparison.Ordinal))
+                    {
+                        summary.MetadataChanges++;
+                        AddDifference(
+                            text,
+                            summary,
+                            "ITEM_IDENTITY_CHANGED role=" + runtime.Role +
+                            " character=" + runtime.Character + " expected=" +
+                            StorageItemLabel(expectedBag, expectedItem) + " live=" +
+                            AuditItemLabel(observedBag, observedItem));
+                    }
+                    if (!string.Equals(
+                            expectedItem.Name,
+                            observedItem.Name,
+                            StringComparison.Ordinal))
+                    {
+                        summary.MetadataChanges++;
+                        AddDifference(
+                            text,
+                            summary,
+                            "ITEM_NAME_CHANGED role=" + runtime.Role +
+                            " character=" + runtime.Character + " expected=" +
+                            StorageItemLabel(expectedBag, expectedItem) + " live=" +
+                            AuditItemLabel(observedBag, observedItem));
+                    }
+                    unmatchedObserved.RemoveAt(observedIndex);
+                    continue;
+                }
+
+                summary.MissingItems++;
+                AddDifference(
+                    text,
+                    summary,
+                    "EXPECTED_ITEM_MISSING role=" + runtime.Role + " character=" +
+                    runtime.Character + " expected=" +
+                    StorageItemLabel(expectedBag, expectedItem));
+            }
+
+            foreach (BagInnerItem unexpected in unmatchedObserved)
+            {
+                summary.UnexpectedItems++;
+                AddDifference(
+                    text,
+                    summary,
+                    "UNEXPECTED_ITEM role=" + runtime.Role + " character=" +
+                    runtime.Character + " live=" +
+                    AuditItemLabel(observedBag, unexpected));
+            }
+        }
+
+        foreach (StorageBagState missingBag in unmatchedExpected)
+        {
+            summary.MissingBags++;
+            completeContentComparison = false;
+            AddDifference(
+                text,
+                summary,
+                "EXPECTED_BAG_MISSING role=" + runtime.Role + " character=" +
+                runtime.Character + " expected=" + StorageBagLabel(missingBag) +
+                " expectedItems=" + (missingBag?.Items?.Count ?? 0));
+            foreach (StoredItemState item in missingBag?.Items ?? new List<StoredItemState>())
+            {
+                summary.UnverifiedItems++;
+                AddDifference(
+                    text,
+                    summary,
+                    "EXPECTED_ITEM_UNVERIFIED role=" + runtime.Role + " character=" +
+                    runtime.Character + " reason=expected-bag-missing expected=" +
+                    StorageItemLabel(missingBag, item));
+            }
+        }
+
+        Dictionary<string, int> expectedCounts = expectedItems
+            .GroupBy(item => TemplateKey(item.Item.AoId, item.Item.HighId, item.Item.Ql))
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        Dictionary<string, int> observedCounts = observedItems
+            .GroupBy(item => TemplateKey(item.Item.LowId, item.Item.HighId, item.Item.Ql))
+            .ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        foreach (string key in expectedCounts.Keys.Union(observedCounts.Keys)
+            .OrderBy(value => value, StringComparer.Ordinal))
+        {
+            int expectedCount;
+            int observedCount;
+            expectedCounts.TryGetValue(key, out expectedCount);
+            observedCounts.TryGetValue(key, out observedCount);
+            if (expectedCount == observedCount)
+                continue;
+
+            summary.TemplateCountChanges++;
+            string name = expectedItems
+                .Where(item => TemplateKey(
+                    item.Item.AoId,
+                    item.Item.HighId,
+                    item.Item.Ql) == key)
+                .Select(item => item.Item.Name)
+                .Concat(observedItems
+                    .Where(item => TemplateKey(
+                        item.Item.LowId,
+                        item.Item.HighId,
+                        item.Item.Ql) == key)
+                    .Select(item => item.Item.Name))
+                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+            AddDifference(
+                text,
+                summary,
+                "TEMPLATE_COUNT role=" + runtime.Role + " character=" +
+                runtime.Character + " template=" + key + " name=" + Quote(name) +
+                " expected=" + expectedCount + " observed=" + observedCount +
+                " delta=" + (observedCount - expectedCount) +
+                " comparisonComplete=" + completeContentComparison);
+        }
+
+        if (summary.Details.Count == detailCountBeforeWorker)
+            text.AppendLine("    NO_DIFFERENCES");
+    }
+
+    private static int FindExpectedBagIndex(
+        List<StorageBagState> expectedBags,
+        BagAuditEntry observed)
+    {
+        if (expectedBags == null || observed == null)
+            return -1;
+
+        if (IsUsableIdentity(observed.UniqueIdentity))
+        {
+            int identityIndex = expectedBags.FindIndex(bag =>
+                bag != null && IsUsableIdentity(bag.LastUniqueIdentity) &&
+                string.Equals(
+                    bag.LastUniqueIdentity,
+                    observed.UniqueIdentity,
+                    StringComparison.Ordinal));
+            if (identityIndex >= 0)
+                return identityIndex;
+        }
+
+        return expectedBags.FindIndex(bag =>
+            bag != null && string.Equals(
+                bag.Source,
+                observed.Source,
+                StringComparison.OrdinalIgnoreCase) &&
+            bag.OuterSlotInstance == observed.OuterSlotInstance);
+    }
+
+    private static bool SameTemplate(StoredItemState expected, BagInnerItem observed)
+    {
+        return expected != null && observed != null &&
+            expected.AoId == observed.LowId && expected.HighId == observed.HighId &&
+            expected.Ql == observed.Ql;
+    }
+
+    private static string TemplateKey(int lowId, int highId, int ql)
+    {
+        return lowId + "/" + highId + "/" + ql;
+    }
+
+    private static bool IsUsableIdentity(string value)
+    {
+        return !string.IsNullOrWhiteSpace(value) &&
+            !string.Equals(value, "(None:0000)", StringComparison.Ordinal) &&
+            !string.Equals(value, "None:0000", StringComparison.Ordinal);
+    }
+
+    private static string StorageBagLabel(StorageBagState bag)
+    {
+        return (bag?.Source ?? "?") + ":" + (bag?.OuterSlotInstance ?? -1) +
+            " uid=" + (bag?.LastUniqueIdentity ?? "<none>");
+    }
+
+    private static string AuditBagLabel(BagAuditEntry bag)
+    {
+        return (bag?.Source ?? "?") + ":" + (bag?.OuterSlotInstance ?? -1) +
+            " uid=" + (bag?.UniqueIdentity ?? "<none>") +
+            " opened=" + (bag?.Opened ?? false);
+    }
+
+    private static string StorageItemLabel(StorageBagState bag, StoredItemState item)
+    {
+        return StorageBagLabel(bag) + "/inner:" + (item?.InnerSlot ?? -1) +
+            " uid=" + (item?.UniqueIdentity ?? "<none>") + " name=" +
+            Quote(item?.Name) + " aoid=" + (item?.AoId ?? 0) + " highId=" +
+            (item?.HighId ?? 0) + " ql=" + (item?.Ql ?? 0) + " transaction=" +
+            (item?.TransactionId ?? "<none>");
+    }
+
+    private static string AuditItemLabel(BagAuditEntry bag, BagInnerItem item)
+    {
+        return AuditBagLabel(bag) + "/inner:" + (item?.SlotInstance ?? -1) +
+            " uid=" + (item?.UniqueIdentity ?? "<none>") + " name=" +
+            Quote(item?.Name) + " aoid=" + (item?.LowId ?? 0) + " highId=" +
+            (item?.HighId ?? 0) + " ql=" + (item?.Ql ?? 0);
+    }
+
+    private static void AddDifference(
+        StringBuilder text,
+        AuditDifferenceSummary summary,
+        string detail)
+    {
+        string value = detail ?? string.Empty;
+        text.AppendLine("    " + value);
+        summary.Details.Add(value);
     }
 
     private static int DistinctUniqueIdentities(BagAuditResult result)
@@ -709,6 +1130,44 @@ internal static class BagAuditRunner
         public bool Started;
         public BagAuditResult Audit;
         public string ReadError;
+    }
+
+    private sealed class AuditDifferenceSummary
+    {
+        public int IncompleteWorkers;
+        public int MissingBags;
+        public int UnexpectedBags;
+        public int UnverifiedBags;
+        public int UnverifiedItems;
+        public int MissingItems;
+        public int UnexpectedItems;
+        public int MetadataChanges;
+        public int TemplateCountChanges;
+        public readonly List<string> Details = new List<string>();
+    }
+
+    private sealed class ExpectedAuditItem
+    {
+        public ExpectedAuditItem(StorageBagState bag, StoredItemState item)
+        {
+            Bag = bag;
+            Item = item;
+        }
+
+        public StorageBagState Bag;
+        public StoredItemState Item;
+    }
+
+    private sealed class ObservedAuditItem
+    {
+        public ObservedAuditItem(BagAuditEntry bag, BagInnerItem item)
+        {
+            Bag = bag;
+            Item = item;
+        }
+
+        public BagAuditEntry Bag;
+        public BagInnerItem Item;
     }
 
     private class BagAuditCommand

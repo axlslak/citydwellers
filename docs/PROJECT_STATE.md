@@ -1461,3 +1461,24 @@ resilience and restart change:
   to the Manager channel.
 - `[INVARIANT]` Failures, exceptional recovery/reconciliation notices,
   explicit command replies, and donor-facing trade messages remain visible.
+
+## Full storage audit expected-state comparison (2026-09-11)
+
+- `[IMPLEMENTED]` `CityDwellers.exe bankers-bagaudit` snapshots the existing
+  `storage-state.json` before any banker starts, then compares every audited
+  worker, bag, slot, and item against that snapshot.
+- `[IMPLEMENTED]` The console and durable combined dump report every missing,
+  unexpected, or unreadable bag/item; bag location and identity changes; item
+  identity/name changes; capacity changes; and per-template count deltas.
+  Incomplete comparisons are explicitly labelled and never presented as proof
+  of absence.
+- `[INVARIANT]` The comparison has no item-specific special cases. It applies
+  to the complete persisted storage model and complete live audit result.
+- `[INVARIANT]` Normal layout repair, write-front reconciliation, storage,
+  enrollment, failed-batch recovery, and baseline seeding are disabled in
+  bagaudit mode. Audit evidence cannot replace operational storage state.
+- `[DO-NOT-USE]` Session 65's custody partition/recovery remains
+  validation-blocked. Do not run normal service recovery from that revision
+  until the physical audit evidence is reviewed.
+- `[OPEN]` Kavey owns the Release build and full live bagaudit. Return the
+  generated `diagnostic-dumps/citybankers-bagaudit-*.log` for interpretation.

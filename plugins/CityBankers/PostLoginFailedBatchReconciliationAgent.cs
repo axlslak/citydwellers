@@ -51,6 +51,11 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            // A physical bag audit must observe the incident state without dispatch or
+            // failed-batch recovery moving any of the items under investigation.
+            if (ServicePolicy.IsBagAuditMode())
+                return;
+
             string error;
             if (!SettingsPaths.TryEnsureDirectory(out _settingsDir, out error))
                 throw new InvalidOperationException(error);
