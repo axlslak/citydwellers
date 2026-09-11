@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 69,
+  "current_session": 70,
   "last_completed_session": 69,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-69-census-handoff",
-  "base_commit": "b906906694f0bcc8e296ce53a0536f7ca0c9c9eb",
-  "task": "Owner rebuild and live census-to-routing verification",
-  "resume_instruction": "Session69 fixes published at b906906694f0bcc8e296ce53a0536f7ca0c9c9eb and sealed by COMMIT191. Strict census/readiness reads share atomic-writer mutex; initial/replacement actors start through gate-owned deferred queue. Look for BANKER READY, BANKING SERVICE initialized and queued routes after release. Owner build passed before these changes; this update has static review only. Central symbiant routing still unverified; if unchanged obtain item identity, current queue/cycle/ready records. Stop was requested, not confirmed. No assistant build/tests/live run; historical repair must not repeat. Next journal192; new transaction for further fixes. Preserve historical journal truncation."
+  "transaction": "session-70-banking-init",
+  "base_commit": "15931ec9e0bddaa67d543264c25203c6ef486fc4",
+  "task": "Expose banking initialization failure and require operational readiness",
+  "resume_instruction": "Publish BEGIN192 before code. Add non-inlined guarded startup, operational marker and readiness checks; static review only; owner builds/tests. Preserve journal bytes; no live data repair."
 }
