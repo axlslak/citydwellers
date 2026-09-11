@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 70,
+  "current_session": 71,
   "last_completed_session": 70,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-70-banking-init",
-  "base_commit": "e6e59c887ef4fbaff3dafdc4e102acef179840c0",
-  "task": "Owner rebuild and capture banking startup stages or full initialization exception",
-  "resume_instruction": "Session70 startup diagnostics and operational readiness published at e6e59c887ef4fbaff3dafdc4e102acef179840c0. Owner must rebuild and return BANKING SERVICE startup registered/entering/initialized or initialization failed exception. Original stall root cause still unknown; no assistant build/tests/live run. Shared readiness now requires actor heartbeat for current released cycle/connection, not just census. Historical repair already applied; do not repeat. Next journal195; acquire new transaction before further changes. Preserve journal history bytes."
+  "transaction": "session-71-prelogin-readiness",
+  "base_commit": "b5627672c0e7613388430253ae07290f02b1edb2",
+  "task": "Keep pre-login banking startup deferred when Client.InPlay has no network session",
+  "resume_instruction": "Publish BEGIN195, move IsOpen pre-login check inside fail-closed exception boundary, static review and publish/seal. Owner builds/live tests; no live data repair."
 }
