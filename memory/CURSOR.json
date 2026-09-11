@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 75,
+  "current_session": 76,
   "last_completed_session": 75,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-75-withdrawal-notices",
-  "base_commit": "882ccd00aa1a370447c4eadeb92f3a001bfd3bef",
-  "task": "Owner rebuild and verify withdrawal journey dev logs and direct ready tell",
-  "resume_instruction": "Session75 882ccd00aa1a370447c4eadeb92f3a001bfd3bef adds extraction/transfer opening/verified arrival/ready dev milestones and sends readiness through TellDirectPlayer(RequestedBy), including bootstrap admin. Owner confirms actual pickup succeeded after Session74. Verify direct tell/dev journey after rebuild; separate expiry return still unverified. Static review only, no assistant builds/tests/live data changes. Next journal205; acquire transaction before edits; no historical repair repeat."
+  "transaction": "session-76-identical-withdrawals",
+  "base_commit": "b07f305af659f8b927738161d9f8ac1181d58f0c",
+  "task": "Bind identical withdrawal arrivals to separate live Central occurrences and clarify extraction attempts",
+  "resume_instruction": "Implement verified receipt occurrence bindings, review duplicate pickup/cancellation and log first extraction attempt. Owner builds/live tests. No live data repair; next journal206."
 }
