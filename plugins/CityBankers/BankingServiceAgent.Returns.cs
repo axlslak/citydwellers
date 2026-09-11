@@ -175,7 +175,8 @@ namespace CityBankers
                 var item = FindReturnSourceItem();
                 var central = DynelManager.Players.FirstOrDefault(p => p != null &&
                     string.Equals(p.Name, _centralCharacter, StringComparison.OrdinalIgnoreCase));
-                if (response != "ready:" + _returnOffer.Id || item == null || central == null || CensusReservedHere())
+                if (response != "ready:" + _returnOffer.Id || _returnPhase.ElapsedMilliseconds >= 1500 ||
+                    item == null || central == null || CensusReservedHere())
                 { ResetReturn(); return false; }
                 _returnPartner = central.Identity;
                 PrepareReceipt("recovery-return-send", _returnOffer.TransactionId, _returnOffer.Id,
@@ -195,15 +196,22 @@ namespace CityBankers
                 ResetReturn();
                 return true;
             }
-            if (!Trade.IsTrading || Trade.CurrentTarget != _returnPartner) return true;
+            if (!Trade.IsTrading)
+            {
+                if (DispatchClosedWithoutResult()) { VerifyCancelledReceipt(); ResetReturn(); }
+                return true;
+            }
+            if (Trade.CurrentTarget != _returnPartner || !DispatchPeerReady("opened")) return true;
             var offered = SnapshotTradeItems(_isCentral ? Trade.TargetWindowCache?.Items : Trade.PlayerWindowCache?.Items);
             if (!InternalOfferSettled(offered)) return true;
-            if (offered.Count == 1 && CustodyKey(offered[0]) == CustodyKey(_returnOffer.Item))
+            if (DispatchWindowsConsistent(CurrentInternalCommand()) &&
+                (_isCentral ? DispatchPeerReady("accepted") :
+                    offered.Count == 1 && CustodyKey(offered[0]) == CustodyKey(_returnOffer.Item)))
             {
                 // Neither return side may give an unexpected reciprocal item.
                 var reciprocal = _isCentral ? Trade.PlayerWindowCache?.Items : Trade.TargetWindowCache?.Items;
                 if (reciprocal == null || reciprocal.Count != 0) return true;
-                if (!_returnAccepted) { _returnAccepted = true; Trade.Accept(); }
+                if (!_returnAccepted) { _returnAccepted = true; _localDispatchAcceptAge.Restart(); Trade.Accept(); }
                 return true;
             }
             if (!_isCentral && offered.Count == 0 && _returnAddAttempts < ServicePolicy.InternalAddItemMaxAttempts &&
@@ -230,6 +238,7 @@ namespace CityBankers
             { Trade.Decline(); return true; }
             _returnPartner = target;
             _returnOpened = true;
+            _internalOpenedAge.Restart();
             _returnPhase.Restart();
             if (_isCentral)
             {

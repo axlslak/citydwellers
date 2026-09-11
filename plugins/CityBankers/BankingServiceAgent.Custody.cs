@@ -50,21 +50,19 @@ namespace CityBankers
             if (!Trade.IsTrading || Trade.CurrentTarget != _pendingConfirmation)
             { _pendingConfirmation = Identity.None; return; }
             if (_confirmationWait.ElapsedMilliseconds < 500) return;
-            if (_activeBatch != null || _workerCommand != null)
+            if (_dispatchConfirmed) { _pendingConfirmation = Identity.None; return; }
+            if (_localDispatchAcceptAge.ElapsedMilliseconds < 500 || !LocalInternalAccepted()) return;
+            if (_withdrawalPickupTrade)
             {
-                if (_dispatchConfirmed) { _pendingConfirmation = Identity.None; return; }
-                if (_localDispatchAcceptAge.ElapsedMilliseconds < 500 ||
-                    !(_isCentral ? _outgoingAccepted : _workerAccepted) ||
-                    !DispatchWindowsConsistent(CurrentDispatchCommand()) || !DispatchPeerReady("accepted")) return;
-                PersistReceipt("both-accepted-confirming");
-                _dispatchConfirmed = true;
+                if (Trade.TargetWindowCache?.Items == null || Trade.TargetWindowCache.Items.Count != 0 ||
+                    Trade.PlayerWindowCache?.Items == null ||
+                    !SameManifest(SnapshotTradeItems(Trade.PlayerWindowCache.Items), _pickupItems.Select(r => r.Item))) return;
             }
-            if ((_activeBatch != null && _outgoingAccepted) || (_workerCommand != null && _workerAccepted) ||
-                (_returnOffer != null && _returnAccepted))
-            {
-                _pendingConfirmation = Identity.None;
-                Trade.Confirm();
-            }
+            else if (!DispatchWindowsConsistent(CurrentInternalCommand()) || !DispatchPeerReady("accepted")) return;
+            PersistReceipt("accepted-confirming");
+            _dispatchConfirmed = true;
+            _pendingConfirmation = Identity.None;
+            Trade.Confirm();
         }
 
         private sealed class ReceiptEvidence
@@ -132,7 +130,9 @@ namespace CityBankers
                 Expected = expected == null ? null : new List<TransferItemState>(expected), Direction = direction,
                 PreparedItems = expected == null ? null : new List<TransferItemState>(expected),
                 AttemptId = kind == "dispatch-send" ? _activeBatch?.AttemptId :
-                    kind == "dispatch-receive" ? _workerCommand?.AttemptId : null };
+                    kind == "dispatch-receive" ? _workerCommand?.AttemptId :
+                    kind == "withdrawal-transfer" ? _withdrawal?.TransferAttemptId :
+                    kind == "recovery-return-send" || kind == "recovery-return-receive" ? _returnOffer?.Id : null };
             if (kind == "dispatch-send")
             {
                 var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);

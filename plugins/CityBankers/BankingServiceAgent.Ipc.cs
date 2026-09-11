@@ -130,6 +130,7 @@ namespace CityBankers
                 try
                 {
                     if (HandleDispatchCensusProposal(proposal)) continue;
+                    if (HandleWithdrawalPreparation(proposal)) continue;
                     if (HandleTradeStageProposal(proposal)) continue;
                     if (HandleStorageRecoveryProposal(proposal)) continue;
                     if (HandleCancellationProposal(proposal)) continue;
@@ -171,6 +172,16 @@ namespace CityBankers
                     (_reservedDispatch == null || (_reservedDispatch.BatchId == command.BatchId &&
                         _reservedDispatch.TransactionId == command.TransactionId && _reservedDispatch.AttemptId == command.AttemptId &&
                         MatchesExpected(_reservedDispatch.Items, command.Items)));
+                if (ready)
+                {
+                    // A delayed prepare from a retired actor cannot reserve a
+                    // trade after a new census has rebuilt physical routing.
+                    var batch = RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.SingleOrDefault(b =>
+                        b.BatchId == command.BatchId && b.AttemptId == command.AttemptId && b.Status == "queued");
+                    ready = batch != null && batch.TransactionId == command.TransactionId &&
+                        string.Equals(batch.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
+                        SameManifest(batch.Items, command.Items);
+                }
                 if (ready)
                 {
                     var storage = RuntimeStateStore.LoadStorageState(_settingsDir);

@@ -88,9 +88,7 @@ namespace CityBankers.Shared
             if (!SettingsPaths.TryEnsureDirectory(out settingsDir, out error))
                 return false;
 
-            return File.Exists(Path.Combine(
-                RuntimeStateStore.GetDataDirectory(settingsDir),
-                AllBankersReadyMarkerFileName));
+            return WithdrawalStore.IsReadyForRequests(settingsDir);
         }
     }
 }

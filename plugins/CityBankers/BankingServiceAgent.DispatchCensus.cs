@@ -257,6 +257,9 @@ namespace CityBankers
             _localCensusRetry.Restart(); _localCensusPoll.Restart();
         }
 
+        private string _failedDispatchSignature;
+        private readonly Stopwatch _failedDispatchBlockedAge = Stopwatch.StartNew();
+
         private bool TryRecoverFailedDispatch()
         {
             if (!_isCentral || _dispatchDispute != null || _dispatchCensus != null ||
@@ -266,13 +269,22 @@ namespace CityBankers
             // their first opportunity. A failed attempt without one peer's
             // receipt still needs physical resolution instead of an eternal wait.
             var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
-            foreach (var batch in (queue?.Batches ?? new List<DispatchBatchState>()).Where(b =>
-                b.Status == "failed" && !b.TransferNeverStarted && !string.IsNullOrWhiteSpace(b.AttemptId)))
+            var failed = (queue?.Batches ?? new List<DispatchBatchState>()).Where(b =>
+                b.Status == "failed" && !b.TransferNeverStarted).ToList();
+            string signature = string.Join(";", failed.Select(b => b.BatchId + "/" + b.AttemptId).OrderBy(s => s));
+            if (_failedDispatchSignature != signature)
+            { _failedDispatchSignature = signature; _failedDispatchBlockedAge.Restart(); }
+            foreach (var batch in failed)
             {
                 var proposal = new DispatchProposal { Kind = "dispatch-census-request", BatchId = batch.BatchId,
                     Cancellation = DispatchEvidence(batch.AttemptId) };
                 HandleDispatchCensusProposal(proposal);
                 if (_dispatchCensus != null) return true;
+            }
+            if (failed.Count > 0 && _failedDispatchBlockedAge.ElapsedMilliseconds >= 60000)
+            {
+                StartupCensusGate.Block("Unresolved dispatch attempts cannot acquire a paired recovery owner; retire through coordinated census.");
+                return true;
             }
             return false;
         }

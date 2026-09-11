@@ -577,8 +577,9 @@ namespace CityBankers
             CurrentStockState stock)
         {
             var censusing = WithdrawalStore.GetCensusCharacters(settingsDir);
+            var readyCharacters = WithdrawalStore.GetReadyCharacters(settingsDir);
             List<StockItemState> physical = (stock?.Items ?? new List<StockItemState>())
-                .Where(item => item != null && !censusing.Contains(item.Character))
+                .Where(item => item != null && !censusing.Contains(item.Character) && readyCharacters.Contains(item.Character))
                 .ToList();
             if (physical.Count == 0)
                 return;
@@ -603,7 +604,7 @@ namespace CityBankers
                 StockItemState first = physicalItems[0];
                 List<ActiveLedgerItem> entries = ledger.Items
                     .Where(entry =>
-                        !censusing.Contains(entry.Character) && entry.AoId == first.AoId &&
+                        !censusing.Contains(entry.Character) && readyCharacters.Contains(entry.Character) && entry.AoId == first.AoId &&
                         string.Equals(entry.TransactionId, first.TransactionId, StringComparison.Ordinal))
                     .OrderBy(entry => entry.Id, StringComparer.Ordinal)
                     .ToList();

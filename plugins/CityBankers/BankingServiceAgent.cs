@@ -139,8 +139,49 @@ namespace CityBankers
                 $"central={_isCentral} trustedAdmin={TrustedOperators.BootstrapAdmin}.");
         }
 
+        private BankingServiceAgent _successor;
+        private BankingServiceAgent _lifecycleRoot;
+        private EventHandler<double> _resumeAfterCensus;
+
+        internal static bool QuiesceForCensus(string directory)
+        {
+            var actor = _ipcOwner;
+            if (actor == null) return true; // Startup actors have not been initialized yet.
+            if (Trade.IsTrading) { actor.TryDeclineTrade(); return false; }
+            RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, Client.CharacterName + ".retired-operations.json"), new
+            {
+                Receipt = actor._receipt, Batch = actor._activeBatch, Command = actor._workerCommand,
+                Reserved = actor._reservedDispatch, Storage = actor._storageJob,
+                Return = actor._returnOffer, Withdrawal = actor._withdrawal, Pickups = actor._pickupItems,
+                Extraction = actor._extraction, LocalCensus = actor._localCensus,
+                DispatchCensus = actor._dispatchCensus, WithdrawalCensus = actor._withdrawalCensus,
+                Donation = actor._donationSnapshot, Cleanup = actor._donationCleanup,
+                DeliveryInferred = false
+            });
+            var root = actor._lifecycleRoot ?? actor;
+            actor.Teardown();
+            actor._enabled = false;
+            DispatchProposal proposal;
+            while (actor._dispatchProposals.TryDequeue(out proposal)) proposal.Reply.TrySetResult("pending");
+            root._resumeAfterCensus = (sender, delta) =>
+            {
+                if (!StartupCensusGate.IsOpen) return;
+                Client.OnUpdate -= root._resumeAfterCensus;
+                root._resumeAfterCensus = null;
+                root._successor = new BankingServiceAgent { _lifecycleRoot = root };
+                try { root._successor.Init(null); }
+                catch (Exception ex) { StartupCensusGate.Block("Operational reinitialization failed: " + ex.Message); }
+            };
+            Client.OnUpdate += root._resumeAfterCensus;
+            return true;
+        }
+
         public override void Teardown()
         {
+            if (_resumeAfterCensus != null) Client.OnUpdate -= _resumeAfterCensus;
+            _resumeAfterCensus = null;
+            _successor?.Teardown();
+            _successor = null;
             if (!_enabled)
                 return;
 
@@ -152,15 +193,35 @@ namespace CityBankers
             if (_isCentral && Client.Chat != null)
                 Client.Chat.PrivateMessageReceived -= OnPrivateMessage;
 
-            RuntimeStateStore.AppendActivity(
-                _settingsDir,
-                Client.CharacterName,
-                _role,
-                "BANKING SERVICE teardown.");
+            _enabled = false;
+            try { RuntimeStateStore.AppendActivity(_settingsDir, Client.CharacterName, _role, "BANKING SERVICE teardown."); }
+            catch (Exception ex) { Logger.Warning("[CityBankers] Teardown activity unavailable: " + ex.Message); }
+        }
+
+        private string _blockedRecovery;
+        private readonly Stopwatch _blockedRecoveryAge = Stopwatch.StartNew();
+
+        private bool TickRecoveryOwnership()
+        {
+            if (_localCensus != null) return false; // Full bag scans may legitimately take minutes.
+            string pending = _dispatchDispute?.AttemptId ?? (_withdrawalDispute ? "withdrawal" : null) ?? _withdrawalCensus?.Id ??
+                _storageRecovery?.RunId ?? (_returnLocalVerified ? _returnOffer?.Id : null) ??
+                (_extractionPhase == ExtractionPhase.Commit ? _extraction?.Id : null);
+            if (pending != _blockedRecovery)
+            {
+                _blockedRecovery = pending;
+                _blockedRecoveryAge.Restart();
+            }
+            if (pending == null || _blockedRecoveryAge.ElapsedMilliseconds < 60000) return false;
+            StartupCensusGate.Block("Recovery ownership/peer accounting did not converge: " + pending +
+                "; retire retained operations through a fresh coordinated census.");
+            return true;
         }
 
         private void Tick(object sender, double deltaTime)
         {
+            if (StartupCensusGate.RosterRecoveryActive || !StartupCensusGate.IsCurrentParticipant) return;
+            if (TickRecoveryOwnership()) return;
             if (TickWithdrawalCensus()) return;
             if (TickDispatchCensus()) return;
             if (TickLocalCensus()) return;

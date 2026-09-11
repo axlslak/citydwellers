@@ -100,7 +100,7 @@ namespace CityBankers
                 Runs = characters.ToDictionary(c => c, c => Guid.NewGuid().ToString("N"), StringComparer.OrdinalIgnoreCase),
                 Requests = rows.Where(r => characters.Contains(r.SourceCharacter)).ToList(),
                 Dispatches = RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Where(b => characters.Contains(b.Character)).ToList(),
-                ExpiredRequests = rows.Where(r => r.PickupExpiresUtc.HasValue && r.PickupExpiresUtc.Value <= DateTime.UtcNow)
+                ExpiredRequests = rows.Where(r => r.PickupExpiresUtc.HasValue && !WithdrawalStore.PickupWindowOpen(r))
                     .Select(r => r.Id).ToList()
             };
             ValidateWithdrawalCensus(grant);

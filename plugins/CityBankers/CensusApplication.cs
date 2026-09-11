@@ -14,11 +14,12 @@ namespace CityBankers
     {
         internal sealed class Bundle
         {
-            public string Format = "citybankers-census-application-v2";
+            public string Format = "citybankers-census-application-v3";
             public string Generation;
             public DateTime RecordedUtc;
             public List<string> Runs;
             public ActiveLedgerState PreviousLedger;
+            public List<ActiveLedgerItem> MatchingAnchors;
             public StorageState PreviousStorage;
             public DispatchQueueState PreviousQueue;
             public List<WithdrawalState> ReservedWithdrawals;
@@ -28,11 +29,14 @@ namespace CityBankers
         }
 
         internal static Bundle Apply(string settings, string directory, string generation,
-            IList<BagAuditAgent.BagAuditResult> censuses)
+            IList<BagAuditAgent.BagAuditResult> censuses, IDictionary<string, string> roles)
         {
-            if (censuses.Count != 9 || censuses.Select(c => c.Character)
-                .Distinct(StringComparer.OrdinalIgnoreCase).Count() != 9)
-                throw new InvalidOperationException("Initial reconciliation requires the complete banker roster.");
+            if (censuses.Count == 0 || censuses.Select(c => c.Character)
+                .Distinct(StringComparer.OrdinalIgnoreCase).Count() != censuses.Count ||
+                !censuses.Any(c => string.Equals(c.Role, "central", StringComparison.OrdinalIgnoreCase)) ||
+                censuses.Any(c => !roles.TryGetValue(c.Role, out var character) ||
+                    !string.Equals(character, c.Character, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException("Reconciliation requires Central and distinct configured census participants.");
             var runs = censuses.Select(c => c.Character.ToLowerInvariant() + "/" + c.RunId)
                 .OrderBy(value => value, StringComparer.Ordinal).ToList();
             string path = Path.Combine(directory, "application.json");
@@ -61,10 +65,26 @@ namespace CityBankers
                 var withdrawals = WithdrawalStore.LoadAll(settings).Where(WithdrawalStore.IsActive).ToList();
                 var deliveredIds = new HashSet<string>(withdrawals.Where(w => WithdrawalStore.HasConfirmedDelivery(w))
                     .Select(w => w.ActiveLedgerId), StringComparer.Ordinal);
-                // Already delivered occurrences cannot donate their identity or
-                // provenance to a similar item encountered by this new census.
-                var plan = PhysicalLedgerReconciliation.Build(previous.Items.Where(i => !deliveredIds.Contains(i.Id)).ToList(), observations,
-                    censuses.Select(c => c.Character));
+                var anchors = JsonConvert.DeserializeObject<List<ActiveLedgerItem>>(JsonConvert.SerializeObject(
+                    previous.Items.Where(i => !deliveredIds.Contains(i.Id)).ToList()));
+                var scope = new HashSet<string>(censuses.Select(c => c.Character), StringComparer.OrdinalIgnoreCase);
+                foreach (var request in withdrawals.Where(r => !WithdrawalStore.HasStatus(r, "requested")))
+                {
+                    var anchor = anchors.SingleOrDefault(i => i.Id == request.ActiveLedgerId);
+                    if (anchor == null || !scope.Contains(anchor.Character)) continue;
+                    anchor.Location = "withdrawal-uncertain"; anchor.Bag = null; anchor.Slot = null;
+                }
+                foreach (var request in withdrawals.Where(r => r.Item != null && !string.IsNullOrWhiteSpace(r.CentralItemIdentity) &&
+                    r.CentralItemIdentity != "(None:0000)" && !deliveredIds.Contains(r.ActiveLedgerId)))
+                {
+                    var exact = observations.Where(o => string.Equals(o.Character, roles["central"], StringComparison.OrdinalIgnoreCase) &&
+                        o.Location == "inventory" && !o.Bag.HasValue && o.Item.UniqueIdentity == request.CentralItemIdentity &&
+                        o.Item.LowId == request.Item.AoId && o.Item.HighId == request.Item.HighId && o.Item.Ql == request.Item.Ql).ToList();
+                    var anchor = anchors.SingleOrDefault(i => i.Id == request.ActiveLedgerId);
+                    if (anchor == null || exact.Count != 1 || withdrawals.Count(r => r.CentralItemIdentity == request.CentralItemIdentity) != 1) continue;
+                    anchor.Character = roles["central"]; anchor.Location = "inventory"; anchor.Bag = null; anchor.Slot = exact[0].Slot;
+                }
+                var plan = PhysicalLedgerReconciliation.Build(anchors, observations, scope);
                 // Unknown origin still needs a stable transaction for ordinary
                 // routing/accounting. This identifier makes no donor claim.
                 foreach (var item in plan.Items)
@@ -72,17 +92,19 @@ namespace CityBankers
                 bundle = new Bundle
                 {
                     Generation = generation, RecordedUtc = DateTime.UtcNow, Runs = runs,
-                    PreviousLedger = previous, PreviousStorage = previousStorage,
+                    PreviousLedger = previous, MatchingAnchors = anchors, PreviousStorage = previousStorage,
                     PreviousQueue = ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(settings)),
                     ReservedWithdrawals = withdrawals,
                     Plan = plan, Storage = BuildStorage(censuses, plan, generation),
-                    Queue = BuildQueue(plan, observations, censuses.ToDictionary(c => c.Role, c => c.Character, StringComparer.OrdinalIgnoreCase), new List<WithdrawalState>(), generation)
+                    Queue = BuildQueue(plan, observations, roles, new List<WithdrawalState>(), generation)
                 };
+                bundle.Storage.Workers.AddRange((previousStorage?.Workers ?? new List<StorageWorkerState>())
+                    .Where(w => !scope.Contains(w.Character)));
                 RuntimeStateStore.WriteJsonAtomic(path, bundle);
             }
-            if (bundle.Format != "citybankers-census-application-v2" || bundle.ReservedWithdrawals == null ||
+            if (bundle.Format != "citybankers-census-application-v3" || bundle.ReservedWithdrawals == null ||
                 bundle.Generation != generation || bundle.Runs == null || !bundle.Runs.SequenceEqual(runs) ||
-                bundle.Plan == null || bundle.Storage == null || bundle.Queue == null)
+                bundle.MatchingAnchors == null || bundle.Plan == null || bundle.Storage == null || bundle.Queue == null)
                 throw new InvalidOperationException("Census changed during application; retained bundle requires a new reconciliation.");
 
             // Immutable investigation history is written before removing claims.

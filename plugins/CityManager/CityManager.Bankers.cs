@@ -529,13 +529,15 @@ namespace CityManager
                 .Select(row => row.ActiveLedgerId), StringComparer.Ordinal);
             reservedIds.UnionWith(WithdrawalStore.GetRecoveryReservedIds(_settingsDir));
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
+            var readyCharacters = WithdrawalStore.GetReadyCharacters(_settingsDir);
 
             JObject ledger = RuntimeStateStore.ReadJson<JObject>(
                 Path.Combine(_dataDir, "ledger.json"));
             JObject selected = (ledger?["Items"] as JArray ?? new JArray())
                 .OfType<JObject>()
                 .Where(item => ParseDonationInt(item["AoId"]) == aoId &&
-                    !reservedIds.Contains(item["Id"]?.ToString()) && !censusing.Contains(item["Character"]?.ToString()))
+                    !reservedIds.Contains(item["Id"]?.ToString()) && !censusing.Contains(item["Character"]?.ToString()) &&
+                    readyCharacters.Contains(item["Character"]?.ToString()))
                 .OrderBy(item => ParseDonationUtc(item["ReceivedUtc"]))
                 .ThenBy(item => item["Id"]?.ToString(), StringComparer.Ordinal)
                 .FirstOrDefault();
@@ -715,6 +717,7 @@ namespace CityManager
                 RuntimeStateStore.LoadCurrentStock(_settingsDir)?.Items ?? new List<StockItemState>());
             bool allBankersReady = WithdrawalStore.IsReadyForRequests(_settingsDir);
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
+            var readyCharacters = WithdrawalStore.GetReadyCharacters(_settingsDir);
             foreach (JObject item in (ledger?["Items"] as JArray ?? new JArray())
                 .OfType<JObject>())
             {
@@ -725,7 +728,8 @@ namespace CityManager
                     physical.BagSource == (string)item["Location"] &&
                     physical.BagOuterSlot == (int?)item["Bag"] &&
                     physical.InnerSlot == (int?)item["Slot"]);
-                bool available = physicalIndex >= 0 && allBankersReady && !censusing.Contains((string)item["Character"]);
+                bool available = physicalIndex >= 0 && allBankersReady && !censusing.Contains((string)item["Character"]) &&
+                    readyCharacters.Contains((string)item["Character"]);
                 if (physicalIndex >= 0) availableStock.RemoveAt(physicalIndex);
                 AddDonationRecord(records, item, metadata, "active-" + ordinal++, available);
             }

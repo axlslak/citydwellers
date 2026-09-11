@@ -100,7 +100,7 @@ namespace CityBankers
                 WithdrawalStore.OwnsCentralTrade(row) ||
                 (WithdrawalStore.HasStatus(row, "central-ready") &&
                  WithdrawalStore.IsAllowedCollector(row, targetName) &&
-                 row.PickupExpiresUtc.HasValue && row.PickupExpiresUtc.Value > DateTime.UtcNow)))
+                 WithdrawalStore.PickupWindowOpen(row))))
             {
                 Reset();
                 return;

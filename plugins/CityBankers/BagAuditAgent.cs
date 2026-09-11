@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -13,6 +14,15 @@ namespace CityBankers
 {
     public class BagAuditAgent : ClientlessPluginEntry
     {
+        private static BagAuditAgent _owner;
+
+        internal static void CancelForRecovery()
+        {
+            if (_owner == null) return;
+            _owner.FinishWithFatalError("Census superseded or client disconnected; cached handles retired.");
+            if (_owner._startupCommandPath != null) DeleteIfExists(_owner._startupCommandPath);
+        }
+
         private const int DefaultBagOpenTimeoutMs = 3000;
         private const int DefaultBagMoveTimeoutMs = 3000;
         private const int ProgressInterval = 25;
@@ -31,9 +41,9 @@ namespace CityBankers
         private int _index;
         private BagTarget _current;
         private AuditPhase _phase;
-        private DateTime _phaseStartedUtc;
-        private DateTime _phaseDeadlineUtc;
-        private DateTime _openStartedUtc;
+        private readonly Stopwatch _phaseAge = new Stopwatch();
+        private int _phaseTimeoutMs;
+        private readonly Stopwatch _openAge = new Stopwatch();
         private int _currentPreOpenHandle;
         private int _currentMoveToInventoryElapsedMs;
         private BagAuditEntry _pendingEntry;
@@ -76,6 +86,7 @@ namespace CityBankers
                 pluginDir,
                 $"citybankers-enrollment-result-{token}.json");
 
+            _owner = this;
             Client.OnUpdate += Tick;
             Logger.Information(
                 $"CityBankers bag-audit agent initialized; runtime state root='{pluginDir}'; " +
@@ -85,6 +96,7 @@ namespace CityBankers
         public override void Teardown()
         {
             Client.OnUpdate -= Tick;
+            if (_owner == this) _owner = null;
             Logger.Information("CityBankers bag-audit agent teardown.");
         }
 
@@ -92,6 +104,7 @@ namespace CityBankers
         {
             try
             {
+                if (!Client.InPlay) { CancelForRecovery(); return; }
                 if (!_active)
                 {
                     TryStart();
@@ -308,9 +321,8 @@ namespace CityBankers
                 }
 
                 _phase = AuditPhase.MovingBankBagToInventory;
-                _phaseStartedUtc = DateTime.UtcNow;
-                _phaseDeadlineUtc = _phaseStartedUtc.AddMilliseconds(
-                    GetBagMoveTimeoutMs());
+                _phaseAge.Restart();
+                _phaseTimeoutMs = GetBagMoveTimeoutMs();
 
                 try
                 {
@@ -346,7 +358,7 @@ namespace CityBankers
             Item inventoryItem = FindInventoryItem(_current.UniqueIdentity);
             if (inventoryItem != null)
             {
-                _currentMoveToInventoryElapsedMs = ElapsedMilliseconds(_phaseStartedUtc);
+                _currentMoveToInventoryElapsedMs = (int)_phaseAge.ElapsedMilliseconds;
                 _currentStagedInventorySlot = inventoryItem.Slot.ToString();
                 _currentStagedInventorySlotType = inventoryItem.Slot.Type.ToString();
                 _currentStagedInventorySlotInstance = inventoryItem.Slot.Instance;
@@ -354,7 +366,7 @@ namespace CityBankers
                 return;
             }
 
-            if (DateTime.UtcNow < _phaseDeadlineUtc)
+            if (_phaseAge.ElapsedMilliseconds < _phaseTimeoutMs)
                 return;
 
             Item stillInBank = FindBankItem(_current.UniqueIdentity);
@@ -372,10 +384,10 @@ namespace CityBankers
         {
             Container before = FindContainer(_current.UniqueIdentity);
             _currentPreOpenHandle = before != null ? before.Handle : 0;
-            _openStartedUtc = DateTime.UtcNow;
+            _openAge.Restart();
+            _phaseAge.Restart();
             _phase = AuditPhase.Opening;
-            _phaseDeadlineUtc = _openStartedUtc.AddMilliseconds(
-                GetBagOpenTimeoutMs());
+            _phaseTimeoutMs = GetBagOpenTimeoutMs();
 
             try
             {
@@ -396,7 +408,7 @@ namespace CityBankers
                 return;
             }
 
-            if (DateTime.UtcNow >= _phaseDeadlineUtc)
+            if (_phaseAge.ElapsedMilliseconds >= _phaseTimeoutMs)
             {
                 FinishOpen(
                     container,
@@ -437,9 +449,8 @@ namespace CityBankers
             entry.ReturnToBankAttempted = true;
             _pendingEntry = entry;
             _phase = AuditPhase.ReturningBankBag;
-            _phaseStartedUtc = DateTime.UtcNow;
-            _phaseDeadlineUtc = _phaseStartedUtc.AddMilliseconds(
-                GetBagMoveTimeoutMs());
+            _phaseAge.Restart();
+            _phaseTimeoutMs = GetBagMoveTimeoutMs();
 
             try
             {
@@ -450,7 +461,7 @@ namespace CityBankers
                 entry.Error = AppendError(
                     entry.Error,
                     "MoveToBank() failed: " + ex.Message);
-                entry.ReturnToBankElapsedMs = ElapsedMilliseconds(_phaseStartedUtc);
+                entry.ReturnToBankElapsedMs = (int)_phaseAge.ElapsedMilliseconds;
                 _entries.Add(entry);
                 _index++;
                 _pendingEntry = null;
@@ -475,17 +486,17 @@ namespace CityBankers
                         bankItem.Slot.Type.ToString(),
                         StringComparison.Ordinal) &&
                     _current.OriginalOuterSlotInstance == bankItem.Slot.Instance;
-                _pendingEntry.ReturnToBankElapsedMs = ElapsedMilliseconds(_phaseStartedUtc);
+                _pendingEntry.ReturnToBankElapsedMs = (int)_phaseAge.ElapsedMilliseconds;
 
                 CommitCurrentEntry(_pendingEntry);
                 return;
             }
 
-            if (DateTime.UtcNow < _phaseDeadlineUtc)
+            if (_phaseAge.ElapsedMilliseconds < _phaseTimeoutMs)
                 return;
 
             _pendingEntry.ReturnedToBank = false;
-            _pendingEntry.ReturnToBankElapsedMs = ElapsedMilliseconds(_phaseStartedUtc);
+            _pendingEntry.ReturnToBankElapsedMs = (int)_phaseAge.ElapsedMilliseconds;
             _pendingEntry.Error = AppendError(
                 _pendingEntry.Error,
                 $"Staged bank bag {_current.UniqueIdentityText} did not return to bank within " +
@@ -538,7 +549,7 @@ namespace CityBankers
                 FreeSlots = opened ? container.NumFreeSlots : -1,
                 OpenElapsedMs = Math.Max(
                     0,
-                    (int)(DateTime.UtcNow - _openStartedUtc).TotalMilliseconds),
+                    (int)_openAge.ElapsedMilliseconds),
                 Error = error,
                 Items = opened && container.Items != null
                     ? container.Items
@@ -573,7 +584,7 @@ namespace CityBankers
                 StagedInventorySlotType = string.Empty,
                 StagedInventorySlotInstance = -1,
                 MoveToInventoryElapsedMs = moveAttempted
-                    ? ElapsedMilliseconds(_phaseStartedUtc)
+                    ? (int)_phaseAge.ElapsedMilliseconds
                     : 0,
                 PreOpenHandle = 0,
                 Opened = false,
@@ -669,16 +680,6 @@ namespace CityBankers
                 HighId = item.HighId,
                 Ql = item.Ql
             };
-        }
-
-        private static int ElapsedMilliseconds(DateTime startedUtc)
-        {
-            if (startedUtc == DateTime.MinValue)
-                return 0;
-
-            return Math.Max(
-                0,
-                (int)(DateTime.UtcNow - startedUtc).TotalMilliseconds);
         }
 
         private static string AppendError(string current, string additional)

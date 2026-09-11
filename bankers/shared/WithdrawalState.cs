@@ -22,6 +22,8 @@ namespace CityBankers.Shared
         public DateTime CreatedUtc;
         public DateTime UpdatedUtc;
         public DateTime? PickupExpiresUtc;
+        public string PickupHostGeneration;
+        public long PickupDeadlineStamp;
         public DateTime? DeliveredUtc;
         public string RequestedBy;
         public string RecipientMain;
@@ -39,6 +41,7 @@ namespace CityBankers.Shared
         public int? LiveInventoryAnchorSlot;
         public string LiveInventoryAnchorIdentity;
         public string CentralItemIdentity;
+        public string TransferAttemptId;
         public string ReturnBatchId;
         public string ReconciledByCensus;
         public string RecoveryCensusId;
@@ -57,18 +60,65 @@ namespace CityBankers.Shared
         private static readonly string HostGeneration = Process.GetCurrentProcess().Id + "-" +
             Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
 
-        public static bool IsReadyForRequests(string directory)
+        public static bool IsReadyForRequests(string directory) => IsCharacterReady(directory, null);
+
+        // Durable stock from an offline connection remains history, not withdrawable
+        // inventory. Elapsed ticks share the host's monotonic clock across domains.
+        public static bool IsCharacterReady(string directory, string character)
         {
-            string path = Path.Combine(RuntimeStateStore.GetDataDirectory(directory), TrustedOperators.AllBankersReadyMarkerFileName);
+            var ready = GetReadyCharacters(directory);
+            return character == null ? ready.Count > 0 : ready.Contains(character);
+        }
+
+        public static HashSet<string> GetReadyCharacters(string directory)
+        {
+            var available = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
-                if (!File.Exists(path)) return false;
+                string data = RuntimeStateStore.GetDataDirectory(directory);
+                string path = Path.Combine(data, TrustedOperators.AllBankersReadyMarkerFileName);
+                if (!File.Exists(path)) return available;
                 var ready = JObject.Parse(File.ReadAllText(path));
-                return (string)ready["generation"] == HostGeneration;
+                if ((string)ready["generation"] != HostGeneration) return available;
+                string root = Path.Combine(data, "startup-census", HostGeneration);
+                var cycle = JObject.Parse(File.ReadAllText(Path.Combine(root, "cycle.json")));
+                if ((string)cycle["Phase"] != "released" || (string)cycle["Id"] != (string)ready["cycle"] ||
+                    Directory.EnumerateFiles(root, "*.recovery.json").Any()) return available;
+                var members = ready["characters"] as JArray;
+                var central = members?.SingleOrDefault(r => string.Equals((string)r["role"], "central", StringComparison.OrdinalIgnoreCase));
+                if (!ReadyConnection(root, (string)ready["cycle"], central)) return available;
+                foreach (var member in members)
+                    if (ReadyConnection(root, (string)ready["cycle"], member)) available.Add((string)member["character"]);
             }
-            catch (IOException) { return false; }
-            catch (UnauthorizedAccessException) { return false; }
-            catch (JsonException) { return false; }
+            catch (IOException) { available.Clear(); }
+            catch (UnauthorizedAccessException) { available.Clear(); }
+            catch (JsonException) { available.Clear(); }
+            catch (InvalidOperationException) { available.Clear(); }
+            return available;
+        }
+
+        private static bool ReadyConnection(string root, string cycle, JToken member)
+        {
+            string character = (string)member?["character"], connection = (string)member?["connection"];
+            if (string.IsNullOrWhiteSpace(character) || string.IsNullOrWhiteSpace(connection)) return false;
+            character = character.ToLowerInvariant();
+            if (!File.Exists(Path.Combine(root, character + ".ready")) ||
+                !File.Exists(Path.Combine(root, character + ".presence.json")) ||
+                File.Exists(Path.Combine(root, character + ".blocked")) ||
+                File.ReadAllText(Path.Combine(root, character + ".ready")) != cycle + "/" + connection) return false;
+            var presence = JObject.Parse(File.ReadAllText(Path.Combine(root, character + ".presence.json")));
+            long age = Stopwatch.GetTimestamp() - ((long?)presence["Stamp"] ?? long.MaxValue);
+            return (string)presence["Connection"] == connection && age >= 0 && age < Stopwatch.Frequency * 10;
+        }
+
+        public static bool PickupWindowOpen(WithdrawalState row) => row != null &&
+            row.PickupHostGeneration == HostGeneration && row.PickupDeadlineStamp > Stopwatch.GetTimestamp();
+
+        public static void RenewPickupWindow(WithdrawalState row)
+        {
+            row.PickupExpiresUtc = DateTime.UtcNow.AddSeconds(PickupSeconds); // Display/history only.
+            row.PickupHostGeneration = HostGeneration;
+            row.PickupDeadlineStamp = Stopwatch.GetTimestamp() + Stopwatch.Frequency * PickupSeconds;
         }
 
         public sealed class RecoveryReservation
@@ -171,7 +221,7 @@ namespace CityBankers.Shared
                     restored.Revision = current.Revision;
                     restored.RecoveryCensusId = null;
                     restored.ReconciledByCensus = id;
-                    if (HasStatus(restored, "central-ready")) restored.PickupExpiresUtc = DateTime.UtcNow.AddSeconds(PickupSeconds);
+                    if (HasStatus(restored, "central-ready")) RenewPickupWindow(restored);
                     Touch(restored);
                     rows[rows.IndexOf(current)] = restored;
                 }
@@ -224,7 +274,7 @@ namespace CityBankers.Shared
             {
                 var current = rows.SingleOrDefault(r => r.Id == request.Id);
                 if (current == null || current.Revision != request.Revision ||
-                    !HasStatus(current, "requested") || !IsReadyForRequests(directory) ||
+                    !HasStatus(current, "requested") || !IsCharacterReady(directory, request.SourceCharacter) ||
                     ReadRecovery(directory).Any(r => r.CensusCentral || r.LedgerId == request.ActiveLedgerId ||
                         string.Equals(r.CensusCharacter, request.SourceCharacter, StringComparison.OrdinalIgnoreCase)))
                     return false;
@@ -457,7 +507,7 @@ namespace CityBankers.Shared
                 List<WithdrawalState> active = rows.Where(IsActive).ToList();
                 List<WithdrawalState> own = active.Where(row => string.Equals(
                     row.RecipientMain, request.RecipientMain, StringComparison.OrdinalIgnoreCase)).ToList();
-                if (!IsReadyForRequests(directory))
+                if (!IsCharacterReady(directory, request.SourceCharacter))
                     reason = "The bank is checking its physical inventory. Please try again when it is ready.";
                 else if (active.Any(row => row.ActiveLedgerId == request.ActiveLedgerId))
                     reason = "That copy was just reserved. Please select it again.";
@@ -476,10 +526,9 @@ namespace CityBankers.Shared
                 request.OrderId = own.Count > 0 ? own[0].OrderId : "order-" + Guid.NewGuid().ToString("N");
                 request.Revision = 1;
                 request.UpdatedUtc = DateTime.UtcNow;
-                DateTime expires = DateTime.UtcNow.AddSeconds(PickupSeconds);
                 foreach (WithdrawalState row in own.Where(row => HasStatus(row, "central-ready")))
                 {
-                    row.PickupExpiresUtc = expires;
+                    RenewPickupWindow(row);
                     Touch(row);
                 }
                 rows.Add(request);

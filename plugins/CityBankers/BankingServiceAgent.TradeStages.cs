@@ -46,6 +46,64 @@ namespace CityBankers
             };
         }
 
+        private readonly Stopwatch _internalOpenedAge = Stopwatch.StartNew();
+        private Task<string> _withdrawalPreparation;
+        private readonly Stopwatch _withdrawalPreparationAge = Stopwatch.StartNew();
+        private readonly Stopwatch _managedAddWait = Stopwatch.StartNew();
+
+        private DispatchCommand CurrentInternalCommand()
+        {
+            if (_returnOffer != null && (_receipt?.Kind == "recovery-return-send" || _receipt?.Kind == "recovery-return-receive"))
+                return new DispatchCommand { BatchId = _returnOffer.Id, AttemptId = _returnOffer.Id,
+                    TransactionId = _returnOffer.TransactionId, Role = "recovery-return",
+                    SourceCharacter = _returnOffer.Source, DestinationCharacter = _centralCharacter,
+                    Items = new List<TransferItemState> { _returnOffer.Item } };
+            if (_withdrawal != null && _receipt?.Kind == "withdrawal-transfer")
+                return WithdrawalCommand(_withdrawal);
+            return CurrentDispatchCommand();
+        }
+
+        private DispatchCommand WithdrawalCommand(WithdrawalState state) => new DispatchCommand
+        {
+            BatchId = state.Id, AttemptId = state.TransferAttemptId,
+            TransactionId = state.DonationTransactionId, Role = "withdrawal-transfer",
+            SourceCharacter = state.SourceCharacter, DestinationCharacter = _centralCharacter,
+            Items = new List<TransferItemState> { state.Item }
+        };
+
+        private bool LocalInternalAccepted() => _receipt == null ? false :
+            _receipt.Kind == "recovery-return-send" || _receipt.Kind == "recovery-return-receive" ? _returnAccepted :
+            _receipt.Kind == "withdrawal-transfer" || _receipt.Kind == "withdrawal-pickup" ? _withdrawalAccepted :
+            _isCentral ? _outgoingAccepted : _workerAccepted;
+
+        private bool IsManagedReturnOrWithdrawal() => _receipt != null &&
+            (_receipt.Kind == "recovery-return-send" || _receipt.Kind == "recovery-return-receive" || _receipt.Kind == "withdrawal-transfer");
+
+        private bool HandleWithdrawalPreparation(DispatchProposal proposal)
+        {
+            if (proposal.Kind != "withdrawal-prepare") return false;
+            var state = WithdrawalStore.LoadAll(_settingsDir).SingleOrDefault(r => r.Id == proposal.Command?.BatchId);
+            bool ready = _isCentral && StartupCensusGate.IsOpen && Client.InPlay && Inventory.Bank.IsOpen &&
+                !Trade.IsTrading && _receipt == null && _activeBatch == null && _returnOffer == null &&
+                !_donationActive && _donationCleanup == null && _extraction == null && Inventory.NumFreeSlots >= 2 &&
+                state != null && WithdrawalStore.HasStatus(state, "extracting") &&
+                !WithdrawalStore.GetCensusCharacters(_settingsDir).Contains(state.SourceCharacter) &&
+                SameDispatchAttempt(WithdrawalCommand(state), proposal.Command);
+            proposal.Reply.TrySetResult(ready ? "ready:" + state.TransferAttemptId + ":prepare" : "pending");
+            return true;
+        }
+
+        private void TickWithdrawalReceiver()
+        {
+            if (!_isCentral || _withdrawalPickupTrade || _withdrawalAccepted) return;
+            var command = CurrentInternalCommand();
+            if (!DispatchTradeIsCurrent(command) || !DispatchWindowsConsistent(command) ||
+                !DispatchPeerReady("accepted")) return;
+            _withdrawalAccepted = true;
+            _localDispatchAcceptAge.Restart();
+            Trade.Accept();
+        }
+
         private static bool SameDispatchAttempt(DispatchCommand a, DispatchCommand b) =>
             a != null && b != null && a.AttemptId == b.AttemptId && a.BatchId == b.BatchId &&
             a.TransactionId == b.TransactionId && a.Role == b.Role &&
@@ -59,10 +117,13 @@ namespace CityBankers
             if (command == null || !Guid.TryParseExact(command.AttemptId, "N", out attempt) ||
                 !StartupCensusGate.IsOpen || !Client.InPlay || !Trade.IsTrading ||
                 _afterReceipt != null || _receipt == null || _receipt.AttemptId != command.AttemptId ||
-                _receipt.Direction != (_isCentral ? -1 : 1) || !SameManifest(_receipt.PreparedItems, command.Items)) return false;
-            string peer = _isCentral ? command.DestinationCharacter : command.SourceCharacter;
+                _receipt.Direction != (string.Equals(command.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase) ? -1 : 1) || !SameManifest(_receipt.PreparedItems, command.Items)) return false;
+            string peer = string.Equals(command.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase)
+                ? command.DestinationCharacter : command.SourceCharacter;
             return string.Equals(FindPlayerName(Trade.CurrentTarget), peer, StringComparison.OrdinalIgnoreCase) &&
-                (_isCentral ? _outgoingOpened : _workerCommand != null);
+                (_receipt.Kind == "recovery-return-send" || _receipt.Kind == "recovery-return-receive" ? _returnOpened :
+                    _receipt.Kind == "withdrawal-transfer" ? _withdrawalTradeOpened :
+                    _isCentral ? _outgoingOpened : _workerCommand != null);
         }
 
         // The receiver cache may be incomplete, but it may not contradict the
@@ -78,8 +139,8 @@ namespace CityBankers
         {
             var local = Trade.PlayerWindowCache?.Items;
             var remote = Trade.TargetWindowCache?.Items;
-            if (local == null || remote == null) return false;
-            return _isCentral
+            if (command == null || _receipt == null || local == null || remote == null) return false;
+            return _receipt.Direction < 0
                 ? remote.Count == 0 && SameManifest(SnapshotTradeItems(local), command.Items)
                 : local.Count == 0 && IsManifestSubset(SnapshotTradeItems(remote), command.Items);
         }
@@ -87,13 +148,14 @@ namespace CityBankers
         private bool HandleTradeStageProposal(DispatchProposal proposal)
         {
             if (proposal.Kind != "trade-stage") return false;
-            var command = CurrentDispatchCommand();
+            var command = CurrentInternalCommand();
             bool current = SameDispatchAttempt(command, proposal.Command) && DispatchTradeIsCurrent(command);
             bool ready = false;
             if (current && proposal.Stage == "opened")
-                ready = (_isCentral ? _dispatchTradeAge : _workerTradeAge).ElapsedMilliseconds >= 500;
+                ready = (IsManagedReturnOrWithdrawal() ? _internalOpenedAge :
+                    _isCentral ? _dispatchTradeAge : _workerTradeAge).ElapsedMilliseconds >= 500;
             else if (current && proposal.Stage == "accepted")
-                ready = (_isCentral ? _outgoingAccepted : _workerAccepted) && DispatchWindowsConsistent(command);
+                ready = LocalInternalAccepted() && DispatchWindowsConsistent(command);
             // This handler only reports state from the AO update thread. It
             // never accepts/confirms a trade on behalf of an IPC request.
             proposal.Reply.TrySetResult(ready ? "ready:" + command.AttemptId + ":" + proposal.Stage : "pending");
@@ -102,7 +164,7 @@ namespace CityBankers
 
         private bool DispatchPeerReady(string stage)
         {
-            var command = CurrentDispatchCommand();
+            var command = CurrentInternalCommand();
             if (!DispatchTradeIsCurrent(command)) return false;
             string key = command.AttemptId + ":" + stage;
             TradeStageQuery query;
@@ -137,7 +199,8 @@ namespace CityBankers
         {
             try
             {
-                string peer = _isCentral ? command.DestinationCharacter : command.SourceCharacter;
+                string peer = string.Equals(command.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase)
+                ? command.DestinationCharacter : command.SourceCharacter;
                 return await CityDwellers.Shared.LocalIpc.RequestLineAsync(BankerPipe(peer),
                     JsonConvert.SerializeObject(new DispatchProposal { Kind = "trade-stage", Command = command, Stage = stage }),
                     1000, 4000).ConfigureAwait(false);
