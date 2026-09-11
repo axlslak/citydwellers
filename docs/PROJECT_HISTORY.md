@@ -1,3 +1,12 @@
+## Session 67 — combined census application implemented, runtime still incomplete
+
+- Central now waits for nine complete, request-bound census results before applying physical state. The startup gate also requires the completed application marker.
+- A retained application bundle includes the original ledger/storage and fixed replacement plan. Retries reuse that plan. Existing unreadable/corrupt records raise a retryable error instead of being treated as empty. Investigation history records observation time, not fabricated loss time.
+- Storage/current-stock are rebuilt from the eight storage workers; the ledger includes all observed loose and bagged items across all nine characters. Central bag observations remain in census evidence and the ledger. Unknown-origin items receive stable found transaction IDs without a donor claim.
+- Unique bag identities carry location anchors across outer-slot remaps before item matching. High-ID routing fallback and actual loose inventory slot accounting are supported. Removed the automatic old storage-baseline.json import from the banking tick.
+- OPEN: replace the remaining global discrepancy holds, resolve prior queue/custody work, implement automatic extraction/return/sorting and retire conflicting legacy recovery actors. Existing holds still apply; this is not restart clearance. No assistant compilation/test suite/live test per owner boundary.
+- Historical repair remains owner-confirmed applied. The entire service remains stopped voluntarily; BankersEnabled=false is saved for future use.
+
 # Session 67 continuation — census reconciliation proposals
 
 Owner applied the authorized historical repair and chose to keep the whole service stopped. Added a pure physical-census reconciliation component and per-character durable proposals without introducing another live ledger writer. Complete observations include bag contents and loose bank/inventory; duplicate physical addresses and incomplete reads are rejected. Exact location claims are matched first, then unique compatible remaining occurrences; ambiguous copies get unknown provenance and unmatched old claims remain explicit differences. Optional high-template/QL fields preserve stronger future matching. Removed the legacy fabricated bootstrap-admin donor fallback. Application, automatic routing and replacement of global gates remain unfinished; source review only, no assistant builds/tests.

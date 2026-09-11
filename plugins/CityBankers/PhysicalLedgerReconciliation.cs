@@ -18,6 +18,8 @@ namespace CityBankers
             public int? Bag;
             public int Slot;
             public string BagIdentity;
+            public int? PreviousBag;
+            public string PreviousLocation;
             public BagAuditAgent.BagInnerItem Item;
             public string DestinationRole;
             public DateTime ObservedUtc;
@@ -61,9 +63,10 @@ namespace CityBankers
             {
                 if (item == null || item.LowId == 0 || item.SlotInstance < 0)
                     throw new InvalidOperationException("Census contains an unreadable item.");
-                SymbiantCatalog.AcceptanceRule rule;
-                string destination = SymbiantCatalog.TryGetRule(settings, item.LowId, out rule)
-                    ? rule.Role : "central";
+                string destination;
+                if (!SymbiantCatalog.TryGetDestinationRole(settings, item.LowId, out destination) &&
+                    !SymbiantCatalog.TryGetDestinationRole(settings, item.HighId, out destination))
+                    destination = "central";
                 observed.Add(new Observation
                 {
                     Character = census.Character, PhysicalRole = census.Role,
@@ -109,10 +112,13 @@ namespace CityBankers
             foreach (var item in pending.ToList())
             {
                 var matches = remaining.Where(entry => Compatible(entry, item) &&
-                    Same(entry.Character, item.Character) && Same(entry.Location, item.Location) &&
-                    Normalize(entry.Bag) == item.Bag && Normalize(entry.Slot) == item.Slot).ToList();
+                    Same(entry.Character, item.Character) && Same(entry.Location, item.PreviousLocation ?? item.Location) &&
+                    Normalize(entry.Bag) == (item.PreviousBag ?? item.Bag) && Normalize(entry.Slot) == item.Slot).ToList();
                 if (matches.Count != 1) continue;
-                Match(plan, remaining, pending, matches[0], item, "location-confirmed");
+                var previousItem = matches[0];
+                Match(plan, remaining, pending, previousItem, item,
+                    Same(previousItem.Location, item.Location) && Normalize(previousItem.Bag) == item.Bag
+                        ? "location-confirmed" : "bag-location-recovered");
             }
 
             // A single unmatched occurrence on each side can be reconnected within

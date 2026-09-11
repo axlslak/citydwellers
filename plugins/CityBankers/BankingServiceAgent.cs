@@ -176,7 +176,8 @@ namespace CityBankers
                     foreach (var pending in RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches
                         .Where(batch => batch.Status == "transferred").ToList())
                         PollStorageResult(pending);
-                    ImportFreshBaselineIfNeeded();
+                    // Startup census owns the baseline. Never replace it later
+                    // with an older manual storage-baseline.json snapshot.
                     if (TickWithdrawalCentral())
                         return;
                     TickDonation();

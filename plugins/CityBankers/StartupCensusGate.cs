@@ -31,6 +31,9 @@ namespace CityBankers
         private bool _issued;
         private bool _finished;
         private string _auditRun = Guid.NewGuid().ToString("N");
+        private bool _applicationFinished;
+        private readonly Stopwatch _applicationPoll = Stopwatch.StartNew();
+        private string _applicationError;
 
         public static bool IsOpen
         {
@@ -41,7 +44,8 @@ namespace CityBankers
                     return false;
                 try
                 {
-                    return _characters.All(name => File.Exists(Path.Combine(_directory, name + ".ready"))) &&
+                    return File.Exists(Path.Combine(_directory, "applied.json")) &&
+                        _characters.All(name => File.Exists(Path.Combine(_directory, name + ".ready"))) &&
                         !Directory.EnumerateFiles(_directory, "*.blocked").Any();
                 }
                 catch (IOException) { return false; }
@@ -111,6 +115,8 @@ namespace CityBankers
             File.WriteAllText(Path.Combine(_directory, _character + ".expected.json"),
                 JsonConvert.SerializeObject(_expected, Formatting.Indented));
             Client.OnUpdate += Tick;
+            if (string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
+                Client.OnUpdate += TickApplication;
             Client.Disconnected += OnDisconnected;
             Trade.TradeOpened += RejectBeforeCensus;
         }
@@ -122,6 +128,7 @@ namespace CityBankers
 
         private void OnDisconnected()
         {
+            RuntimeStateStore.DeleteIfExists(Path.Combine(_directory, _character + ".observed"));
             Block("Banker disconnected. Old census is invalid; restart requires new physical evidence.");
             _issued = false;
             _finished = false;
@@ -132,6 +139,9 @@ namespace CityBankers
         {
             if (ServicePolicy.IsBagAuditMode()) return;
             Client.OnUpdate -= Tick;
+            Client.OnUpdate -= TickApplication;
+            if (_directory != null)
+                RuntimeStateStore.DeleteIfExists(Path.Combine(_directory, _character + ".observed"));
             Client.Disconnected -= OnDisconnected;
             Trade.TradeOpened -= RejectBeforeCensus;
             if (_directory != null) Block("Banker unloaded; census generation closed.");
@@ -149,8 +159,11 @@ namespace CityBankers
                     File.WriteAllText(Path.Combine(_directory, _character + "." + _auditRun + ".expected.json"),
                         JsonConvert.SerializeObject(_expected, Formatting.Indented));
                     if (File.Exists(_result)) File.Delete(_result);
-                    File.WriteAllText(_command, JsonConvert.SerializeObject(new BagAuditAgent.BagAuditCommand
-                    { RunId = _auditRun, Role = _role }));
+                    var request = new BagAuditAgent.BagAuditCommand { RunId = _auditRun, Role = _role };
+                    // The collector consumes/deletes its command. Retain a separate
+                    // generation-bound request for Central to verify the result.
+                    RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, _character + ".request.json"), request);
+                    RuntimeStateStore.WriteJsonAtomic(_command, request);
                     _issued = true;
                     return;
                 }
@@ -168,6 +181,7 @@ namespace CityBankers
                     try
                     {
                         var observations = PhysicalLedgerReconciliation.ReadCensus(_settings, result);
+                        File.WriteAllText(Path.Combine(_directory, _character + ".observed"), _auditRun);
                         var ledger = ActiveLedgerStore.LoadLedger(_settings);
                         var proposal = PhysicalLedgerReconciliation.Build(
                             ledger?.Items ?? new List<ActiveLedgerItem>(), observations, new[] { _character });
@@ -247,6 +261,40 @@ namespace CityBankers
         public static string CensusDirectory(string settings)
         {
             return Path.Combine(RuntimeStateStore.GetDataDirectory(settings), "startup-census", Generation);
+        }
+
+        private void TickApplication(object sender, double delta)
+        {
+            if (_applicationFinished || !Client.InPlay || _applicationPoll.ElapsedMilliseconds < 1000) return;
+            _applicationPoll.Restart();
+            try
+            {
+                var censuses = new List<BagAuditAgent.BagAuditResult>();
+                foreach (string character in _characters)
+                {
+                    string observed = Path.Combine(_directory, character + ".observed");
+                    if (!File.Exists(observed)) return;
+                    var command = RuntimeStateStore.ReadJson<BagAuditAgent.BagAuditCommand>(
+                        Path.Combine(_directory, character + ".request.json"));
+                    var result = RuntimeStateStore.ReadJson<BagAuditAgent.BagAuditResult>(
+                        Path.Combine(_directory, character + ".result.json"));
+                    if (command == null || result == null || result.RunId != command.RunId ||
+                        result.RunId != File.ReadAllText(observed) || result.Role != command.Role ||
+                        !string.Equals(result.Character, character, StringComparison.OrdinalIgnoreCase)) return;
+                    censuses.Add(result);
+                }
+                var bundle = CensusApplication.Apply(_settings, _directory, Generation, censuses);
+                _applicationFinished = true;
+                Logger.Information("[CityBankers] PHYSICAL LEDGER APPLIED: items=" + bundle.Plan.Items.Count +
+                    " differences=" + bundle.Plan.Differences.Count + " routing=" + bundle.Plan.Routing.Count +
+                    ". Previous claims and complete census evidence retained.");
+            }
+            catch (Exception ex)
+            {
+                if (_applicationError != ex.Message)
+                    Logger.Error("[CityBankers] Census application waiting for persistence: " + ex.Message);
+                _applicationError = ex.Message;
+            }
         }
     }
 }

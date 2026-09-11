@@ -121,7 +121,7 @@ namespace CityBankers
                     var matches = (ledger?.Items ?? new List<ActiveLedgerItem>()).Where(item =>
                         item.AoId == group.Key && item.TransactionId == transaction &&
                         string.Equals(item.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
-                        item.Location == "inventory" && item.Bag == null && item.Slot == null)
+                        item.Location == "inventory" && item.Bag == null)
                         .OrderBy(item => item.Id, StringComparer.Ordinal).Take(group.Count()).ToList();
                     if (matches.Count != group.Count() || matches.Any(item => string.IsNullOrWhiteSpace(item.Id)))
                         throw new InvalidOperationException("Dispatch has no matching sender-held ledger occurrences.");

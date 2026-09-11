@@ -398,6 +398,13 @@ namespace CityBankers
             return state;
         }
 
+        internal static void ApplyCensus(string settingsDir, List<ActiveLedgerItem> items,
+            IEnumerable<TransferItemState> metadata)
+        {
+            UpsertIndex(settingsDir, metadata);
+            SaveLedger(settingsDir, new ActiveLedgerState { Items = items });
+        }
+
         public static SymbiantIndexState LoadIndex(string settingsDir)
         {
             SymbiantIndexState state = RuntimeStateStore.ReadJson<SymbiantIndexState>(
@@ -494,7 +501,7 @@ namespace CityBankers
                     if (string.Equals(entry.Character, workerCharacter, StringComparison.OrdinalIgnoreCase))
                         continue;
                     if (!string.Equals(entry.Character, sourceCharacter, StringComparison.OrdinalIgnoreCase) ||
-                        entry.Location != "inventory" || entry.Bag != null || entry.Slot != null)
+                        entry.Location != "inventory" || entry.Bag != null)
                         throw new InvalidOperationException("Prepared dispatch occurrence changed custody unexpectedly: " + entry.Id);
                     entry.Character = workerCharacter;
                     entry.Location = "inventory";
@@ -572,7 +579,7 @@ namespace CityBankers
                         string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase) &&
                         string.Equals(candidate.Location, item.BagSource, StringComparison.OrdinalIgnoreCase) &&
                         candidate.Bag == item.BagOuterSlot && candidate.Slot == item.InnerSlot)
-                        ?? entries.FirstOrDefault(candidate => candidate.Bag == null && candidate.Slot == null &&
+                        ?? entries.FirstOrDefault(candidate => candidate.Bag == null && candidate.Location == "inventory" &&
                             string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase))
                         ?? entries.First();
                     entries.Remove(entry);
@@ -622,7 +629,7 @@ namespace CityBankers
                 : ledger.Items.FirstOrDefault(candidate => candidate.AoId == aoId &&
                     string.Equals(candidate.TransactionId, transactionId, StringComparison.Ordinal) &&
                     string.Equals(candidate.Character, sourceCharacter, StringComparison.OrdinalIgnoreCase) &&
-                    candidate.Location == "inventory" && candidate.Bag == null && candidate.Slot == null);
+                    candidate.Location == "inventory" && candidate.Bag == null);
             if (entry == null)
                 throw new InvalidOperationException("Cannot identify the occurrence leaving custody: " + transactionId + "/" + aoId);
 
