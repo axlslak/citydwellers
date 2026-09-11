@@ -1,3 +1,9 @@
+## Session 71 — pre-login readiness exception preserves deferred startup
+
+- [VERIFIED] Owner startup diagnostics identify NullReferenceException in StartupCensusGate.IsOpen through Defer for all nine banking services, before login. The Clientless source getter for InPlay dereferences its network session. That readiness guard was outside IsOpen's fail-closed try/catch, so the exception escaped before startup could enter the deferred queue. Only ActiveLedgerCoordinator appeared in later deferred-component logs.
+- [FIX] Moved the existing initial readiness guard inside the existing exception boundary. An unavailable pre-login client now yields false, allowing Defer to retain the banking startup action. The census gate still requires a released matching connection and all existing readiness checks before invoking it. Session70 startup diagnostics and actor-heartbeat admission remain in place.
+- [VALIDATION/NEXT] Focused static control-flow/diff and whitespace review only, no assistant compilation/tests/live run. Owner rebuild and controlled launch next: verify BANKING SERVICE startup registered, then startup entering and initialized after census release, followed by routing. This corrects the observed startup exception; physical transfer remains unverified. No live data/config changes and no repeated historical repair.
+
 ## Session 70 — observable banking initialization and operational readiness
 
 - [EVIDENCE] Owner full launch log shows all nine census participants released with one queued route, then no banking initialization/transfer for more than eleven minutes. Available upstream Clientless loader suppresses Init exceptions; the exact exception and equivalence to the deployed loader remain unverified.

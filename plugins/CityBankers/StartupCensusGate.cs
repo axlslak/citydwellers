@@ -90,9 +90,11 @@ namespace CityBankers
         {
             get
             {
-                if (ServicePolicy.IsBagAuditMode() || _invalidated || _directory == null || !Client.InPlay) return false;
                 try
                 {
+                    // Plugin Init runs before the network session exists. InPlay
+                    // can throw then; fail closed so Defer still queues startup.
+                    if (ServicePolicy.IsBagAuditMode() || _invalidated || _directory == null || !Client.InPlay) return false;
                     var cycle = Current();
                     return cycle?.Phase == "released" && Includes(cycle, MemberCharacter, _connection) &&
                         !Requested() && RuntimeStateStore.ReadTextStrict(MemberPath(MemberCharacter, ".ready")) == cycle.Id + "/" + _connection;
