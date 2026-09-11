@@ -28,6 +28,11 @@ namespace CityBankers
         private Identity _withdrawalTradePartner = Identity.None;
         private bool _withdrawalPickupTrade;
         private bool _pickupDeclineSent;
+        private bool _pickupPlayerAccepted;
+        private bool _pickupConfirmSent;
+        private bool _pickupPlayerConfirmed;
+        private bool _pickupFinalAcceptSent;
+        private readonly Stopwatch _pickupConfirmAge = new Stopwatch();
         // Clientless keeps the same Item object when offering/returning a local item,
         // even if cancellation returns it to a different inventory slot. A new cache
         // or actor cannot inherit these bindings; existing census recovery owns that case.
@@ -360,7 +365,30 @@ namespace CityBankers
             if (!_withdrawalTradeOpened || _withdrawal == null)
                 return false;
             WithdrawalState state = WithdrawalStore.LoadAll(_settingsDir).First(row => row.Id == _withdrawal.Id);
-            if (status == TradeStatus.Accept) return true; // AO thread polls the live sender acknowledgement.
+            if (_isCentral && _withdrawalPickupTrade &&
+                (status == TradeStatus.Accept || status == TradeStatus.Confirm))
+            {
+                // The callback target is unreliable in Clientless. Use the partner
+                // captured at Opened, as the proven player donation bridge does.
+                if (!Trade.IsTrading || Trade.CurrentTarget != _withdrawalTradePartner || _pickupDeclineSent)
+                    return true;
+                if (status == TradeStatus.Accept && !_pickupConfirmSent)
+                {
+                    _pickupPlayerAccepted = PickupOfferExact();
+                    ReportTransferProgress("PICKUP HANDSHAKE", state.OrderId,
+                        _pickupPlayerAccepted ? "player Accept observed; preparing Central Confirm" :
+                        "player Accept arrived before the complete pickup offer; waiting for a fresh Accept");
+                }
+                else if (status == TradeStatus.Confirm && _pickupConfirmSent && !_pickupPlayerConfirmed)
+                {
+                    _pickupPlayerConfirmed = true;
+                    _pickupConfirmAge.Restart();
+                    ReportTransferProgress("PICKUP HANDSHAKE", state.OrderId,
+                        "player Confirm observed; preparing Central final Accept");
+                }
+                return true;
+            }
+            if (status == TradeStatus.Accept) return true; // Internal bot trade acknowledgement.
             if (status == TradeStatus.Confirm)
             {
                 QueueInternalConfirmation(_withdrawalTradePartner);
@@ -375,7 +403,8 @@ namespace CityBankers
                 {
                 if (_isCentral && _withdrawalPickupTrade)
                 {
-                    if (!_withdrawalAccepted || _pickupOfferedIds.Count != _pickupItems.Count)
+                    if (!_withdrawalAccepted || !_pickupFinalAcceptSent || !_pickupPlayerConfirmed ||
+                        _pickupOfferedIds.Count != _pickupItems.Count)
                     {
                         ResetWithdrawalTrade(); // persisted pickup-trading requires physical reconciliation
                         throw new InvalidOperationException("Pickup completion lacks accepted offer evidence.");
@@ -754,27 +783,60 @@ namespace CityBankers
                 _pickupOfferedIds.Add(row.Id);
                 return;
             }
+            if (!PickupOfferExact())
+            {
+                _pickupPlayerAccepted = false;
+                if (_pickupConfirmSent)
+                    DeclinePickup(state, "The pickup offer changed during confirmation. Please reopen trade to collect your order.");
+                return;
+            }
             if (!_withdrawalAccepted)
             {
-                List<Item> offered = Trade.PlayerWindowCache?.Items ?? new List<Item>();
-                var available = new List<Item>(offered);
-                bool exact = offered.Count == _pickupItems.Count;
-                foreach (WithdrawalState row in _pickupItems)
-                {
-                    Item bound;
-                    bool hasBinding = _centralWithdrawalItems.TryGetValue(row.Id, out bound);
-                    Item match = available.FirstOrDefault(item => MatchesWithdrawalItem(item, row) &&
-                        (!hasBinding || ReferenceEquals(item, bound)));
-                    if (match == null) { exact = false; break; }
-                    available.Remove(match);
-                }
-                if (exact && InternalOfferSettled(SnapshotTradeItems(offered)))
-                {
-                    _withdrawalAccepted = true;
-                    _localDispatchAcceptAge.Restart();
-                    Trade.Accept();
-                }
+                if (!InternalOfferSettled(SnapshotTradeItems(Trade.PlayerWindowCache.Items))) return;
+                _withdrawalAccepted = true;
+                _localDispatchAcceptAge.Restart();
+                Trade.Accept();
+                ReportTransferProgress("PICKUP HANDSHAKE", state.OrderId,
+                    "Central initial Accept sent; waiting for player Accept");
+                return;
             }
+            if (!_pickupPlayerAccepted) return;
+            if (!_pickupConfirmSent)
+            {
+                PersistReceipt("pickup-player-accepted-confirming");
+                _pickupConfirmSent = true;
+                Trade.Confirm();
+                ReportTransferProgress("PICKUP HANDSHAKE", state.OrderId,
+                    "Central Confirm sent; waiting for player's confirmation dialog");
+                return;
+            }
+            // Never echo Confirm or re-Accept while the player's modal is open.
+            if (!_pickupPlayerConfirmed || _pickupFinalAcceptSent || _pickupConfirmAge.ElapsedMilliseconds < 150)
+                return;
+            PersistReceipt("pickup-player-confirmed-final-accept");
+            _pickupFinalAcceptSent = true;
+            Trade.Accept();
+            ReportTransferProgress("PICKUP HANDSHAKE", state.OrderId,
+                "Central final Accept sent after player Confirm; waiting for AO Finished");
+        }
+
+        private bool PickupOfferExact()
+        {
+            if (_pickupItems.Count == 0 || _pickupOfferedIds.Count != _pickupItems.Count ||
+                Trade.TargetWindowCache?.Items == null || Trade.TargetWindowCache.Items.Count != 0 ||
+                Trade.PlayerWindowCache?.Items == null) return false;
+            var available = new List<Item>(Trade.PlayerWindowCache.Items);
+            if (available.Count != _pickupItems.Count) return false;
+            foreach (WithdrawalState row in _pickupItems)
+            {
+                Item bound;
+                bool hasBinding = _centralWithdrawalItems.TryGetValue(row.Id, out bound);
+                Item match = available.FirstOrDefault(item => MatchesWithdrawalItem(item, row) &&
+                    (!hasBinding || ReferenceEquals(item, bound)));
+                if (match == null) return false;
+                available.Remove(match);
+            }
+            return available.Count == 0;
         }
 
         private void OpenPickupWindow(WithdrawalState state)
@@ -1121,6 +1183,11 @@ namespace CityBankers
             _withdrawalTradePartner = Identity.None;
             _withdrawalPickupTrade = false;
             _pickupDeclineSent = false;
+            _pickupPlayerAccepted = false;
+            _pickupConfirmSent = false;
+            _pickupPlayerConfirmed = false;
+            _pickupFinalAcceptSent = false;
+            _pickupConfirmAge.Reset();
             _withdrawalClosedAge = null;
             _pickupItems.Clear();
             _pickupOfferedIds.Clear();

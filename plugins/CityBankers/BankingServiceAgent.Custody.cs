@@ -46,6 +46,8 @@ namespace CityBankers
 
         private void TickInternalConfirmation()
         {
+            // Player pickup owns its modal handshake; this path is for bot peers.
+            if (_withdrawalPickupTrade) { _pendingConfirmation = Identity.None; return; }
             if (_pendingConfirmation == Identity.None) return;
             if (!Trade.IsTrading || Trade.CurrentTarget != _pendingConfirmation)
             { _pendingConfirmation = Identity.None; return; }
