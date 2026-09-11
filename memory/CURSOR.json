@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 78,
-  "last_completed_session": 77,
-  "status": "in_progress",
+  "last_completed_session": 78,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-78-player-pickup-handshake",
-  "base_commit": "eb12d06d2d47e707813a41c75e15ab1065a10447",
-  "task": "Give player pickup explicit Accept/Confirm handshake instead of internal bot confirmation path",
-  "resume_instruction": "Mirror proven player donation ordering for pickup with exact bound offer validation, stage logs, reset/cancel guards. Owner builds/live tests; presentation deferred. Next journal210."
+  "base_commit": "c0fef7636919aa47374c6bf9fd0b21046291a761",
+  "task": "Owner build/live player pickup confirmation test; presentation work deferred",
+  "resume_instruction": "Session78 c0fef7636919aa47374c6bf9fd0b21046291a761 separates player pickup handshake: player Accept -> Central Confirm -> player Confirm -> delayed final Accept; explicit telemetry, bound offer validation, physical receipt required. Owner test one then two Igocs and cancellation/reopen. Prior log confirms one copy bound but no dialog before patch. Help/status enrichment, consistent colours/icons remain deferred; CRU discussion only. No assistant tests/live data edits. Next journal211; acquire transaction before edits; never repeat historical repair."
 }
