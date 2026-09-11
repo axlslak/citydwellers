@@ -805,6 +805,32 @@ namespace CityBankers.Shared
             }
         }
 
+        // Unlike ReadJson, evidence/readiness reads must not turn sharing,
+        // corruption or permission failures into an absent record. Use the same
+        // per-file mutex as atomic writers and preserve the exception for retry.
+        public static string ReadTextStrict(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", "path");
+            string text = null;
+            WithMutex(GetFileMutexName(path), delegate
+            {
+                if (!File.Exists(path)) return;
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
+                using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+                    text = reader.ReadToEnd();
+            });
+            return text;
+        }
+
+        public static T ReadJsonStrict<T>(string path) where T : class
+        {
+            string text = ReadTextStrict(path);
+            if (text == null) return null;
+            var value = JsonConvert.DeserializeObject<T>(text);
+            if (value == null) throw new InvalidDataException("Unreadable record: " + Path.GetFileName(path));
+            return value;
+        }
+
         public static void WriteJsonAtomic(string path, object value)
         {
             if (string.IsNullOrWhiteSpace(path))

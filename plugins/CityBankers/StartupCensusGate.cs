@@ -28,8 +28,9 @@ namespace CityBankers
         private static string _holdCycle;
         private static string _recoveryRequest;
         private static bool _requestPublished;
-        private static readonly List<EventHandler<double>> Deferred = new List<EventHandler<double>>();
+        private static readonly List<Action> Deferred = new List<Action>();
         private string _settings, _character, _role, _auditCycle, _auditRun, _signature, _error;
+        private string _readyLoggedCycle, _handoffError;
         private long _auditPause;
         private long _presenceRetryAfter;
         private bool _issued, _finished, _quiesced;
@@ -94,7 +95,7 @@ namespace CityBankers
                 {
                     var cycle = Current();
                     return cycle?.Phase == "released" && Includes(cycle, MemberCharacter, _connection) &&
-                        !Requested() && File.ReadAllText(MemberPath(MemberCharacter, ".ready")) == cycle.Id + "/" + _connection;
+                        !Requested() && RuntimeStateStore.ReadTextStrict(MemberPath(MemberCharacter, ".ready")) == cycle.Id + "/" + _connection;
                 }
                 catch (Exception) { return false; }
             }
@@ -104,18 +105,23 @@ namespace CityBankers
         {
             if (ServicePolicy.IsBagAuditMode()) return true;
             if (IsOpen) return false;
-            EventHandler<double> pending = null;
-            pending = (sender, delta) =>
+            // The census gate owns deferred startup. Do not depend on callback
+            // registration/removal while another OnUpdate handler is running.
+            Deferred.Add(initialize);
+            return true;
+        }
+
+        internal static void CancelDeferred(Action initialize) => Deferred.Remove(initialize);
+
+        private static void InitializeDeferred()
+        {
+            foreach (var initialize in Deferred.ToArray())
             {
                 if (!IsOpen) return;
-                Client.OnUpdate -= pending;
-                Deferred.Remove(pending);
+                Deferred.Remove(initialize);
                 try { initialize(); }
-                catch (Exception ex) { Block("Operational initialization failed: " + ex); }
-            };
-            Deferred.Add(pending);
-            Client.OnUpdate += pending;
-            return true;
+                catch (Exception ex) { Block("Operational initialization failed: " + ex); return; }
+            }
         }
 
         private static void Hold(string reason)
@@ -228,7 +234,6 @@ namespace CityBankers
         public override void Teardown()
         {
             Client.OnUpdate -= Tick;
-            foreach (var pending in Deferred) Client.OnUpdate -= pending;
             Deferred.Clear();
             Client.Disconnected -= OnDisconnected;
             Trade.TradeOpened -= RejectBeforeCensus;
@@ -254,6 +259,25 @@ namespace CityBankers
                 if (cycle.Phase == "released")
                 {
                     if (_auditCycle == cycle.Id && _finished) ResumeLocalCensus(_auditPause);
+                    if (IsOpen)
+                    {
+                        if (_readyLoggedCycle != cycle.Id)
+                        {
+                            Logger.Information("[CityBankers] BANKER READY " + _character + "; cycle=" + cycle.Id +
+                                "; starting deferred components=" + Deferred.Count);
+                            _readyLoggedCycle = cycle.Id;
+                        }
+                        InitializeDeferred();
+                        _handoffError = null;
+                    }
+                    else
+                    {
+                        string reason = "cycle=" + cycle.Id + "; localCycle=" + _auditCycle + "; finished=" + _finished +
+                            "; invalidated=" + _invalidated + "; pause=" + _auditPause + "/" + _holdVersion +
+                            "; holdCycle=" + _holdCycle + "; recoveryRequested=" + Requested();
+                        if (_handoffError != reason) Logger.Warning("[CityBankers] Census released; local handoff waiting: " + reason);
+                        _handoffError = reason;
+                    }
                     return;
                 }
                 if (cycle.Phase != "collecting" && cycle.Phase != "applying") return;
@@ -335,7 +359,7 @@ namespace CityBankers
                 // That snapshot is never released; a fresh cycle follows it.
                 cycle.Phase = "applying";
                 RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
-                CensusApplication.Apply(_settings, CycleDirectory(cycle), cycle.Id, censuses,
+                var application = CensusApplication.Apply(_settings, CycleDirectory(cycle), cycle.Id, censuses,
                     _roles.Properties().ToDictionary(p => p.Name, p => (string)p.Value["Character"], StringComparer.OrdinalIgnoreCase));
                 bool release = cycle.Participants.All(p => Present(p.Key, p.Value)) && !Requested();
                 cycle.Phase = release ? "released" : "superseded";
@@ -348,7 +372,7 @@ namespace CityBankers
                         characters = cycle.Participants.Select(p => new { character = p.Key, connection = p.Value, role = _roles.Properties().Single(r => string.Equals((string)r.Value["Character"], p.Key, StringComparison.OrdinalIgnoreCase)).Name }).ToList()
                     });
                 RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
-                Logger.Information("[CityBankers] Census " + cycle.Id + " " + cycle.Phase + "; audited bankers=" + censuses.Count);
+                Logger.Information("[CityBankers] Census " + cycle.Id + " " + cycle.Phase + "; audited bankers=" + censuses.Count + "; queued routes=" + application.Queue.Batches.Count);
                 return;
             }
             var online = _characters.Select(c => new { Character = c, Presence = Read<Presence>(MemberPath(c, ".presence.json")) })

@@ -202,12 +202,8 @@ namespace CityBankers
 
         internal static T ReadExisting<T>(string path) where T : class
         {
-            if (!File.Exists(path)) return null;
-            // A corrupt or temporarily unreadable record is not an empty ledger.
-            // Let the caller retry; never silently discard its provenance.
-            var value = JsonConvert.DeserializeObject<T>(File.ReadAllText(path));
-            if (value == null) throw new InvalidOperationException("Unreadable reconciliation record: " + Path.GetFileName(path));
-            return value;
+            // Sharing failures remain retryable errors, never an empty ledger.
+            return RuntimeStateStore.ReadJsonStrict<T>(path);
         }
     }
 }

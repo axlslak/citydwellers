@@ -141,7 +141,7 @@ namespace CityBankers
 
         private BankingServiceAgent _successor;
         private BankingServiceAgent _lifecycleRoot;
-        private EventHandler<double> _resumeAfterCensus;
+        private Action _resumeAfterCensus;
 
         internal static bool QuiesceForCensus(string directory)
         {
@@ -163,22 +163,20 @@ namespace CityBankers
             actor._enabled = false;
             DispatchProposal proposal;
             while (actor._dispatchProposals.TryDequeue(out proposal)) proposal.Reply.TrySetResult("pending");
-            root._resumeAfterCensus = (sender, delta) =>
+            root._resumeAfterCensus = () =>
             {
-                if (!StartupCensusGate.IsOpen) return;
-                Client.OnUpdate -= root._resumeAfterCensus;
                 root._resumeAfterCensus = null;
                 root._successor = new BankingServiceAgent { _lifecycleRoot = root };
                 try { root._successor.Init(null); }
                 catch (Exception ex) { StartupCensusGate.Block("Operational reinitialization failed: " + ex.Message); }
             };
-            Client.OnUpdate += root._resumeAfterCensus;
+            if (!StartupCensusGate.Defer(root._resumeAfterCensus)) root._resumeAfterCensus();
             return true;
         }
 
         public override void Teardown()
         {
-            if (_resumeAfterCensus != null) Client.OnUpdate -= _resumeAfterCensus;
+            if (_resumeAfterCensus != null) StartupCensusGate.CancelDeferred(_resumeAfterCensus);
             _resumeAfterCensus = null;
             _successor?.Teardown();
             _successor = null;

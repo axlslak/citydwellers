@@ -34,10 +34,12 @@ namespace CityBankers.Shared
                 string data = RuntimeStateStore.GetDataDirectory(directory);
                 string path = Path.Combine(data, AllBankersReadyMarkerFileName);
                 if (!File.Exists(path)) return available;
-                var ready = JObject.Parse(File.ReadAllText(path));
+                var ready = RuntimeStateStore.ReadJsonStrict<JObject>(path);
+                if (ready == null) return available;
                 if ((string)ready["generation"] != HostGeneration) return available;
                 string root = Path.Combine(data, "startup-census", HostGeneration);
-                var cycle = JObject.Parse(File.ReadAllText(Path.Combine(root, "cycle.json")));
+                var cycle = RuntimeStateStore.ReadJsonStrict<JObject>(Path.Combine(root, "cycle.json"));
+                if (cycle == null) return available;
                 if ((string)cycle["Phase"] != "released" || (string)cycle["Id"] != (string)ready["cycle"] ||
                     Directory.EnumerateFiles(root, "*.recovery.json").Any()) return available;
                 var members = ready["characters"] as JArray;
@@ -61,8 +63,9 @@ namespace CityBankers.Shared
             if (!File.Exists(Path.Combine(root, character + ".ready")) ||
                 !File.Exists(Path.Combine(root, character + ".presence.json")) ||
                 File.Exists(Path.Combine(root, character + ".blocked")) ||
-                File.ReadAllText(Path.Combine(root, character + ".ready")) != cycle + "/" + connection) return false;
-            var presence = JObject.Parse(File.ReadAllText(Path.Combine(root, character + ".presence.json")));
+                RuntimeStateStore.ReadTextStrict(Path.Combine(root, character + ".ready")) != cycle + "/" + connection) return false;
+            var presence = RuntimeStateStore.ReadJsonStrict<JObject>(Path.Combine(root, character + ".presence.json"));
+            if (presence == null) return false;
             long age = Stopwatch.GetTimestamp() - ((long?)presence["Stamp"] ?? long.MaxValue);
             return (string)presence["Connection"] == connection && age >= 0 && age < Stopwatch.Frequency * 10;
         }

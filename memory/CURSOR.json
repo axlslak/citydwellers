@@ -5,7 +5,7 @@
   "status": "in_progress",
   "active_project": "citydwellers",
   "transaction": "session-69-census-handoff",
-  "base_commit": "04c2cd4b68440c08f876abe9ca786d658e241ea0",
+  "base_commit": "f315d16786dd6b5779500f49f7331cfc8ca5051c",
   "task": "Fix live census file-sharing contention and make operational handoff explicit",
-  "resume_instruction": "Owner build passed. Live log reaches nine-banker census release at 13:14:08 but has repeated presence-file sharing errors and no banking-service initialization/dispatch; central symbiant remains. Implement strict mutex-coordinated JSON reads, explicit gate-owned deferred initialization and local release diagnostics. Do not claim item destination known without evidence. Owner asked to stop test; actual stop not yet confirmed. No assistant build/tests/live run; repair must not repeat. BEGIN189; fix then publish/seal."
+  "resume_instruction": "Session69 source fixes prepared: strict mutex-coordinated snapshot reads, gate-owned deferred initialization for original/replacement actors, local ready/handoff and queue count diagnostics. Log confirms nine-bank census release but no operational init; item routing not yet proven. Static review only. Publish checkpoint190 then seal COMMIT191 idle; owner rebuild/controlled run with new readiness/routing logs next. Stop requested not confirmed; historical repair must not repeat. Preserve journal historical truncation."
 }
