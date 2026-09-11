@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 73,
+  "current_session": 74,
   "last_completed_session": 73,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-73-remote-offer-cache",
-  "base_commit": "42642fc45eb45da3bfea030998d26015563c9078",
-  "task": "Owner rebuild, fresh startup and remote-offer removal/cancellation verification",
-  "resume_instruction": "Session73 fix 42642fc45eb45da3bfea030998d26015563c9078 removes only current remote offer slot in pre-dispatch MessageReceived before native Clientless can add it to local inventory. Logs guard installation/removal and donation CANCELLATION VERIFIED. Owner confirmed stopped; build then controlled fresh start needed to clear polluted runtime cache and census persisted claims. No manual ledger/custody deletion or repeat repair. Static review only; owner validates remove/cancel no audit, successful donation/storage and local-offer cancellation. Packet decode and wider recovery/withdrawal checks remain open. Next journal201; acquire transaction before code."
+  "transaction": "session-74-withdrawal-pickup",
+  "base_commit": "1af775144813baf1368d79108e42e4647a92c8cc",
+  "task": "Fix pickup placeholder identity lookup and missing Central ledger custody update",
+  "resume_instruction": "Publish BEGIN201, fix None identity handling and verified withdrawal arrival ledger update; explain pickup declines. Static review only, owner builds/live tests. No data repair."
 }
