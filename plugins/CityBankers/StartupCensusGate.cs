@@ -104,8 +104,8 @@ namespace CityBankers
         // Written only by the running banking actor, never by census completion.
         internal static void PublishOperational()
         {
-            if (!IsOpen) return;
             var cycle = Current();
+            if (cycle?.Phase != "released" || !Includes(cycle, MemberCharacter, _connection) || !IsOpen) return;
             RuntimeStateStore.WriteJsonAtomic(MemberPath(MemberCharacter, ".operational.json"),
                 new { Cycle = cycle.Id, Connection = _connection, Stamp = Stopwatch.GetTimestamp() });
         }
