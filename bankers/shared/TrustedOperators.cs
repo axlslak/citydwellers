@@ -18,7 +18,7 @@ namespace CityBankers.Shared
     public static class TrustedOperators
     {
         public const string BootstrapAdmin = ServicePolicy.TrustedAdminName;
-        public const string AllBankersReadyMarkerFileName = "citybankers-all-bankers-ready.json";
+        public const string AllBankersReadyMarkerFileName = BankerReadiness.AllBankersReadyMarkerFileName;
 
         public static bool IsTrustedAdmin(
             string characterName,
@@ -88,7 +88,7 @@ namespace CityBankers.Shared
             if (!SettingsPaths.TryEnsureDirectory(out settingsDir, out error))
                 return false;
 
-            return WithdrawalStore.IsReadyForRequests(settingsDir);
+            return BankerReadiness.IsReadyForRequests(settingsDir);
         }
     }
 }

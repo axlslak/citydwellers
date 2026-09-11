@@ -5,7 +5,7 @@
   "status": "in_progress",
   "active_project": "citydwellers",
   "transaction": "session-68-owner-build-fixes",
-  "base_commit": "c45939947b7aba4baf48707b0615164b153df7f6",
+  "base_commit": "4f710fdad9e954bf6a675cd5ac7b2c558c8afbd5",
   "task": "Fix four compiler errors from owner Release build",
-  "resume_instruction": "Owner log reports missing WithdrawalStore in executable TrustedOperators, missing TrustedOperators in manager WithdrawalState, static TryDeclineTrade instance call, and missing return in HandleStorageRecoveryProposal. Extract standalone shared readiness source and link all three consuming projects; fix static call and handled return. Static review only; owner owns compilation/live testing. Service stopped; repair already applied. BEGIN186; publish fixes then seal."
+  "resume_instruction": "Four owner-reported compiler errors corrected: extracted BankerReadiness and linked all three consumers, removed shared policy/withdrawal dependency, fixed static TryDeclineTrade call and final storage-recovery handler return. Static moved-code/project/call-site/whitespace checks only; no builds/tests/live run. Publish checkpoint187 implementation then COMMIT188 seal Session68 idle; owner rebuild next. Service stopped; repair must not repeat."
 }

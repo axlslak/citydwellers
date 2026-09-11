@@ -1,3 +1,9 @@
+## Session 68 — owner-reported Release build errors corrected
+
+- Owner build of Session 67 reported four errors: missing WithdrawalStore in the executable's linked TrustedOperators source; missing TrustedOperators in the manager's linked WithdrawalState source; an instance-qualified static TryDeclineTrade call; and a storage-recovery handler missing its final boolean return.
+- Extracted the existing readiness implementation into standalone bankers/shared/BankerReadiness.cs, linked once by CityDwellers, CityManager and CityBankers. WithdrawalStore delegates its public readiness methods; TrustedOperators delegates directly to BankerReadiness and aliases its marker constant. Readiness logic, connection freshness and admission policy are unchanged. Corrected the static call and added the handled=true return after a successful recovery grant reply.
+- Static comparison verified the moved readiness methods are unchanged except their local marker constant reference. Reviewed all three consuming project source lists, the static call and handler exit, and whitespace. No assistant compilation, test suite or live AO run. Owner rebuild is next; runtime acceptance remains pending and service remains stopped. Historical data repair is already applied and must not be repeated.
+
 ## Session 67 — recovery implementation complete; owner validation next
 
 - [VERIFIED: SOURCE] Replaced the one-shot nine-client startup barrier with connection-bound census cycles. Central collects the currently online, bank-ready configured roster after a short gathering interval. Each participant stops its operational actor, archives its original operations, closes any trade, retires collector handles and waits for stable inventory before a full audit. Only a completely applied immutable census can release those exact connections. Reconnecting or newly available bankers enter a fresh cycle; old pause tokens, callbacks and actor fields cannot release or restart old work.

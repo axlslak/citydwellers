@@ -147,7 +147,7 @@ namespace CityBankers
         {
             var actor = _ipcOwner;
             if (actor == null) return true; // Startup actors have not been initialized yet.
-            if (Trade.IsTrading) { actor.TryDeclineTrade(); return false; }
+            if (Trade.IsTrading) { TryDeclineTrade(); return false; }
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, Client.CharacterName + ".retired-operations.json"), new
             {
                 Receipt = actor._receipt, Batch = actor._activeBatch, Command = actor._workerCommand,

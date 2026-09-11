@@ -64,6 +64,7 @@
     <Compile Include="..\..\bankers\shared\LoggingDefaults.cs">
       <Link>Bankers\Shared\LoggingDefaults.cs</Link>
     </Compile>
+    <Compile Include="..\..\bankers\shared\BankerReadiness.cs"><Link>Shared\BankerReadiness.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\RuntimeState.cs">
       <Link>Bankers\Shared\RuntimeState.cs</Link>
     </Compile>

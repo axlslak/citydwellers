@@ -54,6 +54,7 @@
     <Compile Include="..\..\bankers\shared\CityBankersChatPalette.cs">
       <Link>Bankers\Shared\CityBankersChatPalette.cs</Link>
     </Compile>
+    <Compile Include="..\..\bankers\shared\BankerReadiness.cs"><Link>Shared\BankerReadiness.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\RuntimeState.cs">
       <Link>Bankers\Shared\RuntimeState.cs</Link>
     </Compile>

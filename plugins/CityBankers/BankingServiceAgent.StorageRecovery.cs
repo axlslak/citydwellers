@@ -148,6 +148,7 @@ namespace CityBankers
                 !WithdrawalStore.TryReserveCensus(_settingsDir, request.RunId, request.Received.Character))
             { proposal.Reply.TrySetResult("pending"); return true; }
             proposal.Reply.TrySetResult("ready:" + request.RunId);
+            return true;
         }
 
         private void ValidateStorageGrant(StorageRecoveryGrant grant, string run, string character)
