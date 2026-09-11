@@ -55,6 +55,7 @@ namespace CityBankers.Shared
         {
             public string OperationId;
             public string LedgerId;
+            public string CensusCharacter;
         }
 
         private static string RecoveryPath(string directory) => Path.Combine(
@@ -64,13 +65,36 @@ namespace CityBankers.Shared
             string path = RecoveryPath(directory);
             if (!File.Exists(path)) return new List<RecoveryReservation>();
             var rows = JsonConvert.DeserializeObject<List<RecoveryReservation>>(File.ReadAllText(path));
-            if (rows == null || rows.Any(r => r == null || string.IsNullOrWhiteSpace(r.OperationId) || string.IsNullOrWhiteSpace(r.LedgerId)))
+            if (rows == null || rows.Any(r => r == null || string.IsNullOrWhiteSpace(r.OperationId) || (string.IsNullOrWhiteSpace(r.LedgerId) && string.IsNullOrWhiteSpace(r.CensusCharacter))))
                 throw new InvalidDataException("Invalid recovery reservation state.");
             return rows;
         }
 
         public static HashSet<string> GetRecoveryReservedIds(string directory) => Locked(() =>
-            new HashSet<string>(ReadRecovery(directory).Select(r => r.LedgerId), StringComparer.Ordinal));
+            new HashSet<string>(ReadRecovery(directory).Where(r => !string.IsNullOrWhiteSpace(r.LedgerId)).Select(r => r.LedgerId), StringComparer.Ordinal));
+
+        public static HashSet<string> GetCensusCharacters(string directory) => Locked(() =>
+            new HashSet<string>(ReadRecovery(directory).Where(r => !string.IsNullOrWhiteSpace(r.CensusCharacter))
+                .Select(r => r.CensusCharacter), StringComparer.OrdinalIgnoreCase));
+
+        public static bool OwnsCensus(string directory, string operation, string character) => Locked(() =>
+            ReadRecovery(directory).Any(r => r.OperationId == operation &&
+                string.Equals(r.CensusCharacter, character, StringComparison.OrdinalIgnoreCase)));
+
+        public static bool TryReserveCensus(string directory, string operation, string character)
+        {
+            return Locked(() =>
+            {
+                if (Read(directory).Any(r => IsActive(r) &&
+                    string.Equals(r.SourceCharacter, character, StringComparison.OrdinalIgnoreCase))) return false;
+                var rows = ReadRecovery(directory);
+                var existing = rows.FirstOrDefault(r => string.Equals(r.CensusCharacter, character, StringComparison.OrdinalIgnoreCase));
+                if (existing != null) return existing.OperationId == operation;
+                rows.Add(new RecoveryReservation { OperationId = operation, CensusCharacter = character });
+                RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), rows);
+                return true;
+            });
+        }
 
         public static bool OwnsRecovery(string directory, string operation, string ledgerId) => Locked(() =>
             ReadRecovery(directory).Any(r => r.OperationId == operation && r.LedgerId == ledgerId));
@@ -237,7 +261,8 @@ namespace CityBankers.Shared
                     row.RecipientMain, request.RecipientMain, StringComparison.OrdinalIgnoreCase)).ToList();
                 if (active.Any(row => row.ActiveLedgerId == request.ActiveLedgerId))
                     reason = "That copy was just reserved. Please select it again.";
-                else if (ReadRecovery(directory).Any(r => r.LedgerId == request.ActiveLedgerId))
+                else if (ReadRecovery(directory).Any(r => r.LedgerId == request.ActiveLedgerId ||
+                    string.Equals(r.CensusCharacter, request.SourceCharacter, StringComparison.OrdinalIgnoreCase)))
                     reason = "That item is being moved. Please try again shortly.";
                 else if (!RequestStillStored(directory, request))
                     reason = "That item has moved. Please refresh stock and select it again.";

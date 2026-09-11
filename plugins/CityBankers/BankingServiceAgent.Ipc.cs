@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AOSharp.Clientless;
+using AOSharp.Clientless.Logging;
 using CityBankers.Shared;
 using Newtonsoft.Json;
 
@@ -22,6 +23,7 @@ namespace CityBankers
             public DispatchCommand Command;
             public ReturnOffer Return;
             public ExtractionProof Extraction;
+            public BagAuditAgent.BagAuditResult Census;
             [JsonIgnore]
             public readonly TaskCompletionSource<string> Reply =
                 new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -42,6 +44,7 @@ namespace CityBankers
         private readonly Dictionary<string, Stopwatch> _workerRetries = new Dictionary<string, Stopwatch>(StringComparer.OrdinalIgnoreCase);
         private readonly Stopwatch _preparingAge = Stopwatch.StartNew();
         private static BankingServiceAgent _ipcOwner;
+        private string _proposalError;
         internal static DispatchCommand CurrentInboundDispatch =>
             _ipcOwner?._workerCommand ?? _ipcOwner?._reservedDispatch;
         internal static bool CentralTransferBusy => _ipcOwner != null &&
@@ -120,8 +123,23 @@ namespace CityBankers
             while (_dispatchProposals.TryDequeue(out proposal))
             {
                 if (proposal.Reply.Task.IsCompleted) continue;
-                if (HandleExtractionProposal(proposal)) continue;
-                if (HandleReturnProposal(proposal)) continue;
+                try
+                {
+                    if (HandleLocalCensusProposal(proposal)) continue;
+                    if (HandleExtractionProposal(proposal)) continue;
+                    if (HandleReturnProposal(proposal)) continue;
+                }
+                catch (Exception ex)
+                {
+                    // These handlers commit retained proof or reserve an offer;
+                    // they never perform AO movement. The owning operation stays
+                    // reserved and retries instead of disabling Central's IPC.
+                    proposal.Reply.TrySetResult("pending");
+                    if (_proposalError != ex.Message)
+                        Logger.Warning("[CityBankers] Recovery IPC commit pending: " + ex.Message);
+                    _proposalError = ex.Message;
+                    continue;
+                }
                 if (proposal.Kind == "storage-result")
                 {
                     // The worker owns this durable record; live communication is IPC.

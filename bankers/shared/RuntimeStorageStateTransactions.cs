@@ -15,6 +15,20 @@ namespace CityBankers.Shared
         private const string RuntimeStateMutexName = "CityBankers.RuntimeState.v1";
         private const string IdentityNoneText = "(None:0000)";
 
+        public static void ReplaceCensusedWorker(string settingsDir, StorageWorkerState replacement)
+        {
+            WithRuntimeStateMutex(delegate
+            {
+                var state = RuntimeStateStore.LoadStorageState(settingsDir);
+                if (state?.Workers == null) throw new InvalidOperationException("Storage state unavailable during local census.");
+                state.Workers.RemoveAll(w => string.Equals(w.Character, replacement.Character, StringComparison.OrdinalIgnoreCase));
+                state.Workers.Add(replacement);
+                state.UpdatedUtc = DateTime.UtcNow;
+                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetStorageStatePath(settingsDir), state);
+                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetCurrentStockPath(settingsDir), RuntimeStateStore.BuildCurrentStock(settingsDir, state));
+            });
+        }
+
         public static void CommitVerifiedExtraction(string settingsDir, string character, string source,
             int outerSlot, string bagIdentity, int finalOuterSlot, int removedSlot,
             IEnumerable<LiveBagItemSnapshot> before, IEnumerable<LiveBagItemSnapshot> after)

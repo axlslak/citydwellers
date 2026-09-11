@@ -134,7 +134,7 @@ namespace CityBankers
             return queue;
         }
 
-        private static StorageState BuildStorage(IEnumerable<BagAuditAgent.BagAuditResult> censuses,
+        internal static StorageState BuildStorage(IEnumerable<BagAuditAgent.BagAuditResult> censuses,
             PhysicalLedgerReconciliation.Plan plan, string generation)
         {
             var state = new StorageState { BaselineRunId = "census-" + generation, UpdatedUtc = DateTime.UtcNow };
@@ -167,7 +167,7 @@ namespace CityBankers
             return state;
         }
 
-        private static T ReadExisting<T>(string path) where T : class
+        internal static T ReadExisting<T>(string path) where T : class
         {
             if (!File.Exists(path)) return null;
             // A corrupt or temporarily unreadable record is not an empty ledger.

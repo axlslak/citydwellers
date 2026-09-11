@@ -160,6 +160,7 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
+            if (TickLocalCensus()) return;
             if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
                 return;
 
@@ -193,6 +194,8 @@ namespace CityBankers
                     if (_reservedDispatch == null && _workerCommand == null && TickWithdrawalWorker())
                         return;
                     TickWorkerTrade();
+                    DetectLocalInventoryDifference();
+                    if (_localCensus != null) return;
                     TickLocalStorageRecovery();
                     TickLooseReturnRecovery();
                     StartRecoveryExtraction();
@@ -1823,6 +1826,8 @@ namespace CityBankers
                 "STORAGE FAILURE on " + Client.CharacterName + ": " + error +
                 " No further items in this batch will be moved until reconciliation.");
             _storageJob = null;
+            if (job.LocalRecovery && job.Phase != StoragePhase.FindBag)
+                StartLocalCensus("Local storage move requires a fresh physical census: " + error);
         }
 
         private void FailWorkerCommand(string error)

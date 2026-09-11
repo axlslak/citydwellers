@@ -22,6 +22,7 @@ namespace CityBankers
         private static bool _isCentralClient;
         private static string[] _characters;
         private static bool _invalidated;
+        private static long _holdVersion;
         private string _settings;
         private string _character;
         private string _role;
@@ -76,6 +77,7 @@ namespace CityBankers
 
         public static void Block(string reason)
         {
+            _holdVersion++;
             _invalidated = true;
             if (_directory != null)
             {
@@ -90,6 +92,25 @@ namespace CityBankers
                 catch (UnauthorizedAccessException ex) { Logger.Error("[CityBankers] Local hold record unavailable: " + ex.Message); }
             }
             Logger.Error("[CityBankers] LOCAL CENSUS HOLD " + Client.CharacterName + ": " + reason);
+        }
+
+        internal static long PauseLocalCensus(string reason)
+        {
+            if (!IsOpen) throw new InvalidOperationException("Cannot replace an unrelated census hold.");
+            Block(reason);
+            return _holdVersion;
+        }
+
+        internal static bool OwnsLocalPause(long version) => _invalidated && version == _holdVersion;
+
+        internal static bool ResumeLocalCensus(long version)
+        {
+            if (!OwnsLocalPause(version) || !Client.InPlay ||
+                !File.Exists(Path.Combine(_directory, "released.json"))) return false;
+            File.WriteAllText(Path.Combine(_directory, Client.CharacterName + ".ready"), Generation);
+            RuntimeStateStore.DeleteIfExists(Path.Combine(_directory, Client.CharacterName + ".blocked"));
+            _invalidated = false;
+            return true;
         }
 
         public override void Init(string pluginDir)

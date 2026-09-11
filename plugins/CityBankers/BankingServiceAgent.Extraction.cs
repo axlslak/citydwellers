@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using AOSharp.Clientless;
+using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
 using CityBankers.Shared;
 using Newtonsoft.Json;
@@ -50,6 +51,8 @@ namespace CityBankers
         private readonly Stopwatch _extractionMoveWait = Stopwatch.StartNew();
         private int _extractionMoveAttempts;
         private string _extractionSignature;
+        private string _extractionCommitError;
+        private readonly Stopwatch _extractionCommitRetry = Stopwatch.StartNew();
 
         private static List<ExtractionSlot> ExtractionSnapshot(IEnumerable<Item> items)
         {
@@ -119,10 +122,11 @@ namespace CityBankers
         private bool TickRecoveryExtraction()
         {
             if (_extraction == null) return false;
-            if (_extractionAge.ElapsedMilliseconds > 20000)
+            if (_extractionPhase != ExtractionPhase.Commit && _extractionAge.ElapsedMilliseconds > 20000)
             {
                 SaveExtraction("incomplete");
-                StartupCensusGate.Block("Extraction needs local reconciliation: " + _extraction.Id + " phase=" + _extractionPhase);
+                if (!StartLocalCensus("Extraction needs local reconciliation: " + _extraction.Id + " phase=" + _extractionPhase))
+                    StartupCensusGate.Block("Extraction needs local reconciliation: " + _extraction.Id + " phase=" + _extractionPhase);
                 return true;
             }
             if (_extractionAge.ElapsedMilliseconds < 500) return true;
@@ -133,8 +137,15 @@ namespace CityBankers
                     i.HighId == _extraction.Item.HighId && i.Ql == _extraction.Item.Ql)) return true;
                 if (_isCentral)
                 {
-                    ApplyExtraction(_extraction);
-                    FinishExtraction();
+                    if (_extractionCommitRetry.ElapsedMilliseconds < 1000) return true;
+                    _extractionCommitRetry.Restart();
+                    try { ApplyExtraction(_extraction); FinishExtraction(); }
+                    catch (Exception ex)
+                    {
+                        if (_extractionCommitError != ex.Message)
+                            Logger.Warning("[CityBankers] Verified extraction accounting retry: " + ex.Message);
+                        _extractionCommitError = ex.Message;
+                    }
                 }
                 else if (_extractionCommit == null)
                     _extractionCommit = SendExtraction(_extraction);
@@ -288,6 +299,8 @@ namespace CityBankers
         {
             if (proposal.Kind != "extraction-commit") return false;
             if (!_isCentral || proposal.Extraction == null) { proposal.Reply.TrySetResult("pending"); return true; }
+            if (WithdrawalStore.GetCensusCharacters(_settingsDir).Contains(proposal.Extraction.Character))
+            { proposal.Reply.TrySetResult("pending"); return true; }
             ApplyExtraction(proposal.Extraction);
             proposal.Reply.TrySetResult("complete:" + proposal.Extraction.Id);
             return true;
@@ -341,6 +354,7 @@ namespace CityBankers
         private void FinishExtraction()
         {
             _extraction = null;
+            _extractionCommitError = null;
             _extractionCommit = null;
             _extractionScan.Restart();
         }

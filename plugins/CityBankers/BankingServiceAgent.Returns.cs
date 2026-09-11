@@ -41,6 +41,9 @@ namespace CityBankers
         private readonly Stopwatch _returnPoll = Stopwatch.StartNew();
         private readonly Stopwatch _returnCandidateWait = Stopwatch.StartNew();
         private string _returnCandidate;
+        private string _returnCommitError;
+        private bool _returnWaitReported;
+        private readonly Stopwatch _returnCommitRetry = Stopwatch.StartNew();
 
         private static async Task<string> SendReturnMessage(string central, string kind, ReturnOffer offer)
         {
@@ -122,7 +125,17 @@ namespace CityBankers
             {
                 if (_isCentral)
                 {
-                    if (_returnSenderVerified) CommitReturnOnCentral();
+                    if (_returnSenderVerified && _returnCommitRetry.ElapsedMilliseconds >= 1000)
+                    {
+                        _returnCommitRetry.Restart();
+                        try { CommitReturnOnCentral(); }
+                        catch (Exception ex)
+                        {
+                            if (_returnCommitError != ex.Message)
+                                Logger.Warning("[CityBankers] Verified return accounting retry: " + ex.Message);
+                            _returnCommitError = ex.Message;
+                        }
+                    }
                 }
                 else if (_returnRequest == null && _returnPoll.ElapsedMilliseconds >= 500)
                 {
@@ -134,8 +147,12 @@ namespace CityBankers
                     if (_returnRequest.Result == "complete:" + _returnOffer.Id) ResetReturn();
                     else _returnRequest = null;
                 }
-                if (_returnOffer != null && _returnPhase.Elapsed.TotalSeconds > 30)
-                    StartupCensusGate.Block("Return receipt awaiting peer/accounting acknowledgement: " + _returnOffer.Id);
+                if (_returnOffer != null && !_returnWaitReported && _returnPhase.Elapsed.TotalSeconds > 30)
+                {
+                    _returnWaitReported = true;
+                    Logger.Warning("[CityBankers] Verified return still awaiting peer/accounting acknowledgement: " +
+                        _returnOffer.Id + "; IPC retries remain active.");
+                }
                 return true;
             }
             if (!_returnOpened)
@@ -300,6 +317,8 @@ namespace CityBankers
         private void ResetReturn()
         {
             _returnOffer = null;
+            _returnWaitReported = false;
+            _returnCommitError = null;
             _returnRequest = null;
             _returnPartner = Identity.None;
             _returnOpened = _returnOpenRequested = _returnAccepted = _returnLocalVerified = _returnSenderVerified = false;
