@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 62,
-  "last_completed_session": 61,
-  "status": "in_progress",
+  "last_completed_session": 62,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-62-internal-additem-retry",
-  "base_commit": "85aba6e1811e48eaae8009b3cd54cb3348ec96c6",
-  "task": "Repair dropped incremental AddItem acknowledgements during internal banker trades",
-  "resume_instruction": "Use the 02:53:50-02:54:11+03 two-item Artillery failure: Kbarty opened the matching trade, neither side completed acceptance, and both items returned to Central. Add a bounded resend of only the pending slot while preserving exact multiset and physical-custody proofs."
+  "transaction": null,
+  "base_commit": "083790ef6ee802045b5ec6a8ecf14e6dbd8c4fa8",
+  "task": "Owner build and live internal banker-trade retry validation",
+  "resume_instruction": "Pull master and build Release. Retry a donation that routes at least two items to one worker. If AO drops an AddItem acknowledgement, Central may log INTERNAL TRADE resent pending AddItem and the batch should complete; report any STORAGE FAILURE, Dispatch failure, or Worker trade failure text now included in the Manager log."
 }
