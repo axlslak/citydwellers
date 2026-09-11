@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 71,
+  "current_session": 72,
   "last_completed_session": 71,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-71-prelogin-readiness",
-  "base_commit": "388d303845e561a2355a40a7b4e65957e7689db7",
-  "task": "Owner rebuild and verify deferred banking initialization and routing",
-  "resume_instruction": "Session71 fixes pre-login NullReferenceException in IsOpen by including Client.InPlay in existing fail-closed try/catch. Published implementation 388d303845e561a2355a40a7b4e65957e7689db7. Owner rebuild and controlled startup: registered then entering/initialized after census, then dispatch. Static review only; no assistant builds/tests/live data edits. Historical repair already applied, never repeat. Next journal197; acquire new transaction before code; preserve historical journal bytes."
+  "transaction": "session-72-transfer-telemetry",
+  "base_commit": "1f4f246e2f12490d73c5ad789e0f3e86f877eb3a",
+  "task": "Restore operational transfer and verified storage telemetry to Manager dev channel and console",
+  "resume_instruction": "Publish BEGIN197 before edits; mirror trade milestones and verified storage with IDs/items; rate-limit waits and isolate telemetry failures. Owner builds/tests; no live data edits."
 }
