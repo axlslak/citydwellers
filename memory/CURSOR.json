@@ -5,7 +5,7 @@
   "status": "in_progress",
   "active_project": "citydwellers",
   "transaction": "session-67-physical-custody-safety",
-  "base_commit": "a1d3b3f1f8db5c60e22dea6e78a963c7ea81b238",
+  "base_commit": "b47ade7ad10ccc549005c8c191c5373ed2c321bd",
   "task": "Replace global discrepancy shutdown with physical-ledger reconciliation, local recovery and paced IPC routing",
-  "resume_instruction": "Owner resumed work and superseded global holds: route known items by family regardless of provenance, alien/uncertain items to Central, missing claims to history without stopping unrelated services. Scrub 395 excess claims; four unmatched losses attributed to Kavey with original donor preserved. Implement coherent local recovery before removing gates. Owner builds/live tests; service currently stopped. Read newest PROJECT_STATE policy before prior safety notes."
+  "resume_instruction": "Shared named-pipe transport, dispatch reservation/storage IPC, 500ms settling, Central backlog isolation and host sibling isolation implemented but uncompiled. BankersEnabled=false can run nonbanker components after owner compile. Next replace global census/discrepancy gates with local physical reconciliation and routing; alien items to Central, known items by family regardless of provenance. Owner already authorized 395 excess claim removal and four history losses assigned to Kavey. No need to ask that permission again. No repair data package written yet. Owner builds/tests; banker runtime not cleared."
 }

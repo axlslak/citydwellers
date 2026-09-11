@@ -10,6 +10,7 @@ namespace CityDwellers.Host
 {
     internal sealed class HostSettings
     {
+        public bool BankersEnabled = true;
         public bool RequireTrustedTime = true;
         public List<string> NtpServers = new List<string>();
         public int MinimumNtpResponses = 1;

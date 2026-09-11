@@ -47,6 +47,7 @@ namespace CityBankers
         private bool _workerCentralTradeOpen;
         private string _workerBatchId;
         private bool _workerObservedCentralAccept;
+        private readonly Stopwatch _centralAcceptSettling = Stopwatch.StartNew();
         private bool _workerFallbackAccepted;
 
         // Prevent one persistently broken batch from being requeued forever in one process.
@@ -199,9 +200,7 @@ namespace CityBankers
                 return;
             }
 
-            DispatchCommand command = RuntimeStateStore.ReadDispatchCommand(
-                _settingsDir,
-                Client.CharacterName);
+            DispatchCommand command = BankingServiceAgent.CurrentInboundDispatch;
             if (!IsMatchingWorkerCommand(command))
             {
                 ResetWorkerTrade();
@@ -229,6 +228,7 @@ namespace CityBankers
 
             if (status == TradeStatus.Accept)
             {
+                if (!_workerObservedCentralAccept) _centralAcceptSettling.Restart();
                 _workerObservedCentralAccept = true;
                 return;
             }
@@ -242,9 +242,7 @@ namespace CityBankers
             if (!_workerCentralTradeOpen || _workerFallbackAccepted || !Trade.IsTrading)
                 return;
 
-            DispatchCommand command = RuntimeStateStore.ReadDispatchCommand(
-                _settingsDir,
-                Client.CharacterName);
+            DispatchCommand command = BankingServiceAgent.CurrentInboundDispatch;
             if (!IsMatchingWorkerCommand(command) ||
                 !string.Equals(command.BatchId, _workerBatchId, StringComparison.Ordinal))
             {
@@ -268,7 +266,7 @@ namespace CityBankers
             // exactly matches the persisted dispatch.
             // The receiver cache may nevertheless remain empty or incomplete in
             // AOSharp.Clientless.
-            if (!_workerObservedCentralAccept)
+            if (!_workerObservedCentralAccept || _centralAcceptSettling.ElapsedMilliseconds < 500)
                 return;
 
             _workerFallbackAccepted = true;

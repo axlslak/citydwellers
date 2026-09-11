@@ -106,11 +106,10 @@ namespace CityBankers
                 return;
             }
 
-            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            if (queue != null && queue.Batches != null && queue.Batches.Count > 0)
+            if (BankingServiceAgent.CentralTransferBusy)
             {
-                // BankingServiceAgent owns queue-priority rejection and its one user-facing
-                // retry message. Do not arm a donation handshake that cannot proceed.
+                // Only a live Central operation owns this trade slot. Backlog on
+                // another banker does not make this donation impossible.
                 Reset();
                 return;
             }

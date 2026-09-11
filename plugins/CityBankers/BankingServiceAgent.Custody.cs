@@ -18,6 +18,42 @@ namespace CityBankers
         private Action _afterReceipt;
         private Stopwatch _custodyVerificationWait;
         private int _receiptSequence;
+        private string _settledOffer;
+        private readonly Stopwatch _offerStableFor = Stopwatch.StartNew();
+        private string _settledInventory;
+        private readonly Stopwatch _inventoryStableFor = Stopwatch.StartNew();
+        private Identity _pendingConfirmation = Identity.None;
+        private readonly Stopwatch _confirmationWait = Stopwatch.StartNew();
+
+        private bool InternalOfferSettled(IEnumerable<TransferItemState> items)
+        {
+            string signature = string.Join(";", items.Select(CustodyKey).OrderBy(key => key));
+            if (signature != _settledOffer)
+            {
+                _settledOffer = signature;
+                _offerStableFor.Restart();
+                return false;
+            }
+            return _offerStableFor.ElapsedMilliseconds >= 500;
+        }
+
+        private void QueueInternalConfirmation(Identity target)
+        {
+            if (_pendingConfirmation == target) return;
+            _pendingConfirmation = target;
+            _confirmationWait.Restart();
+        }
+
+        private void TickInternalConfirmation()
+        {
+            if (_pendingConfirmation == Identity.None) return;
+            if (!Trade.IsTrading || Trade.CurrentTarget != _pendingConfirmation)
+            { _pendingConfirmation = Identity.None; return; }
+            if (_confirmationWait.ElapsedMilliseconds < 500) return;
+            _pendingConfirmation = Identity.None;
+            if ((_activeBatch != null && _outgoingAccepted) || _workerCommand != null)
+                Trade.Confirm();
+        }
 
         private sealed class ReceiptEvidence
         {
@@ -66,6 +102,9 @@ namespace CityBankers
         {
             if (_receipt != null)
                 throw new InvalidOperationException("Unresolved custody evidence prevents another trade.");
+            _settledOffer = null;
+            _settledInventory = null;
+            _pendingConfirmation = Identity.None;
             _receiptDirectory = Path.Combine(RuntimeStateStore.GetDataDirectory(_settingsDir),
                 "custody-transactions", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_receiptDirectory);
@@ -122,6 +161,12 @@ namespace CityBankers
             if (_afterReceipt == null) return false;
             _receipt.Observed = PhysicalInventory();
             _receipt.ObservedSlots = PhysicalSlots();
+            string observedSignature = string.Join(";", _receipt.Observed.Select(CustodyKey).OrderBy(key => key));
+            if (_settledInventory != observedSignature)
+            {
+                _settledInventory = observedSignature;
+                _inventoryStableFor.Restart();
+            }
             var expectedCounts = _receipt.Before.GroupBy(CustodyKey)
                 .ToDictionary(group => group.Key, group => group.Count());
             foreach (var group in _receipt.Expected.GroupBy(CustodyKey))
@@ -146,6 +191,7 @@ namespace CityBankers
                 }
                 return true;
             }
+            if (_inventoryStableFor.ElapsedMilliseconds < 500) return true;
             PersistReceipt("inventory-verified");
             Action apply = _afterReceipt;
             // An exception after an AO action must not automatically replay it next tick.

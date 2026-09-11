@@ -245,29 +245,12 @@ public class FlipperLoader
                 {
                     pipe.WaitForConnection();
 
-                    var reader = new StreamReader(pipe);
-                    var writer = new StreamWriter(pipe) { AutoFlush = true };
-
-                    string line = reader.ReadLine();
-                    WorkerResponse response;
-
-                    try
-                    {
-                        WorkerRequest request =
-                            JsonConvert.DeserializeObject<WorkerRequest>(line ?? string.Empty);
-
-                        response = HandleRequest(request);
-                    }
-                    catch (Exception ex)
-                    {
-                        response = new WorkerResponse
+                    CityDwellers.Shared.LocalIpc.Respond<WorkerRequest, WorkerResponse>(
+                        pipe, HandleRequest, ex => new WorkerResponse
                         {
                             Ok = false,
                             Message = $"Invalid Flipper request: {ex.Message}"
-                        };
-                    }
-
-                    writer.WriteLine(JsonConvert.SerializeObject(response));
+                        });
                 }
             }
             catch (Exception ex)

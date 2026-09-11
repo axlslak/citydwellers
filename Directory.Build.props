@@ -19,6 +19,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\LocalIpc.cs">
+      <Link>LocalIpc.cs</Link>
+    </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\SettingsPaths.cs">
       <Link>SettingsPaths.cs</Link>
     </Compile>

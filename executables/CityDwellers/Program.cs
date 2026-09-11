@@ -135,7 +135,7 @@ namespace CityDwellers.Host
                 return stop.WaitOne(0) ? 0 : 1;
 
             RuntimeLog.Write(
-                "Starting Flipper and Buddies idle services plus the six CityBankers clients.");
+                "Starting Flipper, Buddies and the configured CityBankers clients.");
 
             var components = new List<ComponentRunner>
             {
@@ -144,11 +144,18 @@ namespace CityDwellers.Host
                     () => FlipperLoader.Run(new string[0], stop, false)),
                 new ComponentRunner(
                     "Buddies",
-                    () => BuddiesHost.Run(new string[0], stop, false)),
-                new ComponentRunner(
-                    "Bankers",
-                    () => BankerLoader.RunAll(stop, false))
+                    () => BuddiesHost.Run(new string[0], stop, false))
             };
+            if (settings.BankersEnabled)
+                components.Add(new ComponentRunner("Bankers", () => BankerLoader.RunAll(stop, false)));
+            else
+            {
+                string readyMarker = Path.Combine(_dataDirectory, "citybankers-all-bankers-ready.json");
+                try { if (File.Exists(readyMarker)) File.Delete(readyMarker); }
+                catch (IOException ex) { RuntimeLog.Write("Could not clear old banker readiness: " + ex.Message); }
+                catch (UnauthorizedAccessException ex) { RuntimeLog.Write("Could not clear old banker readiness: " + ex.Message); }
+                RuntimeLog.Write("Bankers disabled by configuration; Manager, Flipper and Buddies remain enabled.");
+            }
 
             foreach (ComponentRunner component in components)
                 component.Start();
@@ -156,15 +163,15 @@ namespace CityDwellers.Host
             if (stop.WaitOne(TimeSpan.FromSeconds(1)))
                 return StopComponents(components, false);
 
+            var unavailable = new HashSet<ComponentRunner>();
             foreach (ComponentRunner component in components)
             {
                 if (!component.Completed.WaitOne(0))
                     continue;
 
                 RuntimeLog.Write(
-                    component.Name + " did not remain running; stopping startup.");
-                stop.Set();
-                return StopComponents(components, true);
+                    component.Name + " did not remain running; other components will continue.");
+                unavailable.Add(component);
             }
 
             ManualResetEvent managerStop = new ManualResetEvent(false);
@@ -177,19 +184,24 @@ namespace CityDwellers.Host
                 Console.WriteLine();
             }
 
-            bool unexpectedExit = false;
+            bool unexpectedExit = unavailable.Count != 0;
             while (!stop.WaitOne(0))
             {
-                var waits = new WaitHandle[]
+                var monitored = new List<ComponentRunner>();
+                var waits = new List<WaitHandle> { stop };
+                foreach (ComponentRunner candidate in components)
                 {
-                    stop,
-                    components[0].Completed,
-                    components[1].Completed,
-                    components[2].Completed,
-                    manager.Completed
-                };
+                    if (unavailable.Contains(candidate)) continue;
+                    monitored.Add(candidate);
+                    waits.Add(candidate.Completed);
+                }
+                if (!unavailable.Contains(manager))
+                {
+                    monitored.Add(manager);
+                    waits.Add(manager.Completed);
+                }
 
-                int signaled = WaitHandle.WaitAny(waits, 500);
+                int signaled = WaitHandle.WaitAny(waits.ToArray(), 500);
                 if (signaled == 0 || stop.WaitOne(0))
                     break;
 
@@ -233,14 +245,12 @@ namespace CityDwellers.Host
                 if (signaled == WaitHandle.WaitTimeout)
                     continue;
 
-                ComponentRunner component = signaled == 4
-                    ? manager
-                    : components[signaled - 1];
+                ComponentRunner component = monitored[signaled - 1];
                 RuntimeLog.Write(
                     component.Name + " stopped unexpectedly with exit code " +
-                    component.ExitCode + ". Stopping the unified host.");
+                    component.ExitCode + ". Other components remain running.");
                 unexpectedExit = true;
-                stop.Set();
+                unavailable.Add(component);
             }
 
             managerStop.Set();

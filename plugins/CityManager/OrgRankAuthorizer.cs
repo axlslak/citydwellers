@@ -959,31 +959,8 @@ namespace CityManager
 
         private static FlipperResponse SendFlipperRequest(FlipperRequest request)
         {
-            using (var pipe = new NamedPipeClientStream(
-                ".",
-                FlipperPipeName,
-                PipeDirection.InOut,
-                PipeOptions.None))
-            {
-                pipe.Connect(FlipperConnectTimeoutMs);
-
-                var reader = new StreamReader(pipe);
-                var writer = new StreamWriter(pipe) { AutoFlush = true };
-
-                writer.WriteLine(JsonConvert.SerializeObject(request));
-                string line = reader.ReadLine();
-
-                if (string.IsNullOrWhiteSpace(line))
-                    throw new IOException("Flipper closed without a response.");
-
-                FlipperResponse response =
-                    JsonConvert.DeserializeObject<FlipperResponse>(line);
-
-                if (response == null)
-                    throw new IOException("Flipper returned invalid JSON.");
-
-                return response;
-            }
+            return CityDwellers.Shared.LocalIpc.Request<FlipperRequest, FlipperResponse>(
+                FlipperPipeName, request, FlipperConnectTimeoutMs);
         }
 
         private static void SendDev(string text)

@@ -4,6 +4,22 @@
 
 ### Owner revision: availability and automatic routing
 
+- IPC checkpoint: shared/LocalIpc.cs is the common named-pipe transport for Manager,
+  Flipper, Buddies and Banker dispatch requests. Workers reserve inbound capacity on
+  their AO update thread and acknowledge preparation before Central opens a trade.
+  Primary storage replies use IPC; durable result/command files remain for legacy
+  compatibility and recovery, and withdrawal/routing migration is not finished.
+- Internal offers, confirmations and verified inventory observations get 500 ms of
+  monotonic settling. Central releases its trade slot after sender verification;
+  worker storage replies are polled independently and busy destinations are skipped.
+  Donation eligibility no longer depends on every persisted batch being resolved.
+- Host component exits no longer automatically stop healthy siblings. Optional
+  top-level BankersEnabled=false runs Manager/Flipper/Buddies without banker clients.
+  This checkpoint requires owner compilation; it is not banker runtime clearance.
+- Remaining: replace global census/discrepancy gates with physical reconciliation,
+  automatic routing (including alien items to Central), and apply approved ledger
+  cleanup/history losses. Do not infer those features from the IPC checkpoint.
+
 - This supersedes the session-67 global discrepancy shutdown design below.
   The active ledger represents physical custody, including unknown-origin items.
   Missing items leave availability and enter history/errors; unrelated work continues.

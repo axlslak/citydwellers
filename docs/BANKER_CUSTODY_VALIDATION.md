@@ -3,6 +3,33 @@
 Status: implementation candidate, not approved for production. Keep the owner's
 service stopped. Compile first; no data is to be deleted to bypass a safety hold.
 
+## Revised IPC and service isolation checkpoint
+
+The owner superseded global discrepancy shutdowns; the original gate description
+below records an intermediate implementation that still needs replacement.
+
+- Shared named-pipe transport now serves Manager/Flipper/Buddies and banker dispatch.
+  Banker reservations are evaluated on the AO update thread, expire after 15 seconds,
+  and are acknowledged before a trade opens. An acknowledgment older than 10 seconds
+  is not reused. Busy/unreachable destinations get a 3-second retry interval.
+- Primary storage outcomes are returned over IPC, correlated by batch and checked
+  for expected/stored count consistency. Files remain durable compatibility records;
+  other legacy recovery paths and withdrawals have not all migrated to IPC.
+- Internal offer staging/acceptance, confirmation, and exact post-trade inventory
+  observations use 500 ms settling intervals measured with Stopwatch.
+- Sender verification frees Central to trade with another worker while storage
+  completes. A destination with an outstanding storage acknowledgment receives no
+  further batch. Other destinations and donations with room may proceed.
+- Component exit monitoring leaves healthy host services running. To run only
+  Manager, Flipper and Buddies after compilation, set top-level BankersEnabled to
+  false in citydwellers.json. Default remains true. This does not enable banker use.
+- Owner validation must include busy destination plus another queued destination,
+  expired preparation, lost IPC reply, delayed worker storage, duplicate callbacks,
+  and normal cloak/Buddies requests over the common transport.
+
+Static diff/project-source checks only for this checkpoint; no assistant compilation
+or test suite. Physical-ledger cleanup and local census/routing recovery remain open.
+
 ## Implemented boundaries
 
 - Donation receipt, outgoing dispatch and verified overcap accounting now commit

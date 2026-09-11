@@ -38,6 +38,7 @@
     <Compile Include="StartupCensusGate.cs" />
     <Compile Include="BankingServiceAgent.cs" />
     <Compile Include="BankingServiceAgent.Custody.cs" />
+    <Compile Include="BankingServiceAgent.Ipc.cs" />
     <Compile Include="BankingServiceAgent.Withdrawal.cs" />
     <Compile Include="CityBankers.cs" />
     <Compile Include="InternalTradeHandshakeBridge.cs" />

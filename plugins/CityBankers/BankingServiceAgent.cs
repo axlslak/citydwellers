@@ -121,6 +121,7 @@ namespace CityBankers
             Trade.TradeOpened += OnTradeOpened;
             Trade.TradeStatusChanged += OnTradeStatusChanged;
             Client.OnUpdate += Tick;
+            StartBankerIpc();
 
             if (_isCentral && Client.Chat != null)
                 Client.Chat.PrivateMessageReceived += OnPrivateMessage;
@@ -145,6 +146,8 @@ namespace CityBankers
             Trade.TradeOpened -= OnTradeOpened;
             Trade.TradeStatusChanged -= OnTradeStatusChanged;
             Client.OnUpdate -= Tick;
+            _ipcLifetime?.Cancel();
+            if (_ipcOwner == this) _ipcOwner = null;
             if (_isCentral && Client.Chat != null)
                 Client.Chat.PrivateMessageReceived -= OnPrivateMessage;
 
@@ -165,9 +168,14 @@ namespace CityBankers
 
             try
             {
+                TickBankerIpc();
+                TickInternalConfirmation();
                 if (_isCentral)
                 {
                     if (TickPhysicalReceipt()) return;
+                    foreach (var pending in RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches
+                        .Where(batch => batch.Status == "transferred").ToList())
+                        PollStorageResult(pending);
                     ImportFreshBaselineIfNeeded();
                     if (TickWithdrawalCentral())
                         return;
@@ -178,7 +186,7 @@ namespace CityBankers
                 else
                 {
                     if (TickPhysicalReceipt()) return;
-                    if (TickWithdrawalWorker())
+                    if (_reservedDispatch == null && TickWithdrawalWorker())
                         return;
                     TickWorkerTrade();
                     TickStorageJob();
@@ -495,13 +503,13 @@ namespace CityBankers
 
                     if (_isCentral && _activeBatch != null)
                     {
-                        Trade.Confirm();
+                        QueueInternalConfirmation(target);
                         return;
                     }
 
                     if (!_isCentral && _workerCommand != null)
                     {
-                        Trade.Confirm();
+                        QueueInternalConfirmation(target);
                         return;
                     }
                 }
@@ -1055,7 +1063,8 @@ namespace CityBankers
             {
                 if (string.Equals(_activeBatch.Status, "transferred", StringComparison.OrdinalIgnoreCase))
                 {
-                    PollStorageResult();
+                    PollStorageResult(_activeBatch);
+                    _activeBatch = null;
                     return;
                 }
                 if ((DateTime.UtcNow - _activeBatchStartedUtc).TotalSeconds >=
@@ -1074,13 +1083,21 @@ namespace CityBankers
                 return;
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             DispatchBatchState next = queue.Batches.FirstOrDefault(b =>
-                string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase));
+                string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase) &&
+                WorkerRetryDue(b.Character) &&
+                DynelManager.Players.Any(player => player != null &&
+                    string.Equals(player.Name, b.Character, StringComparison.OrdinalIgnoreCase)) &&
+                !queue.Batches.Any(pending => pending.Status == "transferred" &&
+                    string.Equals(pending.Character, b.Character, StringComparison.OrdinalIgnoreCase)));
             if (next == null)
                 return;
 
             PlayerChar worker = DynelManager.Players.FirstOrDefault(p =>
                 p != null && string.Equals(p.Name, next.Character, StringComparison.OrdinalIgnoreCase));
             if (worker == null)
+                return;
+
+            if (!WorkerPrepared(next))
                 return;
 
             List<Item> centralItems = FindDistinctInventoryItems(next.Items);
@@ -1144,6 +1161,7 @@ namespace CityBankers
 
             List<Item> liveOffered = Trade.PlayerWindowCache?.Items ?? new List<Item>();
             List<TransferItemState> offered = SnapshotTradeItems(liveOffered);
+            if (!InternalOfferSettled(offered)) return;
             if (MatchesExpected(offered, _activeBatch.Items) && offered.Count > 0)
             {
                 if (!_outgoingAccepted)
@@ -1264,23 +1282,30 @@ namespace CityBankers
             _outgoingPendingAddAttempts = 0;
             _outgoingAccepted = false;
             _activeBatchStartedUtc = DateTime.UtcNow;
+            // Sender custody is confirmed. Waiting for this worker's storage must not
+            // occupy Central's trade slot or block another destination.
+            _activeBatch = null;
         }
 
-        private void PollStorageResult()
+        private void PollStorageResult(DispatchBatchState batch)
         {
-            if (_activeBatch == null)
+            if (batch == null)
                 return;
-            StorageBatchResult result = RuntimeStateStore.ReadStorageResult(
-                _settingsDir,
-                _activeBatch.Character);
+            StorageBatchResult result = ReadWorkerStorageReply(batch);
             if (result == null || !string.Equals(
                     result.BatchId,
-                    _activeBatch.BatchId,
+                    batch.BatchId,
                     StringComparison.Ordinal))
                 return;
 
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            DispatchBatchState stored = FindBatch(queue, _activeBatch.BatchId);
+            DispatchBatchState stored = FindBatch(queue, batch.BatchId);
+            if (result.Success && (result.ExpectedCount != (batch.Items?.Count ?? 0) ||
+                result.StoredCount != result.ExpectedCount))
+            {
+                result.Success = false;
+                result.Error = "Worker storage acknowledgment count does not match this dispatch.";
+            }
             if (result.Success)
             {
                 if (stored != null)
@@ -1288,12 +1313,12 @@ namespace CityBankers
                 RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
                 AppendTradeLedger(
                     "dispatch_stored",
-                    _activeBatch.TransactionId,
-                    _activeBatch.BatchId,
-                    _activeBatch.Role,
+                    batch.TransactionId,
+                    batch.BatchId,
+                    batch.Role,
                     "Worker confirmed physical placement of " + result.StoredCount +
                     "/" + result.ExpectedCount + " item(s).",
-                    _activeBatch.Items);
+                    batch.Items);
             }
             else
             {
@@ -1306,19 +1331,16 @@ namespace CityBankers
                 }
                 AppendTradeLedger(
                     "dispatch_storage_failed",
-                    _activeBatch.TransactionId,
-                    _activeBatch.BatchId,
-                    _activeBatch.Role,
+                    batch.TransactionId,
+                    batch.BatchId,
+                    batch.Role,
                     result.Error,
-                    _activeBatch.Items);
+                    batch.Items);
                 TellKavem(
-                    "STORAGE FAILURE " + _activeBatch.Role + ": " + result.Error +
+                    "STORAGE FAILURE " + batch.Role + ": " + result.Error +
                     " Items remain physical AO truth; inspect/reconcile before retrying.");
             }
-            RuntimeStateStore.DeleteIfExists(
-                RuntimeStateStore.GetStorageResultPath(_settingsDir, _activeBatch.Character));
-            _activeBatch = null;
-            _activeWorkerIdentity = Identity.None;
+            _storageInquiryIntervals.Remove(batch.BatchId);
         }
 
         private void FailActiveBatch(string error)
@@ -1388,10 +1410,9 @@ namespace CityBankers
                 return;
             }
 
-            DispatchCommand command = RuntimeStateStore.ReadDispatchCommand(
-                _settingsDir,
-                Client.CharacterName);
+            DispatchCommand command = _reservedDispatch;
             if (command == null ||
+                _reservationAge == null || _reservationAge.ElapsedMilliseconds > 15000 ||
                 !string.Equals(command.Role, _role, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(command.DestinationCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(command.SourceCharacter, _centralCharacter, StringComparison.OrdinalIgnoreCase))
@@ -1403,6 +1424,7 @@ namespace CityBankers
                 return;
             }
             _workerCommand = command;
+            _reservedDispatch = null;
             PrepareReceipt("dispatch-receive", command.TransactionId, command.BatchId, command.Items, 1);
             _workerTradeOpenedUtc = DateTime.UtcNow;
             _workerAccepted = false;
@@ -1427,6 +1449,7 @@ namespace CityBankers
                 FailWorkerCommand("Central trade offered more items than its dispatch command.");
                 return;
             }
+            if (!InternalOfferSettled(offered)) return;
             if (!MatchesExpected(offered, _workerCommand.Items) || offered.Count == 0)
                 return;
             _workerAccepted = true;
@@ -1975,14 +1998,7 @@ namespace CityBankers
 
         private bool HasUnresolvedDispatchWork()
         {
-            if (_activeBatch != null || _donationCleanup != null)
-                return true;
-            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            return queue != null && queue.Batches != null && queue.Batches.Any(batch =>
-                batch != null && !string.Equals(
-                    batch.Status,
-                    CustodyHoldStatus,
-                    StringComparison.OrdinalIgnoreCase));
+            return _activeBatch != null || _donationCleanup != null || _receipt != null;
         }
 
         private void AnnounceDonationChanges(List<TransferItemState> offered)

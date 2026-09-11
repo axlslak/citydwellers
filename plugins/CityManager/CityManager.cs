@@ -1544,25 +1544,8 @@ namespace CityManager
 
         private WorkerResponse SendWorkerRequest(string pipeName, WorkerRequest request, int connectTimeoutMs)
         {
-            using (var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.None))
-            {
-                pipe.Connect(connectTimeoutMs);
-
-                var reader = new StreamReader(pipe);
-                var writer = new StreamWriter(pipe) { AutoFlush = true };
-
-                writer.WriteLine(JsonConvert.SerializeObject(request));
-                string line = reader.ReadLine();
-
-                if (string.IsNullOrWhiteSpace(line))
-                    throw new IOException($"Worker '{pipeName}' closed without a response.");
-
-                WorkerResponse response = JsonConvert.DeserializeObject<WorkerResponse>(line);
-                if (response == null)
-                    throw new IOException($"Worker '{pipeName}' returned invalid JSON.");
-
-                return response;
-            }
+            return CityDwellers.Shared.LocalIpc.Request<WorkerRequest, WorkerResponse>(
+                pipeName, request, connectTimeoutMs);
         }
 
         private void Reply(ReplyTarget target, string text)
