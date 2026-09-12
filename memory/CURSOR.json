@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 89,
+  "current_session": 90,
   "last_completed_session": 89,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-89-resolution-policy",
+  "transaction": "session-90-raid-alt-status",
   "checkpoint_commit": "5b18277a51e6dac102bcad7242ab2fcc768e69df",
-  "task": "All current work resolved; await next owner request",
-  "resume_instruction": "Standing policy: completed published work is resolved immediately; do not wait for owner build/test or explicit acceptance. Reopen on reported issue. Lost/found resolved. No active validation gates. Next journal233.",
-  "base_commit": "f7e482933cbce475aeba68b79449589e8c93b58e"
+  "task": "Alt-aware raid ownership, main-via-requester display and on-demand status",
+  "resume_instruction": "Use canonical alt identity for raid owner controls; preserve requester; add raid status/progress read-only views; suppress automatic informative windows, retain choices and announcements. Owner confirmed buddy delay. Next journal234.",
+  "base_commit": "90f97728408104a168f259eb56cd39ff0141f1d5"
 }
