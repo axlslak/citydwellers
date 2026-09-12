@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 96,
+  "current_session": 97,
   "last_completed_session": 96,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-96-dynel",
+  "transaction": "session-97-cru-quantity",
   "checkpoint_commit": "5648450129eb46131487861b930a48ecb4757a19",
-  "task": "Temporary Central dynel command resolved",
-  "resume_instruction": "Owner builds and uses admin #dynel through manager; Central snapshots live AllDynels via existing report IPC and sends paged tells even if bank gate blocked. No help/docs per owner. SimpleItemFullUpdate is stored separately in FullUpdateProxy; terminal membership there remains unverified. Next journal247.",
-  "base_commit": "eb01460b22c32510f186477b729eefe59b62e0e4"
+  "task": "Bind CRU donation template quantity",
+  "resume_instruction": "Owner confirms Unknown1=13 matches offered stack. Bind to native-created target trade item, preserving object quantity into inventory. Static review only.",
+  "base_commit": "fd8006a9a6f9502ae5226c14b2e71030cd4310e5"
 }
