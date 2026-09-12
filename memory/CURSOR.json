@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 88,
+  "current_session": 89,
   "last_completed_session": 88,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-88-lost-found",
+  "transaction": "session-89-resolution-policy",
   "checkpoint_commit": "c485177cede7cfa13819f2e818c2892e6300dbcd",
-  "task": "Lost/found implementation complete; owner build and in-game check",
-  "resume_instruction": "Session88 sealed. lost/found are read-only; intentional over-cap deletions and confirmed deliveries are not loss. Owner builds; await feedback or next requested task. Prior accepted tasks remain closed. Next journal231.",
-  "base_commit": "fc1be92598846089538200c89b2136b9a3bbed7f"
+  "task": "Record owner resolution policy and close lost/found",
+  "resume_instruction": "Documentation only: committed completed work is resolved without waiting for owner testing; preserve honest validation evidence. Next journal232.",
+  "base_commit": "f7e482933cbce475aeba68b79449589e8c93b58e"
 }
