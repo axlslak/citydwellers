@@ -253,7 +253,8 @@ namespace CityBankers
                 {
                     string role;
                     return item != null &&
-                        SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.Id, out role);
+                        (CruPolicy.IsCru(item.Id) ? StackableItems.Quantity(item) > 0 :
+                         SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.Id, out role));
                 });
                 if (!allManaged)
                     return;
@@ -322,7 +323,7 @@ namespace CityBankers
                     index + ":" +
                     (item?.Id ?? 0) + ":" +
                     (item?.HighId ?? 0) + ":" +
-                    (item?.Ql ?? 0) + ":" +
+                    (item?.Ql ?? 0) + ":" + StackableItems.Quantity(item) + ":" +
                     (item?.Name ?? string.Empty)));
         }
 

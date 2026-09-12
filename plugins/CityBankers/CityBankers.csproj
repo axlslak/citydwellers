@@ -31,6 +31,8 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="StackableItems.cs" />
+    <Compile Include="BankingServiceAgent.Cru.cs" />
     <Compile Include="ActiveLedgerCoordinator.cs" />
     <Compile Include="PhysicalLedgerReconciliation.cs" />
     <Compile Include="CensusApplication.cs" />

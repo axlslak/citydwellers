@@ -189,6 +189,7 @@ namespace CityBankers
                     };
                     foreach (var item in observed.Items)
                     {
+                        if (CruPolicy.IsCru(item.LowId)) continue;
                         var entry = plan.Items.Single(e => string.Equals(e.Character, census.Character, StringComparison.OrdinalIgnoreCase) &&
                             e.Location == bag.Source && e.Bag == bag.OuterSlotInstance && e.Slot == (item.SlotInstance & 65535));
                         bag.Items.Add(new StoredItemState { AoId = item.LowId, HighId = item.HighId, Ql = item.Ql,

@@ -289,6 +289,7 @@ namespace CityBankers
                         PollStorageResult(pending);
                     // Startup census owns the baseline. Never replace it later
                     // with an older manual storage-baseline.json snapshot.
+                    if (TickCru()) return;
                     if (TickWithdrawalCentral())
                         return;
                     TickDonation();
@@ -479,6 +480,8 @@ namespace CityBankers
             try
             {
                 string targetName = FindPlayerName(target);
+                if (_stackOperation != null)
+                { DeclineIncomingTrade(targetName, "Central is preparing CRU. Please reopen trade shortly."); return; }
                 if (_withdrawalCensus != null || _withdrawalDispute ||
                     WithdrawalStore.GetWithdrawalCensusId(_settingsDir, Client.CharacterName) != null)
                 { DeclineIncomingTrade(targetName, "Central is reconciling withdrawal custody. Please retry after recovery completes."); return; }
@@ -837,6 +840,11 @@ namespace CityBankers
             error = null;
             foreach (TransferItemState item in offered)
             {
+                if (CruPolicy.IsCru(item.AoId))
+                {
+                    if (item.Quantity < 1 || CruInventory().Any(i => StackableItems.Quantity(i) < 1)) { error = "CRU stack quantity has not arrived yet. Please reopen trade shortly."; return false; }
+                    continue;
+                }
                 string destination;
                 if (!SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.AoId, out destination))
                 {
@@ -891,7 +899,7 @@ namespace CityBankers
             // This method is entered only after the physical inventory gain is verified.
             // Persist accounting before disposition; logs are diagnostic, not the commit path.
             ActiveLedgerStore.RecordDonation(_settingsDir, transactionId, donorName,
-                Client.CharacterName, DateTime.UtcNow, received);
+                Client.CharacterName, DateTime.UtcNow, received.Where(i => !CruPolicy.IsCru(i.AoId)));
 
             AppendTradeLedger(
                 "player_trade_completed",
@@ -907,6 +915,7 @@ namespace CityBankers
             List<TransferItemState> deleteItems = new List<TransferItemState>();
             foreach (TransferItemState item in received)
             {
+                if (CruPolicy.IsCru(item.AoId)) continue; // Central inventory is its permanent storage.
                 string key = TemplateKey(item);
                 int count;
                 if (!projectedCounts.TryGetValue(key, out count))
@@ -2213,7 +2222,7 @@ namespace CityBankers
 
         private bool HasUnresolvedDispatchWork()
         {
-            return _activeBatch != null || _donationCleanup != null || _receipt != null;
+            return _stackOperation != null || _activeBatch != null || _donationCleanup != null || _receipt != null;
         }
 
         private void AnnounceDonationChanges(List<TransferItemState> offered)
@@ -2258,6 +2267,11 @@ namespace CityBankers
                 " - ";
             string itemDescription = BuildItemLink(item) + " (QL " +
                 CityBankersChatPalette.Cyan(item.Ql.ToString()) + ")";
+            if (CruPolicy.IsCru(item.AoId))
+            {
+                TellDonationPartner(progress + itemDescription + " stays on Central and will join the CRU stack.");
+                return;
+            }
             SymbiantCatalog.AcceptanceRule rule;
             if (!SymbiantCatalog.TryGetRule(_settingsDir, item.AoId, out rule))
             {
@@ -2386,7 +2400,7 @@ namespace CityBankers
         private static List<TransferItemState> SnapshotTradeItems(IEnumerable<Item> items)
         {
             return (items ?? Enumerable.Empty<Item>())
-                .Where(item => item != null)
+                .Where(item => item != null && (!StackableItems.IsStack(item) || StackableItems.Quantity(item) != 0))
                 .OrderBy(item => item.Slot.Instance)
                 .Select(item => new TransferItemState
                 {
@@ -2394,6 +2408,7 @@ namespace CityBankers
                         ? item.UniqueIdentity.ToString()
                         : null,
                     AoId = item.Id,
+                    Quantity = StackableItems.Quantity(item),
                     HighId = item.HighId,
                     Ql = item.Ql,
                     Name = item.Name ?? string.Empty
@@ -2439,6 +2454,7 @@ namespace CityBankers
         {
             if (left == null || right == null)
                 return false;
+            if (left.Quantity != right.Quantity) return false;
             if (IsUsableIdentity(left.UniqueIdentity) &&
                 IsUsableIdentity(right.UniqueIdentity) &&
                 string.Equals(left.UniqueIdentity, right.UniqueIdentity, StringComparison.Ordinal))
@@ -2736,6 +2752,7 @@ namespace CityBankers
             {
                 UniqueIdentity = item?.UniqueIdentity,
                 AoId = item?.AoId ?? 0,
+                Quantity = item?.Quantity ?? 1,
                 HighId = item?.HighId ?? 0,
                 Ql = item?.Ql ?? 0,
                 Name = item?.Name,

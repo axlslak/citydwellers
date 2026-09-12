@@ -505,7 +505,7 @@ namespace CityBankers
             IEnumerable<TransferItemState> items)
         {
             List<TransferItemState> incoming = (items ?? Enumerable.Empty<TransferItemState>())
-                .Where(item => item != null && item.AoId != 0)
+                .Where(item => item != null && item.AoId != 0 && !CruPolicy.IsCru(item.AoId))
                 .ToList();
             if (incoming.Count == 0)
                 return;

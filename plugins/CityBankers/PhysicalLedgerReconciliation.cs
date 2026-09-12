@@ -63,6 +63,7 @@ namespace CityBankers
             {
                 if (item == null || item.LowId == 0 || item.SlotInstance < 0)
                     throw new InvalidOperationException("Census contains an unreadable item.");
+                if (CruPolicy.IsCru(item.LowId)) return;
                 string destination;
                 if (!SymbiantCatalog.TryGetDestinationRole(settings, item.LowId, out destination) &&
                     !SymbiantCatalog.TryGetDestinationRole(settings, item.HighId, out destination))

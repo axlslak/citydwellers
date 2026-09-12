@@ -106,7 +106,7 @@ namespace CityBankers
         {
             return Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory)
                 .Select(i => new { Slot = i.Slot.ToString(), Identity = i.UniqueIdentity.ToString(),
-                    AoId = i.Id, HighId = i.HighId, Ql = i.Ql, Name = i.Name }).ToList();
+                    AoId = i.Id, HighId = i.HighId, Ql = i.Ql, Name = i.Name, Quantity = StackableItems.Quantity(i) }).ToList();
         }
 
         private void RecordDonationOffer()
@@ -200,23 +200,29 @@ namespace CityBankers
             }
             _receipt.Observed = PhysicalInventory();
             _receipt.ObservedSlots = PhysicalSlots();
-            string observedSignature = string.Join(";", _receipt.Observed.Select(CustodyKey).OrderBy(key => key));
+            string observedSignature = string.Join(";", _receipt.Observed.Select(i => CustodyKey(i) + "/" + i.Quantity).OrderBy(key => key));
             if (_settledInventory != observedSignature)
             {
                 _settledInventory = observedSignature;
                 _inventoryStableFor.Restart();
             }
-            var expectedCounts = _receipt.Before.GroupBy(CustodyKey)
-                .ToDictionary(group => group.Key, group => group.Count());
+            bool includesCru = _receipt.Expected.Any(i => CruPolicy.IsCru(i.AoId));
+            // Background quantity updates to the supply stack are irrelevant to an
+            // ordinary symbiant receipt. A CRU pickup/donation verifies unit deltas.
+            Func<TransferItemState, bool> relevant = i => includesCru || !CruPolicy.IsCru(i.AoId);
+            var expectedCounts = _receipt.Before.Where(relevant).GroupBy(CustodyKey)
+                .ToDictionary(group => group.Key, group => group.Sum(i => i.Quantity));
             foreach (var group in _receipt.Expected.GroupBy(CustodyKey))
             {
                 int count;
                 expectedCounts.TryGetValue(group.Key, out count);
-                expectedCounts[group.Key] = count + _receipt.Direction * group.Count();
+                expectedCounts[group.Key] = count + _receipt.Direction * group.Sum(i => i.Quantity);
             }
-            var actualCounts = _receipt.Observed.GroupBy(CustodyKey)
-                .ToDictionary(group => group.Key, group => group.Count());
-            bool exact = (_receipt.Direction == 0 || _receipt.Expected.Count > 0) &&
+            var actualCounts = _receipt.Observed.Where(relevant).GroupBy(CustodyKey)
+                .ToDictionary(group => group.Key, group => group.Sum(i => i.Quantity));
+            bool knownCru = !includesCru || _receipt.Before.Concat(_receipt.Observed).Concat(_receipt.Expected)
+                .Where(i => CruPolicy.IsCru(i.AoId)).All(i => i.Quantity > 0);
+            bool exact = knownCru && (_receipt.Direction == 0 || _receipt.Expected.Count > 0) &&
                 expectedCounts.Where(pair => pair.Value != 0).OrderBy(pair => pair.Key)
                     .SequenceEqual(actualCounts.OrderBy(pair => pair.Key));
             if (!exact)

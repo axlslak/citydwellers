@@ -47,6 +47,7 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            StackableItems.Install();
             CityDwellers.Shared.BuildIdentity.Register();
             Logger.Information("BUILD " + CityDwellers.Shared.BuildIdentity.Label +
                 " | revision=" + CityDwellers.Shared.BuildIdentity.Revision);

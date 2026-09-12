@@ -43,7 +43,7 @@ namespace CityBankers
         // A local move needs no peer. Failed dispatch storage additionally
         // requires a grant backed by both peers' applied physical receipts.
         private bool CanStartLocalCensus() => StartupCensusGate.IsOpen &&
-            !Trade.IsTrading && Inventory.Bank.IsOpen && _receipt == null && _afterReceipt == null &&
+            !Trade.IsTrading && _stackOperation == null && Inventory.Bank.IsOpen && _receipt == null && _afterReceipt == null &&
             _returnOffer == null && _workerCommand == null && _reservedDispatch == null &&
             _withdrawal == null && _activeBatch == null && !_donationActive && _donationCleanup == null &&
             _storageJob == null && _dispatchPreparation == null &&
@@ -337,10 +337,10 @@ namespace CityBankers
             var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
             if (ledger?.Items == null) return;
             var expected = ledger.Items.Where(e => string.Equals(e.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
-                e.Location == "inventory" && !e.Bag.HasValue).Select(e =>
+                e.Location == "inventory" && !e.Bag.HasValue && !CruPolicy.IsCru(e.AoId)).Select(e =>
                 (e.Slot.HasValue ? (e.Slot.Value & 65535).ToString() : "?") + "/" + e.AoId + "/" + e.HighId + "/" + e.Ql).OrderBy(k => k);
             var actual = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory &&
-                i.UniqueIdentity.Type != IdentityType.Container).Select(i =>
+                i.UniqueIdentity.Type != IdentityType.Container && !CruPolicy.IsCru(i.Id)).Select(i =>
                 (i.Slot.Instance & 65535) + "/" + i.Id + "/" + i.HighId + "/" + i.Ql).OrderBy(k => k);
             string difference = string.Join(";", expected) + "|" + string.Join(";", actual);
             if (expected.SequenceEqual(actual)) { _localCensusMismatch = null; return; }

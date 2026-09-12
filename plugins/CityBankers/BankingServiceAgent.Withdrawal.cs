@@ -167,7 +167,7 @@ namespace CityBankers
             if (!TrustedOperators.IsAllBankersReady() || Inventory.NumFreeSlots < 12)
                 return false; // retain room for a full donation even with waiting orders
             WithdrawalState next = rows.FirstOrDefault(row =>
-                (WithdrawalStore.HasStatus(row, "requested") || CanRetryWithdrawalExtraction(row)) &&
+                ((!CruPolicy.IsCru(row) && WithdrawalStore.HasStatus(row, "requested")) || (!CruPolicy.IsCru(row) && CanRetryWithdrawalExtraction(row))) &&
                 !rows.Any(other => other.Id != row.Id && WithdrawalStore.HasStatus(other, "failed") &&
                     string.Equals(other.SourceCharacter, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)) &&
                 !(queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
@@ -841,7 +841,7 @@ namespace CityBankers
                 bool hasBinding = _centralWithdrawalItems.TryGetValue(row.Id, out bound);
                 Item match = available.FirstOrDefault(item => MatchesWithdrawalItem(item, row) &&
                     (!hasBinding || ReferenceEquals(item, bound)));
-                if (match == null) return false;
+                if (match == null || (CruPolicy.IsCru(row) && StackableItems.Quantity(match) != 1)) return false;
                 available.Remove(match);
             }
             return available.Count == 0;
@@ -916,7 +916,7 @@ namespace CityBankers
 
         private void CompleteWithdrawalAccounting(WithdrawalState state)
         {
-            if (!ActiveLedgerStore.ArchiveActiveItemById(
+            if (!CruPolicy.IsCru(state) && !ActiveLedgerStore.ArchiveActiveItemById(
                     _settingsDir, state.ActiveLedgerId,
                     state.DeliveredUtc ?? DateTime.UtcNow,
                     "withdrawn", state.RecipientMain))
@@ -945,6 +945,12 @@ namespace CityBankers
 
         private void QueueWithdrawalReturn(WithdrawalState state)
         {
+            if (CruPolicy.IsCru(state))
+            {
+                _centralWithdrawalItems.Remove(state.Id);
+                state.Status = "expired"; WithdrawalStore.Save(_settingsDir, state);
+                return; // Central restacks the released unit on its next idle tick.
+            }
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             string batchId = state.ReturnBatchId ?? ("withdraw-return-" + state.Id);
             if (!queue.Batches.Any(batch => batch.BatchId == batchId))
@@ -1073,9 +1079,12 @@ namespace CityBankers
             if (_isCentral && state != null && _centralWithdrawalItems.TryGetValue(state.Id, out bound))
             {
                 // Do not substitute another identical copy if this occurrence disappears.
-                return inventory.Any(item => ReferenceEquals(item, bound)) && MatchesWithdrawalItem(bound, state)
+                return inventory.Any(item => ReferenceEquals(item, bound)) && MatchesWithdrawalItem(bound, state) &&
+                    (!CruPolicy.IsCru(state) || StackableItems.Quantity(bound) == 1)
                     ? bound : null;
             }
+
+            if (_isCentral && CruPolicy.IsCru(state)) return null;
 
             if (!_isCentral && state?.LiveInventoryAnchorSlot.HasValue == true)
             {

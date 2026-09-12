@@ -64,7 +64,7 @@ namespace CityManager
                             rows.Add(Tuple.Create(item, (LostItemRecord)null, nameOf(item),
                                 BookkeepingDate(item["ReceivedUtc"])));
                     }
-                    var matches = rows.Where(r => words.All(w =>
+                    var matches = rows.Where(r => (int?)r.Item1["AoId"] != CruPolicy.AoId && words.All(w =>
                         r.Item3.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0))
                         .OrderByDescending(r => r.Item4).ThenBy(r => r.Item1["Id"]?.ToString(), StringComparer.Ordinal).ToList();
                     string title = lost ? "Lost items" : "Found items";

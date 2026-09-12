@@ -19,6 +19,7 @@ namespace CityBankers
         private sealed class DispatchProposal
         {
             public string Kind;
+            public WithdrawalState CruRequest;
             public string BatchId;
             public string Stage;
             public DispatchCensusGrant DispatchCensus;
@@ -52,7 +53,7 @@ namespace CityBankers
         internal static DispatchCommand CurrentInboundDispatch =>
             _ipcOwner?._workerCommand ?? _ipcOwner?._reservedDispatch;
         internal static bool CentralTransferBusy => _ipcOwner != null &&
-            (_ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null || _ipcOwner._extraction != null ||
+            (_ipcOwner._stackOperation != null || _ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null || _ipcOwner._extraction != null ||
              (_ipcOwner._receipt != null && !_ipcOwner._donationActive));
 
         private static string BankerPipe(string character)
@@ -129,6 +130,8 @@ namespace CityBankers
                 if (proposal.Reply.Task.IsCompleted) continue;
                 try
                 {
+                    if (HandleCruProposal(proposal)) continue;
+                    if (_stackOperation != null) { proposal.Reply.TrySetResult("busy"); continue; }
                     if (HandleDispatchCensusProposal(proposal)) continue;
                     if (HandleWithdrawalPreparation(proposal)) continue;
                     if (HandleTradeStageProposal(proposal)) continue;

@@ -47,7 +47,7 @@ namespace CityBankers.Shared
 
         public static void RecordBeforeRemoval(string settingsDir, IEnumerable<LostItemRecord> records)
         {
-            var incoming = records.ToList();
+            var incoming = records.Where(r => (int?)r.PreviousLedgerEntry?["AoId"] != CruPolicy.AoId).ToList();
             if (incoming.Count == 0) return;
             lock (Sync)
             {

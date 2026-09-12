@@ -36,6 +36,13 @@ namespace CityBankers.Shared
         }
     }
 
+    public static partial class CruPolicy
+    {
+        public const int AoId = 257110;
+        public const string Name = "Upgraded Controller Recompiler Unit";
+        public static bool IsCru(int id) => id == AoId;
+    }
+
     public class StorageState
     {
         public string Format = "citybankers-storage-state-v1";
@@ -131,6 +138,7 @@ namespace CityBankers.Shared
 
     public class TransferItemState
     {
+        public int Quantity = 1;
         public string UniqueIdentity;
         public int AoId;
         public int HighId;
@@ -183,6 +191,7 @@ namespace CityBankers.Shared
 
     public class LedgerItem
     {
+        public int Quantity = 1;
         public string UniqueIdentity;
         public int AoId;
         public int HighId;
@@ -654,7 +663,7 @@ namespace CityBankers.Shared
 
                     foreach (StoredItemState item in bag.Items)
                     {
-                        if (item == null)
+                        if (item == null || CruPolicy.IsCru(item.AoId))
                             continue;
 
                         string routedRole = null;

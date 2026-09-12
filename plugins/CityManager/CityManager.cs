@@ -55,6 +55,7 @@ namespace CityManager
                 "found",
                 "withdraw",
                 "get",
+                "cru",
                 "leave",
                 "join",
                 "alts",
@@ -439,7 +440,8 @@ namespace CityManager
 
             string command = parts[0].ToLowerInvariant();
             bool hasCommandShape =
-                ((command == "cloak" ||
+                ((command == "cru" ||
+                  command == "cloak" ||
                   command == "status" ||
                   command == "leave" ||
                   command == "join" ||
@@ -554,7 +556,8 @@ namespace CityManager
                  string.Equals(command, "lost", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "found", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "withdraw", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(command, "get", StringComparison.OrdinalIgnoreCase)) &&
+                 string.Equals(command, "get", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "cru", StringComparison.OrdinalIgnoreCase)) &&
                 !isAdmin &&
                 !replyTarget.IsOrg &&
                 !IsTellMember(senderName))
@@ -635,6 +638,10 @@ namespace CityManager
 
                 case "donor":
                     ProcessBankerDonorCommand(parts, replyTarget);
+                    break;
+
+                case "cru":
+                    ProcessCruCommand(senderName, parts, replyTarget);
                     break;
 
                 case "withdraw":

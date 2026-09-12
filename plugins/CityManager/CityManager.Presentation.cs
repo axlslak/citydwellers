@@ -124,6 +124,13 @@ namespace CityManager
                     body = BuildAltHelp(target, isAdmin);
                     return true;
 
+                case "cru":
+                    title = "CRU Pickup";
+                    body = CommandHelp(target, "cru", "Request one Upgraded Controller Recompiler Unit.",
+                        "Wait for the ready tell, then trade with Kbcentral within three minutes. CRU shares your normal pickup order and can be collected with other ready items. Donate CRU by trading with Kbcentral; it stays stacked there.",
+                        "Athen Paladins member", "CRU is not included in stock listings or donor totals.");
+                    return true;
+
                 case "get":
                 case "withdraw":
                     title = "Bank Pickup";
@@ -165,6 +172,7 @@ namespace CityManager
                         HelpMenuLine(target, "stock", "Stock", "Browse available items; reserved copies are hidden.") +
                         HelpMenuLine(target, "phatz", "Phatz", "All available Phatz, counted and linked.") +
                         HelpMenuLine(target, "help get", "Pickup help", "Up to three items per order; three-minute pickup window.") +
+                        HelpMenuLine(target, "cru", "CRU", "Collect one CRU from Central.") +
                         HelpMenuLine(target, "donor", "Donors", "Donation totals and history.") +
                         HelpMenuLine(target, "status", "Live status", "Banker readiness, occupancy, storage work, withdrawals, recovery and tell queue.") +
                         "\nTrade with Kbcentral to donate up to 10 accepted items. Item notices identify what will be stored or deleted as excess. Accept when finished editing, then confirm the dialog normally.\n" +
@@ -359,6 +367,7 @@ namespace CityManager
                 target,
                 "get [AO item ID]",
                 "Reserve an item and collect it from Kbcentral within three minutes. Alias: withdraw."));
+            body.Append(HelpSyntaxLine(target, "cru", "Collect one CRU from Kbcentral within three minutes."));
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
             body.Append(HelpSyntaxLine(target, "raid status", "View current raid information."));
             body.Append(HelpSyntaxLine(target, "cancel [raid-token]", "Cancel your active raid."));

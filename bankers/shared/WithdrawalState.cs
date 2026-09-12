@@ -9,6 +9,11 @@ using Newtonsoft.Json.Linq;
 
 namespace CityBankers.Shared
 {
+    public static partial class CruPolicy
+    {
+        public static bool IsCru(WithdrawalState row) => row?.Item != null && IsCru(row.Item.AoId);
+    }
+
     public sealed class WithdrawalState
     {
         public string Format = "citybankers-withdrawal-v2";
@@ -117,7 +122,7 @@ namespace CityBankers.Shared
             {
                 var scope = new HashSet<string>(runs.Keys, StringComparer.OrdinalIgnoreCase);
                 var ids = new HashSet<string>(originals.Select(r => r.Id), StringComparer.Ordinal);
-                if (rows.Any(r => IsActive(r) && (!HasStatus(r, "requested") || scope.Contains(r.SourceCharacter)) &&
+                if (rows.Any(r => IsActive(r) && !CruPolicy.IsCru(r) && (!HasStatus(r, "requested") || scope.Contains(r.SourceCharacter)) &&
                     !ids.Contains(r.Id))) return false;
                 foreach (var original in originals)
                 {
@@ -452,7 +457,7 @@ namespace CityBankers.Shared
             row.UpdatedUtc = DateTime.UtcNow;
         }
 
-        public static bool TryAdd(string directory, WithdrawalState request, out string error)
+        public static bool TryAdd(string directory, WithdrawalState request, out string error, int centralSupplyUnits = -1)
         {
             string reason = null;
             bool added = Update(directory, rows =>
@@ -467,7 +472,10 @@ namespace CityBankers.Shared
                 else if (ReadRecovery(directory).Any(r => r.CensusCentral || r.LedgerId == request.ActiveLedgerId ||
                     string.Equals(r.CensusCharacter, request.SourceCharacter, StringComparison.OrdinalIgnoreCase)))
                     reason = "That item is being moved. Please try again shortly.";
-                else if (!RequestStillStored(directory, request))
+                else if (CruPolicy.IsCru(request) && (centralSupplyUnits < 0 ||
+                    active.Count(CruPolicy.IsCru) >= centralSupplyUnits))
+                    reason = "No CRU is available right now.";
+                else if (!CruPolicy.IsCru(request) && !RequestStillStored(directory, request))
                     reason = "That item has moved. Please refresh stock and select it again.";
                 else if (own.Any(row => HasStatus(row, "pickup-trading")))
                     reason = "Finish your open pickup trade before adding another item.";

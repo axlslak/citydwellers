@@ -58,9 +58,18 @@ namespace CityBankers
         {
             if (_withdrawalDispute) return true;
             if (!WithdrawalReceipt(_receipt) || !StartupCensusGate.IsOpen) return false;
-            var rows = WithdrawalStore.LoadAll(_settingsDir).Where(r => WithdrawalStore.IsActive(r) &&
+            bool hadCru = _receipt.Expected?.Any(i => CruPolicy.IsCru(i.AoId)) == true;
+            ReleaseDisputedCru(reason);
+            var rows = WithdrawalStore.LoadAll(_settingsDir).Where(r => !CruPolicy.IsCru(r) && WithdrawalStore.IsActive(r) &&
                 (r.Id == _receipt.BatchId || r.OrderId == _receipt.BatchId)).ToList();
-            if (rows.Count == 0) return false;
+            if (rows.Count == 0)
+            {
+                if (!hadCru) return false;
+                PersistReceipt("cru-pickup-unconfirmed");
+                _afterReceipt = null; _receipt = null;
+                ResetWithdrawalTrade();
+                return true;
+            }
             PersistReceipt("withdrawal-census-required");
             // Failed is a request for physical resolution, not a delivery claim.
             WithdrawalStore.Update(_settingsDir, current =>
@@ -78,7 +87,7 @@ namespace CityBankers
             return true;
         }
 
-        private bool CanOwnWithdrawalCensus() => Client.InPlay && Inventory.Bank.IsOpen && !Trade.IsTrading &&
+        private bool CanOwnWithdrawalCensus() => _stackOperation == null && Client.InPlay && Inventory.Bank.IsOpen && !Trade.IsTrading &&
             _localCensus == null && _dispatchCensus == null && _activeBatch == null &&
             _returnOffer == null && _extraction == null && !_donationActive && _donationCleanup == null &&
             _dispatchPreparation == null && (_receipt == null || WithdrawalReceipt(_receipt)) &&
@@ -88,7 +97,7 @@ namespace CityBankers
         private bool TryStartWithdrawalCensus()
         {
             if (!_isCentral || _withdrawalCensus != null || !CanOwnWithdrawalCensus()) return false;
-            var rows = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();
+            var rows = WithdrawalStore.LoadAll(_settingsDir).Where(r => WithdrawalStore.IsActive(r) && !CruPolicy.IsCru(r)).ToList();
             if (!_withdrawalDispute && !rows.Any(r => WithdrawalStore.HasStatus(r, "failed") &&
                 !WithdrawalStore.HasConfirmedDelivery(r))) return false;
             // All staged requests share Central's inventory. Include their source

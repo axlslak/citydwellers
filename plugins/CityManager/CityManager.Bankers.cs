@@ -566,6 +566,38 @@ namespace CityManager
             return BuildBlobLinks(target, "Phatz Acceptance", "Open Phatz list", body.ToString());
         }
 
+        private void ProcessCruCommand(string senderName, string[] parts, ReplyTarget target)
+        {
+            if (parts == null || parts.Length != 1) { Reply(target, Usage(target, "cru")); return; }
+            string canonical = ResolveCanonicalAltMain(senderName);
+            var allowed = GetAltIdentityCandidates(senderName);
+            allowed.Add(senderName); allowed.Add(canonical);
+            var request = new WithdrawalState { Id = "wd-" + Guid.NewGuid().ToString("N"),
+                CreatedUtc = DateTime.UtcNow, RequestedBy = senderName, RecipientMain = canonical,
+                AllowedCharacters = allowed.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList() };
+            ThreadPool.QueueUserWorkItem(async _ =>
+            {
+                try
+                {
+                    JObject config = CityBankers.Shared.SettingsPaths.ReadBankersSettings(_settingsDir);
+                    var roles = config.GetValue("Roles", StringComparison.OrdinalIgnoreCase) as JObject;
+                    var central = roles?.Properties().FirstOrDefault(p => p.Name.Equals("central", StringComparison.OrdinalIgnoreCase))?.Value as JObject;
+                    string character = (string)central?.GetValue("Character", StringComparison.OrdinalIgnoreCase);
+                    if (string.IsNullOrWhiteSpace(character)) { Reply(target, "Central is not configured."); return; }
+                    string pipe = "CityDwellers.Bankers." + Process.GetCurrentProcess().Id + "." + character.ToLowerInvariant();
+                    string result = await LocalIpc.RequestLineAsync(pipe,
+                        Newtonsoft.Json.JsonConvert.SerializeObject(new { Kind = "cru", CruRequest = request }), 1000, 5000).ConfigureAwait(false);
+                    Reply(target, result == "busy" || result == "pending" || string.IsNullOrWhiteSpace(result)
+                        ? "Central is busy. Please try #cru again shortly." : result);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning("CRU request: " + ex.Message);
+                    Reply(target, "Central could not confirm your CRU request. A ready tell will arrive if it was accepted.");
+                }
+            });
+        }
+
         private void ProcessBankerWithdrawalCommand(
             string senderName,
             string[] parts,
@@ -601,6 +633,7 @@ namespace CityManager
 
         private void BeginBankerWithdrawal(string senderName, int aoId, ReplyTarget target)
         {
+            if (CruPolicy.IsCru(aoId)) { ProcessCruCommand(senderName, new[] { "cru" }, target); return; }
             List<WithdrawalState> reservations = WithdrawalStore.LoadAll(_settingsDir);
             var reservedIds = new HashSet<string>(reservations.Where(WithdrawalStore.IsActive)
                 .Select(row => row.ActiveLedgerId), StringComparer.Ordinal);
@@ -897,6 +930,7 @@ namespace CityManager
                 return;
 
             int aoId = ParseDonationInt(item["AoId"]);
+            if (CruPolicy.IsCru(aoId)) return;
             DonationItemMetadata detail;
             metadata.TryGetValue(aoId, out detail);
             records[id] = new DonationRecord
