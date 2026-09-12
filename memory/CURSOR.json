@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 92,
-  "last_completed_session": 91,
-  "status": "in_progress",
+  "last_completed_session": 92,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-92-pickup-completion",
-  "checkpoint_commit": "d9934e952f5f3b5fc6865c229e3f347db9eabd89",
-  "task": "Fix verified pickup rejected by missing intermediate handshake flags",
-  "resume_instruction": "Preserve Finished and exact inventory receipt plus accepted exact order evidence; remove intermediate callback completion prerequisite. Log dispute cause. Owner handles old false lost records. Next journal238.",
+  "checkpoint_commit": "e792e4af9d71c6c232569d76f9c6ac6e4c698b1d",
+  "task": "Verified pickup completion fix resolved",
+  "resume_instruction": "Session92 resolved: Finished plus exact inventory delta and accepted exact pickup offer suffice without intermediate Confirm flags. Dispute reasons logged. Owner handles two historical false loss entries after update; no automatic data repair. Next journal239.",
   "base_commit": "2d0f8398c662e8f0b46b09e82023b0352f442d64"
 }
