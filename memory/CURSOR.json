@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 101,
-  "last_completed_session": 100,
-  "status": "in_progress",
+  "last_completed_session": 101,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-101-cru-isolation",
-  "checkpoint_commit": "2664dba3a483417af4f0dd36222ab588e655f628",
-  "task": "Pause automatic CRU merge interruptions",
-  "resume_instruction": "Default automatic merging off until live packet/response verified; retain explicit opt-in for diagnostics. Donations and requested single pickups unchanged. Worker timeout root cause not proven.",
+  "checkpoint_commit": "cf297ecb12083a040383d6a519a387ebc9c1b0e4",
+  "task": "Background CRU merge interference mitigation published",
+  "resume_instruction": "Automatic CRU merge default off; Bankers.EnableAutomaticCruStacking explicit diagnostic opt-in. Donations/single pickups/requested splits remain. Stacking unfinished; worker timeout cause unproven. Owner builds/tests. Next journal257.",
   "base_commit": "5ffc011092662fda96482ff448e2bcaca0dc464b"
 }
