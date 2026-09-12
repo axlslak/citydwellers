@@ -156,7 +156,7 @@ namespace CityBankers.Shared
                 ? Red(progress)
                 : Cyan(progress);
 
-            return White("DONATION ") + coloredProgress + White(" — ");
+            return White("DONATION ") + coloredProgress + White(" - ");
         }
 
         private static string Color(string text, string color)

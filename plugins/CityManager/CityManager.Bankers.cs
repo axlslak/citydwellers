@@ -163,8 +163,8 @@ namespace CityManager
                 foreach (WithdrawalState row in active.OrderBy(row => row.RequestedBy).ThenBy(row => row.Id))
                 {
                     lines.Append("  ").Append(CityBankersChatPalette.Cyan(row.RequestedBy))
-                        .Append(" — ").Append(CityBankersChatPalette.Stage(row.Status))
-                        .Append(" — ");
+                        .Append(" - ").Append(CityBankersChatPalette.Stage(row.Status))
+                        .Append(" - ");
                     if (row.Item != null)
                         lines.Append(CityBankersChatPalette.ItemLabel(row.Item.AoId, row.Item.HighId, row.Item.Ql, row.Item.Name));
                     lines.Append("\n");
@@ -242,7 +242,7 @@ namespace CityManager
                         .Append(EscapeBlobText(mapping.Value)).Append("</b></font> ")
                         .Append("<font color='").Append(ColorMuted).Append("'>")
                         .Append(live && items != null
-                            ? count + " used · " + free + " free · " + loose + " loose"
+                            ? count + " used | " + free + " free | " + loose + " loose"
                             : "snapshot unavailable")
                         .Append("</font> ")
                         .Append(CommandLink(target, "inventory " + mapping.Key, "LIST"))
@@ -289,8 +289,8 @@ namespace CityManager
             }
             int selectedFree = ParseDonationInt(selectedHeartbeat["InventoryFreeSlots"]);
             body.Append("\n<font color='").Append(ColorMuted).Append("'>")
-                .Append(selectedItems.Count).Append(" used · ").Append(selectedFree)
-                .Append(" free · observed ")
+                .Append(selectedItems.Count).Append(" used | ").Append(selectedFree)
+                .Append(" free | observed ")
                 .Append(EscapeBlobText(selectedHeartbeat["ObservedUtc"]?.ToString() ?? "unknown"))
                 .Append("</font>");
             Reply(target, BuildBlobLinks(target, selected.Value + " Inventory",
@@ -322,7 +322,7 @@ namespace CityManager
             return "    <font color='" + ColorMuted + "'>Inventory:</font> " +
                 "<font color='" + color + "'><b>" + used + "/" + capacity +
                 " slots used (" + FormatOccupancyPercent(used, capacity) + ")</b></font>" +
-                " <font color='" + ColorMuted + "'>· " +
+                " <font color='" + ColorMuted + "'>| " +
                 Math.Max(0, capacity - used) + " free</font>\n";
         }
 
@@ -441,7 +441,7 @@ namespace CityManager
                     .Append(CommandLink(target, "get " + item.AoId, "GET")).Append("\n");
             }
             Reply(target, BuildBlobLinks(target, "Phatz Stock", "Open Phatz stock", body.ToString())
-                .Select(link => summary + " — " + link));
+                .Select(link => summary + " - " + link));
         }
 
         private void ProcessPhatzPolicyCommand(
@@ -495,7 +495,7 @@ namespace CityManager
                         AddedUtc = DateTime.UtcNow
                     });
                 Reply(target, CityBankersChatPalette.Green("Added") + " " +
-                    CityBankersChatPalette.ItemLabel(aoid, highid, ql, name) + " — limit: " +
+                    CityBankersChatPalette.ItemLabel(aoid, highid, ql, name) + " - limit: " +
                     CityBankersChatPalette.Cyan(maximum == SymbiantCatalog.KeepAllCopies ? "unlimited" : maximum.ToString()) + ".");
                 return;
             }
@@ -557,7 +557,7 @@ namespace CityManager
             {
                 body.Append("  ").Append(CityBankersChatPalette.ItemLabel(item.AoId, item.HighId, item.Ql, item.Name, true)).Append(" ")
                     .Append("<font color='").Append(ColorMuted).Append("'>AOID ")
-                    .Append(item.AoId).Append(" · ")
+                    .Append(item.AoId).Append(" | ")
                     .Append(item.MaxCopies == SymbiantCatalog.KeepAllCopies ? "unlimited" :
                         item.MaxCopies + " max").Append("</font> ")
                     .Append(CommandLink(target, "phatz remove " + item.AoId, "REMOVE"))
@@ -762,7 +762,7 @@ namespace CityManager
             else
             {
                 string canonical = ResolveCanonicalAltMain(view);
-                title = canonical + " — Donations";
+                title = canonical + " - Donations";
                 label = "Open " + canonical + " donations";
                 body = BuildLatestDonationsWindow(
                     donations,

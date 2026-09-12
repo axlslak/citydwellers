@@ -1728,7 +1728,7 @@ namespace CityManager
                     : ", no send attempted since startup";
 
                 return (_orgOutboundDegraded ? "degraded" : "ready") +
-                       " — " + _orgOutboundDetail + observed + attempted;
+                       " - " + _orgOutboundDetail + observed + attempted;
             }
         }
 

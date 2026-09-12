@@ -577,7 +577,7 @@ namespace CityBankers
             }
 
             return DisplayFamily(family) + " " + DisplaySlot(slot) +
-                " around QL " + targetQl + " — " + string.Join("; ", parts) +
+                " around QL " + targetQl + " - " + string.Join("; ", parts) +
                 ". " + back;
         }
 

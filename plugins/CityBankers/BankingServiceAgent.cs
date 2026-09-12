@@ -2255,7 +2255,7 @@ namespace CityBankers
             string progress =
                 "Accepting item " + CityBankersChatPalette.Cyan(tradeIndex.ToString()) +
                 "/" + CityBankersChatPalette.Cyan(ServicePolicy.MaxTradeItems.ToString()) +
-                " — ";
+                " - ";
             string itemDescription = BuildItemLink(item) + " (QL " +
                 CityBankersChatPalette.Cyan(item.Ql.ToString()) + ")";
             SymbiantCatalog.AcceptanceRule rule;
@@ -2263,7 +2263,7 @@ namespace CityBankers
             {
                 TellDonationPartner(
                     progress + CityBankersChatPalette.Red("REJECTED") + " " +
-                    itemDescription + " — not accepted.");
+                    itemDescription + " - not accepted.");
                 return;
             }
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
@@ -2274,7 +2274,7 @@ namespace CityBankers
             {
                 TellDonationPartner(
                     progress + CityBankersChatPalette.Red("DELETING") + " " +
-                    itemDescription + " — " +
+                    itemDescription + " - " +
                     CityBankersChatPalette.Cyan(projectedStored.ToString()) +
                     " already stored on " + CityBankersChatPalette.Yellow(destination) + ".");
                 return;

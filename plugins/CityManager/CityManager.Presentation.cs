@@ -670,8 +670,8 @@ namespace CityManager
             body.Append(BuildCloakHistoryForBlob(5));
 
             body.Append("\n").Append(StatusSection("Workers"));
-            body.Append(StatusLine(flipper.IsUsable, "Flipper", flipper.PublicText + " — " + flipper.Detail));
-            body.Append(StatusLine(buddies.IsUsable, "Buddies", buddies.PublicText + " — " + buddies.Detail));
+            body.Append(StatusLine(flipper.IsUsable, "Flipper", flipper.PublicText + " - " + flipper.Detail));
+            body.Append(StatusLine(buddies.IsUsable, "Buddies", buddies.PublicText + " - " + buddies.Detail));
             body.Append("  <font color='").Append(ColorMuted).Append("'>")
                 .Append(EscapeBlobText(buddyActivity)).Append("</font>\n");
 
@@ -841,7 +841,7 @@ namespace CityManager
         private string StatusLine(bool good, string label, string detail)
         {
             string color = good ? ColorGood : ColorWarn;
-            return "  <font color='" + color + "'>●</font> " +
+            return "  <font color='" + color + "'>" + (good ? "OK" : "WAIT") + "</font> " +
                    "<font color='" + ColorText + "'>" +
                    EscapeBlobText(label) + ":</font> " +
                    CityBankers.Shared.CityBankersChatPalette.StyleMarkup(EscapeBlobText(detail)) + "\n";
@@ -930,7 +930,7 @@ namespace CityManager
             {
                 string pageTitle = pages.Count == 1
                     ? title
-                    : title + " — Page " + (index + 1) + "/" + pages.Count;
+                    : title + " - Page " + (index + 1) + "/" + pages.Count;
                 string pageLabel = pages.Count == 1
                     ? label
                     : label + " " + (index + 1) + "/" + pages.Count;

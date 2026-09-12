@@ -1,3 +1,9 @@
+## Session 80 — AO-safe presentation markers
+
+- [OWNER VERIFIED] Owner reports everything seems to work as intended; current work is limited to small cosmetic nitpicks.
+- [CHANGE] Status rows use green OK or amber WAIT instead of the unsupported filled-circle glyph. Display em dashes become ASCII hyphens and middle-dot separators become ASCII vertical bars across status, inventory, stock, donor and donation output.
+- [VALIDATION] Reviewed the focused source diff and whitespace; existing colours, icons, links and operational behavior are preserved. No assistant build or live test. Owner rebuild and inspect the previously affected windows/messages.
+
 ## Session 79 — first consistent presentation pass, icons, help and status
 
 - [OWNER STYLE] Preserve the existing donation/raid presentation. Bright white is the base; cyan/blue names and item links, yellow quantities, muted identifiers/parentheses, green verified success and red failure with amber waiting/retries. Org confirmations stay short; full stock/cloak and rich status windows remain. This is presentation work only, not a trading redesign.
