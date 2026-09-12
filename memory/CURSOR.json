@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 99,
-  "last_completed_session": 98,
-  "status": "in_progress",
+  "last_completed_session": 99,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-99-cru-move-stack",
-  "checkpoint_commit": "0d8b9da30fff6f67d1f885f230709f5653168c78",
-  "task": "Stack CRU through inventory move",
-  "resume_instruction": "Owner confirms stacking is left-click move onto occupied slot, not use/combine. Replace merge request with MoveToInventory(target slot). Static review only.",
+  "checkpoint_commit": "74427d30864795386f0ce44343d38b3df56402dd",
+  "task": "CRU inventory-move stacking correction resolved",
+  "resume_instruction": "Merge now calls MoveToInventory(target.Slot.Instance). Owner confirms left-click move is stacking interaction; prior use/combine superseded. Owner builds/tests, no assistant build. Next journal253.",
   "base_commit": "02224c23d0094d7e270f3deff8747ab25cee83e4"
 }
