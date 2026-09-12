@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 80,
-  "last_completed_session": 79,
-  "status": "in_progress",
+  "last_completed_session": 80,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-80-ascii-markers",
-  "base_commit": "a03fc0b6e6dea421aa858f21e56cdddef2840389",
-  "task": "Replace unsupported AO presentation bullets and separators",
-  "resume_instruction": "Use OK/WAIT status labels and ASCII separators. No operational changes. Owner rebuild; next journal214."
+  "checkpoint_commit": "71f3d6e38cea7d136792da5a7ea53f8c39db2378",
+  "task": "AO-safe presentation markers completed",
+  "resume_instruction": "Owner rebuild and inspect OK/WAIT labels and ASCII separators. Continue small cosmetic follow-ups as requested; structural work deferred. Next journal215."
 }
