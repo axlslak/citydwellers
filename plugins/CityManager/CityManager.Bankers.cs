@@ -147,6 +147,39 @@ namespace CityManager
                     withdrawals.Where(WithdrawalStore.IsActive).Select(row => row.OrderId).Distinct().Count() +
                     "/4; ready items " + withdrawals.Count(row => WithdrawalStore.HasStatus(row, "central-ready")) +
                     "; held items " + withdrawals.Count(row => WithdrawalStore.HasStatus(row, "failed")) + ".";
+                lines.Append("\n").Append(StatusSection("Storage work"));
+                var batches = queue.Batches ?? new List<DispatchBatchState>();
+                if (batches.Count == 0) lines.Append(StatusLine(true, "Transfers", "No queued storage work"));
+                foreach (var group in batches.GroupBy(batch => batch.Status ?? "unknown").OrderBy(group => group.Key))
+                    lines.Append(StatusLine(!group.Key.Contains("fail"), group.Key,
+                        group.Count() + " batches / " + group.Sum(batch => batch.Items?.Count ?? 0) + " items"));
+                lines.Append("\n").Append(StatusSection("Withdrawals and pickups"));
+                var active = withdrawals.Where(WithdrawalStore.IsActive).ToList();
+                if (active.Count == 0) lines.Append(StatusLine(true, "Orders", "No active withdrawals"));
+                int recovering = active.Count(row => !string.IsNullOrWhiteSpace(row.RecoveryCensusId));
+                if (recovering > 0) lines.Append(StatusLine(false, "Physical recovery", recovering + " withdrawal items under census"));
+                foreach (var group in active.GroupBy(row => row.Status ?? "unknown").OrderBy(group => group.Key))
+                    lines.Append(StatusLine(!group.Key.Contains("fail"), group.Key, group.Count() + " items"));
+                foreach (WithdrawalState row in active.OrderBy(row => row.RequestedBy).ThenBy(row => row.Id))
+                {
+                    lines.Append("  ").Append(CityBankersChatPalette.Cyan(row.RequestedBy))
+                        .Append(" — ").Append(CityBankersChatPalette.Stage(row.Status))
+                        .Append(" — ");
+                    if (row.Item != null)
+                        lines.Append(CityBankersChatPalette.ItemLabel(row.Item.AoId, row.Item.HighId, row.Item.Ql, row.Item.Name));
+                    lines.Append("\n");
+                }
+                lines.Append("\n").Append(StatusSection("Tell delivery"));
+                try
+                {
+                    int pendingTells = TellQueue.ReadPending(_dataDir).Count;
+                    bool assignedTell = TellQueue.HasAssignment(_dataDir);
+                    int senders = TellQueue.ReadFreshSenders(_dataDir, DateTime.UtcNow).Count;
+                    lines.Append(StatusLine(senders > 0 || pendingTells == 0, "Shared queue",
+                        pendingTells + " pending; " + (assignedTell ? "delivery assigned" : "no assigned delivery") +
+                        "; " + senders + " idle senders"));
+                }
+                catch (Exception ex) { lines.Append(StatusLine(false, "Shared queue", "Snapshot unavailable: " + ex.Message)); }
                 return new BankerStatusSnapshot
                 {
                     IsUsable = allUsable,
@@ -250,14 +283,9 @@ namespace CityManager
                 bool container = (bool?)item["IsContainer"] ?? false;
                 body.Append("  <font color='").Append(ColorMuted).Append("'>slot ")
                     .Append(slot.ToString("X4", CultureInfo.InvariantCulture)).Append("</font> ");
-                if (!container && aoid > 0 && highid > 0)
-                    body.Append("<a href='itemref://").Append(aoid).Append("/").Append(highid)
-                        .Append("/").Append(ql).Append("'>").Append(EscapeBlobText(name)).Append("</a>");
-                else
-                    body.Append("<font color='").Append(ColorText).Append("'>")
-                        .Append(EscapeBlobText(name)).Append("</font>");
-                body.Append(" <font color='").Append(ColorMuted).Append("'>QL ")
-                    .Append(ql).Append(container ? " · bag" : " · loose").Append("</font>\n");
+                body.Append(CityBankersChatPalette.ItemLabel(aoid, highid, ql, name, true));
+                body.Append(" <font color='").Append(ColorMuted).Append("'>")
+                    .Append(container ? "bag" : "loose").Append("</font>\n");
             }
             int selectedFree = ParseDonationInt(selectedHeartbeat["InventoryFreeSlots"]);
             body.Append("\n<font color='").Append(ColorMuted).Append("'>")
@@ -372,7 +400,22 @@ namespace CityManager
                 return;
             }
 
-            Reply(target, response);
+            // Legacy stock rendering supplies one text:// link. Re-page its body
+            // through the same channel-aware helper, now that icons add markup.
+            Match stockBlob = Regex.Match(response ?? string.Empty,
+                "<a href=\"text://(?<body>[^\"]*)\">(?<label>[^<]*)</a>");
+            if (stockBlob.Success)
+            {
+                string body = stockBlob.Groups["body"].Value.Replace("&quot;", "\"")
+                    .Replace("<br>", "\n");
+                const string whiteStart = "<font color='#FFFFFF'>";
+                if (body.StartsWith(whiteStart) && body.EndsWith("</font>"))
+                    body = body.Substring(whiteStart.Length, body.Length - whiteStart.Length - 7);
+                string summary = response.Substring(0, stockBlob.Index);
+                Reply(target, BuildBlobLinks(target, "Bank Stock", stockBlob.Groups["label"].Value, body)
+                    .Select(link => summary + link));
+            }
+            else Reply(target, response);
         }
 
         private void ReplyPhatzStock(ReplyTarget target, CurrentStockState stock)
@@ -451,9 +494,9 @@ namespace CityManager
                         AddedBy = senderName,
                         AddedUtc = DateTime.UtcNow
                     });
-                Reply(target, "Phatz now accepts " + name + " (AOID " + aoid + ") with " +
-                    (maximum == SymbiantCatalog.KeepAllCopies ? "no copy limit." :
-                     "a limit of " + maximum + " copies."));
+                Reply(target, CityBankersChatPalette.Green("Added") + " " +
+                    CityBankersChatPalette.ItemLabel(aoid, highid, ql, name) + " — limit: " +
+                    CityBankersChatPalette.Cyan(maximum == SymbiantCatalog.KeepAllCopies ? "unlimited" : maximum.ToString()) + ".");
                 return;
             }
 
@@ -512,8 +555,7 @@ namespace CityManager
                 body.Append("<font color='").Append(ColorMuted).Append("'>No accepted Phatz items.</font>");
             foreach (SymbiantCatalog.PhatzPolicyItem item in rows.Values.OrderBy(value => value.Name))
             {
-                body.Append("  <font color='").Append(ColorText).Append("'>")
-                    .Append(EscapeBlobText(item.Name)).Append("</font> ")
+                body.Append("  ").Append(CityBankersChatPalette.ItemLabel(item.AoId, item.HighId, item.Ql, item.Name, true)).Append(" ")
                     .Append("<font color='").Append(ColorMuted).Append("'>AOID ")
                     .Append(item.AoId).Append(" · ")
                     .Append(item.MaxCopies == SymbiantCatalog.KeepAllCopies ? "unlimited" :
@@ -642,7 +684,7 @@ namespace CityManager
             }
             Reply(target,
                 "Withdrawal " + request.Id.Substring(request.Id.Length - 8) +
-                " started for " + (physical.Name ?? ("AOID " + aoId)) +
+                " started for " + CityBankersChatPalette.ItemLabel(physical.AoId, physical.HighId, physical.Ql, physical.Name) +
                 ". Added to your order (maximum three items). Ready items remain collectible; " +
                 "the pickup clock resets to three minutes now and when this item arrives.");
         }
@@ -1020,13 +1062,8 @@ namespace CityManager
 
         private static string BuildDonationItemLink(DonationRecord record)
         {
-            string label = EscapeBlobText(record.Name) +
-                (record.Ql > 0 ? " (QL " + record.Ql + ")" : string.Empty);
-            if (record.AoId <= 0 || record.HighId <= 0 || record.Ql <= 0)
-                return "<font color='" + ColorText + "'>" + label + "</font>";
-            return "<a href='itemref://" + record.AoId + "/" + record.HighId +
-                "/" + record.Ql + "'><font color='" + ColorText + "'>" +
-                label + "</font></a>";
+            return CityBankersChatPalette.ItemLabel(record.AoId, record.HighId,
+                record.Ql, record.Name, true);
         }
 
         private static DateTime ParseDonationUtc(JToken token)

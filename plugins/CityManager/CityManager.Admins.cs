@@ -55,7 +55,10 @@ namespace CityManager
             DevTrace(
                 $"ADMIN LIST {parts[1].ToUpperInvariant()} actor={senderName} " +
                 $"target={canonicalName} requested={parts[2]} changed={changed}; {message}");
-            Reply(target, message);
+            Reply(target, changed
+                ? CityBankers.Shared.CityBankersChatPalette.Green(add ? "Admin added" : "Admin removed") +
+                    ": " + CityBankers.Shared.CityBankersChatPalette.Cyan(canonicalName) + "."
+                : message);
         }
     }
 }

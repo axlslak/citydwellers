@@ -73,4 +73,9 @@
     <None Include="app.config" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\bankers\shared\ItemIcons.csv.gz">
+      <LogicalName>CityDwellers.ItemIcons.csv.gz</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 </Project>

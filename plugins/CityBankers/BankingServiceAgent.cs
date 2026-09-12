@@ -2588,7 +2588,7 @@ namespace CityBankers
                 _settingsDir,
                 Client.CharacterName,
                 playerName,
-                CityBankersChatPalette.WhiteBaseMarkup(message));
+                CityBankersChatPalette.StyleMarkup(message));
             RuntimeStateStore.AppendActivity(
                 _settingsDir,
                 Client.CharacterName,
@@ -2615,7 +2615,7 @@ namespace CityBankers
                 _settingsDir,
                 Client.CharacterName,
                 playerName,
-                CityBankersChatPalette.WhiteBaseMarkup(message));
+                CityBankersChatPalette.StyleMarkup(message));
             RuntimeStateStore.AppendActivity(
                 _settingsDir,
                 Client.CharacterName,
@@ -2638,8 +2638,19 @@ namespace CityBankers
                 string prefix = "BANKERS " + stage + " batch=" + (batchId ?? "-") + " ";
                 var details = new List<string> { message ?? string.Empty };
                 if (items != null)
-                    details.AddRange(items.Where(item => item != null).Select(item =>
-                        item.Name + " QL" + item.Ql + " AOID=" + item.AoId));
+                    foreach (TransferItemState item in items.Where(item => item != null))
+                    {
+                        Logger.Information(prefix + item.Name + " QL" + item.Ql + " AOID=" + item.AoId);
+                        try
+                        {
+                            CityDwellers.Shared.ManagerChannelQueue.Enqueue(
+                                RuntimeStateStore.GetDataDirectory(_settingsDir), Client.CharacterName,
+                                CityBankersChatPalette.StyleMarkup("BANKERS " + CityBankersChatPalette.Stage(stage) +
+                                    " batch=" + System.Security.SecurityElement.Escape(batchId ?? "-") + " " +
+                                    CityBankersChatPalette.ItemLabel(item.AoId, item.HighId, item.Ql, item.Name)));
+                        }
+                        catch (Exception ex) { Logger.Warning("BANKERS item telemetry unavailable: " + ex.Message); }
+                    }
                 foreach (string detail in details)
                 {
                     Logger.Information(prefix + detail);
@@ -2651,7 +2662,9 @@ namespace CityBankers
                         {
                             CityDwellers.Shared.ManagerChannelQueue.Enqueue(
                                 RuntimeStateStore.GetDataDirectory(_settingsDir), Client.CharacterName,
-                                System.Security.SecurityElement.Escape(prefix + part));
+                                CityBankersChatPalette.StyleMarkup("BANKERS " + CityBankersChatPalette.Stage(stage) +
+                                    " batch=" + System.Security.SecurityElement.Escape(batchId ?? "-") + " " +
+                                    System.Security.SecurityElement.Escape(part)));
                         }
                         catch (Exception ex) { Logger.Warning("BANKERS telemetry channel unavailable: " + ex.Message); }
                     }

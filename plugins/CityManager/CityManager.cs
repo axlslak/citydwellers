@@ -1557,6 +1557,7 @@ namespace CityManager
 
         private void Reply(ReplyTarget target, string text)
         {
+            text = CityBankers.Shared.CityBankersChatPalette.StyleMarkup(text);
             try
             {
                 if (target.IsGuest)
@@ -2138,29 +2139,9 @@ namespace CityManager
 
         private string FormatLiveDiagnostic(string text)
         {
-            string safe = EscapeBlobText(SanitizeDiagnosticText(text));
-            string color = "#89D2E8";
-
-            if (safe.IndexOf("ERROR", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                safe.IndexOf("FAIL", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                safe.IndexOf("DENIED", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                color = "#FF5050";
-            }
-            else if (safe.IndexOf(" OK", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     safe.IndexOf("COMPLETE", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     safe.IndexOf("ENABLED", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                color = "#00DE42";
-            }
-            else if (safe.IndexOf("DUE", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     safe.IndexOf("DISABLED", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                color = "#F79410";
-            }
-
-            return "<font color='#89D2E8'>[Manager]</font> " +
-                   "<font color='" + color + "'>" + safe + "</font>";
+            return CityBankers.Shared.CityBankersChatPalette.StyleMarkup(
+                "<font color='#89D2E8'>[Manager]</font> " +
+                EscapeBlobText(SanitizeDiagnosticText(text)));
         }
 
         private void SendGuestMessage(string text)

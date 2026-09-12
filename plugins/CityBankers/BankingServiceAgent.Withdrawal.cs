@@ -878,7 +878,7 @@ namespace CityBankers
                 "collector=" + state.RequestedBy + "; destination=" + Client.CharacterName + "; pickup window three minutes",
                 new[] { state.Item });
             TellDirectPlayer(state.RequestedBy,
-                (state.Item?.Name ?? "Your item") + " is ready on Kbcentral. " +
+                CityBankersChatPalette.ItemLabel(state.Item.AoId, state.Item.HighId, state.Item.Ql, state.Item.Name) + " is ready on Kbcentral. " +
                 "Your order pickup clock is now three minutes. Open trade to collect all ready items.");
         }
 
@@ -929,8 +929,9 @@ namespace CityBankers
                 Items = new List<LedgerItem> { ToLedgerItem(state.Item, state.SourceRole, null, null, null) }
             });
             TellPlayer(state.RequestedBy,
-                "Pickup complete: " + (state.Item?.Name ?? ("AOID " + state.Item?.AoId)) +
-                " was recorded as given to " + state.RecipientMain + ".");
+                CityBankersChatPalette.Green("Pickup complete") + ": " +
+                CityBankersChatPalette.ItemLabel(state.Item.AoId, state.Item.HighId, state.Item.Ql, state.Item.Name) +
+                " was recorded as given to " + CityBankersChatPalette.Cyan(state.RecipientMain) + ".");
             ResetWithdrawalLocal();
         }
 

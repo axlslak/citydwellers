@@ -428,7 +428,7 @@ namespace CityBankers
             foreach (StockTemplate template in templates)
             {
                 body.Append(ItemLink(template));
-                body.Append("  QL").Append(template.Ql).Append("  x");
+                body.Append("  x");
                 body.Append(Color(template.Count.ToString(), "#FFFF00"));
                 body.Append("  ");
                 body.Append(ChatCommand("GET", centralCharacter,
@@ -739,15 +739,15 @@ namespace CityBankers
             string centralCharacter,
             string commandPrefix)
         {
-            return ItemLink(template) + " QL" + template.Ql + " x" +
+            return ItemLink(template, false) + " x" +
                 Color(template.Count.ToString(), "#FFFF00") + " " +
                 ChatCommand("GET", centralCharacter, commandPrefix + "get " + template.AoId);
         }
 
-        private static string ItemLink(StockTemplate template)
+        private static string ItemLink(StockTemplate template, bool icon = true)
         {
-            return "<a href='itemref://" + template.AoId + "/" + template.HighId + "/" +
-                template.Ql + "'>" + EscapeText(template.Name) + "</a>";
+            return CityBankersChatPalette.ItemLabel(template.AoId, template.HighId,
+                template.Ql, template.Name, icon);
         }
 
         private static string ChatCommand(

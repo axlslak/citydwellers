@@ -1,4 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace CityBankers.Shared
 {
@@ -51,6 +56,95 @@ namespace CityBankers.Shared
                 return markup ?? string.Empty;
 
             return "<font color='" + WhiteHex + "'>" + markup + "</font>";
+        }
+
+        public const string MutedHex = "#AAB8C5";
+        public const string NameHex = "#89D2E8";
+        public const string WaitHex = "#FFB347";
+        private static readonly Lazy<Dictionary<int, int>> Icons =
+            new Lazy<Dictionary<int, int>>(LoadIcons);
+
+        private static Dictionary<int, int> LoadIcons()
+        {
+            var result = new Dictionary<int, int>();
+            using (Stream stream = typeof(CityBankersChatPalette).Assembly
+                .GetManifestResourceStream("CityDwellers.ItemIcons.csv.gz"))
+            {
+                if (stream == null) return result;
+                using (var gzip = new GZipStream(stream, CompressionMode.Decompress))
+                using (var reader = new StreamReader(gzip))
+                {
+                    string line;
+                    while ((line = reader.ReadLine()) != null)
+                    {
+                        string[] parts = line.Split(',');
+                        int id, icon;
+                        if (parts.Length == 2 && int.TryParse(parts[0], out id) && int.TryParse(parts[1], out icon))
+                            result[id] = icon;
+                    }
+                }
+            }
+            return result;
+        }
+
+        public static string ItemIcon(int aoId, int highId)
+        {
+            int icon;
+            return Icons.Value.TryGetValue(aoId, out icon) || Icons.Value.TryGetValue(highId, out icon)
+                ? "<img src='rdb://" + icon + "'> " : string.Empty;
+        }
+
+        public static string ItemLabel(int aoId, int highId, int ql, string name, bool icon = false)
+        {
+            string label = Color(name ?? ("AOID " + aoId), NameHex);
+            if (aoId > 0 && highId > 0 && ql > 0)
+                label = "<a href='itemref://" + aoId + "/" + highId + "/" + ql + "'>" + label + "</a>";
+            return (icon ? ItemIcon(aoId, highId) : string.Empty) + label +
+                (ql > 0 ? " " + Color("(", MutedHex) + "QL " + Cyan(ql.ToString()) + Color(")", MutedHex) : string.Empty);
+        }
+
+        // Only plain text is tokenised. Existing fonts and link attributes retain
+        // their markup; text:// payloads are formatted by their window builders.
+        public static string StyleMarkup(string markup)
+        {
+            if (string.IsNullOrEmpty(markup)) return markup ?? string.Empty;
+            if (markup.IndexOf("text://", StringComparison.OrdinalIgnoreCase) >= 0)
+                return WhiteBaseMarkup(markup);
+            var result = new StringBuilder();
+            int fontDepth = 0;
+            foreach (string part in Regex.Split(markup, "(<[^>]*>|&[A-Za-z0-9#]+;)"))
+            {
+                if (part.StartsWith("<"))
+                {
+                    if (part.StartsWith("<font", StringComparison.OrdinalIgnoreCase)) fontDepth++;
+                    else if (part.StartsWith("</font", StringComparison.OrdinalIgnoreCase)) fontDepth = Math.Max(0, fontDepth - 1);
+                    result.Append(part);
+                }
+                else if (fontDepth > 0 || part.StartsWith("&")) result.Append(part);
+                else result.Append(Regex.Replace(part,
+                    @"\b(?:[a-fA-F0-9]{32}|[a-fA-F0-9]{8}-[a-fA-F0-9-]{27,}|Kb\w+|Apcmanager|\d+(?:/\d+)?|ERROR|FAILED|FAILURE|REJECTED|DELETING|DENIED|WAITING|RETRY|QUEUED|BUSY|VERIFIED|COMPLETE|SUCCESS)\b|(?<key>\b(?:requester|collector|partner|source|destination|character|sender|actor|target|requested|by|main|from|to)=|\b(?:Guest|Tell) )(?<value>[A-Za-z][A-Za-z0-9_-]*)",
+                    match => {
+                        if (match.Groups["key"].Success)
+                            return match.Groups["key"].Value + Color(match.Groups["value"].Value, NameHex);
+                        string token = match.Value;
+                        string color = Regex.IsMatch(token, @"^(ERROR|FAILED|FAILURE|REJECTED|DELETING|DENIED)$") ? RedHex :
+                            Regex.IsMatch(token, @"^(WAITING|RETRY|QUEUED|BUSY)$") ? WaitHex :
+                            Regex.IsMatch(token, @"^(VERIFIED|COMPLETE|SUCCESS)$") ? GreenHex :
+                            Regex.IsMatch(token, @"^[0-9a-fA-F-]{32,}$") ? MutedHex :
+                            char.IsDigit(token[0]) ? YellowHex : NameHex;
+                        return Color(token, color);
+                    }));
+            }
+            return WhiteBaseMarkup(result.ToString());
+        }
+
+        public static string Stage(string stage)
+        {
+            string upper = (stage ?? string.Empty).ToUpperInvariant();
+            string color = upper.Contains("FAIL") || upper.Contains("DECLIN") || upper.Contains("ERROR") ? RedHex :
+                upper.Contains("WAIT") || upper.Contains("RETRY") || upper.Contains("QUEUED") ? WaitHex :
+                upper.Contains("VERIFIED") || upper.Contains("COMPLETE") || upper == "WITHDRAWAL READY" ? GreenHex : NameHex;
+            return Color(stage, color);
         }
 
         public static string DonationProgress(int count, int maximum)

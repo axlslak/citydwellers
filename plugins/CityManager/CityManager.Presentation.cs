@@ -23,7 +23,7 @@ namespace CityManager
         private const string ColorBad = "#FF5050";
         private const string ColorCommand = "#F5C542";
         private const string ColorMuted = "#A0A0A0";
-        private const string ColorText = "#D7E3EA";
+        private const string ColorText = "#FFFFFF";
 
         private void ProcessHelpCommand(
             string[] parts,
@@ -95,7 +95,7 @@ namespace CityManager
                     body = CommandHelp(
                         target,
                         "status",
-                        "Open one operational view of the Manager, cloak, workers, banker occupancy, raid workflow, alt cache, and membership roster.",
+                        "Open one operational view of the Manager, cloak, workers, banker occupancy, storage work, withdrawals, recovery, tell queue, raid workflow, alt cache, and membership roster.",
                         "This is the first command to use when something feels stuck. Manager uptime is monotonic, so clock changes cannot make it lie.",
                         "Member",
                         null);
@@ -131,9 +131,32 @@ namespace CityManager
                         target,
                         "get [AO item ID]",
                         "Add an available item to your order: up to three items per member and four orders across the bank.",
-                        "Each addition and arrival refreshes your three-minute pickup clock. Trade with Kbcentral to collect all ready items, even if another is still pending. Known alts share your order. Donations continue while orders await pickup.",
+                        "Each addition and arrival refreshes your three-minute pickup clock. Wait for the ready tell, then trade with Kbcentral and confirm normally to collect ready items. Known alts share your order. Central may ask you to retry during an internal transfer. Donations can continue while orders await pickup.",
                         "Athen Paladins member",
-                        "Alias: withdraw. The item leaves stock only after AO confirms the pickup trade finished.");
+                        "Alias: withdraw. Reserved copies disappear from available stock. Confirm the player trade dialog normally; delivery is recorded only after AO Finished and inventory verification. Uncollected items return to storage.");
+                    return true;
+
+                case "donor":
+                case "donors":
+                    title = "Donation Records";
+                    body = CommandHelp(target, "donor [top|last|member]",
+                        "Browse donor totals and recorded donation history, including known alts.",
+                        "Top shows donor rankings; last shows the latest 25 donations; a member name shows their latest 10. Long results arrive in separate numbered windows.",
+                        "Athen Paladins member", "Item links show quality and icons in the window.");
+                    return true;
+
+                case "bank":
+                case "bankers":
+                case "donation":
+                    title = "City Bankers";
+                    body = HelpHeader(title, "Stock, donations, pickup and current work.") +
+                        HelpMenuLine(target, "stock", "Stock", "Browse available items; reserved copies are hidden.") +
+                        HelpMenuLine(target, "phatz", "Phatz", "All available Phatz, counted and linked.") +
+                        HelpMenuLine(target, "help get", "Pickup help", "Up to three items per order; three-minute pickup window.") +
+                        HelpMenuLine(target, "donor", "Donors", "Donation totals and history.") +
+                        HelpMenuLine(target, "status", "Live status", "Banker readiness, occupancy, storage work, withdrawals, recovery and tell queue.") +
+                        "\nTrade with Kbcentral to donate up to 10 accepted items. Item notices identify what will be stored or deleted as excess. Accept when finished editing, then confirm the dialog normally.\n" +
+                        "Removing an acceptance entry does not itself delete stored items. Lowering a positive limit leaves existing stock alone; future excess donations are deleted after verified receipt.\n";
                     return true;
 
                 case "stock":
@@ -151,7 +174,7 @@ namespace CityManager
                         target,
                         "stock",
                         "Show the complete CityBankers inventory overview.",
-                        "Search with symb [family [slot [QL]]], spirit [slot [QL]], dyna [name|QL], or phatz [name|QL].",
+                        "Search with symb [family [slot [QL]]], spirit [slot [QL]], dyna [name|QL], or phatz [name|QL]. Bare phatz lists every stocked type with copy counts, item icons and GET links. Long windows arrive as separate numbered messages.",
                         "Athen Paladins member",
                         isAdmin
                             ? "Administrators: phatz add [linked AO item] [-1|positive max], phatz remove [AOID], and phatz list manage accepted Phatz items."
@@ -277,6 +300,7 @@ namespace CityManager
                 .Append("'>Choose a section. Every orange label is clickable.</font>\n\n");
             body.Append(HelpMenuLine(target, "help commands", "Command list", "Everything members can use."));
             body.Append(HelpMenuLine(target, "help status", "Status", "Health, uptime, workers, cloak, and active work."));
+            body.Append(HelpMenuLine(target, "help bankers", "City Bankers", "Donations, stock, pickups, storage work and tell delivery."));
             body.Append(HelpMenuLine(target, "help cloak", "Cloak", "Cloak observation and raid timing."));
             body.Append(HelpMenuLine(target, "help raid", "Raids", "Start, configure, assist, or cancel a raid."));
             body.Append(HelpMenuLine(target, "help alts", "Alts", "Main/alt lookup and cache behavior."));
@@ -314,7 +338,7 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target,
                 "dyna [name|QL]", "Search dyna nanos and instruction discs. Aliases: nano, nanos."));
             body.Append(HelpSyntaxLine(target,
-                "phatz [name|QL]", "Search Phatz stock. Alias: phat."));
+                "phatz [name|QL]", "List all Phatz with copy counts and GET links, or filter by name/QL. Alias: phat."));
             body.Append(HelpSyntaxLine(
                 target,
                 "donor [top|last|member]",
@@ -351,9 +375,9 @@ namespace CityManager
                 body.Append(HelpSyntaxLine(target, "dump", "Save a diagnostic snapshot."));
                 body.Append(HelpSyntaxLine(target, "restart", "Restart Apcmanager and its AO session."));
                 body.Append(HelpSyntaxLine(target,
-                    "phatz add [linked item] [-1|positive max]", "Accept and route an exact linked item to Kbphatz."));
+                    "phatz add [linked item] [-1|positive max]", "Accept the linked AOID on Kbphatz; -1 keeps all. Excess incoming copies are deleted after receipt; lowering a limit does not trim existing stock."));
                 body.Append(HelpSyntaxLine(target,
-                    "phatz remove [AOID]", "Remove an accepted Phatz item."));
+                    "phatz remove [AOID]", "Stop accepting that Phatz item; this command does not delete stored items."));
                 body.Append(HelpSyntaxLine(target,
                     "phatz list", "Open the accepted Phatz list with remove buttons."));
             }
@@ -820,7 +844,7 @@ namespace CityManager
             return "  <font color='" + color + "'>●</font> " +
                    "<font color='" + ColorText + "'>" +
                    EscapeBlobText(label) + ":</font> " +
-                   EscapeBlobText(detail) + "\n";
+                   CityBankers.Shared.CityBankersChatPalette.StyleMarkup(EscapeBlobText(detail)) + "\n";
         }
 
         private void BeginDiagnosticDump(
@@ -913,7 +937,7 @@ namespace CityManager
                 string payload =
                     "<font color='" + ColorTitle + "'><b>" +
                     EscapeBlobText(pageTitle) + "</b></font>\n\n" +
-                    pages[index];
+                    CityBankers.Shared.CityBankersChatPalette.WhiteBaseMarkup(pages[index]);
                 links.Add(
                     "<a href=\"text://" + EscapeTextUri(payload) + "\">" +
                     "<font color='" + ColorCommand + "'>[" +

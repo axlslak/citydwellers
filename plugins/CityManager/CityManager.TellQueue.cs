@@ -162,7 +162,8 @@ namespace CityManager
                     return;
                 Client.Chat.SendPrivateGroupMessage(
                     Client.Chat.CharId,
-                    "<font color='#89D2E8'>[" + source + "]</font> " + job.Message);
+                    CityBankers.Shared.CityBankersChatPalette.StyleMarkup(
+                        "<font color='#89D2E8'>[" + EscapeBlobText(source) + "]</font> " + job.Message));
                 ManagerChannelQueue.Complete(path);
                 Logger.Information(
                     "MANAGER CHANNEL delivered " + job.Id + " from " + source +
