@@ -1,12 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 83,
-  "last_completed_session": 82,
-  "status": "in_progress",
+  "last_completed_session": 83,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-83-build-discovery-updates",
-  "checkpoint_commit": "94f636e4faef307cb06848b78f3bb5831f2847ed",
-  "task": "Build discovery, status colours and online update visibility",
-  "resume_instruction": "Improve Git diagnostics/fallback, installed vs loaded identities, coloured status and background GitHub checks. Owner builds. Next journal220.",
-  "base_commit": "1f88f3c1f6dd6290515a12c2bcf0abe7965e7c64"
+  "checkpoint_commit": "5be2fc96c440d8dd235adcb371aa3e4b9c68c2ea",
+  "task": "Build discovery, colours and online version visibility completed",
+  "resume_instruction": "Owner rebuild solution and copy EXE/DLLs. Inspect build Git/fallback diagnostics, inactive component installed versions, loaded mismatches and hourly/startup update status. source- fingerprints identify source without claiming Git ancestry. Next journal221."
 }
