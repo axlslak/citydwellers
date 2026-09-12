@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 90,
-  "last_completed_session": 89,
-  "status": "in_progress",
+  "last_completed_session": 90,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-90-raid-alt-status",
-  "checkpoint_commit": "5b18277a51e6dac102bcad7242ab2fcc768e69df",
-  "task": "Alt-aware raid ownership, main-via-requester display and on-demand status",
-  "resume_instruction": "Use canonical alt identity for raid owner controls; preserve requester; add raid status/progress read-only views; suppress automatic informative windows, retain choices and announcements. Owner confirmed buddy delay. Next journal234.",
+  "checkpoint_commit": "1183339537ab9544d522287375a9f979133e0435",
+  "task": "Raid alt ownership/status changes resolved; await next request",
+  "resume_instruction": "Session90 resolved: linked alts share raid controls, original requester preserved, main-via-alt display; raid status/progress read-only; automatic choice windows only. Owner verified ten-second buddy delay. No pending test gate. Next journal235.",
   "base_commit": "90f97728408104a168f259eb56cd39ff0141f1d5"
 }
