@@ -164,7 +164,7 @@ namespace CityBankers
             _stackOperation = new StackOperation { Source = source, Target = target,
                 SourceCount = StackableItems.Quantity(source), TargetCount = StackableItems.Quantity(target),
                 Total = CruInventory().Sum(StackableItems.Quantity), Before = CruInventory() };
-            Logger.Information("[CityBankers] STACK merge CRU source=" + source.Slot + "; target=" + target.Slot +
+            Logger.Information("[CityBankers] STACK merge CRU via inventory move source=" + source.Slot + "; target=" + target.Slot +
                 "; quantities=" + _stackOperation.SourceCount + "+" + _stackOperation.TargetCount);
             StackableItems.Merge(source, target);
             return true;

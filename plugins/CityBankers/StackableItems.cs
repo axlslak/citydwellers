@@ -200,11 +200,12 @@ namespace CityBankers
             if (source == null || target == null || ReferenceEquals(source, target) ||
                 source.Id != target.Id || source.HighId != target.HighId || source.Ql != target.Ql)
                 throw new InvalidOperationException("Stack templates differ.");
-            // AOSharp exposes two different operations: CombineWith sends a
-            // CharacterAction, while Item.UseItemOnItem sends this GenericCmd.
-            // The latter matches using the held stack on the destination stack.
-            Client.Send(new GenericCmdMessage { Action = GenericCmdAction.UseItemOnItem,
-                User = DynelManager.LocalPlayer.Identity, Source = source.Slot, Target = target.Slot });
+            if (source.Slot.Type != IdentityType.Inventory || target.Slot.Type != IdentityType.Inventory ||
+                source.Slot == target.Slot)
+                throw new InvalidOperationException("Stack merge requires two different inventory slots.");
+            // Stacking is a move onto an occupied slot, not CombineWith or UseItemOnItem.
+            // An explicit destination is essential: the default chooses a free slot.
+            source.MoveToInventory(target.Slot.Instance);
         }
     }
 }

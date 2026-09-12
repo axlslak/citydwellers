@@ -2065,3 +2065,14 @@ the next source-supported interaction candidate, not a live-proven merge.
 Existing observed quantity/inventory verification remains; no success or counts
 are inferred from sending. Split packet unchanged. Static review and diff check
 only; owner builds/tests.
+
+## 2026-09-12 — CRU stacking is an inventory move (session 99)
+
+Owner corrected manual action after GenericCmd also timed out: left-click pickup
+and place onto the other stack, with no use/right-click/modifier. Both prior
+combine/use merge requests are superseded. Merge now calls the existing native
+clientless Item.MoveToInventory with the occupied target Slot.Instance, matching
+the uploaded AOSharp move helper. Distinct normal inventory slots and compatible
+templates are required. Observed quantity/inventory completion remains unchanged;
+no counts are inferred from the move request. Static source/diff review only;
+owner tests physical stacking and response handling.
