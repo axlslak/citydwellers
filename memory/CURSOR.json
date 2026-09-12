@@ -1,12 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 84,
-  "last_completed_session": 83,
-  "status": "in_progress",
+  "last_completed_session": 84,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-84-compact-status",
-  "checkpoint_commit": "5be2fc96c440d8dd235adcb371aa3e4b9c68c2ea",
-  "task": "Requested status shortening",
-  "resume_instruction": "Keep all other status sections; single local/online revision header, remove recent cloak history and useful commands/footer. Next journal222. Owner visual check.",
-  "base_commit": "cf0aed2294db7335d40ddf03ee3395dddcfc125c"
+  "checkpoint_commit": "5500f6bd660915af0913823bd24d7ef2727588b4",
+  "task": "Requested compact status completed",
+  "resume_instruction": "Owner rebuild and inspect status fit. Preserve remaining fields; further removals only as directed. One repository revision is sufficient. Next journal223."
 }
