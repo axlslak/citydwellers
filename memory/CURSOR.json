@@ -1,11 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 83,
+  "current_session": 84,
   "last_completed_session": 83,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-83-build-discovery-updates",
+  "transaction": "session-84-compact-status",
   "checkpoint_commit": "5be2fc96c440d8dd235adcb371aa3e4b9c68c2ea",
-  "task": "Build discovery, colours and online version visibility completed",
-  "resume_instruction": "Owner rebuild solution and copy EXE/DLLs. Inspect build Git/fallback diagnostics, inactive component installed versions, loaded mismatches and hourly/startup update status. source- fingerprints identify source without claiming Git ancestry. Next journal221."
+  "task": "Requested status shortening",
+  "resume_instruction": "Keep all other status sections; single local/online revision header, remove recent cloak history and useful commands/footer. Next journal222. Owner visual check.",
+  "base_commit": "cf0aed2294db7335d40ddf03ee3395dddcfc125c"
 }
