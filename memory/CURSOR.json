@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 91,
-  "last_completed_session": 90,
-  "status": "in_progress",
+  "last_completed_session": 91,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-91-raid-status-only",
-  "checkpoint_commit": "1183339537ab9544d522287375a9f979133e0435",
-  "task": "Remove raid progress alias per owner clarification",
-  "resume_instruction": "Tiny naming correction: raid status only; generic status retains existing information with main-via-alt name. Next journal236.",
+  "checkpoint_commit": "d9934e952f5f3b5fc6865c229e3f347db9eabd89",
+  "task": "Raid changes resolved; raid status is the sole detail command",
+  "resume_instruction": "raid status only; no raid progress alias. Generic status retains original raid detail with main-via-requester display. All work resolved. Next journal237.",
   "base_commit": "f7bc96e65a7ed26adf56a3b18b39f2ff3cdef6ce"
 }
