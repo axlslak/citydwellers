@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 94,
+  "current_session": 95,
   "last_completed_session": 94,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-94-cru-build",
+  "transaction": "session-95-bank-terminal",
   "checkpoint_commit": "5b129e952df02f2ad0f02b7747bc2c77fca2cf92",
-  "task": "CRU build correction resolved",
-  "resume_instruction": "CS0136 fixed by renaming outer timeout local. Owner rebuilds/tests CRU; no assistant build. Next journal243.",
-  "base_commit": "4d9ab98b073507a05f78b92bcbc2f67a78404457"
+  "task": "Repair stale city office bank target",
+  "resume_instruction": "Update verified terminal default, add Bankers configuration override and useful timeout guidance. Static review only; owner builds/tests.",
+  "base_commit": "c2651ea68a55d3b5a06600963bfd9905b32ee5a7"
 }
