@@ -27,6 +27,7 @@ namespace CityBankers
         private readonly Stopwatch _stackFailureAge = Stopwatch.StartNew();
         private bool _cruRecovered;
         private bool _automaticCruStackingEnabled;
+        private bool _cruMergeAttempted;
 
         private List<Item> CruInventory() => (Inventory.Items ?? new List<Item>()).Where(i =>
             StackableItems.IsStack(i) && i.Slot.Type == IdentityType.Inventory && StackableItems.Quantity(i) != 0).ToList();
@@ -164,7 +165,7 @@ namespace CityBankers
             // Unverified background merges must not repeatedly acquire the shared
             // operation guard and interrupt otherwise unrelated banking work.
             // Explicit requests above still use singles or perform a requested split.
-            if (!_automaticCruStackingEnabled || available.Count < 2) return false;
+            if (!_automaticCruStackingEnabled || _cruMergeAttempted || available.Count < 2) return false;
             Item target = available.OrderByDescending(StackableItems.Quantity).First();
             Item source = available.FirstOrDefault(i => !ReferenceEquals(i, target) && i.Id == target.Id &&
                 i.HighId == target.HighId && i.Ql == target.Ql);
@@ -174,6 +175,10 @@ namespace CityBankers
                 Total = CruInventory().Sum(StackableItems.Quantity), Before = CruInventory() };
             Logger.Information("[CityBankers] STACK merge CRU via action53 source=" + source.Slot + "; target=" + target.Slot +
                 "; quantities=" + _stackOperation.SourceCount + "+" + _stackOperation.TargetCount);
+            // One diagnostic attempt per process: no background retry loop while
+            // the action-53 response/cache semantics are being established.
+            _cruMergeAttempted = true;
+            Logger.Information("[CityBankers] STACK diagnostic merge attempt; no further automatic merges until restart.");
             StackableItems.Merge(source, target);
             return true;
         }

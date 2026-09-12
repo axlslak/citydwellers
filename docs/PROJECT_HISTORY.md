@@ -2105,3 +2105,16 @@ operation guard around actual item mutation. No settings edit is required.
 CRU automatic stacking is unfinished pending packet/response evidence; display
 quantities remain deferred. Worker timeout diagnosis remains unconfirmed. Static
 source/diff review only; owner builds/tests.
+
+## 2026-09-13 — Captured stack header correction (session 102)
+
+Owner verified a successful manual merge emits and receives CharacterAction53
+with Unknown=0. Uploaded N3Message constructor defaults Unknown=1; clientless
+NetworkSession sets local character Identity but does not alter Unknown. Merge
+now explicitly matches the captured zero header and logs all action/header fields
+after send and on receipt. Clientless OnCharacterAction lacks action53 cache
+handling. No speculative echo-based quantity or removal mutation is added.
+EnableAutomaticCruStacking remains default false; true now permits only ONE
+merge attempt per process restart, avoiding repeated trade-blocking diagnostics.
+Split unchanged. Owner needs to check physical result and send STACK packet lines;
+merge response cache/stack limits remain unfinished. Static review only.

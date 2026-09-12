@@ -163,8 +163,7 @@ namespace CityBankers
             if (action != null && (action.Action == CharacterActionType.SplitItem ||
                 action.Action == CharacterActionType.Split || action.Action == CharacterActionType.UseItemOnItem ||
                 action.Action == StackItemsAction))
-                Logger.Information("[CityBankers] STACK server-action=" + action.Action + "; target=" + action.Target +
-                    "; parameters=" + action.Parameter1 + "," + action.Parameter2);
+                LogStackAction("RECV", action);
             var template = message.Body as TemplateActionMessage;
             if (template != null && CruPolicy.IsCru(template.ItemLowId))
             {
@@ -191,6 +190,16 @@ namespace CityBankers
                 });
             }
         }
+        private static void LogStackAction(string direction, CharacterActionMessage packet)
+        {
+            Logger.Information("[CityBankers] STACK " + direction +
+                " CharacterActionMessage: Action=" + (int)packet.Action +
+                ", Unknown1=" + packet.Unknown1 + ", Target=" + packet.Target +
+                ", Parameter1=" + packet.Parameter1 + ", Parameter2=" + packet.Parameter2 +
+                ", Unknown2=" + packet.Unknown2 + ", Identity=" + packet.Identity +
+                ", N3MessageType=" + packet.N3MessageType + ", Unknown=" + packet.Unknown);
+        }
+
         public static void Split(Item source, int quantity)
         {
             if (quantity <= 0 || Quantity(source) <= quantity) throw new InvalidOperationException("Invalid stack split.");
@@ -207,9 +216,13 @@ namespace CityBankers
                 throw new InvalidOperationException("Stack merge requires two different inventory slots.");
             // ICE's CRU stacking routine sends action 53 (0x35), absent from the
             // SDK enum. Target carries the source; parameters carry the destination.
-            Client.Send(new CharacterActionMessage { Action = StackItemsAction,
+            var packet = new CharacterActionMessage { Action = StackItemsAction,
+                Unknown = 0, Unknown1 = 0, Unknown2 = 0,
+                Identity = new Identity(IdentityType.SimpleChar, Client.LocalDynelId),
                 Target = source.Slot, Parameter1 = (int)target.Slot.Type,
-                Parameter2 = target.Slot.Instance });
+                Parameter2 = target.Slot.Instance };
+            Client.Send(packet);
+            LogStackAction("SENT", packet);
         }
     }
 }
