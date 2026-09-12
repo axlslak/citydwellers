@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 90,
+  "current_session": 91,
   "last_completed_session": 90,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-90-raid-alt-status",
+  "transaction": "session-91-raid-status-only",
   "checkpoint_commit": "1183339537ab9544d522287375a9f979133e0435",
-  "task": "Raid alt ownership/status changes resolved; await next request",
-  "resume_instruction": "Session90 resolved: linked alts share raid controls, original requester preserved, main-via-alt display; raid status/progress read-only; automatic choice windows only. Owner verified ten-second buddy delay. No pending test gate. Next journal235.",
-  "base_commit": "90f97728408104a168f259eb56cd39ff0141f1d5"
+  "task": "Remove raid progress alias per owner clarification",
+  "resume_instruction": "Tiny naming correction: raid status only; generic status retains existing information with main-via-alt name. Next journal236.",
+  "base_commit": "f7bc96e65a7ed26adf56a3b18b39f2ff3cdef6ce"
 }
