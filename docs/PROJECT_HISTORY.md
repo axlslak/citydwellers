@@ -1,3 +1,12 @@
+## Session 90 — alt-aware raid controls and on-demand status (resolved)
+
+- [FIX] Raid ownership recognizes the initiating character or a character linked to the same canonical main. Existing token/stage checks remain; linked alts can configure, start, reopen and cancel their raid. The persisted OwnerName/OwnerId remain the original requesting character; changing controller alts never overwrites that origin.
+- [DISPLAY] Status, raid windows and completion announcements display canonical main via original requester when different. Main is cyan and requester lavender; ordinary text remains distinct. Starting on the main shows its name once. Display resolves the existing alt cache; no new alt storage or raid-state schema.
+- [COMMANDS] raid status and raid progress are equivalent read-only current-raid windows, usable through existing command-source authorization. Idle replies have no window. Read-only views omit setup/assistance/cancel controls; explicit owner setup remains available through raid and its tokenized buttons.
+- [CHAT] Automatic windows remain for setup/assistance choices only. Informational active-stage, cloak-wait and cleanup windows no longer repost automatically. CT-fill instructions remain a short visible message, as do completion/failure notices. Explicit refresh/reopen/status requests respond to their requesting channel; manual recovery still returns a requested status window.
+- [OWNER VERIFIED] Owner observed the ten-second buddy delay during a raid and reports it worked well. Owner also reports the existing alts component has been reliable. No timer or alt-storage changes in this task.
+- [VALIDATION] Focused static review of ownership/token/source checks, preserved requester persistence, all window call sites, status markup and completion formatting. No build/test suite/live AO runs under owner policy. Resolved on publication; no pending testing gate.
+
 ## Session 89 — all current work resolved; standing closure policy
 
 - [OWNER DIRECTION] Completed committed/published work is resolved immediately; no separate owner confirmation, build, deployment or testing is required to close it. Reopen on an actual reported issue. Preserve accurate validation evidence; resolved is not a claim of live testing.

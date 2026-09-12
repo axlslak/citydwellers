@@ -100,6 +100,9 @@ namespace CityManager
             if (parts.Length == 1)
                 return true;
 
+            if (IsRaidStatusCommand(parts))
+                return true;
+
             if (parts.Length == 3 &&
                 (string.Equals(parts[1], "start", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(parts[1], "refresh", StringComparison.OrdinalIgnoreCase)))
@@ -119,6 +122,17 @@ namespace CityManager
             ReplyTarget target,
             bool isAdmin)
         {
+            if (IsRaidStatusCommand(parts))
+            {
+                lock (_raidSync)
+                {
+                    Reply(target, _raidSession == null
+                        ? "No raid is currently in progress."
+                        : BuildRaidWindow(_raidSession, true));
+                }
+                return;
+            }
+
             bool privateOwnerControl =
                 target.Kind == ReplyKind.Tell &&
                 parts.Length > 1 &&
@@ -151,7 +165,7 @@ namespace CityManager
 
             if (action == "refresh" && parts.Length == 3)
             {
-                Reply(session.Origin, BuildRaidWindow(session));
+                Reply(target, BuildRaidWindow(session));
                 return;
             }
 
@@ -242,7 +256,7 @@ namespace CityManager
                     if (IsRaidOwner(existing, senderName, target.SenderId))
                     {
                         MigrateRaidOriginIfOrgOutputDegraded(existing, target);
-                        Reply(existing.Origin, BuildRaidWindow(existing));
+                        Reply(target, BuildRaidWindow(existing));
                     }
                     else
                         Reply(target, "Raid in progress already.");
@@ -271,7 +285,7 @@ namespace CityManager
             DevTrace(
                 $"RAID SETUP owner={senderName} token={existing.Token} origin={target.Kind} deadline={existing.StageDeadlineUtc:O}.");
             SaveRaidState();
-            Reply(existing.Origin, BuildRaidWindow(existing));
+            Reply(target, BuildRaidWindow(existing));
         }
 
         private void MigrateRaidOriginIfOrgOutputDegraded(
@@ -365,12 +379,15 @@ namespace CityManager
             if (session == null)
                 return false;
 
-            if (session.OwnerId != 0 && senderId != 0)
-                return session.OwnerId == senderId;
+            if (session.OwnerId != 0 && senderId != 0 && session.OwnerId == senderId)
+                return true;
+
+            if (string.IsNullOrWhiteSpace(session.OwnerName) || string.IsNullOrWhiteSpace(senderName))
+                return false;
 
             return string.Equals(
-                session.OwnerName,
-                senderName,
+                ResolveCanonicalAltMain(session.OwnerName),
+                ResolveCanonicalAltMain(senderName),
                 StringComparison.OrdinalIgnoreCase);
         }
 
@@ -407,7 +424,7 @@ namespace CityManager
                     $"RAID SELECT owner={session.OwnerName} type={session.RaidType ?? "unset"} " +
                     $"level={session.Level} count={(session.RaiderCount.HasValue ? session.RaiderCount.Value.ToString() : "unset")}.");
                 SaveRaidState();
-                Reply(session.Origin, BuildRaidWindow(session));
+                ReplyRaidChoices(session);
             }
         }
 
@@ -472,7 +489,7 @@ namespace CityManager
                         }
 
                         string message =
-                            $"{session.OwnerName} started a {session.RaidType} city raid: " +
+                            $"{RaidOwnerDisplay(session, true)} started a {session.RaidType} city raid: " +
                             $"{session.RaiderCount.Value} level-{session.Level} raiders. " +
                             $"Owner/admin cancellation remains available while the raid is active. " +
                             $"<a href='chatcmd:///tell Apcmanager #cancel {session.Token}'>Cancel raid</a>";
@@ -747,7 +764,7 @@ namespace CityManager
                 $"cloak-off={cloakLowerUtc:O} " +
                 $"predicted-target={cloakLowerUtc.AddSeconds(CityTargetAfterCloakSeconds):O}.");
             SaveRaidState();
-            Reply(session.Origin, BuildRaidWindow(session));
+            Reply(commandTarget, BuildRaidWindow(session, true));
         }
 
         private void ProcessRaidAssistCommand(
@@ -1004,7 +1021,7 @@ namespace CityManager
                 $"RAID ASSIST type selected by={senderName} type={raidType} " +
                 $"authority={authority}.");
             SaveRaidState();
-            Reply(session.Origin, BuildRaidWindow(session));
+            ReplyRaidChoices(session);
         }
 
         private void ApplyRaidAssistLevelSelection(
@@ -1051,7 +1068,7 @@ namespace CityManager
                 $"RAID ASSIST level selected by={senderName} level={level} " +
                 $"authority={authority}.");
             SaveRaidState();
-            Reply(session.Origin, BuildRaidWindow(session));
+            ReplyRaidChoices(session);
         }
 
         private void ApplyRaidAssistSelection(
@@ -1121,7 +1138,7 @@ namespace CityManager
                 $"level={session.Level} count={count} " +
                 $"authority={authority} wave8={session.CityTargetedUtc.AddSeconds(Wave8OffsetSeconds):O}.");
             SaveRaidState();
-            Reply(session.Origin, BuildRaidWindow(session));
+            ReplyRaidChoices(session);
 
             if (string.Equals(
                     session.RaidType,
@@ -1297,7 +1314,10 @@ namespace CityManager
                 $"RAID CT FILL owner={session.OwnerName} deadline={session.StageDeadlineUtc:O}; " +
                 $"minimum={MinimumRaidControllerCharge * 100:F0}%.");
             SaveRaidState();
-            Reply(session.Origin, BuildRaidWindow(session));
+            Reply(session.Origin, "Raid for " + RaidOwnerDisplay(session, true) +
+                ": fill the City Controller to at least 75% within " +
+                FormatDuration(TimeSpan.FromSeconds(RaidControllerFillSeconds)) +
+                ". Use #raid status for details.");
 
             if (string.Equals(session.RaidType, "all", StringComparison.OrdinalIgnoreCase))
                 BeginRaidBuddySpinup(session, "all-mode start");
@@ -1445,7 +1465,7 @@ namespace CityManager
                             $"charge={FormatCharge(effectiveCharge)}; " +
                             $"waiting for CITY_ATTACKED until {session.StageDeadlineUtc:O}.");
                         SaveRaidState();
-                        Reply(session.Origin, BuildRaidWindow(session));
+                        ReplyRaidChoices(session);
                         return;
                     }
 
@@ -1786,7 +1806,7 @@ namespace CityManager
                 $"confirmation=OrgChat.CLOAK_DISABLED after worker error; " +
                 $"waiting for CITY_ATTACKED until {session.StageDeadlineUtc:O}.");
             SaveRaidState();
-            Reply(session.Origin, BuildRaidWindow(session));
+            ReplyRaidChoices(session);
             return true;
         }
 
@@ -1876,7 +1896,7 @@ namespace CityManager
                     $"RAID ASSIST OFFER location={location} anchor={now:O} " +
                     $"selection-deadline={session.StageDeadlineUtc:O}.");
                 SaveRaidState();
-                Reply(session.Origin, BuildRaidWindow(session));
+                ReplyRaidChoices(session);
                 return;
             }
 
@@ -1886,7 +1906,7 @@ namespace CityManager
                 $"RAID TIMER START owner={session.OwnerName} location={location} anchor={now:O}; " +
                 $"wave8=+945s assist-cutoff=+955s buddy-spinup=+985s general=+1065s cleanup=+1125s.");
             SaveRaidState();
-            Reply(session.Origin, BuildRaidWindow(session));
+            ReplyRaidChoices(session);
         }
 
         private bool TryGetCityTargetLocation(string message, out string location)
@@ -1993,7 +2013,7 @@ namespace CityManager
             }
 
             SaveRaidState();
-            Reply(session.Origin, BuildRaidWindow(session));
+            ReplyRaidChoices(session);
 
             ThreadPool.QueueUserWorkItem(_ =>
             {
@@ -2013,12 +2033,13 @@ namespace CityManager
                     return;
 
                 string message =
-                    $"City Dwellers raid support for {session.OwnerName} is complete. {cleanup}";
+                    $"City Dwellers raid support for {RaidOwnerDisplay(session)} is complete. {cleanup}";
 
                 Logger.Information(message);
                 DevTrace($"RAID COMPLETE owner={session.OwnerName}. {cleanup}");
                 SaveRaidState();
-                Reply(session.Origin, message);
+                Reply(session.Origin,
+                    $"City Dwellers raid support for {RaidOwnerDisplay(session, true)} is complete. {cleanup}");
             });
         }
 
@@ -2410,7 +2431,7 @@ namespace CityManager
             if (session == null)
                 return;
 
-            Reply(session.Origin, BuildRaidWindow(session));
+            ReplyRaidChoices(session);
 
             if (!resumeWorkers || session.Stage != RaidStage.ControllerFill)
                 return;
@@ -2565,7 +2586,7 @@ namespace CityManager
             return milestone;
         }
 
-        private string BuildRaidStatusSummary()
+        private string BuildRaidStatusSummary(bool markup = false)
         {
             lock (_raidSync)
             {
@@ -2573,9 +2594,7 @@ namespace CityManager
                     return "Raid = idle";
 
                 RaidSession session = _raidSession;
-                string owner = string.IsNullOrWhiteSpace(session.OwnerName)
-                    ? "unknown"
-                    : session.OwnerName;
+                string owner = RaidOwnerDisplay(session, markup);
                 string selection =
                     $"{session.RaidType ?? "unset"}, " +
                     $"{(session.RaiderCount.HasValue ? session.RaiderCount.Value.ToString() : "unset")}x{session.Level}";
@@ -2733,11 +2752,33 @@ namespace CityManager
             }
         }
 
-        private string BuildRaidWindow(RaidSession session)
+        private static bool IsRaidStatusCommand(string[] parts) =>
+            parts != null && parts.Length == 2 &&
+            (string.Equals(parts[1], "status", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(parts[1], "progress", StringComparison.OrdinalIgnoreCase));
+
+        private string RaidOwnerDisplay(RaidSession session, bool markup = false)
+        {
+            string requester = string.IsNullOrWhiteSpace(session.OwnerName) ? "unknown" : session.OwnerName;
+            string main = ResolveCanonicalAltMain(requester);
+            bool same = string.Equals(main, requester, StringComparison.OrdinalIgnoreCase);
+            if (!markup) return same ? main : main + " via " + requester;
+            string mainLabel = "<font color='#89D2E8'>" + EscapeBlobText(main) + "</font>";
+            return same ? mainLabel : mainLabel + " <font color='#FFFFFF'>via</font> " +
+                "<font color='#D6A2E8'>" + EscapeBlobText(requester) + "</font>";
+        }
+
+        private void ReplyRaidChoices(RaidSession session)
+        {
+            if (session.Stage == RaidStage.Configuring || session.Stage == RaidStage.AssistSelection)
+                Reply(session.Origin, BuildRaidWindow(session));
+        }
+
+        private string BuildRaidWindow(RaidSession session, bool readOnly = false)
         {
             var body = new StringBuilder();
 
-            if (session.Stage == RaidStage.AssistSelection)
+            if (session.Stage == RaidStage.AssistSelection && !readOnly)
             {
                 body.Append("<font color='#89D2E8'>City Dwellers Raid Assistance</font>\n\n");
                 body.Append("<font color='#00DE42'>A city raid is in progress.</font>\n");
@@ -2787,11 +2828,11 @@ namespace CityManager
                     $"{FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow)}</font>\n");
 
                 return
-                    $"<a href=\"text://{body}\">Click here to open window</a>";
+                    $"<a href=\"text://{body}\">[Raid assistance]</a>";
             }
 
             body.Append("<font color='#89D2E8'>City Dwellers Raid</font>\n\n");
-            body.Append($"Raider: <font color='#00BFFF'>{SafeRaidText(session.OwnerName)}</font>\n");
+            body.Append($"Raid by: {RaidOwnerDisplay(session, true)}\n");
             body.Append($"Type: {RaidSelectionText(session.RaidType, "Not selected")}\n");
             body.Append($"Level: <font color='#FFFF00'>{session.Level}</font>\n");
             body.Append(
@@ -2800,7 +2841,14 @@ namespace CityManager
             switch (session.Stage)
             {
                 case RaidStage.Configuring:
-                    AppendConfigurationControls(body, session);
+                    if (!readOnly) AppendConfigurationControls(body, session);
+                    else body.Append("Setup in progress. Time remaining: " +
+                        FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow) + "\n");
+                    break;
+
+                case RaidStage.AssistSelection:
+                    body.Append("Waiting for an officer to select assistance. Selection closes in " +
+                        FormatDuration(session.StageDeadlineUtc - DateTime.UtcNow) + "\n");
                     break;
 
                 case RaidStage.AdminVeto:
@@ -2881,12 +2929,13 @@ namespace CityManager
             if (!string.IsNullOrWhiteSpace(session.FlipperDetail))
                 body.Append($"Flipper: {SafeRaidText(session.FlipperDetail)}\n");
 
-            body.Append(
-                $"\n{RaidCancelButton(session)} " +
-                "(raid owner or administrator)\n");
+            if (!readOnly)
+                body.Append(
+                    $"\n{RaidCancelButton(session)} " +
+                    "(raid owner, linked alt or administrator)\n");
 
             return
-                $"<a href=\"text://{body}\">Click here to open window</a>";
+                $"<a href=\"text://{body}\">[Raid {(readOnly ? "status" : "setup")}]</a>";
         }
 
         private string RaidAssistButton(
