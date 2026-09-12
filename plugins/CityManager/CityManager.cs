@@ -51,6 +51,8 @@ namespace CityManager
                 "phat",
                 "phatz",
                 "donor",
+                "lost",
+                "found",
                 "withdraw",
                 "get",
                 "leave",
@@ -449,6 +451,7 @@ namespace CityManager
                 ((command == "inventory" || command == "inv") && parts.Length <= 2) ||
                 (command == "help" && parts.Length <= 3) ||
                 (command == "donor" && parts.Length <= 2) ||
+                command == "lost" || command == "found" ||
                 ((command == "withdraw" || command == "get") && parts.Length == 2) ||
                 command == "stock" ||
                 command == "symb" || command == "symbs" ||
@@ -548,6 +551,8 @@ namespace CityManager
                  string.Equals(command, "phat", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "phatz", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "donor", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "lost", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "found", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "withdraw", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "get", StringComparison.OrdinalIgnoreCase)) &&
                 !isAdmin &&
@@ -621,6 +626,11 @@ namespace CityManager
                 case "phat":
                 case "phatz":
                     ProcessBankerStockCommand(senderName, rawCommand, replyTarget, isAdmin);
+                    break;
+
+                case "lost":
+                case "found":
+                    ProcessLostFoundCommand(parts, replyTarget);
                     break;
 
                 case "donor":

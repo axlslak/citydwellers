@@ -136,6 +136,16 @@ namespace CityManager
                         "Alias: withdraw. Reserved copies disappear from available stock. Confirm the player trade dialog normally; delivery is recorded only after AO Finished and inventory verification. Uncollected items return to storage.");
                     return true;
 
+                case "lost":
+                case "found":
+                    title = topic == "lost" ? "Lost items" : "Found items";
+                    body = CommandHelp(target, topic + " [item name]",
+                        topic == "lost" ? "Browse unexpectedly missing items; intentional deletions and deliveries are excluded."
+                            : "Browse current ledger items without a recorded donor.",
+                        "Counts include all matches; windows show the newest 25. Search with words from the item name.",
+                        "Athen Paladins member", "Read-only bookkeeping; these commands do not change stock.");
+                    return true;
+
                 case "donor":
                 case "donors":
                     title = "Donation Records";
@@ -150,6 +160,8 @@ namespace CityManager
                 case "donation":
                     title = "City Bankers";
                     body = HelpHeader(title, "Stock, donations, pickup and current work.") +
+                        HelpMenuLine(target, "lost", "Lost", "Unexpectedly missing items and their original records.") +
+                        HelpMenuLine(target, "found", "Found", "Current items with no recorded donor.") +
                         HelpMenuLine(target, "stock", "Stock", "Browse available items; reserved copies are hidden.") +
                         HelpMenuLine(target, "phatz", "Phatz", "All available Phatz, counted and linked.") +
                         HelpMenuLine(target, "help get", "Pickup help", "Up to three items per order; three-minute pickup window.") +

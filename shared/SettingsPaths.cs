@@ -326,6 +326,7 @@ namespace CityDwellers.Shared
                 "current-stock.json",
                 "dispatch-queue.json",
                 "ledger.json",
+                "lost.json",
                 "symbiant-index.json",
                 "withdrawal.json",
                 "recovery-reservations.json",

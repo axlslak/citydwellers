@@ -437,7 +437,8 @@ namespace CityBankers
             var current = CensusApplication.ReadExisting<ActiveLedgerState>(ActiveLedgerStore.GetActiveLedgerPath(_settingsDir));
             if (current?.Items == null) throw new InvalidOperationException("Current ledger unavailable during paired census application.");
             ActiveLedgerStore.ApplyCensus(_settingsDir, current.Items.Where(i => !scope.Contains(i.Character)).Concat(bundle.Plan.Items).ToList(),
-                observations.Select(o => new TransferItemState { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }));
+                observations.Select(o => new TransferItemState { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }),
+                "history/census-dispatch-" + grant.Batch.AttemptId + ".json");
             RuntimeStateStore.SaveDispatchQueue(_settingsDir, mergedQueue);
             WithdrawalStore.ReconcileQueuedRequestsAfterLocalCensus(_settingsDir, grant.CentralRun, _centralCharacter,
                 bundle.Requests.Where(r => string.Equals(r.SourceCharacter, _centralCharacter, StringComparison.OrdinalIgnoreCase)).ToList());

@@ -124,7 +124,9 @@ namespace CityBankers
             RuntimeStateStore.SaveStorageBaseline(settings, bundle.Storage, "census-" + generation);
             ActiveLedgerStore.ApplyCensus(settings, bundle.Plan.Items, censuses.SelectMany(c =>
                 PhysicalLedgerReconciliation.ReadCensus(settings, c)).Select(o => new TransferItemState
-                { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }));
+                { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }),
+                "history/census-" + generation + ".json",
+                bundle.ReservedWithdrawals.Where(w => WithdrawalStore.HasConfirmedDelivery(w)).Select(w => w.ActiveLedgerId));
             // Old batch status is not a physical instruction after a full census.
             // Its complete record remains in application.json, without inventing
             // a successful transfer for any missing occurrence.

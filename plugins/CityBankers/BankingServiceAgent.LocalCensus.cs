@@ -303,7 +303,8 @@ namespace CityBankers
             var merged = current.Items.Where(e => !string.Equals(e.Character, census.Character, StringComparison.OrdinalIgnoreCase))
                 .Concat(bundle.Plan.Items).ToList();
             ActiveLedgerStore.ApplyCensus(_settingsDir, merged, observations.Select(o => new TransferItemState
-                { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }));
+                { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }),
+                "history/census-local-" + census.RunId + ".json");
             if (string.Equals(census.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase))
             {
                 if (bundle.Queue == null) throw new InvalidOperationException("Central census has no physical dispatch plan.");

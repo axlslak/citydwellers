@@ -399,10 +399,13 @@ namespace CityBankers
         }
 
         internal static void ApplyCensus(string settingsDir, List<ActiveLedgerItem> items,
-            IEnumerable<TransferItemState> metadata)
+            IEnumerable<TransferItemState> metadata, string evidence,
+            IEnumerable<string> confirmedDeliveryIds = null)
         {
             UpsertIndex(settingsDir, metadata);
-            SaveLedger(settingsDir, new ActiveLedgerState { Items = items });
+            SaveLedger(settingsDir, new ActiveLedgerState { Items = items },
+                "Ledger entry not matched by completed physical census; cause unknown. Compare found for possible provenance ambiguity.",
+                evidence, confirmedDeliveryIds);
         }
 
         internal static void RecordPhysicalReturn(string settingsDir, string ledgerId, string transaction,
@@ -731,7 +734,8 @@ namespace CityBankers
             }
 
             ledger.Items.Remove(entry);
-            SaveLedger(settingsDir, ledger);
+            SaveLedger(settingsDir, ledger, reason, "archive/" + reason,
+                reason == "withdrawn" || reason == "deleted_overcap" ? new[] { entry.Id } : null);
         }
 
         internal static void RecordCensusConfirmedDelivery(string settingsDir, WithdrawalState withdrawal,
@@ -774,7 +778,8 @@ namespace CityBankers
                 });
             }
             ledger.Items.Remove(entry);
-            SaveLedger(settingsDir, ledger);
+            SaveLedger(settingsDir, ledger, reason, "archive/" + reason,
+                reason == "withdrawn" || reason == "deleted_overcap" ? new[] { entry.Id } : null);
             return true;
         }
 
@@ -997,8 +1002,34 @@ namespace CityBankers
             };
         }
 
-        private static void SaveLedger(string settingsDir, ActiveLedgerState ledger)
+        private static void SaveLedger(string settingsDir, ActiveLedgerState ledger,
+            string removalReason = "Ledger entry removed without a recorded delivery; cause unknown.",
+            string evidence = "ledger-update", IEnumerable<string> excludedRemovalIds = null)
         {
+            // Strict reads: an unreadable old ledger is never an empty baseline.
+            var previous = RuntimeStateStore.ReadJsonStrict<ActiveLedgerState>(GetActiveLedgerPath(settingsDir));
+            if (ledger.Items == null || ledger.Items.Any(i => i == null || string.IsNullOrWhiteSpace(i.Id)) ||
+                ledger.Items.GroupBy(i => i.Id, StringComparer.Ordinal).Any(g => g.Count() != 1) ||
+                (previous != null && (previous.Items == null || previous.Items.Any(i => i == null || string.IsNullOrWhiteSpace(i.Id)) ||
+                    previous.Items.GroupBy(i => i.Id, StringComparer.Ordinal).Any(g => g.Count() != 1))))
+                throw new InvalidDataException("Cannot commit an invalid ledger.");
+            var remaining = new HashSet<string>(ledger.Items.Select(i => i.Id), StringComparer.Ordinal);
+            var excluded = new HashSet<string>(excludedRemovalIds ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+            LostItemsStore.ExcludePendingRemovals(settingsDir, excluded, "Confirmed delivery or intentional deletion");
+            var removed = (previous?.Items ?? new List<ActiveLedgerItem>())
+                .Where(i => !remaining.Contains(i.Id) && !excluded.Contains(i.Id)).ToList();
+            if (removed.Count > 0)
+            {
+                var index = RuntimeStateStore.ReadJsonStrict<SymbiantIndexState>(GetIndexPath(settingsDir));
+                DateTime discovered = DateTime.UtcNow;
+                LostItemsStore.RecordBeforeRemoval(settingsDir, removed.Select(item => new LostItemRecord
+                {
+                    IncidentId = item.Id + "/" + evidence, LedgerId = item.Id,
+                    ItemName = index?.Items?.FirstOrDefault(i => i.AoId == item.AoId)?.Name,
+                    DiscoveredUtc = discovered, Reason = removalReason, Evidence = evidence,
+                    PreviousLedgerEntry = JObject.FromObject(item)
+                }));
+            }
             ledger.UpdatedUtc = DateTime.UtcNow;
             ledger.Items = (ledger.Items ?? new List<ActiveLedgerItem>())
                 .OrderBy(item => item.AoId)
@@ -1006,6 +1037,7 @@ namespace CityBankers
                 .ThenBy(item => item.Id, StringComparer.Ordinal)
                 .ToList();
             RuntimeStateStore.WriteJsonAtomic(GetActiveLedgerPath(settingsDir), ledger);
+            LostItemsStore.ConfirmRemovals(settingsDir, remaining);
         }
 
         private static void EnsureIndexSeeded(string settingsDir)

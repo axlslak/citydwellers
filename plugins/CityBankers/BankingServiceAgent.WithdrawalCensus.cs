@@ -385,7 +385,9 @@ namespace CityBankers
             var current = CensusApplication.ReadExisting<ActiveLedgerState>(ActiveLedgerStore.GetActiveLedgerPath(_settingsDir));
             if (current?.Items == null) throw new InvalidOperationException("Current ledger unavailable during withdrawal census application.");
             ActiveLedgerStore.ApplyCensus(_settingsDir, current.Items.Where(i => !scope.Contains(i.Character)).Concat(bundle.Plan.Items).ToList(),
-                observations.Select(o => new TransferItemState { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }));
+                observations.Select(o => new TransferItemState { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }),
+                "history/census-withdrawal-" + grant.Id + ".json",
+                grant.Requests.Where(w => WithdrawalStore.HasConfirmedDelivery(w)).Select(w => w.ActiveLedgerId));
             RuntimeStateStore.SaveDispatchQueue(_settingsDir, mergedQueue);
             WithdrawalStore.RestoreRequestsAfterWithdrawalCensus(_settingsDir, grant.Id, grant.Runs, grant.Requests, bundle.Dispositions);
         }

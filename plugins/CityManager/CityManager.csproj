@@ -38,6 +38,7 @@
     <Compile Include="CityManager.Alts.cs" />
     <Compile Include="CityManager.Bans.cs" />
     <Compile Include="CityManager.Bankers.cs" />
+    <Compile Include="CityManager.LostFound.cs" />
     <Compile Include="CityManager.Membership.cs" />
     <Compile Include="CityManager.Presentation.cs" />
     <Compile Include="CityManager.Raid.cs" />
@@ -55,6 +56,7 @@
       <Link>Bankers\Shared\CityBankersChatPalette.cs</Link>
     </Compile>
     <Compile Include="..\..\bankers\shared\BankerReadiness.cs"><Link>Shared\BankerReadiness.cs</Link></Compile>
+    <Compile Include="..\..\bankers\shared\LostItems.cs"><Link>Bankers\Shared\LostItems.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\RuntimeState.cs">
       <Link>Bankers\Shared\RuntimeState.cs</Link>
     </Compile>

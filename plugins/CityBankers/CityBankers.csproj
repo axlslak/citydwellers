@@ -77,6 +77,7 @@
     <Compile Include="..\..\bankers\shared\CityBankersChatPalette.cs"><Link>Shared\CityBankersChatPalette.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\LoggingDefaults.cs"><Link>Shared\LoggingDefaults.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\BankerReadiness.cs"><Link>Shared\BankerReadiness.cs</Link></Compile>
+    <Compile Include="..\..\bankers\shared\LostItems.cs"><Link>Bankers\Shared\LostItems.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\RuntimeState.cs"><Link>Shared\RuntimeState.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\RuntimeStorageStateTransactions.cs"><Link>Shared\RuntimeStorageStateTransactions.cs</Link></Compile>
     <Compile Include="..\..\bankers\shared\SettingsPaths.cs"><Link>Shared\SettingsPaths.cs</Link></Compile>
