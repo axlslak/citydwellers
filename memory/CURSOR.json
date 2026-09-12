@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 93,
+  "current_session": 94,
   "last_completed_session": 93,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-93-cru",
+  "transaction": "session-94-cru-build",
   "checkpoint_commit": "f9b3fddee9ef301fce9a41c5d3fd856d2ea0df2a",
-  "task": "Central CRU supply implementation resolved",
-  "resume_instruction": "Session93 published: #cru one unit, shared orders, Central stacking, excluded public stock/donor/lost/found; backend delivery retained. Owner builds and live-tests. STACK diagnostics expose unnamed TemplateAction quantity fields; do not invent count mapping. Reopen on actual logs/bugs. Next journal241.",
-  "base_commit": "3b4ccb191892e44996d69b72142821c46a254204"
+  "task": "Correct CRU timeout-handler CS0136 variable collision",
+  "resume_instruction": "One local rename fixes owner-reported CS0136. Publish and seal; no assistant build.",
+  "base_commit": "4d9ab98b073507a05f78b92bcbc2f67a78404457"
 }

@@ -200,8 +200,8 @@ namespace CityBankers
                     var row = rows.Single(r => r.Id == op.RequestId);
                     row.Status = "expired"; row.Error = "CRU split was not verified."; WithdrawalStore.Touch(row); return true;
                 });
-                var row = WithdrawalStore.LoadAll(_settingsDir).Single(r => r.Id == op.RequestId);
-                TellPlayer(row.RequestedBy, "Central could not finish splitting your CRU. Please try #cru again shortly.");
+                var expiredRequest = WithdrawalStore.LoadAll(_settingsDir).Single(r => r.Id == op.RequestId);
+                TellPlayer(expiredRequest.RequestedBy, "Central could not finish splitting your CRU. Please try #cru again shortly.");
             }
             _stackOperation = null;
             return true;

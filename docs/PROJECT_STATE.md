@@ -1,3 +1,7 @@
+## Session 94 — CRU build correction
+
+- Owner build reported CS0136 in the CRU timeout handler. Renamed its outer local to expiredRequest, avoiding the nested callback row declaration. No behavior change. Reviewed the reported diagnostic and focused diff; owner handles rebuild.
+
 ## Session 93 — Central CRU supply (implemented; resolved on publication)
 
 - [OWNER SCOPE] AOID 257110 is a normal pickup item with permanent Central inventory storage. Donations merge into a stack; #cru prepares one unit. Existing four orders/three items per order, linked collectors, three-minute monotonic pickup window, normal handshake and backend delivery evidence are reused. No new member quotas or administrative controls.
