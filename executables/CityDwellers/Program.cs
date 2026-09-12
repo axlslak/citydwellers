@@ -285,8 +285,10 @@ namespace CityDwellers.Host
             {
                 ProbeWritableData(dataDirectory);
                 RuntimeLog.Initialize(dataDirectory);
-                BuildIdentity.StartHost();
+                BuildIdentity.StartHost(runtimeDirectory);
                 RuntimeLog.Write("BUILD " + BuildIdentity.Label + " | revision=" + BuildIdentity.Revision);
+                foreach (string build in BuildIdentity.DescribeComponents(true))
+                    RuntimeLog.Write("BUILD " + build);
                 _dataDirectory = dataDirectory;
                 ReportRuntimeLayout(runtimeDirectory, dataDirectory);
                 DeleteManagerRestartRequest();
@@ -308,6 +310,7 @@ namespace CityDwellers.Host
             {
                 RuntimeLog.Write(
                     "WARNING: trusted-time startup gate is disabled in citydwellers.json.");
+                RepositoryUpdates.Start(RuntimeLog.Write);
                 return true;
             }
 
@@ -317,6 +320,7 @@ namespace CityDwellers.Host
 
             RuntimeLog.MarkTimeTrusted();
             RuntimeLog.Write("Network time is trustworthy; AO services may start.");
+            RepositoryUpdates.Start(RuntimeLog.Write);
             return true;
         }
 

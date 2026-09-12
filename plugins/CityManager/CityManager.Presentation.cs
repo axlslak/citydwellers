@@ -653,10 +653,7 @@ namespace CityManager
             body.Append(HelpHeader(
                 "City Dwellers System Status",
                 "A member-facing snapshot of the Manager and the city services it coordinates."));
-            body.Append("\n").Append(StatusSection("Running builds"));
-            foreach (string build in BuildIdentity.DescribeComponents())
-                body.Append("  <font color='").Append(ColorMuted).Append("'>")
-                    .Append(EscapeBlobText(build)).Append("</font>\n");
+            body.Append("\n").Append(BuildVersionsForBlob());
 
             body.Append(StatusSection("Manager"));
             body.Append(StatusLine(true, "State", "Online and answering commands"));
@@ -757,6 +754,45 @@ namespace CityManager
                        _liveRemovedMembers.Count + " live-removed; roster fetched " +
                        sourceAge + fetch;
             }
+        }
+
+        private string BuildVersionsForBlob()
+        {
+            var body = new StringBuilder(StatusSection("Build versions"));
+            foreach (ComponentBuild build in BuildIdentity.GetComponents())
+            {
+                bool loaded = !string.IsNullOrWhiteSpace(build.Loaded);
+                string revision = loaded ? build.Loaded : build.Installed;
+                body.Append("  <font color='").Append(ColorTitle).Append("'>")
+                    .Append(EscapeBlobText(build.Name)).Append("</font> ")
+                    .Append(BuildRevisionForBlob(revision, build.DiffersFromHost))
+                    .Append(" <font color='").Append(ColorMuted).Append("'>(")
+                    .Append(loaded ? "loaded" : "installed").Append(")</font>");
+                if (build.DiffersFromInstalled)
+                    body.Append(" - installed ").Append(BuildRevisionForBlob(build.Installed, false));
+                if (build.DiffersFromHost)
+                    body.Append(" <font color='").Append(ColorWarn).Append("'>differs from host</font>");
+                body.Append("\n");
+            }
+            RepositoryUpdateSnapshot update = RepositoryUpdates.Read();
+            string color = update.State == "current" ? ColorGood :
+                update.State == "checking" ? ColorCommand :
+                update.State == "uncomparable" ? ColorBad : ColorWarn;
+            body.Append("  <font color='").Append(ColorTitle).Append("'>GitHub master</font> ");
+            if (!string.IsNullOrWhiteSpace(update.LatestRevision))
+                body.Append(BuildRevisionForBlob(update.LatestRevision, false)).Append(" - ");
+            body.Append("<font color='").Append(color).Append("'>")
+                .Append(EscapeBlobText(update.Detail)).Append("</font>\n");
+            return body.ToString();
+        }
+
+        private string BuildRevisionForBlob(string revision, bool differs)
+        {
+            string color = revision == "checking" ? ColorCommand :
+                !BuildIdentity.IsKnown(revision) ? ColorBad :
+                differs || revision.EndsWith("-modified", StringComparison.Ordinal) ? ColorWarn : ColorGood;
+            return "<font color='" + color + "'>" +
+                EscapeBlobText(BuildIdentity.ShortRevision(revision)) + "</font>";
         }
 
         private void ReplyWithCloakHistory(ReplyTarget target, string summary)
@@ -909,6 +945,7 @@ namespace CityManager
                     header.AppendLine("City Dwellers Manager diagnostic dump");
                     foreach (string build in BuildIdentity.DescribeComponents(true))
                         header.AppendLine("Build: " + build);
+                    header.AppendLine("RepositoryUpdate: " + JsonConvert.SerializeObject(RepositoryUpdates.Read()));
                     header.AppendLine("CreatedUtc: " + DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
                     header.AppendLine("RequestedBy: " + senderName);
                     header.AppendLine("ManagerStartedUtc: " + _managerStartedUtc.ToString("O", CultureInfo.InvariantCulture));
