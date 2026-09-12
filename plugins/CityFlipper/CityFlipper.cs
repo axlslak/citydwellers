@@ -75,6 +75,9 @@ namespace CityFlipper
 
         public override void Init(string pluginDir)
         {
+            CityDwellers.Shared.BuildIdentity.Register();
+            Logger.Information("BUILD " + CityDwellers.Shared.BuildIdentity.Label +
+                " | revision=" + CityDwellers.Shared.BuildIdentity.Revision);
             string settingsDirectory;
             string dataDirectory;
             string settingsError;
@@ -914,6 +917,7 @@ namespace CityFlipper
 
         private class FlipperResult
         {
+            public string BuildRevision { get; set; } = CityDwellers.Shared.BuildIdentity.Revision;
             public string Character;
 
             public double InitToInPlayMs;

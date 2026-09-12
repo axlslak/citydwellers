@@ -1,4 +1,15 @@
 <Project>
+  <!-- Run even on incremental builds: HEAD and dirty state can change without source edits. -->
+  <Target Name="GenerateCityDwellersBuildIdentity" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <CityDwellersBuildStamp>$(IntermediateOutputPath)CityDwellers.BuildIdentity.g.cs</CityDwellersBuildStamp>
+    </PropertyGroup>
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)build\Write-BuildIdentity.ps1&quot; -RepositoryRoot &quot;$(MSBuildThisFileDirectory).&quot; -OutputFile &quot;$(CityDwellersBuildStamp)&quot;" />
+    <ItemGroup>
+      <Compile Include="$(CityDwellersBuildStamp)" />
+      <FileWrites Include="$(CityDwellersBuildStamp)" />
+    </ItemGroup>
+  </Target>
   <PropertyGroup>
     <ClientlessGameDataCache>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory).dependencies\AOSharp.Clientless\1.0.16\GameData'))</ClientlessGameDataCache>
   </PropertyGroup>

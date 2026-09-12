@@ -47,6 +47,9 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
+            CityDwellers.Shared.BuildIdentity.Register();
+            Logger.Information("BUILD " + CityDwellers.Shared.BuildIdentity.Label +
+                " | revision=" + CityDwellers.Shared.BuildIdentity.Revision);
             string settingsDir;
             string settingsError;
             if (!SettingsPaths.TryEnsureDirectory(out settingsDir, out settingsError))
@@ -674,6 +677,7 @@ namespace CityBankers
 
         public class DiagnosticResult
         {
+            public string BuildRevision { get; set; } = CityDwellers.Shared.BuildIdentity.Revision;
             public DateTime ObservedUtc;
             public string Character;
             public int PlayfieldModelId;

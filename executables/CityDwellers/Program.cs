@@ -285,6 +285,8 @@ namespace CityDwellers.Host
             {
                 ProbeWritableData(dataDirectory);
                 RuntimeLog.Initialize(dataDirectory);
+                BuildIdentity.StartHost();
+                RuntimeLog.Write("BUILD " + BuildIdentity.Label + " | revision=" + BuildIdentity.Revision);
                 _dataDirectory = dataDirectory;
                 ReportRuntimeLayout(runtimeDirectory, dataDirectory);
                 DeleteManagerRestartRequest();

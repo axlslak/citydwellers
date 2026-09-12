@@ -653,6 +653,10 @@ namespace CityManager
             body.Append(HelpHeader(
                 "City Dwellers System Status",
                 "A member-facing snapshot of the Manager and the city services it coordinates."));
+            body.Append("\n").Append(StatusSection("Running builds"));
+            foreach (string build in BuildIdentity.DescribeComponents())
+                body.Append("  <font color='").Append(ColorMuted).Append("'>")
+                    .Append(EscapeBlobText(build)).Append("</font>\n");
 
             body.Append(StatusSection("Manager"));
             body.Append(StatusLine(true, "State", "Online and answering commands"));
@@ -903,6 +907,8 @@ namespace CityManager
 
                     var header = new StringBuilder();
                     header.AppendLine("City Dwellers Manager diagnostic dump");
+                    foreach (string build in BuildIdentity.DescribeComponents(true))
+                        header.AppendLine("Build: " + build);
                     header.AppendLine("CreatedUtc: " + DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
                     header.AppendLine("RequestedBy: " + senderName);
                     header.AppendLine("ManagerStartedUtc: " + _managerStartedUtc.ToString("O", CultureInfo.InvariantCulture));

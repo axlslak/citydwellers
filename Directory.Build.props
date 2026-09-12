@@ -2,6 +2,8 @@
   <PropertyGroup>
     <!-- Use NuGet PackageReference for every project in this repository. -->
     <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+    <!-- Let MSBuild refresh the Git stamp even when Visual Studio sees no source edits. -->
+    <DisableFastUpToDateCheck>true</DisableFastUpToDateCheck>
     <NavmeshUpstreamRevision>474919d017759c39a530071a0c5b7e6eb162af7a</NavmeshUpstreamRevision>
     <NavmeshDependencyRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory).dependencies\Navmesh\$(NavmeshUpstreamRevision)'))</NavmeshDependencyRoot>
   </PropertyGroup>
@@ -19,6 +21,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\BuildIdentity.cs">
+      <Link>BuildIdentity.cs</Link>
+    </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\LocalIpc.cs">
       <Link>LocalIpc.cs</Link>
     </Compile>

@@ -121,6 +121,9 @@ namespace CityManager
 
         public override void Init(string pluginDir)
         {
+            CityDwellers.Shared.BuildIdentity.Register();
+            Logger.Information("BUILD " + CityDwellers.Shared.BuildIdentity.Label +
+                " | revision=" + CityDwellers.Shared.BuildIdentity.Revision);
             string settingsError;
             if (!SettingsPaths.TryEnsureDirectories(
                     out _settingsDir,
@@ -2091,7 +2094,7 @@ namespace CityManager
                 return;
 
             string line = DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture) +
-                          " | " + SanitizeDiagnosticText(text);
+                          " | " + BuildIdentity.Label + " | " + SanitizeDiagnosticText(text);
 
             lock (_devSync)
             {

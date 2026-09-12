@@ -124,6 +124,9 @@ namespace CityBuddies
 
         public override void Init(string pluginDir)
         {
+            CityDwellers.Shared.BuildIdentity.Register();
+            Logger.Information("BUILD " + CityDwellers.Shared.BuildIdentity.Label +
+                " | revision=" + CityDwellers.Shared.BuildIdentity.Revision);
             PreloadStaticDynelData();
 
             string settingsDirectory;
@@ -1593,6 +1596,7 @@ namespace CityBuddies
 
         private sealed class NavigationTraceEntry
         {
+            public string BuildRevision { get; set; } = CityDwellers.Shared.BuildIdentity.Revision;
             public string Format { get; set; }
             public long Sequence { get; set; }
             public DateTime Utc { get; set; }

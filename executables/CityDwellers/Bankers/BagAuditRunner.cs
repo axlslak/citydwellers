@@ -527,6 +527,8 @@ internal static class BagAuditRunner
             $"citybankers-bagaudit-{runId}.log");
 
         var text = new StringBuilder();
+        foreach (string build in CityDwellers.Shared.BuildIdentity.DescribeComponents(true))
+            text.AppendLine("Build: " + build);
         text.AppendLine("CityBankers parallel bag identity/content audit");
         text.AppendLine("RunId: " + runId);
         text.AppendLine(
