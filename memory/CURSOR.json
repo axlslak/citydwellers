@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 97,
-  "last_completed_session": 96,
-  "status": "in_progress",
+  "last_completed_session": 97,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-97-cru-quantity",
-  "checkpoint_commit": "5648450129eb46131487861b930a48ecb4757a19",
-  "task": "Bind CRU donation template quantity",
-  "resume_instruction": "Owner confirms Unknown1=13 matches offered stack. Bind to native-created target trade item, preserving object quantity into inventory. Static review only.",
+  "checkpoint_commit": "6eac5983c48a5b16e90cabe2d8a0577575b3d96c",
+  "task": "CRU donation quantity binding resolved",
+  "resume_instruction": "Published TemplateAction Unknown1 quantity binding after native trade item creation. Owner confirmed 13-unit field; owner builds/tests. Next journal249.",
   "base_commit": "fd8006a9a6f9502ae5226c14b2e71030cd4310e5"
 }
