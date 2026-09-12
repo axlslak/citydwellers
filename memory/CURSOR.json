@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 100,
-  "last_completed_session": 99,
-  "status": "in_progress",
+  "last_completed_session": 100,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-100-cru-ice",
-  "checkpoint_commit": "74427d30864795386f0ce44343d38b3df56402dd",
-  "task": "Use ICE evidenced CRU stack action",
-  "resume_instruction": "ICE upload explicitly stacks identical CRU with CharacterAction 53, source Target and destination parameters. Replace unsuccessful move request, log action53 responses. Display deferred by owner.",
+  "checkpoint_commit": "2664dba3a483417af4f0dd36222ab588e655f628",
+  "task": "ICE-based CRU stack request correction resolved",
+  "resume_instruction": "Published CharacterAction53 from ICE CRU branch, response logging. Owner rebuild/restart clears stale slot cache and tests. Display deferred per owner. Next journal255.",
   "base_commit": "05cfe0edf3181b278603e433b998f20a54642d90"
 }
