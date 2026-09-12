@@ -1,3 +1,9 @@
+## Session 86 — Ocular item-name classification
+
+- [CAUSE] Stock DetectSlot searched for eye but not ocular; Active Ocular Symbiant, Extermination Unit Aban therefore resolved to no slot. This classifier serves all five symbiant families. Session85 command-input aliases did not change stored item-name classification.
+- [FIX] Recognize ocular as eye while preserving eye matching. Family slot listings, eye/ocular/occular searches and nearby-QL offers now include stored Ocular symbiants through the same shared classifier. Spirit AOID-based slot mapping is unchanged. No stock migration, inventory movement or ledger edit.
+- [VALIDATION] Focused static example/control-flow/diff review only. Owner rebuild and check Eye in the five family views. No assistant build/live tests.
+
 ## Session 85 — symbiant/spirit offers in windows
 
 - [ALIASES] Shared stock dictionary adds arti -> artillery and ocular/occular -> eye. Bare family shorthand (e.g. arti head 150) normalizes to symb before ordinary Manager command recognition/access checks; explicit symb syntax remains supported. Canonical navigation commands remain unchanged.

@@ -666,7 +666,7 @@ namespace CityBankers
             if (value.Contains("left hand")) return "lefthand";
             if (value.Contains("right hand")) return "righthand";
             if (value.Contains("brain")) return "brain";
-            if (value.Contains("eye")) return "eye";
+            if (value.Contains("ocular") || value.Contains("eye")) return "eye";
             if (value.Contains("ear")) return "ear";
             if (value.Contains("chest")) return "chest";
             if (value.Contains("waist")) return "waist";
