@@ -1,11 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 82,
+  "current_session": 83,
   "last_completed_session": 82,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-82-build-identity",
+  "transaction": "session-83-build-discovery-updates",
   "checkpoint_commit": "94f636e4faef307cb06848b78f3bb5831f2847ed",
-  "task": "Embedded binary build identity completed",
-  "resume_instruction": "Owner build solution and copy EXE/DLLs; inspect BUILD startup lines, Running builds in status and dump revisions. Missing reports mean not loaded or older plugin; unknown means Git stamp unavailable. Continue cosmetic QoL requests. Next journal219."
+  "task": "Build discovery, status colours and online update visibility",
+  "resume_instruction": "Improve Git diagnostics/fallback, installed vs loaded identities, coloured status and background GitHub checks. Owner builds. Next journal220.",
+  "base_commit": "1f88f3c1f6dd6290515a12c2bcf0abe7965e7c64"
 }
