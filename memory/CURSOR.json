@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 91,
+  "current_session": 92,
   "last_completed_session": 91,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-91-raid-status-only",
+  "transaction": "session-92-pickup-completion",
   "checkpoint_commit": "d9934e952f5f3b5fc6865c229e3f347db9eabd89",
-  "task": "Raid changes resolved; raid status is the sole detail command",
-  "resume_instruction": "raid status only; no raid progress alias. Generic status retains original raid detail with main-via-requester display. All work resolved. Next journal237.",
-  "base_commit": "f7bc96e65a7ed26adf56a3b18b39f2ff3cdef6ce"
+  "task": "Fix verified pickup rejected by missing intermediate handshake flags",
+  "resume_instruction": "Preserve Finished and exact inventory receipt plus accepted exact order evidence; remove intermediate callback completion prerequisite. Log dispute cause. Owner handles old false lost records. Next journal238.",
+  "base_commit": "2d0f8398c662e8f0b46b09e82023b0352f442d64"
 }
