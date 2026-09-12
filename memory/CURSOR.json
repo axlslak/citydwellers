@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 102,
-  "last_completed_session": 101,
-  "status": "in_progress",
+  "last_completed_session": 102,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-102-cru-header",
-  "checkpoint_commit": "cf297ecb12083a040383d6a519a387ebc9c1b0e4",
-  "task": "Match captured stack header and single diagnostic attempt",
-  "resume_instruction": "Successful owner action53 capture Unknown=0; SDK defaults1. Correct merge only; full SENT/RECV fields; opt-in one merge per restart. Native action53 response cache handling absent, do not infer counts.",
+  "checkpoint_commit": "89da48f63742d47f2381b3a785fee90c85d6c302",
+  "task": "Captured CRU header correction and diagnostics published",
+  "resume_instruction": "Owner enable Bankers.EnableAutomaticCruStacking=true then rebuild/restart; one merge attempt only. Collect STACK SENT/RECV and physical result. Header Unknown0 fixed; native action53 cache handling absent, verification may time out. Next journal259.",
   "base_commit": "b967046f442ba3b69fb8e220d04726a284921f58"
 }
