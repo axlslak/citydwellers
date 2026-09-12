@@ -1,11 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 80,
+  "current_session": 81,
   "last_completed_session": 80,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-80-ascii-markers",
+  "transaction": "session-81-cloak-history-cosmetics",
   "checkpoint_commit": "71f3d6e38cea7d136792da5a7ea53f8c39db2378",
-  "task": "AO-safe presentation markers completed",
-  "resume_instruction": "Owner rebuild and inspect OK/WAIT labels and ASCII separators. Continue small cosmetic follow-ups as requested; structural work deferred. Next journal215."
+  "task": "Compact cloak history and small requested timing/page adjustments",
+  "resume_instruction": "Append 25 observed cloak-change rows to cloak reply; org5200 guest8000; Wave8OffsetSeconds955. Owner builds. Next journal216.",
+  "base_commit": "092b5636b5e127d0e4a3b7afd48facbf77f62224"
 }
