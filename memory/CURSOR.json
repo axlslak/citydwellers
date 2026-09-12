@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 96,
-  "last_completed_session": 95,
-  "status": "in_progress",
+  "last_completed_session": 96,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-96-dynel",
-  "checkpoint_commit": "d7ef86cd62f3bdd0feaebbed98bb75a15537d39a",
-  "task": "Temporary Central dynel command",
-  "resume_instruction": "Add #dynel using existing report IPC to snapshot Central live list, even when bank startup fails. No user-facing docs requested. Static review only.",
+  "checkpoint_commit": "5648450129eb46131487861b930a48ecb4757a19",
+  "task": "Temporary Central dynel command resolved",
+  "resume_instruction": "Owner builds and uses admin #dynel through manager; Central snapshots live AllDynels via existing report IPC and sends paged tells even if bank gate blocked. No help/docs per owner. SimpleItemFullUpdate is stored separately in FullUpdateProxy; terminal membership there remains unverified. Next journal247.",
   "base_commit": "eb01460b22c32510f186477b729eefe59b62e0e4"
 }
