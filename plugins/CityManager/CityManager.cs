@@ -427,6 +427,7 @@ namespace CityManager
                 return !string.IsNullOrWhiteSpace(commandText);
             }
 
+            text = CityBankers.StockCommandEngine.NormalizeSymbiantCommand(text);
             string[] parts = text.Split(
                 new[] { ' ' },
                 StringSplitOptions.RemoveEmptyEntries);
@@ -493,6 +494,7 @@ namespace CityManager
 
         private void ProcessCommand(string senderName, string rawCommand, ReplyTarget replyTarget)
         {
+            rawCommand = CityBankers.StockCommandEngine.NormalizeSymbiantCommand(rawCommand);
             if (string.IsNullOrWhiteSpace(rawCommand))
                 return;
 

@@ -1,3 +1,10 @@
+## Session 85 — symbiant/spirit offers in windows
+
+- [ALIASES] Shared stock dictionary adds arti -> artillery and ocular/occular -> eye. Bare family shorthand (e.g. arti head 150) normalizes to symb before ordinary Manager command recognition/access checks; explicit symb syntax remains supported. Canonical navigation commands remain unchanged.
+- [OFFERS] QL lookup always selects nearest stocked lower tier, exact requested tier and nearest stocked higher tier, ordered lower/exact/higher. Include every distinct AOID/highID/QL template at those tiers; duplicate copies count on each row. Exact matches no longer suppress neighboring alternatives. Chat shows context and N offers plus View offers; item/GET/back commands live inside its text window. Empty symbiant roots, slotted families/slots and QL searches return zero offers without links.
+- [BOUNDARIES] Existing Manager reservation hiding, spirit catalog slot mapping, item identity grouping, GET AOID semantics, membership checks and channel-sized row pagination remain intact. No stock, custody or acceptance-policy mutations. Nearest tiers are chosen from currently available stock, not fictional catalog offers.
+- [VALIDATION] Focused static parsing/access-routing/lower-exact-higher/grouping/empty-result/markup and diff review only. No assistant builds/tests/live actions. Owner rebuild; inspect arti head 150, symb arti ocular 150, symb arty occular 150 and spirit slot/QL queries; zero offers has no window. Owner accepted status fitting guest but not org; no further status shortening requested.
+
 ## Session 84 — compact status window
 
 - [OWNER DIRECTION] One repository revision is sufficient; no separate component versioning requested. Shorten the visible status only by the explicitly named sections.

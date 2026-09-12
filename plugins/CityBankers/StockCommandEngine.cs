@@ -53,6 +53,7 @@ namespace CityBankers
                 { "artillery", "artillery" },
                 { "art", "artillery" },
                 { "arty", "artillery" },
+                { "arti", "artillery" },
                 { "infantry", "infantry" },
                 { "inf", "infantry" },
                 { "infa", "infantry" },
@@ -80,6 +81,8 @@ namespace CityBankers
                 { "head", "brain" },
                 { "eye", "eye" },
                 { "eyes", "eye" },
+                { "ocular", "eye" },
+                { "occular", "eye" },
                 { "ear", "ear" },
                 { "ears", "ear" },
                 { "chest", "chest" },
@@ -109,6 +112,15 @@ namespace CityBankers
                 { "foot", "feet" }
             };
 
+        public static string NormalizeSymbiantCommand(string input)
+        {
+            string text = (input ?? string.Empty).Trim();
+            string first = text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+            string family;
+            return TryNormalizeFamily(first, out family) && IsSymbiantFamily(family)
+                ? "symb " + text : text;
+        }
+
         public static bool TryBuildResponse(
             string input,
             CurrentStockState stock,
@@ -117,7 +129,7 @@ namespace CityBankers
             string commandPrefix = "")
         {
             response = null;
-            string[] raw = (input ?? string.Empty)
+            string[] raw = NormalizeSymbiantCommand(input)
                 .Trim()
                 .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (raw.Length == 0)
@@ -280,8 +292,7 @@ namespace CityBankers
                 .Select(family => new { Family = family, Items = FamilyItems(items, family) })
                 .Where(entry => entry.Items.Count > 0).ToList();
             if (represented.Count == 0)
-                return "No symbiants are in stock right now. " +
-                    ChatCommand("Stock", centralCharacter, commandPrefix + "stock");
+                return "Symbiants: 0 offers.";
 
             var body = new StringBuilder();
             body.Append(CityBankersChatPalette.White("Symbiant Stock"));
@@ -309,6 +320,8 @@ namespace CityBankers
             List<StockItemState> familyItems = FamilyItems(items, family);
             if (familyItems.Count == 0)
             {
+                if (IsSlottedFamily(family))
+                    return DisplayFamily(family) + ": 0 offers.";
                 return "No " + DisplayFamily(family) +
                     " items are in stock right now. " +
                     ChatCommand("Stock", centralCharacter, commandPrefix + "stock");
@@ -460,14 +473,7 @@ namespace CityBankers
         {
             List<StockItemState> matches = SlotItems(FamilyItems(items, family), slot);
             if (matches.Count == 0)
-            {
-                return "No " + DisplayFamily(family) + " " + DisplaySlot(slot) +
-                    " symbiants are in stock right now. " +
-                    ChatCommand(
-                        DisplayFamily(family) + " stock",
-                        centralCharacter,
-                        commandPrefix + FamilyCommand(family, null));
-            }
+                return DisplayFamily(family) + " " + DisplaySlot(slot) + ": 0 offers.";
 
             List<StockTemplate> templates = GroupTemplates(matches)
                 .OrderBy(template => template.Ql)
@@ -517,68 +523,37 @@ namespace CityBankers
         {
             List<StockTemplate> templates = GroupTemplates(
                 SlotItems(FamilyItems(items, family), slot));
-            string back = ChatCommand(
-                "All " + DisplayFamily(family) + " " + DisplaySlot(slot),
-                centralCharacter,
-                commandPrefix + FamilyCommand(family, slot));
-
+            string description = DisplayFamily(family) + " " + DisplaySlot(slot) + " around QL " + targetQl;
             if (templates.Count == 0)
-            {
-                return "No " + DisplayFamily(family) + " " + DisplaySlot(slot) +
-                    " symbiants are in stock right now. " +
-                    ChatCommand(
-                        DisplayFamily(family) + " stock",
-                        centralCharacter,
-                        commandPrefix + FamilyCommand(family, null));
-            }
+                return description + ": 0 offers.";
 
-            List<StockTemplate> exact = templates
-                .Where(template => template.Ql == targetQl)
-                .OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
+            int? lowerQl = templates.Where(template => template.Ql < targetQl)
+                .Select(template => (int?)template.Ql).OrderByDescending(value => value).FirstOrDefault();
+            int? higherQl = templates.Where(template => template.Ql > targetQl)
+                .Select(template => (int?)template.Ql).OrderBy(value => value).FirstOrDefault();
+            List<StockTemplate> offers = templates
+                .Where(template => template.Ql == targetQl ||
+                    (lowerQl.HasValue && template.Ql == lowerQl.Value) ||
+                    (higherQl.HasValue && template.Ql == higherQl.Value))
+                .OrderBy(template => template.Ql)
+                .ThenBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(template => template.AoId)
                 .ToList();
-            if (exact.Count > 0)
-            {
-                return DisplayFamily(family) + " " + DisplaySlot(slot) +
-                    " around QL " + targetQl + ": " +
-                    string.Join(" | ", exact.Select(template => FormatTemplate(
-                        template, centralCharacter, commandPrefix))) +
-                    ". " + back;
-            }
 
-            int? lowerQl = templates
-                .Where(template => template.Ql < targetQl)
-                .Select(template => (int?)template.Ql)
-                .OrderByDescending(value => value)
-                .FirstOrDefault();
-            int? higherQl = templates
-                .Where(template => template.Ql > targetQl)
-                .Select(template => (int?)template.Ql)
-                .OrderBy(value => value)
-                .FirstOrDefault();
-
-            var parts = new List<string>();
-            if (lowerQl.HasValue)
+            var body = new StringBuilder();
+            body.Append(CityBankersChatPalette.Cyan(description)).Append("<br><br>");
+            foreach (var tier in offers.GroupBy(template => template.Ql))
             {
-                List<StockTemplate> lower = templates
-                    .Where(template => template.Ql == lowerQl.Value)
-                    .OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                parts.Add("below: " + string.Join(" | ", lower.Select(template =>
-                    FormatTemplate(template, centralCharacter, commandPrefix))));
+                string label = tier.Key < targetQl ? "Lower" : tier.Key > targetQl ? "Higher" : "Requested";
+                body.Append(CityBankersChatPalette.Yellow(label + " - QL " + tier.Key)).Append("<br>");
+                foreach (StockTemplate template in tier)
+                    body.Append(FormatTemplate(template, centralCharacter, commandPrefix)).Append("<br>");
+                body.Append("<br>");
             }
-            if (higherQl.HasValue)
-            {
-                List<StockTemplate> higher = templates
-                    .Where(template => template.Ql == higherQl.Value)
-                    .OrderBy(template => template.Name, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                parts.Add("above: " + string.Join(" | ", higher.Select(template =>
-                    FormatTemplate(template, centralCharacter, commandPrefix))));
-            }
-
-            return DisplayFamily(family) + " " + DisplaySlot(slot) +
-                " around QL " + targetQl + " - " + string.Join("; ", parts) +
-                ". " + back;
+            body.Append(ChatCommand("All " + DisplayFamily(family) + " " + DisplaySlot(slot),
+                centralCharacter, commandPrefix + FamilyCommand(family, slot)));
+            return description + ": " + offers.Count + (offers.Count == 1 ? " offer. " : " offers. ") +
+                Blob("View offers", body.ToString());
         }
 
         private static List<StockItemState> FamilyItems(
