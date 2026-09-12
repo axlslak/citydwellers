@@ -1,12 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 85,
-  "last_completed_session": 84,
-  "status": "in_progress",
+  "last_completed_session": 85,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-85-stock-offer-windows",
-  "checkpoint_commit": "5500f6bd660915af0913823bd24d7ef2727588b4",
-  "task": "Symb/spirit offer windows and aliases",
-  "resume_instruction": "Shared stock aliases and QL offer-window presentation; preserve reservation filtering and GET semantics. Owner builds. Next journal224.",
-  "base_commit": "f87e339d46bcec9f42fd3d0eb1a6f02ef2c038fc"
+  "checkpoint_commit": "505af0f329556f9e8bd82b8f21311479e5a4d4f7",
+  "task": "Symb/spirit offer windows and aliases completed",
+  "resume_instruction": "Owner rebuild and inspect lower/exact/higher offers, GET links, arti and ocular/occular aliases and zero-offer response. Status guest-page fit accepted. Next journal225."
 }
