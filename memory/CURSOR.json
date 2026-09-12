@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 97,
+  "current_session": 98,
   "last_completed_session": 97,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-97-cru-quantity",
+  "transaction": "session-98-cru-merge",
   "checkpoint_commit": "6eac5983c48a5b16e90cabe2d8a0577575b3d96c",
-  "task": "CRU donation quantity binding resolved",
-  "resume_instruction": "Published TemplateAction Unknown1 quantity binding after native trade item creation. Owner confirmed 13-unit field; owner builds/tests. Next journal249.",
-  "base_commit": "fd8006a9a6f9502ae5226c14b2e71030cd4310e5"
+  "task": "Correct CRU merge interaction packet",
+  "resume_instruction": "Owner four-single intake works; CombineWith attempts time out. Switch to uploaded AOSharp GenericCmd UseItemOnItem helper shape; static review only.",
+  "base_commit": "2d38ae2602b02d2e4c049cf280a6f9306e4f64f1"
 }
