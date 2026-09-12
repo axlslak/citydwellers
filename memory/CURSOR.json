@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 100,
+  "current_session": 101,
   "last_completed_session": 100,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-100-cru-ice",
+  "transaction": "session-101-cru-isolation",
   "checkpoint_commit": "2664dba3a483417af4f0dd36222ab588e655f628",
-  "task": "ICE-based CRU stack request correction resolved",
-  "resume_instruction": "Published CharacterAction53 from ICE CRU branch, response logging. Owner rebuild/restart clears stale slot cache and tests. Display deferred per owner. Next journal255.",
-  "base_commit": "05cfe0edf3181b278603e433b998f20a54642d90"
+  "task": "Pause automatic CRU merge interruptions",
+  "resume_instruction": "Default automatic merging off until live packet/response verified; retain explicit opt-in for diagnostics. Donations and requested single pickups unchanged. Worker timeout root cause not proven.",
+  "base_commit": "5ffc011092662fda96482ff448e2bcaca0dc464b"
 }
