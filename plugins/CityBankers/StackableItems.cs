@@ -17,6 +17,7 @@ namespace CityBankers
     // Clientless's inventory or inferring a successful operation from our request.
     internal static class StackableItems
     {
+        private const CharacterActionType StackItemsAction = (CharacterActionType)53;
         private sealed class CountValue { public CountValue() { } public int Value; }
         private static ConditionalWeakTable<Item, CountValue> counts = new ConditionalWeakTable<Item, CountValue>();
         private static readonly Dictionary<Identity, int> identities = new Dictionary<Identity, int>();
@@ -160,7 +161,8 @@ namespace CityBankers
             }
             var action = message.Body as CharacterActionMessage;
             if (action != null && (action.Action == CharacterActionType.SplitItem ||
-                action.Action == CharacterActionType.Split || action.Action == CharacterActionType.UseItemOnItem))
+                action.Action == CharacterActionType.Split || action.Action == CharacterActionType.UseItemOnItem ||
+                action.Action == StackItemsAction))
                 Logger.Information("[CityBankers] STACK server-action=" + action.Action + "; target=" + action.Target +
                     "; parameters=" + action.Parameter1 + "," + action.Parameter2);
             var template = message.Body as TemplateActionMessage;
@@ -203,9 +205,11 @@ namespace CityBankers
             if (source.Slot.Type != IdentityType.Inventory || target.Slot.Type != IdentityType.Inventory ||
                 source.Slot == target.Slot)
                 throw new InvalidOperationException("Stack merge requires two different inventory slots.");
-            // Stacking is a move onto an occupied slot, not CombineWith or UseItemOnItem.
-            // An explicit destination is essential: the default chooses a free slot.
-            source.MoveToInventory(target.Slot.Instance);
+            // ICE's CRU stacking routine sends action 53 (0x35), absent from the
+            // SDK enum. Target carries the source; parameters carry the destination.
+            Client.Send(new CharacterActionMessage { Action = StackItemsAction,
+                Target = source.Slot, Parameter1 = (int)target.Slot.Type,
+                Parameter2 = target.Slot.Instance });
         }
     }
 }

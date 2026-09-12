@@ -1943,3 +1943,17 @@ the uploaded AOSharp move helper. Distinct normal inventory slots and compatible
 templates are required. Observed quantity/inventory completion remains unchanged;
 no counts are inferred from the move request. Static source/diff review only;
 owner tests physical stacking and response handling.
+
+## 2026-09-12 — ICE supplies explicit CRU stack action (session 100)
+
+Owner restart restored five separate physical slots after move attempts had made
+clientless report duplicate occupied slots. No successful merge was established.
+Owner uploaded ICE plugin contains an explicit stacking branch for this exact
+Upgraded Controller Recompiler Unit: CharacterAction 53 (0x35), source slot in
+Target, destination type/instance in Parameter1/Parameter2. This action is absent
+from the uploaded enum; it differs from UseItemOnItem 0x51 and inventory move.
+Merge now sends that action and logs incoming action53 responses. All three prior
+request shapes are superseded. Server-observed completion remains required;
+response cache handling still needs live evidence. ICE source stays private and
+is not committed. Display quantities deferred at owner's request; bank-to-inventory
+auto-stack idea remains an unused fallback. Static source/diff review only.
