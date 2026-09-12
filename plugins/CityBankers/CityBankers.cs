@@ -33,6 +33,7 @@ namespace CityBankers
         private const float CityOfficeBankZ = 173f;
         private const float CityOfficeBankMaxDistance = 8f;
 
+        private string _settingsDir;
         private string _resultPath;
         private string _tempPath;
         private string _reportCommandPath;
@@ -58,6 +59,7 @@ namespace CityBankers
             if (!SettingsPaths.TryEnsureDirectory(out settingsDir, out settingsError))
                 throw new InvalidOperationException(settingsError);
 
+            _settingsDir = settingsDir;
             var bankSettings = SettingsPaths.ReadBankersSettings(settingsDir);
             var terminalSetting = bankSettings.GetValue(
                 "CityOfficeBankTerminalInstance", StringComparison.OrdinalIgnoreCase);
@@ -579,6 +581,46 @@ namespace CityBankers
                     item.UniqueIdentity.Type == IdentityType.Container);
         }
 
+        private List<string> BuildCurrentDynelMessages()
+        {
+            var messages = new List<string>();
+            var player = DynelManager.LocalPlayer;
+            if (!Client.InPlay || player == null)
+            {
+                messages.Add(Client.CharacterName + " is not in play; no current dynel snapshot.");
+                return messages;
+            }
+            var dynels = DynelManager.AllDynels.Where(d => d != null)
+                .OrderBy(d => TryDistance(player, d)).ToList();
+            var rows = new List<string>();
+            foreach (var dynel in dynels)
+            {
+                var position = dynel.Transform.Position;
+                var cached = dynel as StaticDynel;
+                rows.Add(DynelMarkup(dynel.Name ?? "(unnamed)") + "\n" +
+                    DynelMarkup(dynel.Identity.ToString()) + " | instance=" + dynel.Identity.Instance +
+                    " | " + DynelMarkup(dynel.GetType().Name) +
+                    (cached != null ? " | static-cache template=" + cached.TemplateId : " | live") +
+                    $"\n({position.X:F2}, {position.Y:F2}, {position.Z:F2}) | {TryDistance(player, dynel):F2}m\n\n");
+            }
+            int pages = Math.Max(1, (rows.Count + 7) / 8);
+            for (int page = 0; page < pages; page++)
+            {
+                string body = DynelMarkup(Client.CharacterName) + " current dynels: " + dynels.Count +
+                    "\nPlayfield model: " + (int)Playfield.ModelId + "\n\n" +
+                    string.Concat(rows.Skip(page * 8).Take(8));
+                messages.Add("<a href=\"text://" + body + "\">Central dynels " +
+                    (page + 1) + "/" + pages + "</a>");
+            }
+            return messages;
+        }
+
+        private static string DynelMarkup(string text)
+        {
+            return text.Replace("&", "&amp;").Replace("<", "&lt;")
+                .Replace(">", "&gt;").Replace("\"", "&quot;");
+        }
+
         private void ProcessReportCommand()
         {
             if (string.IsNullOrWhiteSpace(_reportCommandPath) ||
@@ -604,6 +646,14 @@ namespace CityBankers
 
                 if (string.IsNullOrWhiteSpace(command.Recipient))
                     throw new InvalidOperationException("Report recipient is empty.");
+
+                if (string.Equals(command.Kind, "dynel", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!CentralCharacterGuard.IsCurrentCharacterCentral(
+                        _settingsDir, Client.CharacterName))
+                        throw new InvalidOperationException("Dynel diagnostic must run on Central.");
+                    command.Messages = BuildCurrentDynelMessages();
+                }
 
                 if (command.Messages == null || command.Messages.Count == 0)
                     throw new InvalidOperationException("Report has no message lines.");
@@ -772,6 +822,7 @@ namespace CityBankers
         public class ReportCommand
         {
             public string Recipient;
+            public string Kind;
             public List<string> Messages;
         }
 

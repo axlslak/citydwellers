@@ -74,6 +74,7 @@ namespace CityManager
                 "spinup",
                 "spindown",
                 "positions",
+                "dynel",
                 "home",
                 "recoverraid",
                 "adminlist",
@@ -612,6 +613,10 @@ namespace CityManager
 
                 case "cloak":
                     BeginFlipperProbe(replyTarget);
+                    break;
+
+                case "dynel":
+                    ProcessCentralDynelCommand(senderName, replyTarget);
                     break;
 
                 case "status":

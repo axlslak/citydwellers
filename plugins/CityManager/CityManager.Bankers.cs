@@ -566,6 +566,40 @@ namespace CityManager
             return BuildBlobLinks(target, "Phatz Acceptance", "Open Phatz list", body.ToString());
         }
 
+        private void ProcessCentralDynelCommand(string senderName, ReplyTarget target)
+        {
+            string temporaryPath = null;
+            try
+            {
+                JObject config = CityBankers.Shared.SettingsPaths.ReadBankersSettings(_settingsDir);
+                var roles = config.GetValue("Roles", StringComparison.OrdinalIgnoreCase) as JObject;
+                var central = roles?.Properties().FirstOrDefault(p =>
+                    p.Name.Equals("central", StringComparison.OrdinalIgnoreCase))?.Value as JObject;
+                string character = (string)central?.GetValue("Character", StringComparison.OrdinalIgnoreCase);
+                if (string.IsNullOrWhiteSpace(character)) { Reply(target, "Central is not configured."); return; }
+                string token = character;
+                foreach (char invalid in Path.GetInvalidFileNameChars()) token = token.Replace(invalid, '_');
+                string path = Path.Combine(_dataDir, "citybankers-report-command-" + token + ".json");
+                if (File.Exists(path)) { Reply(target, "Central already has a diagnostic request pending."); return; }
+                temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                File.WriteAllText(temporaryPath, new JObject {
+                    ["Recipient"] = senderName, ["Kind"] = "dynel"
+                }.ToString());
+                File.Move(temporaryPath, path);
+                Reply(target, "Requested Kbcentral's current dynel list; it will arrive by tell.");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("Central dynel request: " + ex.Message);
+                Reply(target, "Could not queue Central's dynel diagnostic: " + ex.Message);
+            }
+            finally
+            {
+                if (temporaryPath != null && File.Exists(temporaryPath))
+                    try { File.Delete(temporaryPath); } catch { }
+            }
+        }
+
         private void ProcessCruCommand(string senderName, string[] parts, ReplyTarget target)
         {
             if (parts == null || parts.Length != 1) { Reply(target, Usage(target, "cru")); return; }
