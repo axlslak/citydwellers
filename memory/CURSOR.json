@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 88,
-  "last_completed_session": 87,
-  "status": "in_progress",
+  "last_completed_session": 88,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-88-lost-found",
-  "checkpoint_commit": "b9dd4c77c8184bb4901ea254bcd2f992483db3c1",
-  "task": "Lost bookkeeping and public lost/found views",
-  "resume_instruction": "Intercept ledger removals, exclude confirmed deliveries, write loss first with retry deduplication; found = current donorless ledger. Public search windows count all/show25. Owner builds. Next journal230.",
+  "checkpoint_commit": "c485177cede7cfa13819f2e818c2892e6300dbcd",
+  "task": "Lost/found implementation complete; owner build and in-game check",
+  "resume_instruction": "Session88 sealed. lost/found are read-only; intentional over-cap deletions and confirmed deliveries are not loss. Owner builds; await feedback or next requested task. Prior accepted tasks remain closed. Next journal231.",
   "base_commit": "fc1be92598846089538200c89b2136b9a3bbed7f"
 }
