@@ -95,3 +95,13 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
 - Distill session memory to decisions, invariants, evidence, hazards, and the
   exact resume point. Do not preserve small talk or repetitive command history
   merely because it occurred.
+
+## Owner resolution policy
+
+- Mark completed work resolved as soon as it is committed and published. Do not
+  wait for the owner to explicitly say resolved, rebuild, deploy or test.
+- Reopen a resolved topic when the owner reports an issue. Delayed testing,
+  raids in progress or optional observations do not create an open task.
+- Keep validation claims accurate: resolved does not mean live-tested.
+  Record what was actually reviewed or tested without making unperformed
+  owner tests a pending gate. Do not label unfinished implementation resolved.

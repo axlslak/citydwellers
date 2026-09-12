@@ -1,3 +1,10 @@
+## Session 89 — all current work resolved; standing closure policy
+
+- [OWNER DIRECTION] Completed committed/published work is resolved immediately; no separate owner confirmation, build, deployment or testing is required to close it. Reopen on an actual reported issue. Preserve accurate validation evidence; resolved is not a claim of live testing.
+- [RESOLVED] Session88 lost/found bookkeeping and commands are closed. All earlier accepted changes remain resolved. The owner may deliberately delay deployment during a raid or observe the hourly revision refresh; neither is an outstanding task.
+- [DEFERRED BY CHOICE] Buddy movement, delivery-history command and CRU distribution remain unimplemented future ideas, not bugs or required follow-ups.
+- [CURRENT STATUS] No active work or blocking validation. Await the next owner request. Documentation only; no runtime changes or tests.
+
 ## Session 88 — missing-item bookkeeping and public lost/found
 
 - [IMPLEMENTED] Central writes data/lost.json before an existing reconciliation removes an unmatched ledger claim. The complete original ledger row preserves donor/received time, identifiers and last location; the record adds item name, discovery time, reason and census evidence path. The actual loss time/cause are not invented. No history trimming or historical backfill.
