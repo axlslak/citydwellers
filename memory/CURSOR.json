@@ -1,11 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 85,
+  "current_session": 86,
   "last_completed_session": 85,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-85-stock-offer-windows",
+  "transaction": "session-86-ocular-slot",
   "checkpoint_commit": "505af0f329556f9e8bd82b8f21311479e5a4d4f7",
-  "task": "Symb/spirit offer windows and aliases completed",
-  "resume_instruction": "Owner rebuild and inspect lower/exact/higher offers, GET links, arti and ocular/occular aliases and zero-offer response. Status guest-page fit accepted. Next journal225."
+  "task": "Ocular symbiant slot classification",
+  "resume_instruction": "Add ocular to DetectSlot; preserve stock and spirit catalog mapping. Next journal226.",
+  "base_commit": "bf01b6d285f3453425777ea6527b9adb5975dd63"
 }
