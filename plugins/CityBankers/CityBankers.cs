@@ -25,7 +25,9 @@ namespace CityBankers
         // The city office building exposes this real terminal to the game UI,
         // but AOSharp currently omits it from DynelManager.AllDynels.
         private const int CityOfficePlayfieldModelId = 6152312;
-        private const int CityOfficeBankTerminalInstance = 1478048485;
+        private const int DefaultCityOfficeBankTerminalInstance = 1478332417;
+        private int _cityOfficeBankTerminalInstance = DefaultCityOfficeBankTerminalInstance;
+        private bool _usedCityOfficeBankFallback;
         private const float CityOfficeBankX = 185f;
         private const float CityOfficeBankY = 6.02f;
         private const float CityOfficeBankZ = 173f;
@@ -55,6 +57,20 @@ namespace CityBankers
             string settingsError;
             if (!SettingsPaths.TryEnsureDirectory(out settingsDir, out settingsError))
                 throw new InvalidOperationException(settingsError);
+
+            var bankSettings = SettingsPaths.ReadBankersSettings(settingsDir);
+            var terminalSetting = bankSettings.GetValue(
+                "CityOfficeBankTerminalInstance", StringComparison.OrdinalIgnoreCase);
+            if (terminalSetting != null)
+            {
+                int configuredInstance;
+                if (!int.TryParse(terminalSetting.ToString(), out configuredInstance) ||
+                    configuredInstance <= 0)
+                    throw new InvalidDataException(
+                        "Bankers.CityOfficeBankTerminalInstance must be a positive integer " +
+                        "from the office bank terminal's Info Manager Instance field.");
+                _cityOfficeBankTerminalInstance = configuredInstance;
+            }
 
             pluginDir = RuntimeStateStore.GetDataDirectory(settingsDir);
             _dataDir = pluginDir;
@@ -127,6 +143,7 @@ namespace CityBankers
 
                 _inPlay = true;
                 _diagnosticStarted = false;
+                _usedCityOfficeBankFallback = false;
                 _snapshotWritten = false;
                 _pendingResult = null;
                 _snapshotDueUtc = DateTime.UtcNow.Add(DiagnosticSettleDelay);
@@ -198,7 +215,13 @@ namespace CityBankers
             if (DateTime.UtcNow >= _bankDeadlineUtc)
             {
                 CompleteDiagnostic(
-                    $"Bank did not report open within {BankOpenTimeout.TotalSeconds:F0}s after Use().");
+                    $"Bank did not report open within {BankOpenTimeout.TotalSeconds:F0}s after Use()." +
+                    (_usedCityOfficeBankFallback
+                        ? $" Office bank target instance={_cityOfficeBankTerminalInstance}. " +
+                          "Compare with Info Manager: the terminal instance can change. " +
+                          "Set Bankers.CityOfficeBankTerminalInstance in citydwellers.json " +
+                          "to the current Instance and restart."
+                        : string.Empty));
             }
         }
 
@@ -206,6 +229,7 @@ namespace CityBankers
         {
             _inPlay = false;
             _diagnosticStarted = false;
+            _usedCityOfficeBankFallback = false;
             _snapshotWritten = false;
             _pendingResult = null;
             _snapshotDueUtc = DateTime.MaxValue;
@@ -441,7 +465,8 @@ namespace CityBankers
 
             var terminalIdentity = new Identity(
                 IdentityType.Terminal,
-                CityOfficeBankTerminalInstance);
+                _cityOfficeBankTerminalInstance);
+            _usedCityOfficeBankFallback = true;
 
             _pendingResult.BankAttempted = true;
             _pendingResult.BankTargetName = "Rubi-Ka Banking Service Terminal";

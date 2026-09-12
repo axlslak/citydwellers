@@ -2029,3 +2029,16 @@ and repeated donation timing validation.
 - Session 65's speculative old-donation recovery is not validated by the
   available physical evidence and remains blocked pending this audit.
 - No assistant-side compilation or live AO test was run; Kavey owns both.
+
+## 2026-09-12 — Office bank instance correction (session 95, resolved)
+
+Owner Info Manager evidence confirms the office terminal instance changed from
+`1478048485` to `1478332417` at the same position. All nine startup diagnostics
+used the old identity and timed out. The fallback default now uses the current
+instance. Optional positive integer `Bankers.CityOfficeBankTerminalInstance` in
+`citydwellers.json` overrides it at startup, permitting future corrections with
+a configuration edit and restart instead of another build. Fallback timeouts
+explain the Info Manager comparison and setting. Existing static discovery,
+playfield/distance guards and bank confirmation remain. Automatic discovery of
+the omitted office terminal is not implemented. Static source/diff review only;
+no assistant build, test suite or live AO run.
