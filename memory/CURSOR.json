@@ -1,11 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 81,
+  "current_session": 82,
   "last_completed_session": 81,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-81-cloak-history-cosmetics",
+  "transaction": "session-82-build-identity",
   "checkpoint_commit": "b049d9b413291fc4df68465431f8ce801cb1b972",
-  "task": "Compact cloak history, page limits and buddy delay completed",
-  "resume_instruction": "Owner rebuild; inspect cloak history in org/guest and later buddy login. Continue requested cosmetic nitpicks; structural work deferred. Next journal217."
+  "task": "Build identity for running binaries",
+  "resume_instruction": "Implement build-time Git stamp and runtime identity reports; owner build/live verification. Next journal218.",
+  "base_commit": "4f2adafc35b52ba3eeffc4705df52334b0a9f612"
 }
