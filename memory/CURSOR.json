@@ -1,12 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 86,
-  "last_completed_session": 85,
-  "status": "in_progress",
+  "last_completed_session": 86,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-86-ocular-slot",
-  "checkpoint_commit": "505af0f329556f9e8bd82b8f21311479e5a4d4f7",
-  "task": "Ocular symbiant slot classification",
-  "resume_instruction": "Add ocular to DetectSlot; preserve stock and spirit catalog mapping. Next journal226.",
-  "base_commit": "bf01b6d285f3453425777ea6527b9adb5975dd63"
+  "checkpoint_commit": "97bb947569c8e543f35c07c275674efba37af819",
+  "task": "Ocular slot classification completed",
+  "resume_instruction": "Owner rebuild and inspect Eye in all five symbiant family views and ocular/occular searches. Next journal227."
 }
