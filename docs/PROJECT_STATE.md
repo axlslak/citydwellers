@@ -1909,3 +1909,14 @@ explain the Info Manager comparison and setting. Existing static discovery,
 playfield/distance guards and bank confirmation remain. Automatic discovery of
 the omitted office terminal is not implemented. Static source/diff review only;
 no assistant build, test suite or live AO run.
+
+## 2026-09-12 — CRU donation quantity binding (session 97)
+
+Owner confirmed a 13-unit CRU offer produced TemplateAction.Unknown1=13;
+clientless drops this field when constructing the target trade Item. The adapter
+now mirrors the native local-recipient/inventory/action-code route and binds
+the positive quantity to the one newly created matching offer object after native
+handling. No template-wide or slot-reuse quantity inference is used. Native trade
+completion moves that same object into inventory, preserving the count binding.
+Single-unit intake uses the same field; no live confirmation of that wire value
+yet. Static source/diff review only; owner builds/tests. Bank discovery deferred.

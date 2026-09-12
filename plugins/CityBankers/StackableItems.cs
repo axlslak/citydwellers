@@ -165,8 +165,29 @@ namespace CityBankers
                     "; parameters=" + action.Parameter1 + "," + action.Parameter2);
             var template = message.Body as TemplateActionMessage;
             if (template != null && CruPolicy.IsCru(template.ItemLowId))
+            {
                 Logger.Information("[CityBankers] STACK template-action placement=" + template.Placement +
                     "; fields=" + template.Unknown1 + "," + template.Unknown2 + "," + template.Unknown3 + "," + template.Unknown4);
+                // Match Clientless's trade-template route. Owner's live 13-unit
+                // offer confirms Unknown1 carries quantity; native handling drops it.
+                if (DynelManager.LocalPlayer == null ||
+                    template.Identity != DynelManager.LocalPlayer.Identity ||
+                    (template.Unknown2 != 6 && template.Unknown2 != 85) ||
+                    template.Placement.Type != IdentityType.Inventory || template.Unknown1 <= 0)
+                    return;
+                var before = new HashSet<Item>(Trade.TargetWindowCache.Items);
+                afterNative.Enqueue(() =>
+                {
+                    var added = Trade.TargetWindowCache.Items.Where(i => !before.Contains(i) &&
+                        i.Id == template.ItemLowId && i.HighId == template.ItemHighId &&
+                        i.Ql == template.Quality).ToList();
+                    // Bind the actual new object, never a template-wide or reusable
+                    // slot count. Clientless carries this object into inventory.
+                    if (added.Count == 1) Set(added[0], template.Unknown1);
+                    Logger.Information("[CityBankers] STACK trade-template count=" +
+                        template.Unknown1 + "; new objects=" + added.Count);
+                });
+            }
         }
         public static void Split(Item source, int quantity)
         {
