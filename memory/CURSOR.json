@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 79,
+  "current_session": 80,
   "last_completed_session": 79,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-79-presentation",
-  "base_commit": "3f02750aa07680014cbb95a9b58e0e22598ddbc5",
-  "task": "Owner build/live review of first presentation pass and pending player pickup handshake",
-  "resume_instruction": "Session79 3f02750aa07680014cbb95a9b58e0e22598ddbc5 adds shared semantic formatting, native item icons from106593-entry embedded mapping, linked item/QL tells, richer status and current banker/donor help. Channel constants unchanged5600/6500/7200; stock uses shared pagination. Owner inspect phatz/donor/inventory/status/help and debug/tells. No assistant build/test/live changes. Session78 player pickup still awaiting live confirmation. CRU and policy-ID aliases unimplemented. Next journal213; acquire transaction before edits; never repeat historical repair."
+  "transaction": "session-80-ascii-markers",
+  "base_commit": "a03fc0b6e6dea421aa858f21e56cdddef2840389",
+  "task": "Replace unsupported AO presentation bullets and separators",
+  "resume_instruction": "Use OK/WAIT status labels and ASCII separators. No operational changes. Owner rebuild; next journal214."
 }
