@@ -1,12 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 87,
-  "last_completed_session": 86,
-  "status": "in_progress",
+  "last_completed_session": 87,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-87-owner-acceptance",
-  "checkpoint_commit": "97bb947569c8e543f35c07c275674efba37af819",
-  "task": "Record owner acceptance and deferred roadmap",
-  "resume_instruction": "Mark current work resolved until actual bug report; preserve deliberately deferred movement/loss/history/CRU work. Next journal228.",
-  "base_commit": "59eae3ee5b4303f225afbf224b1aeae4422b2be6"
+  "checkpoint_commit": "b9dd4c77c8184bb4901ea254bcd2f992483db3c1",
+  "task": "All current work resolved and accepted by owner",
+  "resume_instruction": "No active bug or required validation. Earlier pending checks superseded by Session87 owner acceptance; reopen only for actual bug reports. Await owner direction. Deliberately deferred: buddy movement, Central loss-report command, delivery-history command, CRU distribution. Next journal229."
 }
