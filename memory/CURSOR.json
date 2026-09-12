@@ -1,11 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 86,
+  "current_session": 87,
   "last_completed_session": 86,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-86-ocular-slot",
+  "transaction": "session-87-owner-acceptance",
   "checkpoint_commit": "97bb947569c8e543f35c07c275674efba37af819",
-  "task": "Ocular slot classification completed",
-  "resume_instruction": "Owner rebuild and inspect Eye in all five symbiant family views and ocular/occular searches. Next journal227."
+  "task": "Record owner acceptance and deferred roadmap",
+  "resume_instruction": "Mark current work resolved until actual bug report; preserve deliberately deferred movement/loss/history/CRU work. Next journal228.",
+  "base_commit": "59eae3ee5b4303f225afbf224b1aeae4422b2be6"
 }
