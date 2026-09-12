@@ -1920,3 +1920,15 @@ handling. No template-wide or slot-reuse quantity inference is used. Native trad
 completion moves that same object into inventory, preserving the count binding.
 Single-unit intake uses the same field; no live confirmation of that wire value
 yet. Static source/diff review only; owner builds/tests. Bank discovery deferred.
+
+## 2026-09-12 — CRU merge interaction correction (session 98)
+
+Owner logs confirm four single-unit CRU donations bind count=1 and arrive. Two
+merge attempts using CharacterAction UseItemOnItem (AOSharp CombineWith) timed
+out with unchanged individual inventory objects; owner also sees them unstacked.
+Merge now mirrors the separate uploaded AOSharp Item.UseItemOnItem helper:
+GenericCmd UseItemOnItem with local User, Source slot and Target slot. This is
+the next source-supported interaction candidate, not a live-proven merge.
+Existing observed quantity/inventory verification remains; no success or counts
+are inferred from sending. Split packet unchanged. Static review and diff check
+only; owner builds/tests.
