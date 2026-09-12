@@ -403,12 +403,20 @@ namespace CityBankers
                 {
                 if (_isCentral && _withdrawalPickupTrade)
                 {
-                    if (!_withdrawalAccepted || !_pickupFinalAcceptSent || !_pickupPlayerConfirmed ||
-                        _pickupOfferedIds.Count != _pickupItems.Count)
+                    // This callback runs only after AO Finished and an exact, settled
+                    // outgoing inventory delta. Clientless may finish a valid pickup
+                    // without exposing every intermediate player Confirm callback.
+                    // Those flags drive the handshake, but are not delivery evidence.
+                    // Still require our accepted, exact order offer to this collector.
+                    if (!_withdrawalAccepted || _pickupDeclineSent || _pickupItems.Count == 0 ||
+                        !_pickupOfferedIds.SetEquals(_pickupItems.Select(row => row.Id)))
                     {
                         ResetWithdrawalTrade(); // persisted pickup-trading requires physical reconciliation
                         throw new InvalidOperationException("Pickup completion lacks accepted offer evidence.");
                     }
+                    if (!_pickupFinalAcceptSent || !_pickupPlayerConfirmed)
+                        Logger.Information("[CityBankers] PICKUP completion verified by AO Finished and exact inventory delta; " +
+                            "intermediate confirmation callbacks incomplete; order=" + state.OrderId + ".");
                     // Persist the entire confirmed delivery before per-item archival.
                     List<string> ids = _pickupItems.Select(row => row.Id).ToList();
                     WithdrawalStore.Update(_settingsDir, current =>

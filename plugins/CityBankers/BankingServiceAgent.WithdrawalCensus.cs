@@ -74,6 +74,7 @@ namespace CityBankers
             });
             _withdrawalDisputePause = StartupCensusGate.PauseLocalCensus(reason);
             _withdrawalDispute = true;
+            Logger.Warning("[CityBankers] WITHDRAWAL CENSUS REQUIRED batch=" + _receipt.BatchId + ": " + reason);
             return true;
         }
 

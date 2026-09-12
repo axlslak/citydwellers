@@ -1,3 +1,13 @@
+## Session 92 — verified pickup completion (resolved)
+
+- [CONFIRMED CAUSE] Owner collected two identical items successfully. Uploaded withdrawal census preserved the error "Pickup completion lacks accepted offer evidence." The throwing callback runs after AO Finished and exact settled inventory verification. Missing intermediate confirmation flags prevented recording delivery; subsequent census removed absent claims and reported two false losses.
+- [FIX] Completion no longer requires the intermediate player-confirmed/final-accept flags. It still requires AO Finished, exact settled outgoing inventory delta, Central's accepted offer, a nonempty pickup order, matching offered request IDs and no requested pickup decline. Initial Accept still requires an exact settled offer to the authorized collector. Handshake-driving behavior is unchanged.
+- [BOUNDARIES] Confirmed delivery is persisted for the entire pickup before ordinary archival. Actual inventory mismatch, missing offer evidence and conflicting Declined paths retain recovery behavior. No absence-only delivery inference, automatic historical repair or changes to genuine loss detection.
+- [DIAGNOSTICS] Log successful verified completion with incomplete intermediate callbacks; withdrawal census now logs its triggering reason at entry.
+- [OWNER CLEANUP] Owner chose to stop bots after updating, delete lost.json containing only the two known false incidents, and donate the two collected items back normally. Do not edit their live data, replay old census files, or reconstruct missing historical delivery records automatically.
+- [OTHER OWNER EVIDENCE] Running bot logged a newer repository revision during the periodic check; owner confirmed that live behavior. lost/found windows also exercised: zero losses initially, existing donorless stock visible.
+- [VALIDATION] Focused static review of exact-offer acceptance, Finished-to-inventory callback, completion guard, declined/mismatch paths and confirmed-delivery archival exclusions; diff check. No compilation/test suites/live runs under owner policy. Resolved on publication; no pending testing gate.
+
 ## Session 91 — raid status naming clarification (resolved)
 
 - [OWNER CLARIFICATION] raid status is the sole raid-details command. Removed the newly introduced raid progress alias and its help references.
