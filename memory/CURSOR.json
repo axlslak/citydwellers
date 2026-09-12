@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 92,
+  "current_session": 93,
   "last_completed_session": 92,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-92-pickup-completion",
-  "checkpoint_commit": "e792e4af9d71c6c232569d76f9c6ac6e4c698b1d",
-  "task": "Verified pickup completion fix resolved",
-  "resume_instruction": "Session92 resolved: Finished plus exact inventory delta and accepted exact pickup offer suffice without intermediate Confirm flags. Dispute reasons logged. Owner handles two historical false loss entries after update; no automatic data repair. Next journal239.",
-  "base_commit": "2d0f8398c662e8f0b46b09e82023b0352f442d64"
+  "transaction": "session-93-cru",
+  "checkpoint_commit": "3b4ccb191892e44996d69b72142821c46a254204",
+  "task": "Implement Central-held CRU stack donations and normal one-unit pickups",
+  "resume_instruction": "Implement reusable stack quantity/split/merge integration from owner-uploaded sources; CRU AOID257110 stays on Central, shared orders, hidden stock/donor, backend delivery allowed. Owner builds/live tests. No extra restrictions.",
+  "base_commit": "3b4ccb191892e44996d69b72142821c46a254204"
 }
