@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 98,
+  "current_session": 99,
   "last_completed_session": 98,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-98-cru-merge",
+  "transaction": "session-99-cru-move-stack",
   "checkpoint_commit": "0d8b9da30fff6f67d1f885f230709f5653168c78",
-  "task": "CRU merge packet correction resolved",
-  "resume_instruction": "GenericCmd UseItemOnItem replaces unsuccessful CharacterAction CombineWith. Owner builds/tests; merge response not yet verified. Single-unit intake owner-confirmed. Next journal251.",
-  "base_commit": "2d38ae2602b02d2e4c049cf280a6f9306e4f64f1"
+  "task": "Stack CRU through inventory move",
+  "resume_instruction": "Owner confirms stacking is left-click move onto occupied slot, not use/combine. Replace merge request with MoveToInventory(target slot). Static review only.",
+  "base_commit": "02224c23d0094d7e270f3deff8747ab25cee83e4"
 }
