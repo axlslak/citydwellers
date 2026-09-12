@@ -1,3 +1,11 @@
+## Session 81 — compact cloak history and small owner adjustments
+
+- [CHANGE] The existing observe-only cloak response appends Cloak History: newest 25 observed org cloak on/off announcements, one row per event, gold UTC date/time, cyan character, green enabled/red disabled, white separator and cloak. Routine probes/cache reads are excluded because their actor is the observer, not the changer. Existing five-row diagnostic status history stays intact. History is also available with unavailable/busy probe replies. No user flip control added.
+- [REFERENCE] Read Nadybot CloakController.php (upstream unstable, blob 258254fffd92f20dca01935b4c419ffb0ecf5915): current status plus historical on/off entries; our compact renderer uses existing channel pagination.
+- [BUDGET] Org page limit 5600 -> 5200; guest 6500 -> 8000; tell remains 7200. Full rows stay together, with pagination as fallback.
+- [TIMING] Owner requested +10 seconds: Wave8OffsetSeconds 945 -> 955 (assistance deadline); actual login is separately controlled by GeneralBuddyStartOffsetSeconds 975 -> 985, so it also moves +10 seconds. Timing text updated; measured wave milestones and cleanup remain unchanged.
+- [WORKFLOW] Based on latest master 092b563, preserving published owner edits; publish only this focused file set and reject non-fast-forward updates. Owner builds/live tests. Static diff/API/call-path/markup budget review only; no assistant build or live actions.
+
 ## Session 80 — AO-safe presentation markers
 
 - [OWNER VERIFIED] Owner reports everything seems to work as intended; current work is limited to small cosmetic nitpicks.

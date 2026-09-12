@@ -22,9 +22,10 @@ namespace CityManager
         private const int CityTargetAfterCloakSeconds = 180;
         // Measured from the authoritative city-targeted system event: wave 8
         // arrives at +945s and the general physically lands at about +1125s.
-        // General-only buddies enter thirty seconds after wave 8 arrives.
-        private const int Wave8OffsetSeconds = 945;
-        private const int GeneralBuddyStartOffsetSeconds = 975;
+        // Owner adjustment: assistance cutoff +955s; general-only buddies enter
+        // forty seconds after the measured wave 8 arrival (+985s).
+        private const int Wave8OffsetSeconds = 955;
+        private const int GeneralBuddyStartOffsetSeconds = 985;
         private const int BuddyLogoutOffsetSeconds = 1125;
         private const int GeneralBuddySafetyLeaseSeconds =
             BuddyLogoutOffsetSeconds - GeneralBuddyStartOffsetSeconds;
@@ -1883,7 +1884,7 @@ namespace CityManager
                 $"Raid city-targeted event accepted for {session.OwnerName} at {now:O}; location={location}.");
             DevTrace(
                 $"RAID TIMER START owner={session.OwnerName} location={location} anchor={now:O}; " +
-                $"wave8=+945s buddy-spinup=+975s general=+1065s cleanup=+1125s.");
+                $"wave8=+945s assist-cutoff=+955s buddy-spinup=+985s general=+1065s cleanup=+1125s.");
             SaveRaidState();
             Reply(session.Origin, BuildRaidWindow(session));
         }
@@ -1961,7 +1962,7 @@ namespace CityManager
                 elapsed >= GeneralBuddyStartOffsetSeconds &&
                 !session.BuddySpinupRequested)
             {
-                BeginRaidBuddySpinup(session, "30 seconds after wave 8 arrival");
+                BeginRaidBuddySpinup(session, "40 seconds after wave 8 arrival");
             }
         }
 
@@ -2683,7 +2684,7 @@ namespace CityManager
             if (reply == null)
                 return false;
 
-            Reply(target, reply);
+            ReplyWithCloakHistory(target, reply);
             return true;
         }
 

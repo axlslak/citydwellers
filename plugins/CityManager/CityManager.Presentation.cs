@@ -13,8 +13,8 @@ namespace CityManager
 {
     public partial class CityManager
     {
-        private const int OrgBlobPageSize = 5600;
-        private const int GuestBlobPageSize = 6500;
+        private const int OrgBlobPageSize = 5200;
+        private const int GuestBlobPageSize = 8000;
         private const int TellBlobPageSize = 7200;
 
         private const string ColorTitle = "#89D2E8";
@@ -755,6 +755,30 @@ namespace CityManager
             }
         }
 
+        private void ReplyWithCloakHistory(ReplyTarget target, string summary)
+        {
+            var body = new StringBuilder();
+            List<CloakEventRecord> events = LoadRecentCloakEvents(25, true);
+            foreach (CloakEventRecord record in events)
+            {
+                string actor = string.IsNullOrWhiteSpace(record.Actor) ? "Unknown" : record.Actor;
+                bool enabled = record.NewStatus == CloakStatus.Enabled;
+                body.Append("<font color='").Append(ColorCommand).Append("'>")
+                    .Append(UtcTimestamp.Normalize(record.OccurredUtc).ToString(
+                        "dd-MMM-yyyy HH:mm 'UTC'", CultureInfo.InvariantCulture))
+                    .Append("</font> - <font color='").Append(ColorTitle).Append("'>")
+                    .Append(EscapeBlobText(actor))
+                    .Append("</font> <font color='").Append(enabled ? ColorGood : ColorBad)
+                    .Append("'>").Append(enabled ? "enabled" : "disabled")
+                    .Append("</font> cloak\n");
+            }
+            if (events.Count == 0)
+                body.Append("No cloak changes have been observed yet.");
+
+            Reply(target, BuildBlobLinks(target, "Cloak History", "Cloak History", body.ToString())
+                .Select(link => summary + " " + link));
+        }
+
         private string BuildCloakHistoryForBlob(int limit)
         {
             List<CloakEventRecord> events = LoadRecentCloakEvents(limit);
@@ -793,7 +817,7 @@ namespace CityManager
             return body.ToString();
         }
 
-        private List<CloakEventRecord> LoadRecentCloakEvents(int limit)
+        private List<CloakEventRecord> LoadRecentCloakEvents(int limit, bool announcementsOnly = false)
         {
             var recent = new List<CloakEventRecord>();
             if (limit <= 0 || string.IsNullOrWhiteSpace(_eventsPath) || !File.Exists(_eventsPath))
@@ -811,6 +835,11 @@ namespace CityManager
                         CloakEventRecord record =
                             JsonConvert.DeserializeObject<CloakEventRecord>(line);
                         if (record == null)
+                            continue;
+                        // Probes/cache reads identify the observer, not the character who flipped it.
+                        if (announcementsOnly &&
+                            !((record.EventType == "cloak_on_announcement" && record.NewStatus == CloakStatus.Enabled) ||
+                              (record.EventType == "cloak_off_announcement" && record.NewStatus == CloakStatus.Disabled)))
                             continue;
 
                         recent.Add(record);

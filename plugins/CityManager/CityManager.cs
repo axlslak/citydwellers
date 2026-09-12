@@ -874,7 +874,7 @@ namespace CityManager
                         Logger.Warning($"IPC <- Flipper {request.Id}: FAIL {response.Message}");
                         DevTrace($"FLIPPER FAIL [{shortId}]: {response.Message}");
 
-                        Reply(target, CloakPresentation.Unavailable());
+                        ReplyWithCloakHistory(target, CloakPresentation.Unavailable());
 
                         return;
                     }
@@ -892,7 +892,7 @@ namespace CityManager
                         DevTrace(
                             $"FLIPPER FAIL [{shortId}]: rejected future-dated " +
                             $"cache observation {invalidTime}.");
-                        Reply(target, CloakPresentation.Unavailable());
+                        ReplyWithCloakHistory(target, CloakPresentation.Unavailable());
                         return;
                     }
 
@@ -922,14 +922,14 @@ namespace CityManager
                     Logger.Information($"IPC <- Flipper {request.Id}: {diagnosticReply}");
                     DevTrace($"FLIPPER OK [{shortId}]: {diagnosticReply}");
 
-                    Reply(target, reply);
+                    ReplyWithCloakHistory(target, reply);
                 }
                 catch (Exception ex)
                 {
                     Logger.Warning($"Flipper IPC failed: {ex.Message}");
                     DevTrace($"FLIPPER ERROR: {ex.Message}");
 
-                    Reply(target, CloakPresentation.Unavailable());
+                    ReplyWithCloakHistory(target, CloakPresentation.Unavailable());
                 }
             });
         }
