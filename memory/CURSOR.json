@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 98,
-  "last_completed_session": 97,
-  "status": "in_progress",
+  "last_completed_session": 98,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-98-cru-merge",
-  "checkpoint_commit": "6eac5983c48a5b16e90cabe2d8a0577575b3d96c",
-  "task": "Correct CRU merge interaction packet",
-  "resume_instruction": "Owner four-single intake works; CombineWith attempts time out. Switch to uploaded AOSharp GenericCmd UseItemOnItem helper shape; static review only.",
+  "checkpoint_commit": "0d8b9da30fff6f67d1f885f230709f5653168c78",
+  "task": "CRU merge packet correction resolved",
+  "resume_instruction": "GenericCmd UseItemOnItem replaces unsuccessful CharacterAction CombineWith. Owner builds/tests; merge response not yet verified. Single-unit intake owner-confirmed. Next journal251.",
   "base_commit": "2d38ae2602b02d2e4c049cf280a6f9306e4f64f1"
 }
