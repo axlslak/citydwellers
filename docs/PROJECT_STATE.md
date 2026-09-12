@@ -1,3 +1,9 @@
+## Session 91 — raid status naming clarification (resolved)
+
+- [OWNER CLARIFICATION] raid status is the sole raid-details command. Removed the newly introduced raid progress alias and its help references.
+- [SCOPE] Generic status retains its existing raid information; only the owner name display changes to main via original requesting alt. The detailed raid status window remains read-only. This supersedes session90 alias documentation.
+- [VALIDATION] Small command-shape/help diff reviewed; no build or live tests. Resolved on publication.
+
 ## Session 90 — alt-aware raid controls and on-demand status (resolved)
 
 - [FIX] Raid ownership recognizes the initiating character or a character linked to the same canonical main. Existing token/stage checks remain; linked alts can configure, start, reopen and cancel their raid. The persisted OwnerName/OwnerId remain the original requesting character; changing controller alts never overwrites that origin.

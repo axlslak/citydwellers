@@ -360,7 +360,7 @@ namespace CityManager
                 "get [AO item ID]",
                 "Reserve an item and collect it from Kbcentral within three minutes. Alias: withdraw."));
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
-            body.Append(HelpSyntaxLine(target, "raid status", "View current raid progress; alias: raid progress."));
+            body.Append(HelpSyntaxLine(target, "raid status", "View current raid information."));
             body.Append(HelpSyntaxLine(target, "cancel [raid-token]", "Cancel your active raid."));
             body.Append(HelpSyntaxLine(target, "alts [character]", "Show known mains and alts."));
             body.Append(HelpSyntaxLine(target, "join", "Ask for a guest-channel invite."));
@@ -404,7 +404,7 @@ namespace CityManager
                     "Raids",
                     "The Manager guides setup in a blob, coordinates Buddies and Flipper, and keeps the owner informed through each stage.") +
                 HelpSyntaxLine(target, "raid", "Open or resume raid setup in organization or guest chat; linked alts share ownership.") +
-                HelpSyntaxLine(target, "raid status", "View the current raid, requester and progress. Alias: raid progress.") +
+                HelpSyntaxLine(target, "raid status", "View the current raid, requester and progress.") +
                 HelpSyntaxLine(target, "cancel [raid-token]", "Cancel the raid you own; administrators may cancel any raid.") +
                 HelpSyntaxLine(target, "raidassist [count] [raid-token]", "Officer button used to contribute additional raiders.") +
                 HelpSyntaxLine(target, "raidassist level [level] [raid-token]", "Officer button used to choose an assistance level.") +

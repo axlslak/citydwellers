@@ -2754,8 +2754,7 @@ namespace CityManager
 
         private static bool IsRaidStatusCommand(string[] parts) =>
             parts != null && parts.Length == 2 &&
-            (string.Equals(parts[1], "status", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(parts[1], "progress", StringComparison.OrdinalIgnoreCase));
+            string.Equals(parts[1], "status", StringComparison.OrdinalIgnoreCase);
 
         private string RaidOwnerDisplay(RaidSession session, bool markup = false)
         {
