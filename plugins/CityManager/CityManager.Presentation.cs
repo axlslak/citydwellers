@@ -622,7 +622,7 @@ namespace CityManager
                     orgOutput,
                     bankers);
 
-                List<string> links = BuildBlobLinks(target, "System Status", "Open status", body);
+                List<string> links = BuildBlobLinks(target, "City Dwellers Status", "Open status", body, BuildStatusHeading());
                 string healthColor = flipper.IsUsable && buddies.IsUsable && bankers.IsUsable
                     ? ColorGood
                     : ColorWarn;
@@ -650,11 +650,6 @@ namespace CityManager
             BankerStatusSnapshot bankers)
         {
             var body = new StringBuilder();
-            body.Append(HelpHeader(
-                "City Dwellers System Status",
-                "A member-facing snapshot of the Manager and the city services it coordinates."));
-            body.Append("\n").Append(BuildVersionsForBlob());
-
             body.Append(StatusSection("Manager"));
             body.Append(StatusLine(true, "State", "Online and answering commands"));
             body.Append(StatusLine(true, "Uptime", FormatDuration(_managerUptime.Elapsed)));
@@ -668,7 +663,6 @@ namespace CityManager
             body.Append("\n").Append(StatusSection("City cloak"));
             body.Append(StatusLine(_status != CloakStatus.Unknown, "Cloak", cloak));
             body.Append(StatusLine(true, "Recovery", recovery));
-            body.Append(BuildCloakHistoryForBlob(5));
 
             body.Append("\n").Append(StatusSection("Workers"));
             body.Append(StatusLine(flipper.IsUsable, "Flipper", flipper.PublicText + " - " + flipper.Detail));
@@ -684,25 +678,6 @@ namespace CityManager
             body.Append(StatusLine(true, "Alts", alts));
             body.Append(StatusLine(true, "Members", membership));
 
-            body.Append("\n").Append(StatusSection("Useful commands"));
-            body.Append(HelpMenuLine(
-                target,
-                "cloak",
-                "Refresh cloak",
-                "Ask Flipper for a cloak observation."));
-            body.Append(HelpMenuLine(
-                target,
-                "raid",
-                "Open raid setup",
-                "Begin or resume a raid request."));
-            body.Append(HelpMenuLine(
-                target,
-                "help",
-                "Open help",
-                "Browse the full manual."));
-
-            body.Append("\n<font color='").Append(ColorMuted)
-                .Append("'>Worker detail reflects the instant this blob was created. Re-run status to refresh it.</font>");
             return body.ToString();
         }
 
@@ -756,34 +731,14 @@ namespace CityManager
             }
         }
 
-        private string BuildVersionsForBlob()
+        private string BuildStatusHeading()
         {
-            var body = new StringBuilder(StatusSection("Build versions"));
-            foreach (ComponentBuild build in BuildIdentity.GetComponents())
-            {
-                bool loaded = !string.IsNullOrWhiteSpace(build.Loaded);
-                string revision = loaded ? build.Loaded : build.Installed;
-                body.Append("  <font color='").Append(ColorTitle).Append("'>")
-                    .Append(EscapeBlobText(build.Name)).Append("</font> ")
-                    .Append(BuildRevisionForBlob(revision, build.DiffersFromHost))
-                    .Append(" <font color='").Append(ColorMuted).Append("'>(")
-                    .Append(loaded ? "loaded" : "installed").Append(")</font>");
-                if (build.DiffersFromInstalled)
-                    body.Append(" - installed ").Append(BuildRevisionForBlob(build.Installed, false));
-                if (build.DiffersFromHost)
-                    body.Append(" <font color='").Append(ColorWarn).Append("'>differs from host</font>");
-                body.Append("\n");
-            }
+            string local = BuildIdentity.GetComponents().First(build => build.Name == "CityDwellers").Loaded ?? "unknown";
             RepositoryUpdateSnapshot update = RepositoryUpdates.Read();
-            string color = update.State == "current" ? ColorGood :
-                update.State == "checking" ? ColorCommand :
-                update.State == "uncomparable" ? ColorBad : ColorWarn;
-            body.Append("  <font color='").Append(ColorTitle).Append("'>GitHub master</font> ");
-            if (!string.IsNullOrWhiteSpace(update.LatestRevision))
-                body.Append(BuildRevisionForBlob(update.LatestRevision, false)).Append(" - ");
-            body.Append("<font color='").Append(color).Append("'>")
-                .Append(EscapeBlobText(update.Detail)).Append("</font>\n");
-            return body.ToString();
+            string online = update.LatestRevision ?? (update.State == "checking" ? "checking" : "unknown");
+            return "<font color='" + ColorTitle + "'><b>City Dwellers Status</b></font> - " +
+                BuildRevisionForBlob(local, update.State == "outdated") + " - " +
+                BuildRevisionForBlob(online, update.State == "unavailable");
         }
 
         private string BuildRevisionForBlob(string revision, bool differs)
@@ -989,12 +944,15 @@ namespace CityManager
             ReplyTarget target,
             string title,
             string label,
-            string content)
+            string content,
+            string headingMarkup = null)
         {
             // Existing channel constants remain the sole page limits. Reserve room
             // for the escaped title/link, page numbering and callers' short summaries.
             int envelope = Encoding.UTF8.GetByteCount(EscapeTextUri(title ?? string.Empty)) +
                 Encoding.UTF8.GetByteCount(EscapeBlobText(label ?? string.Empty)) + 512;
+            if (headingMarkup != null)
+                envelope += Encoding.UTF8.GetByteCount(EscapeTextUri(headingMarkup));
             List<string> pages = PaginateBlob(content, Math.Max(256, BlobPageSize(target) - envelope));
             var links = new List<string>();
 
@@ -1006,9 +964,11 @@ namespace CityManager
                 string pageLabel = pages.Count == 1
                     ? label
                     : label + " " + (index + 1) + "/" + pages.Count;
-                string payload =
-                    "<font color='" + ColorTitle + "'><b>" +
-                    EscapeBlobText(pageTitle) + "</b></font>\n\n" +
+                string heading = headingMarkup ??
+                    ("<font color='" + ColorTitle + "'><b>" + EscapeBlobText(pageTitle) + "</b></font>");
+                if (headingMarkup != null && pages.Count > 1)
+                    heading += " - Page " + (index + 1) + "/" + pages.Count;
+                string payload = heading + "\n\n" +
                     CityBankers.Shared.CityBankersChatPalette.WhiteBaseMarkup(pages[index]);
                 links.Add(
                     "<a href=\"text://" + EscapeTextUri(payload) + "\">" +

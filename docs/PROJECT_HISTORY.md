@@ -1,3 +1,10 @@
+## Session 84 — compact status window
+
+- [OWNER DIRECTION] One repository revision is sufficient; no separate component versioning requested. Shorten the visible status only by the explicitly named sections.
+- [CHANGE] Single coloured heading: City Dwellers Status - running host revision - online revision. Removed component build list, introductory title/subtitle, recent five cloak diagnostic observations, Useful commands and refresh footer. Manager, current cloak/recovery, workers/activity, bankers and current operations remain intact. Cloak command history remains available. Detailed component diagnostics/startup logs and background update checks are preserved.
+- [PAGING] Status uses a custom heading through the existing blob helper, including heading byte allowance and page numbering if still needed. Channel limits unchanged. Do not promise a fixed page count for variable runtime data or remove more fields without owner direction.
+- [VALIDATION] Focused source diff/markup/call-site/whitespace review only. No assistant build/live tests. Owner rebuild and inspect actual status page count.
+
 ## Session 83 — version discovery, colour and HTTPS update visibility
 
 - [OWNER EVIDENCE] Session82 binaries reported unknown. The old build script silently converted every exception/failure into unknown, so runtime logs cannot establish the exact failed build step. Do not claim a proven specific cause without the owner's new build output.
