@@ -1,11 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 79,
-  "last_completed_session": 78,
-  "status": "in_progress",
+  "last_completed_session": 79,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-79-presentation",
-  "base_commit": "b5eaef6266f538fdf05ed4c7c419ca3f352d15e9",
-  "task": "Consistent semantic output, item icons, expanded help/status without operational changes",
-  "resume_instruction": "First presentation pass: shared palette, debug/tells, icon map from owner items dump, enrich help/status. Preserve existing channel constants and donation/raid style. No trading logic changes, owner builds/tests. Next journal212."
+  "base_commit": "3f02750aa07680014cbb95a9b58e0e22598ddbc5",
+  "task": "Owner build/live review of first presentation pass and pending player pickup handshake",
+  "resume_instruction": "Session79 3f02750aa07680014cbb95a9b58e0e22598ddbc5 adds shared semantic formatting, native item icons from106593-entry embedded mapping, linked item/QL tells, richer status and current banker/donor help. Channel constants unchanged5600/6500/7200; stock uses shared pagination. Owner inspect phatz/donor/inventory/status/help and debug/tells. No assistant build/test/live changes. Session78 player pickup still awaiting live confirmation. CRU and policy-ID aliases unimplemented. Next journal213; acquire transaction before edits; never repeat historical repair."
 }
