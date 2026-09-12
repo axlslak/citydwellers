@@ -26,6 +26,7 @@ namespace CityBankers
         private string _lastStackFailure;
         private readonly Stopwatch _stackFailureAge = Stopwatch.StartNew();
         private bool _cruRecovered;
+        private bool _automaticCruStackingEnabled;
 
         private List<Item> CruInventory() => (Inventory.Items ?? new List<Item>()).Where(i =>
             StackableItems.IsStack(i) && i.Slot.Type == IdentityType.Inventory && StackableItems.Quantity(i) != 0).ToList();
@@ -111,6 +112,10 @@ namespace CityBankers
                     { row.Status = "reconciled"; row.Error = "CRU pickup interrupted; please request again."; WithdrawalStore.Touch(row); }
                     return true;
                 });
+                _automaticCruStackingEnabled = (bool?)SettingsPaths.ReadBankersSettings(
+                    _settingsDir)["EnableAutomaticCruStacking"] ?? false;
+                if (!_automaticCruStackingEnabled)
+                    Logger.Information("[CityBankers] Automatic CRU merging paused; donations and requested pickups remain enabled.");
                 _cruRecovered = true;
             }
             if (_stackOperation != null) return TickStackOperation();
@@ -156,7 +161,10 @@ namespace CityBankers
                 StackableItems.Split(stack, 1);
                 return true;
             }
-            if (available.Count < 2) return false;
+            // Unverified background merges must not repeatedly acquire the shared
+            // operation guard and interrupt otherwise unrelated banking work.
+            // Explicit requests above still use singles or perform a requested split.
+            if (!_automaticCruStackingEnabled || available.Count < 2) return false;
             Item target = available.OrderByDescending(StackableItems.Quantity).First();
             Item source = available.FirstOrDefault(i => !ReferenceEquals(i, target) && i.Id == target.Id &&
                 i.HighId == target.HighId && i.Ql == target.Ql);

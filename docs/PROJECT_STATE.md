@@ -1957,3 +1957,18 @@ request shapes are superseded. Server-observed completion remains required;
 response cache handling still needs live evidence. ICE source stays private and
 is not committed. Display quantities deferred at owner's request; bank-to-inventory
 auto-stack idea remains an unused fallback. Static source/diff review only.
+
+## 2026-09-13 — Pause background CRU merging (session 101)
+
+Owner reports repeated player refusals during CRU preparation, followed by
+worker offer-ack timeouts. Source confirms pending stack operations reject both
+incoming player trades and general worker IPC; the worker failures' exact causal
+chain is not established because active dispatch also normally prevents new
+stack starts. Background merging now defaults off; optional Bankers setting
+EnableAutomaticCruStacking=true explicitly restores diagnostic attempts after
+restart. Donations, existing-single pickup and explicitly requested splits remain
+enabled. This removes unsolicited merge retry windows rather than deleting the
+operation guard around actual item mutation. No settings edit is required.
+CRU automatic stacking is unfinished pending packet/response evidence; display
+quantities remain deferred. Worker timeout diagnosis remains unconfirmed. Static
+source/diff review only; owner builds/tests.
