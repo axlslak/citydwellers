@@ -1,12 +1,11 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 82,
-  "last_completed_session": 81,
-  "status": "in_progress",
+  "last_completed_session": 82,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-82-build-identity",
-  "checkpoint_commit": "b049d9b413291fc4df68465431f8ce801cb1b972",
-  "task": "Build identity for running binaries",
-  "resume_instruction": "Implement build-time Git stamp and runtime identity reports; owner build/live verification. Next journal218.",
-  "base_commit": "4f2adafc35b52ba3eeffc4705df52334b0a9f612"
+  "checkpoint_commit": "94f636e4faef307cb06848b78f3bb5831f2847ed",
+  "task": "Embedded binary build identity completed",
+  "resume_instruction": "Owner build solution and copy EXE/DLLs; inspect BUILD startup lines, Running builds in status and dump revisions. Missing reports mean not loaded or older plugin; unknown means Git stamp unavailable. Continue cosmetic QoL requests. Next journal219."
 }
