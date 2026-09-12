@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 95,
+  "current_session": 96,
   "last_completed_session": 95,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-95-bank-terminal",
+  "transaction": "session-96-dynel",
   "checkpoint_commit": "d7ef86cd62f3bdd0feaebbed98bb75a15537d39a",
-  "task": "Office bank target correction resolved",
-  "resume_instruction": "Updated bank default and optional Bankers.CityOfficeBankTerminalInstance override. Owner builds/tests; no assistant build. Next journal245.",
-  "base_commit": "c2651ea68a55d3b5a06600963bfd9905b32ee5a7"
+  "task": "Temporary Central dynel command",
+  "resume_instruction": "Add #dynel using existing report IPC to snapshot Central live list, even when bank startup fails. No user-facing docs requested. Static review only.",
+  "base_commit": "eb01460b22c32510f186477b729eefe59b62e0e4"
 }
