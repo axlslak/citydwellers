@@ -1,3 +1,24 @@
+## Session 87 — owner acceptance: current work resolved
+
+This checkpoint supersedes earlier OPEN/pending-validation notes for current fixes. Preserve those notes as historical provenance, not an active checklist. The owner explicitly accepts all current work as resolved until an actual bug report. Do not reopen speculative tests or cosmetic cleanup on recovery.
+
+- [OWNER VERIFIED / ACCEPTED] Git revisions and update visibility work. Owner deliberately ran an older build, observed the outdated result and its status presentation, and accepts version/update behavior. Hourly refresh was not separately waited for; network-failure handling was not outage-tested. Both are accepted as nonblocking, with no further validation required now. Notifications are log/status based; absence of chat notifications is not a bug.
+- [OWNER VERIFIED / ACCEPTED] Symb/spirit offer windows are satisfactory. Current aliases/Ocular corrections and other presentation work are accepted under the owner's all-resolved direction. Cloak history is correct and pretty; guest-channel status fit is accepted even though org remains multipage. No active item-name parser cleanup task remains.
+- [OWNER ACCEPTED] Ten-second buddy delay is resolved. Owner has not run a dedicated raid timing test and does not require one now; do not mislabel this as measured timing proof.
+- [OWNER VERIFIED / ACCEPTED] Owner performed withdrawal checks with duplicate and nonduplicate items and various other scenarios; everything worked. All prior withdrawal validation follow-ups are closed by owner acceptance. Do not invent a detailed scenario-by-scenario transcript or require repeated tests without a concrete defect.
+- [OPERATING REASON] Compiled output is copied from the repository release directory into a separate deployed runtime (C:/release) so the server can keep running a working build while compilation errors are fixed. Preserve this deliberate build/deployment separation; it is not redundant copying.
+
+### Deliberately deferred development — not current bugs
+
+1. Buddy movement/navigation work.
+2. Central erroneous-transaction/loss reporting: a command showing what was lost over time.
+3. Delivery-history command showing what was given to whom over time.
+4. CRU distribution service.
+
+The owner expects underlying loss/transaction and delivery information to remain in data; those reporting commands have deliberately not been developed. This checkpoint does not independently audit data completeness. Inspect the existing persisted records when that future development is requested. Do not implement deferred work automatically.
+
+[CURRENT STATUS] Happy, accepted, no active reported bug or required validation task. Await the next owner request or an actual bug report. Documentation-only checkpoint; no code/runtime/data changes or tests.
+
 ## Session 86 — Ocular item-name classification
 
 - [CAUSE] Stock DetectSlot searched for eye but not ocular; Active Ocular Symbiant, Extermination Unit Aban therefore resolved to no slot. This classifier serves all five symbiant families. Session85 command-input aliases did not change stored item-name classification.
