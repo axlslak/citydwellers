@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 105,
-  "last_completed_session": 104,
-  "status": "in_progress",
+  "last_completed_session": 105,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-105-receiving-space",
-  "checkpoint_commit": "ea1ad6c7c9f5b85d736343edb02618cbf4e02f21",
-  "task": "Prepare worker receiving capacity and explain dispatch waits",
-  "resume_instruction": "Audit preflight must reserve full trade plus bag slot where bank space permits; propagate worker insufficient-space reason. Log proves audit9 succeeds but two-item phatz donation remains queued.",
+  "checkpoint_commit": "b5847ffe7ea0247a02e67533c7c2eb530dc9e04e",
+  "task": "Worker receiving reserve resolved",
+  "resume_instruction": "Published 11-slot receiving reserve pre-census when bank space permits; explicit space/IPC wait diagnostics. Owner builds/restarts, normal recovery retains donated items. Next journal265. CRU unchanged.",
   "base_commit": "4a037059b539da10ba3c2cd1f87ef085e75eccce"
 }
