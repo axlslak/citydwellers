@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 103,
-  "last_completed_session": 102,
-  "status": "in_progress",
+  "last_completed_session": 103,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-103-bankid",
-  "checkpoint_commit": "89da48f63742d47f2381b3a785fee90c85d6c302",
-  "task": "Runtime bankid command with officer-alt authority",
-  "resume_instruction": "Implement persisted runtime bankid with current seed1477725977, admin or existing highest officer alt authorization, live retry and status needs bankid. Owner builds/tests.",
+  "checkpoint_commit": "34ed4d51612be7296d4bb65f42a0e71b1ccdca6d",
+  "task": "Runtime bankid command resolved",
+  "resume_instruction": "Published #bankid NUMBER with persisted JSON, current seed1477725977, existing admin/officer highest-rank alt authority, runtime closed-bank retries/status failure. Old startup setting superseded. Owner builds/tests. CRU diagnostics unchanged. Next journal261.",
   "base_commit": "3761ae9fb8f85f8ac6ecfc601434375f2e798181"
 }
