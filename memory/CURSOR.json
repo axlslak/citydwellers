@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 102,
+  "current_session": 103,
   "last_completed_session": 102,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-102-cru-header",
+  "transaction": "session-103-bankid",
   "checkpoint_commit": "89da48f63742d47f2381b3a785fee90c85d6c302",
-  "task": "Captured CRU header correction and diagnostics published",
-  "resume_instruction": "Owner enable Bankers.EnableAutomaticCruStacking=true then rebuild/restart; one merge attempt only. Collect STACK SENT/RECV and physical result. Header Unknown0 fixed; native action53 cache handling absent, verification may time out. Next journal259.",
-  "base_commit": "b967046f442ba3b69fb8e220d04726a284921f58"
+  "task": "Runtime bankid command with officer-alt authority",
+  "resume_instruction": "Implement persisted runtime bankid with current seed1477725977, admin or existing highest officer alt authorization, live retry and status needs bankid. Owner builds/tests.",
+  "base_commit": "3761ae9fb8f85f8ac6ecfc601434375f2e798181"
 }
