@@ -25,9 +25,13 @@ namespace CityBankers
         // The city office building exposes this real terminal to the game UI,
         // but AOSharp currently omits it from DynelManager.AllDynels.
         private const int CityOfficePlayfieldModelId = 6152312;
-        private const int DefaultCityOfficeBankTerminalInstance = 1478332417;
+        private const int DefaultCityOfficeBankTerminalInstance = SettingsPaths.InitialBankTerminalInstance;
         private int _cityOfficeBankTerminalInstance = DefaultCityOfficeBankTerminalInstance;
         private bool _usedCityOfficeBankFallback;
+        private bool _bankNeedsId;
+        private bool _bankWasOpen;
+        private string _bankTerminalRevision;
+        private readonly Stopwatch _bankConfigPoll = Stopwatch.StartNew();
         private const float CityOfficeBankX = 185f;
         private const float CityOfficeBankY = 6.02f;
         private const float CityOfficeBankZ = 173f;
@@ -60,19 +64,9 @@ namespace CityBankers
                 throw new InvalidOperationException(settingsError);
 
             _settingsDir = settingsDir;
-            var bankSettings = SettingsPaths.ReadBankersSettings(settingsDir);
-            var terminalSetting = bankSettings.GetValue(
-                "CityOfficeBankTerminalInstance", StringComparison.OrdinalIgnoreCase);
-            if (terminalSetting != null)
-            {
-                int configuredInstance;
-                if (!int.TryParse(terminalSetting.ToString(), out configuredInstance) ||
-                    configuredInstance <= 0)
-                    throw new InvalidDataException(
-                        "Bankers.CityOfficeBankTerminalInstance must be a positive integer " +
-                        "from the office bank terminal's Info Manager Instance field.");
-                _cityOfficeBankTerminalInstance = configuredInstance;
-            }
+            var bankTerminal = SettingsPaths.ReadBankTerminal(settingsDir);
+            _cityOfficeBankTerminalInstance = (int)bankTerminal["Instance"];
+            _bankTerminalRevision = (string)bankTerminal["Revision"];
 
             pluginDir = RuntimeStateStore.GetDataDirectory(settingsDir);
             _dataDir = pluginDir;
@@ -190,6 +184,7 @@ namespace CityBankers
             if (!_inPlay)
                 return;
 
+            PollBankTerminal();
             PublishHealthHeartbeat();
 
             ProcessReportCommand();
@@ -221,8 +216,7 @@ namespace CityBankers
                     (_usedCityOfficeBankFallback
                         ? $" Office bank target instance={_cityOfficeBankTerminalInstance}. " +
                           "Compare with Info Manager: the terminal instance can change. " +
-                          "Set Bankers.CityOfficeBankTerminalInstance in citydwellers.json " +
-                          "to the current Instance and restart."
+                          "Need new bankid: use #bankid <Instance shown in game>."
                         : string.Empty));
             }
         }
@@ -243,6 +237,44 @@ namespace CityBankers
                 "AutoReconnect remains enabled.");
         }
 
+        private void PollBankTerminal()
+        {
+            bool open = Inventory.Bank != null && Inventory.Bank.IsOpen;
+            bool closedSinceOpen = _bankWasOpen && !open;
+            _bankWasOpen = open;
+            if (open && _bankNeedsId && _pendingResult != null)
+            {
+                // A late server response must replace the failed startup snapshot,
+                // otherwise enrollment can keep waiting despite an open bank.
+                _snapshotWritten = false;
+                CompleteDiagnostic(null);
+            }
+            if (open) _bankNeedsId = false;
+            if (!closedSinceOpen && _bankConfigPoll.ElapsedMilliseconds < 1000) return;
+            _bankConfigPoll.Restart();
+            try
+            {
+                var state = SettingsPaths.ReadBankTerminal(_settingsDir);
+                string revision = (string)state["Revision"];
+                int instance = (int)state["Instance"];
+                bool changed = revision != _bankTerminalRevision || instance != _cityOfficeBankTerminalInstance;
+                _bankTerminalRevision = revision;
+                _cityOfficeBankTerminalInstance = instance;
+                if (!open && (changed || closedSinceOpen))
+                {
+                    _snapshotWritten = false;
+                    _diagnosticStarted = false;
+                    _usedCityOfficeBankFallback = false;
+                    _bankNeedsId = false;
+                    _pendingResult = null;
+                    _snapshotDueUtc = DateTime.UtcNow;
+                    _nextHealthUtc = DateTime.MinValue;
+                    Logger.Information("BANK runtime retry requested; terminal instance=" + instance);
+                }
+            }
+            catch (Exception ex) { Logger.Warning("BANK runtime setting could not be read: " + ex.Message); }
+        }
+
         private void PublishHealthHeartbeat()
         {
             if (DateTime.UtcNow < _nextHealthUtc || string.IsNullOrWhiteSpace(_healthPath))
@@ -256,6 +288,8 @@ namespace CityBankers
                 Character = Client.CharacterName,
                 InPlay = Client.InPlay,
                 BankOpen = Inventory.Bank != null && Inventory.Bank.IsOpen,
+                BankNeedsId = _bankNeedsId,
+                BankTerminalInstance = _cityOfficeBankTerminalInstance,
                 InventoryFreeSlots = Inventory.NumFreeSlots,
                 InventoryItems = (Inventory.Items ?? new List<Item>())
                     .Where(item => item != null && item.Slot.Type == IdentityType.Inventory)
@@ -508,6 +542,8 @@ namespace CityBankers
             PopulateInventoryAndBagCounts(_pendingResult);
 
             _pendingResult.BankOpened = Inventory.Bank.IsOpen;
+            _bankNeedsId = !Inventory.Bank.IsOpen;
+            _nextHealthUtc = DateTime.MinValue;
 
             if (Inventory.Bank.IsOpen)
             {
@@ -788,6 +824,8 @@ namespace CityBankers
             public string Character;
             public bool InPlay;
             public bool BankOpen;
+            public bool BankNeedsId;
+            public int BankTerminalInstance;
             public int InventoryFreeSlots;
             public List<InventoryItemSnapshot> InventoryItems;
         }

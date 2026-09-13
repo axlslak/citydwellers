@@ -1985,3 +1985,22 @@ EnableAutomaticCruStacking remains default false; true now permits only ONE
 merge attempt per process restart, avoiding repeated trade-blocking diagnostics.
 Split unchanged. Owner needs to check physical result and send STACK packet lines;
 merge response cache/stack limits remain unfinished. Static review only.
+
+## 2026-09-13 — Runtime bank terminal management (session 103)
+
+#bankid shows the saved decimal terminal Instance; #bankid NUMBER saves it
+atomically to data/citybankers-bank-terminal.json with a fresh revision. Initial
+seed is owner-supplied 1477725977, persisted on first Manager startup. The prior
+Bankers.CityOfficeBankTerminalInstance configuration override is superseded.
+Admins may write directly; officer authorization follows the existing raid-assist
+flow, including highest cached officer authority in reliable alt groups, targeted
+alt refresh when needed, and existing rank lookup fallback. Commander/General/
+President qualify. Existing command source and ban gates still apply.
+Every banker polls the shared record once per second outside startup readiness
+gates; changed revision retries a closed bank even for the same posted number.
+An open bank stays open. Losing an open bank triggers a fresh attempt. Failed
+diagnostics set BankNeedsId in heartbeat; #status prioritizes need new bankid
+over queued-work failure text. Existing office location guards remain. New help
+topic explains operation; no future rebuild is needed to update the Instance.
+Static routing, authority, persistence and lifecycle review only; owner builds
+and runs live validation. CRU diagnostic state remains unchanged.

@@ -38,6 +38,7 @@ namespace CityManager
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "help",
+                "bankid",
                 "cloak",
                 "status",
                 "stock",
@@ -149,6 +150,9 @@ namespace CityManager
             DevTrace(
                 $"ADMIN LIST initialized file=adminlist.json " +
                 $"count={AdminListStore.Snapshot().Count}.");
+            if (!File.Exists(CityBankers.Shared.SettingsPaths.BankTerminalPath(_settingsDir)))
+                CityBankers.Shared.SettingsPaths.SaveBankTerminal(_settingsDir,
+                    CityBankers.Shared.SettingsPaths.InitialBankTerminalInstance, "initial");
             InitializeMembership();
             InitializeAlts();
             InitializeTellQueue();
@@ -613,6 +617,10 @@ namespace CityManager
 
                 case "cloak":
                     BeginFlipperProbe(replyTarget);
+                    break;
+
+                case "bankid":
+                    ProcessBankIdCommand(senderName, parts, replyTarget, isAdmin);
                     break;
 
                 case "dynel":

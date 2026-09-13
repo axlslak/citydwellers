@@ -90,6 +90,15 @@ namespace CityManager
                         "A vertical bar means choose one option. Commands and buttons are case-insensitive.</font>";
                     return true;
 
+                case "bankid":
+                    title = "Bank Terminal";
+                    body = CommandHelp(target, "bankid [Instance]",
+                        "Show or update the office bank terminal's current Instance number.",
+                        "Copy the decimal Instance shown in game. Saving retries closed banks immediately; no restart. Check status afterward. Reposting the same number retries it too.",
+                        "Admins or Squad Commander and higher, including verified officer alts",
+                        "Example: #bankid 1477725977. The value is saved across restarts.");
+                    return true;
+
                 case "status":
                     title = "Status";
                     body = CommandHelp(
@@ -320,6 +329,7 @@ namespace CityManager
                 .Append("'>Choose a section. Every orange label is clickable.</font>\n\n");
             body.Append(HelpMenuLine(target, "help commands", "Command list", "Everything members can use."));
             body.Append(HelpMenuLine(target, "help status", "Status", "Health, uptime, workers, cloak, and active work."));
+            body.Append(HelpMenuLine(target, "help bankid", "Bank terminal", "Update a changed bank terminal Instance in game."));
             body.Append(HelpMenuLine(target, "help bankers", "City Bankers", "Donations, stock, pickups, storage work and tell delivery."));
             body.Append(HelpMenuLine(target, "help cloak", "Cloak", "Cloak observation and raid timing."));
             body.Append(HelpMenuLine(target, "help raid", "Raids", "Start, configure, assist, or cancel a raid."));

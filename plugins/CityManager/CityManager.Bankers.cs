@@ -117,8 +117,10 @@ namespace CityManager
                     totalUsed += used;
                     totalCapacity += capacity;
 
-                    string state = !online ? "OFFLINE" : stuck ? "STUCK" :
-                        !bankOpen ? "ONLINE, bank unavailable" :
+                    string state = !online ? "OFFLINE" :
+                        !bankOpen ? (ParseBool(heartbeat?["BankNeedsId"])
+                            ? "ONLINE, need new bankid — #bankid [Instance]" : "ONLINE, bank unavailable") :
+                        stuck ? "STUCK" :
                         !operational ? "ONLINE, banking service not ready" :
                         !roleReady ? "ONLINE, starting" : withdrawalFailed ? "USABLE, some items held" :
                         busy ? "USABLE, busy" : "USABLE";
@@ -564,6 +566,138 @@ namespace CityManager
                     .Append("\n");
             }
             return BuildBlobLinks(target, "Phatz Acceptance", "Open Phatz list", body.ToString());
+        }
+
+        private void ProcessBankIdCommand(string senderName, string[] parts, ReplyTarget commandTarget, bool isAdmin)
+        {
+            if (parts.Length == 1)
+            {
+                var state = CityBankers.Shared.SettingsPaths.ReadBankTerminal(_settingsDir);
+                Reply(commandTarget, "Bank terminal Instance: " + state["Instance"] +
+                    ". To update: #bankid [decimal Instance shown in game] (admins or Squad Commander+ including alts).");
+                return;
+            }
+            int instance;
+            if (parts.Length != 2 || !int.TryParse(parts[1], NumberStyles.None,
+                CultureInfo.InvariantCulture, out instance) || instance <= 0)
+            { Reply(commandTarget, "Use #bankid followed by the positive decimal Instance number shown in game."); return; }
+            Action<string> applyAuthorized = authority =>
+            {
+                try
+                {
+                    CityBankers.Shared.SettingsPaths.SaveBankTerminal(_settingsDir, instance, senderName);
+                    DevTrace("BANKID saved instance=" + instance + " by=" + senderName + " authority=" + authority);
+                    Reply(commandTarget, "Saved bank terminal Instance " + instance +
+                        ". Bankers with closed banks will retry now. Check #status for the result.");
+                }
+                catch (Exception ex) { Reply(commandTarget, "Bank ID was not saved: " + ex.Message); }
+            };
+            if (isAdmin) { applyAuthorized("named administrator"); return; }
+            string cachedAuthority;
+            string authorityCharacter;
+            bool hasCachedAuthority = TryGetCachedOfficerAuthority(
+                    senderName,
+                    out cachedAuthority,
+                    out authorityCharacter);
+            bool directCachedAuthority = hasCachedAuthority &&
+                string.Equals(
+                    senderName,
+                    authorityCharacter,
+                    StringComparison.OrdinalIgnoreCase);
+            bool reliableAltAuthority = hasCachedAuthority &&
+                IsAltIdentityGroupReliable(senderName);
+            if (directCachedAuthority || reliableAltAuthority)
+            {
+                DevTrace(
+                    $"BANKID AUTH cached sender={senderName} " +
+                    $"authority={cachedAuthority} via={authorityCharacter}.");
+                applyAuthorized(
+                    directCachedAuthority
+                        ? cachedAuthority
+                        : $"{cachedAuthority} via alt {authorityCharacter}");
+                return;
+            }
+
+            if (HasCachedOfficialRanks())
+            {
+                if (IsAltIdentityGroupReliable(senderName))
+                {
+                    DevTrace(
+                        $"BANKID DENIED {senderName}: fresh alt group " +
+                        "contains no Squad Commander-or-higher XML rank.");
+                    Reply(
+                        commandTarget,
+                        "Changing the bank ID require Squad Commander rank or higher on one character in your current alt group.");
+                    return;
+                }
+
+                Reply(
+                    commandTarget,
+                    $"Checking {_altsBotName ?? "the configured alt bot"} for {senderName}'s current alt group.");
+                DevTrace(
+                    $"BANKID AUTH lookup sender={senderName}; " +
+                    (hasCachedAuthority
+                        ? $"cached authority via {authorityCharacter} is stale."
+                        : "no reliable cached officer alt exists."));
+
+                ResolveOfficerAltGroup(
+                    senderName,
+                    lookupSucceeded =>
+                    {
+                        string refreshedAuthority;
+                        string refreshedCharacter;
+                        if (lookupSucceeded &&
+                            TryGetCachedOfficerAuthority(
+                                senderName,
+                                out refreshedAuthority,
+                                out refreshedCharacter))
+                        {
+                            DevTrace(
+                                $"BANKID AUTH refreshed sender={senderName} " +
+                                $"authority={refreshedAuthority} via={refreshedCharacter}.");
+                            applyAuthorized(
+                                string.Equals(
+                                    senderName,
+                                    refreshedCharacter,
+                                    StringComparison.OrdinalIgnoreCase)
+                                    ? refreshedAuthority
+                                    : $"{refreshedAuthority} via alt {refreshedCharacter}");
+                            return;
+                        }
+
+                        DevTrace(
+                            $"BANKID DENIED {senderName}: targeted alt lookup " +
+                            $"completed={lookupSucceeded} without officer authority.");
+                        Reply(
+                            commandTarget,
+                            lookupSucceeded
+                                ? "Changing the bank ID require Squad Commander rank or higher on one character in your current alt group."
+                                : $"Unable to verify {senderName}'s alt group through {_altsBotName ?? "the configured alt bot"} right now.");
+                    });
+                return;
+            }
+
+            OrgRankAuthorizer.Authorize(
+                commandTarget.SenderId,
+                senderName,
+                authorization =>
+                {
+                    if (!authorization.Allowed)
+                    {
+                        string detail = !string.IsNullOrWhiteSpace(authorization.Error)
+                            ? authorization.Error
+                            : $"organization rank '{authorization.Rank ?? "unknown"}'";
+
+                        DevTrace(
+                            $"BANKID DENIED {senderName}: {detail}.");
+                        Reply(
+                            commandTarget,
+                            "Changing the bank ID require Squad Commander rank or higher.");
+                        return;
+                    }
+
+                    applyAuthorized(authorization.Rank);
+                });
         }
 
         private void ProcessCentralDynelCommand(string senderName, ReplyTarget target)

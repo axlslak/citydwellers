@@ -51,6 +51,32 @@ namespace CityBankers.Shared
             return bankers;
         }
 
+        public const int InitialBankTerminalInstance = 1477725977;
+
+        public static string BankTerminalPath(string settingsDirectory) =>
+            Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "citybankers-bank-terminal.json");
+
+        public static JObject ReadBankTerminal(string settingsDirectory)
+        {
+            var state = RuntimeStateStore.ReadJson<JObject>(BankTerminalPath(settingsDirectory));
+            if (state == null) return new JObject {
+                ["Instance"] = InitialBankTerminalInstance, ["Revision"] = "initial"
+            };
+            int instance;
+            if (!int.TryParse((string)state["Instance"], out instance) || instance <= 0)
+                throw new InvalidDataException("Saved bank terminal Instance must be a positive decimal integer.");
+            return state;
+        }
+
+        public static void SaveBankTerminal(string settingsDirectory, int instance, string changedBy)
+        {
+            if (instance <= 0) throw new ArgumentOutOfRangeException(nameof(instance));
+            RuntimeStateStore.WriteJsonAtomic(BankTerminalPath(settingsDirectory), new JObject {
+                ["Instance"] = instance, ["Revision"] = Guid.NewGuid().ToString("N"),
+                ["ChangedBy"] = changedBy, ["ChangedUtc"] = DateTime.UtcNow
+            });
+        }
+
         public static string ReadManagerCharacter(string settingsDirectory)
         {
             string path = Path.Combine(settingsDirectory, "citydwellers.json");
