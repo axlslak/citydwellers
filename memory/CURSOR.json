@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 104,
+  "current_session": 105,
   "last_completed_session": 104,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-104-audit-staging",
+  "transaction": "session-105-receiving-space",
   "checkpoint_commit": "ea1ad6c7c9f5b85d736343edb02618cbf4e02f21",
-  "task": "Full-inventory census staging loop resolved",
-  "resume_instruction": "Published verified bag-to-bank staging preflight and unchanged staging-failure exclusion. Owner builds/tests; no assistant compilation. CRU diagnostics unchanged. Next journal263.",
-  "base_commit": "4a582c6160451b46365f08ee400ac4d9c72663d1"
+  "task": "Prepare worker receiving capacity and explain dispatch waits",
+  "resume_instruction": "Audit preflight must reserve full trade plus bag slot where bank space permits; propagate worker insufficient-space reason. Log proves audit9 succeeds but two-item phatz donation remains queued.",
+  "base_commit": "4a037059b539da10ba3c2cd1f87ef085e75eccce"
 }
