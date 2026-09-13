@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 103,
+  "current_session": 104,
   "last_completed_session": 103,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-103-bankid",
+  "transaction": "session-104-audit-staging",
   "checkpoint_commit": "34ed4d51612be7296d4bb65f42a0e71b1ccdca6d",
-  "task": "Runtime bankid command resolved",
-  "resume_instruction": "Published #bankid NUMBER with persisted JSON, current seed1477725977, existing admin/officer highest-rank alt authority, runtime closed-bank retries/status failure. Old startup setting superseded. Owner builds/tests. CRU diagnostics unchanged. Next journal261.",
-  "base_commit": "3761ae9fb8f85f8ac6ecfc601434375f2e798181"
+  "task": "Fix full-inventory census audit retry loop",
+  "resume_instruction": "Prepare observed staging slot before startup census; prevent unchanged staging failures repeatedly rejoining global census. Owner builds/tests.",
+  "base_commit": "4a582c6160451b46365f08ee400ac4d9c72663d1"
 }
