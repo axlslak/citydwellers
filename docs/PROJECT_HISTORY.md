@@ -2137,3 +2137,10 @@ over queued-work failure text. Existing office location guards remain. New help
 topic explains operation; no future rebuild is needed to update the Instance.
 Static routing, authority, persistence and lifecycle review only; owner builds
 and runs live validation. CRU diagnostic state remains unchanged.
+
+## Session 104 — full-inventory census staging (resolved on publication)
+
+- [CAUSE] Six workers in the supplied log had 30 inventory bags and failed before opening their first bank bag. Their 60-second presence retries repeatedly started new coordinated censuses, including healthy workers.
+- [FIX] After quiescing trades and settling inventory, startup census moves one inventory bag into available bank space. It waits for that identity in bank, absent from inventory, and a free inventory slot before allowing the collector to snapshot the new layout. The bag stays in bank; census reconciles its real location. No content or custody is inferred from the request.
+- [FAILURE] No available staging space or an unverified move after 15 seconds parks the worker outside the roster until physical layout changes, a local recovery request arrives, or it reconnects. No timed rejoin for this staging failure. Other audit-error retry policy is unchanged. This preflight applies to coordinated census, not standalone manual audit mode.
+- [VALIDATION] Static lifecycle, existing MoveToBank API, membership, settling and diff review only. Owner builds and live-tests. CRU and runtime bankid unchanged.

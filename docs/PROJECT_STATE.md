@@ -1,3 +1,10 @@
+## Session 104 — full-inventory census staging (resolved on publication)
+
+- [CAUSE] Six workers in the supplied log had 30 inventory bags and failed before opening their first bank bag. Their 60-second presence retries repeatedly started new coordinated censuses, including healthy workers.
+- [FIX] After quiescing trades and settling inventory, startup census moves one inventory bag into available bank space. It waits for that identity in bank, absent from inventory, and a free inventory slot before allowing the collector to snapshot the new layout. The bag stays in bank; census reconciles its real location. No content or custody is inferred from the request.
+- [FAILURE] No available staging space or an unverified move after 15 seconds parks the worker outside the roster until physical layout changes, a local recovery request arrives, or it reconnects. No timed rejoin for this staging failure. Other audit-error retry policy is unchanged. This preflight applies to coordinated census, not standalone manual audit mode.
+- [VALIDATION] Static lifecycle, existing MoveToBank API, membership, settling and diff review only. Owner builds and live-tests. CRU and runtime bankid unchanged.
+
 ## Session 94 — CRU build correction
 
 - Owner build reported CS0136 in the CRU timeout handler. Renamed its outer local to expiredRequest, avoiding the nested callback row declaration. No behavior change. Reviewed the reported diagnostic and focused diff; owner handles rebuild.

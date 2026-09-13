@@ -33,6 +33,8 @@ namespace CityBankers
         private string _readyLoggedCycle, _handoffError;
         private long _auditPause;
         private long _presenceRetryAfter;
+        private string _stagingBag, _stagingFailureLayout;
+        private readonly Stopwatch _stagingAge = new Stopwatch();
         private bool _issued, _finished, _quiesced;
         private readonly Stopwatch _poll = Stopwatch.StartNew();
         private readonly Stopwatch _gather = Stopwatch.StartNew();
@@ -248,6 +250,8 @@ namespace CityBankers
         private void RejectBeforeCensus(Identity target) { if (!IsOpen) Trade.Decline(); }
         private void OnDisconnected()
         {
+            _stagingBag = _stagingFailureLayout = null;
+            _presenceRetryAfter = 0;
             _connection = Guid.NewGuid().ToString("N");
             Block("Banker disconnected; retire connection-bound work and obtain fresh physical evidence.");
             try { RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json")); }
@@ -271,6 +275,12 @@ namespace CityBankers
             try
             {
                 if (!Client.InPlay || !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
+                if (_stagingFailureLayout != null)
+                {
+                    if (_stagingFailureLayout == InventoryLayout() && _recoveryRequest == null) return;
+                    _stagingFailureLayout = null;
+                    _stagingBag = null;
+                }
                 RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".presence.json"),
                     new Presence { Connection = _connection, Stamp = Stopwatch.GetTimestamp() });
                 // Retry a failed request write. Joining a new cycle consumes it.
@@ -326,10 +336,10 @@ namespace CityBankers
                 {
                     // Allow outstanding AO moves/closure to settle before the collector
                     // takes responsibility for every bank and inventory bag.
-                    string signature = string.Join(";", Inventory.Items.Concat(Inventory.Bank.Items).Where(i => i != null)
-                        .Select(i => i.Slot + "/" + i.UniqueIdentity).OrderBy(s => s));
+                    string signature = InventoryLayout();
                     if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                     if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
+                    if (!PrepareAuditStagingSlot()) return;
                     RuntimeStateStore.DeleteIfExists(resultPath);
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, _character + ".command.json"),
                         new BagAuditAgent.BagAuditCommand { RunId = _auditRun, Role = _role });
@@ -361,6 +371,60 @@ namespace CityBankers
                 if (_error != ex.Message) Logger.Error("[CityBankers] Census waiting: " + ex.Message);
                 _error = ex.Message;
             }
+        }
+
+        private static string InventoryLayout()
+        {
+            // Include the owning collection: slot numbers alone do not prove a move.
+            return string.Join(";", Inventory.Items.Where(i => i != null)
+                .Select(i => "inventory/" + i.Slot + "/" + i.UniqueIdentity)
+                .Concat(Inventory.Bank.Items.Where(i => i != null)
+                    .Select(i => "bank/" + i.Slot + "/" + i.UniqueIdentity)).OrderBy(s => s));
+        }
+
+        private bool WaitForStagingChange(string reason)
+        {
+            _stagingFailureLayout = InventoryLayout();
+            _stagingBag = null;
+            RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".blocked"), new { Reason = reason });
+            // A full worker must not periodically rejoin and restart every healthy
+            // banker's census. A changed layout, recovery request or reconnect retries.
+            if (!string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
+                RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+            Logger.Error("[CityBankers] Census staging waiting: " + reason +
+                " Change inventory/bank space or request recovery to retry.");
+            return false;
+        }
+
+        private bool PrepareAuditStagingSlot()
+        {
+            if (_stagingBag != null)
+            {
+                bool inBank = Inventory.Bank.Items.Any(i => i != null && i.UniqueIdentity.ToString() == _stagingBag);
+                bool inInventory = Inventory.Items.Any(i => i != null && i.UniqueIdentity.ToString() == _stagingBag);
+                if (inBank && !inInventory && Inventory.NumFreeSlots > 0)
+                {
+                    Logger.Information("[CityBankers] Census staging slot verified; bag=" + _stagingBag);
+                    _stagingBag = null;
+                    _signature = null;
+                    _settled.Restart();
+                    return false; // Collector snapshots the new location after settling.
+                }
+                if (_stagingAge.ElapsedMilliseconds >= 15000)
+                    return WaitForStagingChange("Inventory bag move to bank was not verified.");
+                return false;
+            }
+            if (Inventory.NumFreeSlots > 0 || !Inventory.Bank.Items.Any(i => i != null &&
+                i.UniqueIdentity.Type == IdentityType.Container)) return true;
+            var bag = Inventory.Items.FirstOrDefault(i => i != null && i.UniqueIdentity.Type == IdentityType.Container);
+            if (Inventory.Bank.NumFreeSlots <= 0 || bag == null)
+                return WaitForStagingChange("No normal-inventory staging slot and no bank space for an inventory bag.");
+            _stagingBag = bag.UniqueIdentity.ToString();
+            _stagingAge.Restart();
+            Logger.Information("[CityBankers] Census preparing staging slot; moving inventory bag " + _stagingBag + " to bank.");
+            try { bag.MoveToBank(); }
+            catch (Exception ex) { return WaitForStagingChange("Inventory bag move failed: " + ex.Message); }
+            return false;
         }
 
         private void Coordinate()
