@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 104,
-  "last_completed_session": 103,
-  "status": "in_progress",
+  "last_completed_session": 104,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-104-audit-staging",
-  "checkpoint_commit": "34ed4d51612be7296d4bb65f42a0e71b1ccdca6d",
-  "task": "Fix full-inventory census audit retry loop",
-  "resume_instruction": "Prepare observed staging slot before startup census; prevent unchanged staging failures repeatedly rejoining global census. Owner builds/tests.",
+  "checkpoint_commit": "ea1ad6c7c9f5b85d736343edb02618cbf4e02f21",
+  "task": "Full-inventory census staging loop resolved",
+  "resume_instruction": "Published verified bag-to-bank staging preflight and unchanged staging-failure exclusion. Owner builds/tests; no assistant compilation. CRU diagnostics unchanged. Next journal263.",
   "base_commit": "4a582c6160451b46365f08ee400ac4d9c72663d1"
 }
