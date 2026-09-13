@@ -40,7 +40,8 @@ namespace CityBankers
         private Task _ipcServer;
         private DispatchCommand _reservedDispatch;
         private Stopwatch _reservationAge;
-        private Task<bool> _dispatchPreparation;
+        private Task<string> _dispatchPreparation;
+        private readonly Dictionary<string, string> _workerPreparationReasons = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private string _preparingBatch;
         private string _preparingContents;
         private readonly Stopwatch _ipcRetry = Stopwatch.StartNew();
@@ -108,16 +109,16 @@ namespace CityBankers
             }
         }
 
-        private static async Task<bool> AskWorkerToPrepare(DispatchCommand command)
+        private static async Task<string> AskWorkerToPrepare(DispatchCommand command)
         {
             try
             {
                 return await CityDwellers.Shared.LocalIpc.RequestLineAsync(
                     BankerPipe(command.DestinationCharacter), JsonConvert.SerializeObject(new DispatchProposal
                     { Kind = "prepare", BatchId = command.BatchId, Command = command }),
-                    1000, 4000).ConfigureAwait(false) == "ready:" + command.BatchId;
+                    1000, 4000).ConfigureAwait(false);
             }
-            catch (Exception) { return false; }
+            catch (Exception) { return "busy:Worker preparation IPC did not respond."; }
         }
 
         private void TickBankerIpc()
@@ -167,7 +168,6 @@ namespace CityBankers
                     Inventory.Bank.IsOpen && !Trade.IsTrading && _storageJob == null && _storageRecovery == null &&
                     _workerCommand == null && _receipt == null && _withdrawal == null && _returnOffer == null && _extraction == null &&
                     command != null && command.Items != null && command.Items.Count > 0 &&
-                    Inventory.NumFreeSlots >= command.Items.Count + 1 &&
                     !string.IsNullOrWhiteSpace(command.BatchId) && Guid.TryParseExact(command.AttemptId, "N", out commandAttempt) &&
                     string.Equals(command.Role, _role, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(command.SourceCharacter, _centralCharacter, StringComparison.OrdinalIgnoreCase) &&
@@ -194,12 +194,19 @@ namespace CityBankers
                     ready = worker?.Bags != null && worker.Bags.Sum(b => b == null ? 0 :
                         Math.Max(0, b.Capacity - (b.Items?.Count ?? b.Capacity))) >= command.Items.Count;
                 }
+                string spaceReason = null;
+                if (ready && Inventory.NumFreeSlots < command.Items.Count + 1)
+                {
+                    ready = false;
+                    spaceReason = "Worker inventory has " + Inventory.NumFreeSlots + " free slot(s); needs " +
+                        (command.Items.Count + 1) + " for " + command.Items.Count + " item(s) plus bag handling.";
+                }
                 if (ready)
                 {
                     _reservedDispatch = command;
                     _reservationAge = Stopwatch.StartNew();
                 }
-                proposal.Reply.TrySetResult(ready ? "ready:" + command.BatchId : "busy");
+                proposal.Reply.TrySetResult(ready ? "ready:" + command.BatchId : spaceReason == null ? "busy" : "busy:" + spaceReason);
             }
         }
 
@@ -222,12 +229,22 @@ namespace CityBankers
                 return false;
             }
             if (!_dispatchPreparation.IsCompleted) return false;
-            bool ready = _preparingAge.ElapsedMilliseconds < 10000 &&
-                _dispatchPreparation.Status == TaskStatus.RanToCompletion && _dispatchPreparation.Result;
+            string reply = _dispatchPreparation.Status == TaskStatus.RanToCompletion ? _dispatchPreparation.Result : null;
+            bool ready = _preparingAge.ElapsedMilliseconds < 10000 && reply == "ready:" + batch.BatchId;
+            if (!ready && reply != null && reply.StartsWith("busy:", StringComparison.Ordinal))
+                _workerPreparationReasons[batch.Character] = reply.Substring(5);
+            else
+                _workerPreparationReasons.Remove(batch.Character);
             _dispatchPreparation = null;
             _ipcRetry.Restart();
             if (!ready) _workerRetries[batch.Character] = Stopwatch.StartNew();
             return ready;
+        }
+
+        private string WorkerPreparationReason(string character, string fallback)
+        {
+            string reason;
+            return _workerPreparationReasons.TryGetValue(character, out reason) ? reason : fallback;
         }
 
         private bool WorkerRetryDue(string character)

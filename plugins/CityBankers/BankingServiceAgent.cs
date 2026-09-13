@@ -1254,7 +1254,7 @@ namespace CityBankers
                 if (waiting != null)
                     ReportTransferWait(waiting, censusing.Contains(waiting.Character) ? "Worker is in census recovery." :
                         !DynelManager.Players.Any(player => player != null && string.Equals(player.Name, waiting.Character, StringComparison.OrdinalIgnoreCase)) ?
-                        "Worker is not visible nearby." : "Worker retry delay or unresolved earlier transfer prevents dispatch.");
+                        "Worker is not visible nearby." : WorkerPreparationReason(waiting.Character, "Worker retry delay or unresolved earlier transfer prevents dispatch."));
                 return;
             }
 
@@ -1270,7 +1270,7 @@ namespace CityBankers
             }
             if (!WorkerPrepared(next))
             {
-                ReportTransferWait(next, "Awaiting worker preparation acknowledgement; items remain on Central.");
+                ReportTransferWait(next, WorkerPreparationReason(next.Character, "Awaiting worker preparation acknowledgement; items remain on Central."));
                 return;
             }
             _transferWaits.Remove(next.BatchId);

@@ -414,11 +414,25 @@ namespace CityBankers
                     return WaitForStagingChange("Inventory bag move to bank was not verified.");
                 return false;
             }
-            if (Inventory.NumFreeSlots > 0 || !Inventory.Bank.Items.Any(i => i != null &&
-                i.UniqueIdentity.Type == IdentityType.Container)) return true;
+            // Keep receiving capacity after the audit too: a full donation plus
+            // one slot to stage its destination bag. Moving only one bag allowed
+            // census to finish but left every multi-item prepare permanently busy.
+            int requiredSlots = ServicePolicy.MaxTradeItems + 1;
+            if (Inventory.NumFreeSlots >= requiredSlots) return true;
             var bag = Inventory.Items.FirstOrDefault(i => i != null && i.UniqueIdentity.Type == IdentityType.Container);
             if (Inventory.Bank.NumFreeSlots <= 0 || bag == null)
+            {
+                if (Inventory.NumFreeSlots > 0 || !Inventory.Bank.Items.Any(i => i != null &&
+                    i.UniqueIdentity.Type == IdentityType.Container))
+                {
+                    // Audit still works at reduced capacity. Dispatch reports the
+                    // actual space shortage if a later batch does not fit.
+                    Logger.Warning("[CityBankers] Census receiving reserve limited: free inventory slots=" +
+                        Inventory.NumFreeSlots + "; desired=" + requiredSlots + "; bank free slots=" + Inventory.Bank.NumFreeSlots);
+                    return true;
+                }
                 return WaitForStagingChange("No normal-inventory staging slot and no bank space for an inventory bag.");
+            }
             _stagingBag = bag.UniqueIdentity.ToString();
             _stagingAge.Restart();
             Logger.Information("[CityBankers] Census preparing staging slot; moving inventory bag " + _stagingBag + " to bank.");

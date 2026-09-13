@@ -1,3 +1,11 @@
+## Session 105 — worker receiving reserve (resolved on publication)
+
+- [OWNER VERIFIED] Session104 audit repair held: supplied log verifies staging moves and a released nine-banker census. Later two phatz donations remain queued with no trade opening.
+- [CAUSE] One staging slot allowed audit completion but failed dispatch preparation's items.Count+1 requirement. Phatz retained 29 inventory bags; two donations needed three slots. Generic busy IPC hid this definite prerequisite failure.
+- [FIX] Coordinated census preflight now moves inventory bags into bank one at a time, verifying each as before, until MaxTradeItems+1 (11) slots are free. Enumeration follows the settled final layout. If bank space/bags limit the reserve, audit may still proceed with its minimum staging slot and a capacity warning. All supplied workers have enough bank space for the reserve. No new idle mover or competing operation is added.
+- [DIAGNOSTICS] Preparation preserves the exact ready token and passes explicit insufficient-inventory-space and IPC-unavailable replies to Central's existing throttled WAITING report. Other busy prerequisites remain unchanged. Physical capacity is never bypassed.
+- [VALIDATION] Static constant/API, task consumer, manifest/readiness and move-settle review plus diff check; no compilation, suites or AO run. Owner rebuild/restart applies reserve and normal census recovery handles the retained donation. No live data edits. CRU unchanged.
+
 ## Session 104 — full-inventory census staging (resolved on publication)
 
 - [CAUSE] Six workers in the supplied log had 30 inventory bags and failed before opening their first bank bag. Their 60-second presence retries repeatedly started new coordinated censuses, including healthy workers.
