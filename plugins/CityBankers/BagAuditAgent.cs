@@ -705,6 +705,8 @@ namespace CityBankers
             if (!_active)
                 return;
 
+            Logger.Error("[CityBankers] BAG AUDIT FAILED run=" + (_command?.RunId ?? "-") +
+                " character=" + Client.CharacterName + "; " + error);
             Finish(error);
         }
 

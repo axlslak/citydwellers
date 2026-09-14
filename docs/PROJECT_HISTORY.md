@@ -2152,3 +2152,11 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - [FIX] Coordinated census preflight now moves inventory bags into bank one at a time, verifying each as before, until MaxTradeItems+1 (11) slots are free. Enumeration follows the settled final layout. If bank space/bags limit the reserve, audit may still proceed with its minimum staging slot and a capacity warning. All supplied workers have enough bank space for the reserve. No new idle mover or competing operation is added.
 - [DIAGNOSTICS] Preparation preserves the exact ready token and passes explicit insufficient-inventory-space and IPC-unavailable replies to Central's existing throttled WAITING report. Other busy prerequisites remain unchanged. Physical capacity is never bypassed.
 - [VALIDATION] Static constant/API, task consumer, manifest/readiness and move-settle review plus diff check; no compilation, suites or AO run. Owner rebuild/restart applies reserve and normal census recovery handles the retained donation. No live data edits. CRU unchanged.
+
+## Session 106 — optional reserve timeout and audit diagnostics
+
+- Saved failure evidence identifies artillery bank-to-inventory move timeout at3000ms, bag still in bank. Later121/121 audit succeeded and Arty became ready. No claim of missing items or permanent Arty failure.
+- Phatz startup was blocked by failed extra receiving reserve despite9 free slots. After15s, if the selected bag remains exclusively in inventory and the entire observed layout equals the pre-send layout with a free slot, defer extra reserve attempts until reconnect and proceed to settled physical census. Missing/duplicate/moved identities and no staging space retain blocking behavior. Actual dispatch capacity checks remain enforced.
+- Coordinated startup audit commands now allow15s per bag move; manual audit settings unchanged. Fatal audit reasons are printed directly, including saved bag-location details, rather than only generic incomplete-census messages.
+- Manager packet-deserializer OutOfMemoryException is separate and remains unaddressed; supplied log shows Manager continuing in play. No claim of a whole-host crash or fix to SDK decoding.
+- Static state/identity/settling/deadline and diff review only. Owner builds/tests. Private archive not committed. Resolved on publication.

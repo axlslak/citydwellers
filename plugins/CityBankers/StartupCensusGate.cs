@@ -33,7 +33,8 @@ namespace CityBankers
         private string _readyLoggedCycle, _handoffError;
         private long _auditPause;
         private long _presenceRetryAfter;
-        private string _stagingBag, _stagingFailureLayout;
+        private string _stagingBag, _stagingFailureLayout, _stagingBeforeLayout;
+        private bool _extraReserveDeferred;
         private readonly Stopwatch _stagingAge = new Stopwatch();
         private bool _issued, _finished, _quiesced;
         private readonly Stopwatch _poll = Stopwatch.StartNew();
@@ -250,7 +251,8 @@ namespace CityBankers
         private void RejectBeforeCensus(Identity target) { if (!IsOpen) Trade.Decline(); }
         private void OnDisconnected()
         {
-            _stagingBag = _stagingFailureLayout = null;
+            _stagingBag = _stagingFailureLayout = _stagingBeforeLayout = null;
+            _extraReserveDeferred = false;
             _presenceRetryAfter = 0;
             _connection = Guid.NewGuid().ToString("N");
             Block("Banker disconnected; retire connection-bound work and obtain fresh physical evidence.");
@@ -342,7 +344,7 @@ namespace CityBankers
                     if (!PrepareAuditStagingSlot()) return;
                     RuntimeStateStore.DeleteIfExists(resultPath);
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, _character + ".command.json"),
-                        new BagAuditAgent.BagAuditCommand { RunId = _auditRun, Role = _role });
+                        new BagAuditAgent.BagAuditCommand { RunId = _auditRun, Role = _role, BagMoveTimeoutMs = 15000 });
                     _issued = true;
                     return;
                 }
@@ -411,13 +413,30 @@ namespace CityBankers
                     return false; // Collector snapshots the new location after settling.
                 }
                 if (_stagingAge.ElapsedMilliseconds >= 15000)
-                    return WaitForStagingChange("Inventory bag move to bank was not verified.");
+                {
+                    if (inInventory && !inBank && Inventory.NumFreeSlots > 0 &&
+                        InventoryLayout() == _stagingBeforeLayout)
+                    {
+                        // Extra receiving headroom is optional. The move did not
+                        // change the observed layout, so audit the actual location.
+                        // Do not resend this failed reserve move in later cycles.
+                        Logger.Warning("[CityBankers] Extra receiving reserve move left inventory unchanged; " +
+                            "continuing census with " + Inventory.NumFreeSlots + " free slots; bag=" + _stagingBag);
+                        _extraReserveDeferred = true;
+                        _stagingBag = null;
+                        _signature = null;
+                        _settled.Restart();
+                        return false;
+                    }
+                    return WaitForStagingChange("Inventory bag move to bank was not verified; bag=" + _stagingBag +
+                        "; inInventory=" + inInventory + "; inBank=" + inBank + "; freeSlots=" + Inventory.NumFreeSlots);
+                }
                 return false;
             }
             // Keep receiving capacity after the audit too: a full donation plus
             // one slot to stage its destination bag. Moving only one bag allowed
             // census to finish but left every multi-item prepare permanently busy.
-            int requiredSlots = ServicePolicy.MaxTradeItems + 1;
+            int requiredSlots = _extraReserveDeferred ? 1 : ServicePolicy.MaxTradeItems + 1;
             if (Inventory.NumFreeSlots >= requiredSlots) return true;
             var bag = Inventory.Items.FirstOrDefault(i => i != null && i.UniqueIdentity.Type == IdentityType.Container);
             if (Inventory.Bank.NumFreeSlots <= 0 || bag == null)
@@ -433,6 +452,7 @@ namespace CityBankers
                 }
                 return WaitForStagingChange("No normal-inventory staging slot and no bank space for an inventory bag.");
             }
+            _stagingBeforeLayout = InventoryLayout();
             _stagingBag = bag.UniqueIdentity.ToString();
             _stagingAge.Restart();
             Logger.Information("[CityBankers] Census preparing staging slot; moving inventory bag " + _stagingBag + " to bank.");
