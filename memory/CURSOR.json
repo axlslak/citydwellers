@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 106,
-  "last_completed_session": 105,
-  "status": "in_progress",
+  "last_completed_session": 106,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-106-startup-timeouts",
-  "checkpoint_commit": "b5847ffe7ea0247a02e67533c7c2eb530dc9e04e",
-  "task": "Fix optional reserve timeout blocking startup",
-  "resume_instruction": "Allow unchanged failed extra reserve with free staging capacity to proceed to census; coordinated move deadline15s; expose fatal audit details.",
+  "checkpoint_commit": "86f80bf89f5b088c17b2aa548396d51d138e1658",
+  "task": "Optional startup reserve blocking corrected",
+  "resume_instruction": "Published unchanged-layout optional reserve fallback,15s coordinated bag moves and fatal reason logs. Owner builds/tests. Manager SDK packet allocation error remains separate/unfixed. Next journal267.",
   "base_commit": "632ec48737a11b202212220220839e397fc3f8bb"
 }
