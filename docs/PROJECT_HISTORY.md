@@ -2167,3 +2167,9 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Both listeners now require AO system sender0 and successfully decoded extended city category1001 on their organization channel. Plain chat, bot relays and other channels cannot change cloak state or trigger city raid events. Bobsan alt traffic and normal commands retain existing paths. Flipper observations unchanged.
 - Native observations use OrgChat.NativeCityEvent. Legacy OrgChat.CloakAnnouncement persisted state is not trusted at boot; existing live assessment establishes state. Old historical rows remain as recorded; no live data or speculative historical deletion.
 - Static handler/call-site/source/restore review and diff check only. Owner compiles and tests; no live observation of the new filter claimed. Resolved on publication. Linux compatibility remains discussion only.
+
+## Session 108 — Mono console startup
+
+- Owner Gentoo run of mono CityDwellers.exe printed mono-service instruction. Host routed every Environment.UserInteractive=false process into Windows ServiceBase, regardless of OS.
+- Automatic service detection now applies only to Windows. Explicit console command selects terminal operation on either OS; Linux no-argument startup also reaches console. Unix rejects Windows service install/uninstall/service commands with a useful console invocation.
+- Owner rebuilds on Windows, copies release to Gentoo and runs mono CityDwellers.exe console from its directory. This resolves entry routing only; full Linux/amd64/arm64 compatibility remains unverified. No assistant build or live account login. Static branches and diff reviewed.

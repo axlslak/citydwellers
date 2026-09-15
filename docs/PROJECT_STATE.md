@@ -1,3 +1,9 @@
+## Session 108 — Mono console startup
+
+- Owner Gentoo run of mono CityDwellers.exe printed mono-service instruction. Host routed every Environment.UserInteractive=false process into Windows ServiceBase, regardless of OS.
+- Automatic service detection now applies only to Windows. Explicit console command selects terminal operation on either OS; Linux no-argument startup also reaches console. Unix rejects Windows service install/uninstall/service commands with a useful console invocation.
+- Owner rebuilds on Windows, copies release to Gentoo and runs mono CityDwellers.exe console from its directory. This resolves entry routing only; full Linux/amd64/arm64 compatibility remains unverified. No assistant build or live account login. Static branches and diff reviewed.
+
 ## Session 107 — native city announcements only
 
 - Owner logs prove GoA cloak relay prose polluted AP cloak history, state and recovery deadline. Both Manager and CityRaidCoordinator (in OrgRankAuthorizer.cs) matched text; Manager did so before organization-channel validation.

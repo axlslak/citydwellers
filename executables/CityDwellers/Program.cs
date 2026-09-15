@@ -19,13 +19,24 @@ namespace CityDwellers.Host
             if (ClientlessGameDataBootstrap.IsRestoreCommand(args))
                 return ClientlessGameDataBootstrap.Run(args);
 
+            bool isWindows = Environment.OSVersion.Platform == PlatformID.Win32NT;
+            bool consoleMode = HasCommand(args, "console");
+            if (!isWindows && (HasCommand(args, "service") || HasCommand(args, "install-service") ||
+                HasCommand(args, "uninstall-service")))
+            {
+                Console.Error.WriteLine("Windows service commands are unavailable here. Run: mono CityDwellers.exe console");
+                return 1;
+            }
+
             if (HasCommand(args, "install-service"))
                 return ServiceCommands.Install();
 
             if (HasCommand(args, "uninstall-service"))
                 return ServiceCommands.Uninstall();
 
-            if (HasCommand(args, "service") || !Environment.UserInteractive)
+            // Mono may report noninteractive even in a terminal. Only Windows
+            // uses that property to select the Windows Service Control Manager.
+            if (HasCommand(args, "service") || (isWindows && !consoleMode && !Environment.UserInteractive))
             {
                 ServiceBase.Run(new CityDwellersWindowsService());
                 return 0;
@@ -40,7 +51,7 @@ namespace CityDwellers.Host
             if (HasCommand(args, "bankers-bagaudit"))
                 return RunBankersBagAudit();
 
-            if (args != null && args.Length > 0)
+            if (args != null && args.Length > 0 && !consoleMode)
             {
                 PrintUsage();
                 return 1;
@@ -114,6 +125,7 @@ namespace CityDwellers.Host
             Console.WriteLine("City Dwellers unified host");
             Console.WriteLine();
             Console.WriteLine("  CityDwellers.exe");
+            Console.WriteLine("  CityDwellers.exe console   (Mono: mono CityDwellers.exe console)");
             Console.WriteLine("  CityDwellers.exe install-service");
             Console.WriteLine("  CityDwellers.exe uninstall-service");
             Console.WriteLine("  CityDwellers.exe flipper-probe");
