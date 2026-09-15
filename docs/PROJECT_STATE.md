@@ -1,3 +1,8 @@
+## Session 111 — hyphenated character names
+
+- Owner member add Sonstern-1 was rejected by letters/digits-only validation. Member, alt, administrator and ban name validators now permit literal hyphens, preserving the complete character name. Existing trim, length, case handling, authorization and list persistence remain unchanged; add/remove/load share these validators.
+- Static four-validator diff and whitespace review only. No live member added by assistant and no compilation/test run. Owner rebuilds then retries #member add Sonstern-1. Resolved on publication.
+
 ## Session 110 — build-only Cecil lookup correction
 
 - Owner build restored/compiled all projects but failed portable preparation because generated PkgMono_Cecil was empty. Resolve pinned Mono.Cecil0.11.6 using project.assets.json libraries and packageFolders, including custom NuGet caches. Fail with specific restore/content error if absent. No runtime dependency introduced.

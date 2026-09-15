@@ -2187,3 +2187,8 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Owner build restored/compiled all projects but failed portable preparation because generated PkgMono_Cecil was empty. Resolve pinned Mono.Cecil0.11.6 using project.assets.json libraries and packageFolders, including custom NuGet caches. Fail with specific restore/content error if absent. No runtime dependency introduced.
 - Replaced deprecated Vector3.LengthSquared with SqrMagnitude as SDK diagnostic directs. CS0649 reports JSON-populated DTO fields, not compiler errors; no blanket warning suppression or data-model rewrite. Git-root warning retains source fingerprint fallback; log alone does not establish whether checkout is nested or path comparison differs.
 - Static PowerShell lookup/target argument, XML and diff review only. Owner rebuilds; no assistant compilation or live AO. Existing portability transformer behavior unchanged.
+
+## Session 111 — hyphenated character names
+
+- Owner member add Sonstern-1 was rejected by letters/digits-only validation. Member, alt, administrator and ban name validators now permit literal hyphens, preserving the complete character name. Existing trim, length, case handling, authorization and list persistence remain unchanged; add/remove/load share these validators.
+- Static four-validator diff and whitespace review only. No live member added by assistant and no compilation/test run. Owner rebuilds then retries #member add Sonstern-1. Resolved on publication.

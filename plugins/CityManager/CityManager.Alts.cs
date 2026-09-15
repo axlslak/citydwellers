@@ -2032,10 +2032,10 @@ namespace CityManager
 
             foreach (char character in value)
             {
-                if (!char.IsLetterOrDigit(character))
+                if (!char.IsLetterOrDigit(character) && character != '-')
                 {
                     normalized = value;
-                    error = "Character names may contain only letters and digits.";
+                    error = "Character names may contain only letters, digits and hyphens.";
                     return false;
                 }
             }
