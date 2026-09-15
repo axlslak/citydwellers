@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 108,
-  "last_completed_session": 107,
-  "status": "in_progress",
+  "last_completed_session": 108,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-108-mono-console",
-  "checkpoint_commit": "2bfbb05e599e6b0507f05dd05bb5cbb3eca57fc5",
-  "task": "Correct Mono console entry routing",
-  "resume_instruction": "Restrict automatic service detection to Windows; add console argument; reject Windows service operations on Unix. Owner compiles and tests Gentoo Mono.",
+  "checkpoint_commit": "358c49754318d32c77148992924bc2cea531cd92",
+  "task": "Mono console entry routing resolved",
+  "resume_instruction": "Owner Windows rebuild then mono CityDwellers.exe console on Gentoo. Linux no-arg console too. Full Linux compatibility unverified; inspect next runtime result. Next journal271.",
   "base_commit": "eb30bd294816146b4220c16bbb87909e5315fc90"
 }
