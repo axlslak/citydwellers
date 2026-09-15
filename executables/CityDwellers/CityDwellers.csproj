@@ -32,6 +32,29 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
+  <!-- Build plugins before final portable dependency preparation. They share the output directory. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\plugins\CityManager\CityManager.csproj">
+      <Project>{BABA4B25-B66F-41B6-930C-DF68CB217F2E}</Project>
+      <Name>CityManager</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\plugins\CityBuddies\CityBuddies.csproj">
+      <Project>{FA82DD5A-388B-420A-B565-0675B72D1CD4}</Project>
+      <Name>CityBuddies</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\plugins\CityFlipper\CityFlipper.csproj">
+      <Project>{C6C6016D-3571-4FF1-80BE-2E6428EDFEB4}</Project>
+      <Name>CityFlipper</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="..\..\plugins\CityBankers\CityBankers.csproj">
+      <Project>{B172CA6F-B8E0-460B-A110-688355B17930}</Project>
+      <Name>CityBankers</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="RuntimeLog.cs" />

@@ -47,6 +47,11 @@
     </Compile>
   </ItemGroup>
 
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'CityDwellers'">
+    <!-- Build tooling only; never deployed or referenced by the host. -->
+    <PackageReference Include="Mono.Cecil" Version="[0.11.6]" GeneratePathProperty="true" PrivateAssets="all" ExcludeAssets="all" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="AOSharp.Clientless" Version="1.0.16" />
     <!--

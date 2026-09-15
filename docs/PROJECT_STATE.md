@@ -1,3 +1,11 @@
+## Session 109 — reproducible portable dependency output
+
+- Gentoo progresses into AO after filename-case and literal-backslash symlink workarounds. New log shows missing item index from GameData backslashes, all bank Use attempts timing out for saved1478799474, and the same Manager packet decode allocation error previously seen on Windows. No bank ID inferred; owner can run existing full-client /bankid near Central.
+- Host build now runs Prepare-PortableClientless.ps1 after GameData restore. Build-only pinned Mono.Cecil0.11.6 rewrites six exact clientless string literals in the emitted unsigned DLL: core assembly path and five GameData paths. Portable slashes work on Windows and Unix. NuGet cache/private uploaded sources are untouched. Missing expected literals or a signed dependency fail clearly; already-patched output is accepted.
+- Managed output DLL filenames normalize to assembly identity plus lowercase .dll using a two-step Windows rename. Native binaries are skipped. Host project has build-only plugin references, ensuring shared-output plugin builds finish before final transformation. Cecil is excluded from runtime assets.
+- Deploy the full newly built release with canonical GameData directory. No manual renames, backslash symlinks or MONO_IOMAP needed for these corrected paths. Existing workarounds in the old target are not automatically deleted; a fresh binary directory can retain the same settings/data. This is a repository build fix, not a claim of publishing a new upstream AOSharp NuGet version.
+- Static source-literal, build ordering, XML and script review plus diff check only; no build or live tests. Owner Windows compile and Gentoo execution remain the verification method. Manager deserializer failure and overall Linux/native navigation compatibility are not claimed fixed.
+
 ## Session 108 — Mono console startup
 
 - Owner Gentoo run of mono CityDwellers.exe printed mono-service instruction. Host routed every Environment.UserInteractive=false process into Windows ServiceBase, regardless of OS.
