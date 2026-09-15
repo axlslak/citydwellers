@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 111,
-  "last_completed_session": 110,
-  "status": "in_progress",
+  "last_completed_session": 111,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-111-hyphenated-names",
-  "checkpoint_commit": "9770bf95602cdfba8105d8825384ed1ebe182d3c",
-  "task": "Accept hyphenated AO character names",
-  "resume_instruction": "Allow hyphens consistently in member/alt/admin/ban name validation. Owner rebuilds.",
+  "checkpoint_commit": "362d59d68d1326b018c248ec73dae977ed38eae3",
+  "task": "Hyphenated AO character names published",
+  "resume_instruction": "Owner rebuilds and retries #member add Sonstern-1. Reopen only if live validation reports another name path rejecting the hyphen. Next journal seq 277.",
   "base_commit": "351ec08835fba4ff305d6a277b4c0f6ce74d0a69"
 }
