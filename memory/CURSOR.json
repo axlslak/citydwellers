@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 108,
+  "current_session": 109,
   "last_completed_session": 108,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-108-mono-console",
+  "transaction": "session-109-portable-clientless",
   "checkpoint_commit": "358c49754318d32c77148992924bc2cea531cd92",
-  "task": "Mono console entry routing resolved",
-  "resume_instruction": "Owner Windows rebuild then mono CityDwellers.exe console on Gentoo. Linux no-arg console too. Full Linux compatibility unverified; inspect next runtime result. Next journal271.",
-  "base_commit": "eb30bd294816146b4220c16bbb87909e5315fc90"
+  "task": "Make Linux dependency paths reproducible in release build",
+  "resume_instruction": "Add build-only Cecil transform of pinned clientless output path literals and assembly-name filename normalization; preserve upstream cache. Owner build/test. Bank ID unverified and decoder issue separate.",
+  "base_commit": "0057f761d48f6ddc61c0e03a5ec9b43b20a8204c"
 }
