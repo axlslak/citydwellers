@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 107,
+  "current_session": 108,
   "last_completed_session": 107,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-107-native-city-events",
+  "transaction": "session-108-mono-console",
   "checkpoint_commit": "2bfbb05e599e6b0507f05dd05bb5cbb3eca57fc5",
-  "task": "Native city event filtering resolved",
-  "resume_instruction": "Published native AO system extended city filter in both listeners and legacy chat-state fresh verification. History unchanged; alts unchanged. Owner builds/tests. Next journal269.",
-  "base_commit": "bc1f4b8528b9333bd15d08eb6efcf5eb7cd570fe"
+  "task": "Correct Mono console entry routing",
+  "resume_instruction": "Restrict automatic service detection to Windows; add console argument; reject Windows service operations on Unix. Owner compiles and tests Gentoo Mono.",
+  "base_commit": "eb30bd294816146b4220c16bbb87909e5315fc90"
 }
