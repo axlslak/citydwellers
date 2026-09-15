@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 107,
-  "last_completed_session": 106,
-  "status": "in_progress",
+  "last_completed_session": 107,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-107-native-city-events",
-  "checkpoint_commit": "86f80bf89f5b088c17b2aa548396d51d138e1658",
-  "task": "Reject relayed cloak and city announcements",
-  "resume_instruction": "Gate both city listeners to native AO extended city events from system sender on org channel; invalidate old untrusted chat observation at boot.",
+  "checkpoint_commit": "2bfbb05e599e6b0507f05dd05bb5cbb3eca57fc5",
+  "task": "Native city event filtering resolved",
+  "resume_instruction": "Published native AO system extended city filter in both listeners and legacy chat-state fresh verification. History unchanged; alts unchanged. Owner builds/tests. Next journal269.",
   "base_commit": "bc1f4b8528b9333bd15d08eb6efcf5eb7cd570fe"
 }
