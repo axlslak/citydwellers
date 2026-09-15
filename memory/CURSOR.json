@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 109,
+  "current_session": 110,
   "last_completed_session": 109,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-109-portable-clientless",
+  "transaction": "session-110-cecil-restore-path",
   "checkpoint_commit": "0b99c1df074a82c9a89dafab376d94397e389a16",
-  "task": "Portable dependency build preparation published",
-  "resume_instruction": "Owner builds Windows solution and deploys full GameData/release to Gentoo. Build-only Cecil path rewrite and canonical DLL names remove workaround need; no assistant compile. Check new bankid via existing plugin. Decoder separate/unfixed. Next journal273.",
-  "base_commit": "0057f761d48f6ddc61c0e03a5ec9b43b20a8204c"
+  "task": "Fix packaging dependency lookup from NuGet assets",
+  "resume_instruction": "Resolve build-only Cecil from project.assets.json; replace obsolete vector call. JSON DTO warnings do not indicate failed population.",
+  "base_commit": "10928632459f0e55db97a7ff7cc7abfef1599cfc"
 }
