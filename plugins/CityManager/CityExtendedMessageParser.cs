@@ -1,4 +1,5 @@
 using System;
+using AOSharp.Clientless.Chat;
 using System.Collections.Generic;
 
 namespace CityManager
@@ -9,6 +10,14 @@ namespace CityManager
         private const int CloakMessageInstance = 1;
         private const int RadarMessageInstance = 2;
         private const int AttackMessageInstance = 3;
+
+        // Sender names can be unresolved for real players. Require the AO system
+        // sender and the encoded city category, never matching relayed prose.
+        public static bool TryDecodeNative(GroupMsg message, out string decoded)
+        {
+            decoded = null;
+            return message != null && message.SenderId == 0 && TryDecode(message.Message, out decoded);
+        }
 
         public static string DecodeOrOriginal(string message)
         {

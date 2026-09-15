@@ -300,22 +300,24 @@ namespace CityManager
                 if (msg == null || string.IsNullOrWhiteSpace(msg.Message))
                     return;
 
-                string cityMessage =
-                    CityExtendedMessageParser.DecodeOrOriginal(msg.Message);
-
-                if (!string.Equals(cityMessage, msg.Message, StringComparison.Ordinal))
-                    DevTrace($"CITY DECODED: {cityMessage}");
-
-                if (TryHandleCloakAnnouncement(msg, cityMessage))
-                    return;
-
                 if (!IsOrganizationChannel(msg.ChannelId, msg.ChannelName))
                     return;
 
                 RememberOrganizationChannel(msg.ChannelId, msg.ChannelName);
                 ObserveAltPresenceAnnouncement(msg.SenderName, msg.Message);
+                string cityMessage;
+                bool nativeCityEvent = CityExtendedMessageParser.TryDecodeNative(msg, out cityMessage);
+                if (nativeCityEvent)
+                {
+                    DevTrace($"CITY DECODED: {cityMessage}");
+                    if (TryHandleCloakAnnouncement(msg, cityMessage))
+                        return;
+                    ObserveRaidCityMessage(cityMessage, msg.ChannelId);
+                }
+                else
+                    cityMessage = msg.Message;
+
                 ObserveOrganizationMembershipMessage(cityMessage);
-                ObserveRaidCityMessage(cityMessage, msg.ChannelId);
 
                 string text = msg.Message.TrimStart();
                 bool isCommand = text.StartsWith(CommandPrefix, StringComparison.Ordinal);
@@ -2214,7 +2216,7 @@ namespace CityManager
             _status = newStatus;
             _lastObservedUtc = now;
             _lastChangedUtc = now;
-            _observationSource = "OrgChat.CloakAnnouncement";
+            _observationSource = "OrgChat.NativeCityEvent";
             _raiseDueLogged = false;
 
             if (newStatus == CloakStatus.Disabled)
@@ -2501,6 +2503,19 @@ namespace CityManager
                 {
                     Logger.Information("No persisted cloak state found; starting Unknown.");
                     return;
+                }
+
+                if (string.Equals(_observationSource, "OrgChat.CloakAnnouncement", StringComparison.Ordinal))
+                {
+                    // Old chat observations may describe a relayed second city.
+                    // Retain history, but obtain fresh live evidence for state.
+                    _status = CloakStatus.Unknown;
+                    _lastObservedUtc = null;
+                    _lastChangedUtc = null;
+                    _canRaiseAtUtc = null;
+                    _shieldTimerInSeconds = 0;
+                    _raiseTimeIsProvisional = false;
+                    _observationSource = "LegacyChatNeedsVerification";
                 }
 
                 Logger.Information(

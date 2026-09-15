@@ -1,3 +1,10 @@
+## Session 107 — native city announcements only
+
+- Owner logs prove GoA cloak relay prose polluted AP cloak history, state and recovery deadline. Both Manager and CityRaidCoordinator (in OrgRankAuthorizer.cs) matched text; Manager did so before organization-channel validation.
+- Both listeners now require AO system sender0 and successfully decoded extended city category1001 on their organization channel. Plain chat, bot relays and other channels cannot change cloak state or trigger city raid events. Bobsan alt traffic and normal commands retain existing paths. Flipper observations unchanged.
+- Native observations use OrgChat.NativeCityEvent. Legacy OrgChat.CloakAnnouncement persisted state is not trusted at boot; existing live assessment establishes state. Old historical rows remain as recorded; no live data or speculative historical deletion.
+- Static handler/call-site/source/restore review and diff check only. Owner compiles and tests; no live observation of the new filter claimed. Resolved on publication. Linux compatibility remains discussion only.
+
 ## Session 106 — optional reserve timeout and audit diagnostics
 
 - Saved failure evidence identifies artillery bank-to-inventory move timeout at3000ms, bag still in bank. Later121/121 audit succeeded and Arty became ready. No claim of missing items or permanent Arty failure.

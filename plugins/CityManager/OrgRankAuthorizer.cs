@@ -426,6 +426,7 @@ namespace CityManager
 
                 bool recentPersistedObservation =
                     _knownStatus != CloakStatus.Unknown &&
+                    !string.Equals(_observationSource, "OrgChat.CloakAnnouncement", StringComparison.Ordinal) &&
                     _lastObservedUtc.HasValue &&
                     _lastObservedUtc.Value <= now.AddMinutes(1) &&
                     (now - _lastObservedUtc.Value).TotalSeconds <=
@@ -465,7 +466,7 @@ namespace CityManager
                     _raidOccurredUtc = assessmentUtc;
                     _raidRecoveryPending = true;
                     requestLiveAssessment = true;
-                    decision = "persisted state is absent or older than one hour";
+                    decision = "persisted state is absent, expired or from legacy unverified chat";
                 }
             }
 
@@ -499,8 +500,10 @@ namespace CityManager
                 if (!string.Equals(msg.ChannelName, OrgChannelName, StringComparison.OrdinalIgnoreCase))
                     return;
 
-                string text =
-                    CityExtendedMessageParser.DecodeOrOriginal(msg.Message).Trim();
+                string text;
+                if (!CityExtendedMessageParser.TryDecodeNative(msg, out text))
+                    return;
+                text = text.Trim();
 
                 const string cloakOff = " turned the cloaking device in your city off.";
                 const string cloakOn = " turned the cloaking device in your city on.";
@@ -520,7 +523,7 @@ namespace CityManager
                         _knownStatus = CloakStatus.Enabled;
                         _lastObservedUtc = DateTime.UtcNow;
                         _canRaiseAtUtc = null;
-                        _observationSource = "OrgChat.CloakAnnouncement";
+                        _observationSource = "OrgChat.NativeCityEvent";
                     }
 
                     CompleteRecoveryIfPending("cloak-enabled city event");
@@ -562,7 +565,7 @@ namespace CityManager
                 _knownStatus = CloakStatus.Disabled;
                 _lastObservedUtc = now;
                 _canRaiseAtUtc = now.AddSeconds(CloakDownSeconds);
-                _observationSource = "OrgChat.CloakAnnouncement";
+                _observationSource = "OrgChat.NativeCityEvent";
                 _raidOccurredUtc = now;
                 _raidRecoveryPending = true;
                 _failureReported = false;

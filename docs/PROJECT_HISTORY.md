@@ -2160,3 +2160,10 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Coordinated startup audit commands now allow15s per bag move; manual audit settings unchanged. Fatal audit reasons are printed directly, including saved bag-location details, rather than only generic incomplete-census messages.
 - Manager packet-deserializer OutOfMemoryException is separate and remains unaddressed; supplied log shows Manager continuing in play. No claim of a whole-host crash or fix to SDK decoding.
 - Static state/identity/settling/deadline and diff review only. Owner builds/tests. Private archive not committed. Resolved on publication.
+
+## Session 107 — native city announcements only
+
+- Owner logs prove GoA cloak relay prose polluted AP cloak history, state and recovery deadline. Both Manager and CityRaidCoordinator (in OrgRankAuthorizer.cs) matched text; Manager did so before organization-channel validation.
+- Both listeners now require AO system sender0 and successfully decoded extended city category1001 on their organization channel. Plain chat, bot relays and other channels cannot change cloak state or trigger city raid events. Bobsan alt traffic and normal commands retain existing paths. Flipper observations unchanged.
+- Native observations use OrgChat.NativeCityEvent. Legacy OrgChat.CloakAnnouncement persisted state is not trusted at boot; existing live assessment establishes state. Old historical rows remain as recorded; no live data or speculative historical deletion.
+- Static handler/call-site/source/restore review and diff check only. Owner compiles and tests; no live observation of the new filter claimed. Resolved on publication. Linux compatibility remains discussion only.
