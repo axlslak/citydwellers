@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 110,
-  "last_completed_session": 109,
-  "status": "in_progress",
+  "last_completed_session": 110,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-110-cecil-restore-path",
-  "checkpoint_commit": "0b99c1df074a82c9a89dafab376d94397e389a16",
-  "task": "Fix packaging dependency lookup from NuGet assets",
-  "resume_instruction": "Resolve build-only Cecil from project.assets.json; replace obsolete vector call. JSON DTO warnings do not indicate failed population.",
+  "checkpoint_commit": "9770bf95602cdfba8105d8825384ed1ebe182d3c",
+  "task": "Cecil package lookup build correction published",
+  "resume_instruction": "Owner rebuild: tool locates Cecil via project.assets.json instead of empty generated property. Obsolete vector warning corrected. JSON DTO and Git source-fingerprint warnings explained. Next journal275.",
   "base_commit": "10928632459f0e55db97a7ff7cc7abfef1599cfc"
 }
