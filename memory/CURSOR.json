@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 110,
+  "current_session": 111,
   "last_completed_session": 110,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-110-cecil-restore-path",
+  "transaction": "session-111-hyphenated-names",
   "checkpoint_commit": "9770bf95602cdfba8105d8825384ed1ebe182d3c",
-  "task": "Cecil package lookup build correction published",
-  "resume_instruction": "Owner rebuild: tool locates Cecil via project.assets.json instead of empty generated property. Obsolete vector warning corrected. JSON DTO and Git source-fingerprint warnings explained. Next journal275.",
-  "base_commit": "10928632459f0e55db97a7ff7cc7abfef1599cfc"
+  "task": "Accept hyphenated AO character names",
+  "resume_instruction": "Allow hyphens consistently in member/alt/admin/ban name validation. Owner rebuilds.",
+  "base_commit": "351ec08835fba4ff305d6a277b4c0f6ce74d0a69"
 }
