@@ -2181,3 +2181,9 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Managed output DLL filenames normalize to assembly identity plus lowercase .dll using a two-step Windows rename. Native binaries are skipped. Host project has build-only plugin references, ensuring shared-output plugin builds finish before final transformation. Cecil is excluded from runtime assets.
 - Deploy the full newly built release with canonical GameData directory. No manual renames, backslash symlinks or MONO_IOMAP needed for these corrected paths. Existing workarounds in the old target are not automatically deleted; a fresh binary directory can retain the same settings/data. This is a repository build fix, not a claim of publishing a new upstream AOSharp NuGet version.
 - Static source-literal, build ordering, XML and script review plus diff check only; no build or live tests. Owner Windows compile and Gentoo execution remain the verification method. Manager deserializer failure and overall Linux/native navigation compatibility are not claimed fixed.
+
+## Session 110 — build-only Cecil lookup correction
+
+- Owner build restored/compiled all projects but failed portable preparation because generated PkgMono_Cecil was empty. Resolve pinned Mono.Cecil0.11.6 using project.assets.json libraries and packageFolders, including custom NuGet caches. Fail with specific restore/content error if absent. No runtime dependency introduced.
+- Replaced deprecated Vector3.LengthSquared with SqrMagnitude as SDK diagnostic directs. CS0649 reports JSON-populated DTO fields, not compiler errors; no blanket warning suppression or data-model rewrite. Git-root warning retains source fingerprint fallback; log alone does not establish whether checkout is nested or path comparison differs.
+- Static PowerShell lookup/target argument, XML and diff review only. Owner rebuilds; no assistant compilation or live AO. Existing portability transformer behavior unchanged.

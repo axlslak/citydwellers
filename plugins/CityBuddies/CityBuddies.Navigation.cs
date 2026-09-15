@@ -600,7 +600,7 @@ namespace CityBuddies
         {
             Vector3 forward = heading.Forward;
             forward = new Vector3(forward.X, 0, forward.Z);
-            if (forward.LengthSquared() <= 0.0001f)
+            if (forward.SqrMagnitude <= 0.0001f)
             {
                 forward = new Vector3(
                     target.X - position.X,

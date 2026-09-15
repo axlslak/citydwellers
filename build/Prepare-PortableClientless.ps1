@@ -1,13 +1,24 @@
 param(
     [Parameter(Mandatory = $true)][string]$RuntimeDirectory,
-    [Parameter(Mandatory = $true)][string]$CecilAssembly
+    [Parameter(Mandatory = $true)][string]$AssetsFile
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 # Only the release copy is rewritten. NuGet's package cache remains pristine.
 # Exact known literals make a changed dependency fail the build for review.
-Add-Type -Path $CecilAssembly
+# GeneratePathProperty is not reliable for this build-only/excluded asset.
+# NuGet's restore graph records the actual cache(s), including custom locations.
+$assets = Get-Content -LiteralPath $AssetsFile -Raw | ConvertFrom-Json
+$package = @($assets.libraries.PSObject.Properties | Where-Object { $_.Name -ceq 'Mono.Cecil/0.11.6' })
+if ($package.Count -ne 1) { throw 'Mono.Cecil 0.11.6 is absent from project.assets.json; restore the host project first.' }
+$cecilAssembly = $null
+foreach ($folder in $assets.packageFolders.PSObject.Properties) {
+    $candidate = Join-Path (Join-Path $folder.Name $package[0].Value.path) 'lib/net40/Mono.Cecil.dll'
+    if (Test-Path -LiteralPath $candidate) { $cecilAssembly = $candidate; break }
+}
+if (!$cecilAssembly) { throw 'Restored Mono.Cecil package does not contain lib/net40/Mono.Cecil.dll.' }
+Add-Type -LiteralPath $cecilAssembly
 $root = [IO.Path]::GetFullPath($RuntimeDirectory)
 $clientless = @(Get-ChildItem -LiteralPath $root -File | Where-Object { $_.Name -ieq 'AOSharp.Clientless.dll' })
 if ($clientless.Count -ne 1) { throw 'Expected exactly one AOSharp.Clientless assembly in the output directory.' }

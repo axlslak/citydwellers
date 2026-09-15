@@ -52,6 +52,6 @@
   <Target Name="PreparePortableClientlessOutput"
     AfterTargets="RestoreClientlessGameData"
     Condition="'$(MSBuildProjectName)' == 'CityDwellers'">
-    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)build\Prepare-PortableClientless.ps1&quot; -RuntimeDirectory &quot;$(TargetDir).&quot; -CecilAssembly &quot;$(PkgMono_Cecil)\lib\net40\Mono.Cecil.dll&quot;" />
+    <Exec Command="powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)build\Prepare-PortableClientless.ps1&quot; -RuntimeDirectory &quot;$(TargetDir).&quot; -AssetsFile &quot;$(ProjectAssetsFile)&quot;" />
   </Target>
 </Project>

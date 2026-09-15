@@ -49,7 +49,7 @@
 
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'CityDwellers'">
     <!-- Build tooling only; never deployed or referenced by the host. -->
-    <PackageReference Include="Mono.Cecil" Version="[0.11.6]" GeneratePathProperty="true" PrivateAssets="all" ExcludeAssets="all" />
+    <PackageReference Include="Mono.Cecil" Version="[0.11.6]" PrivateAssets="all" ExcludeAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
