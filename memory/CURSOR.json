@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 109,
-  "last_completed_session": 108,
-  "status": "in_progress",
+  "last_completed_session": 109,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-109-portable-clientless",
-  "checkpoint_commit": "358c49754318d32c77148992924bc2cea531cd92",
-  "task": "Make Linux dependency paths reproducible in release build",
-  "resume_instruction": "Add build-only Cecil transform of pinned clientless output path literals and assembly-name filename normalization; preserve upstream cache. Owner build/test. Bank ID unverified and decoder issue separate.",
+  "checkpoint_commit": "0b99c1df074a82c9a89dafab376d94397e389a16",
+  "task": "Portable dependency build preparation published",
+  "resume_instruction": "Owner builds Windows solution and deploys full GameData/release to Gentoo. Build-only Cecil path rewrite and canonical DLL names remove workaround need; no assistant compile. Check new bankid via existing plugin. Decoder separate/unfixed. Next journal273.",
   "base_commit": "0057f761d48f6ddc61c0e03a5ec9b43b20a8204c"
 }
