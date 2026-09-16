@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 111,
+  "current_session": 112,
   "last_completed_session": 111,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-111-hyphenated-names",
+  "transaction": "session-112-late-trade-decline",
   "checkpoint_commit": "362d59d68d1326b018c248ec73dae977ed38eae3",
-  "task": "Hyphenated AO character names published",
-  "resume_instruction": "Owner rebuilds and retries #member add Sonstern-1. Reopen only if live validation reports another name path rejecting the hyphen. Next journal seq 277.",
-  "base_commit": "351ec08835fba4ff305d6a277b4c0f6ce74d0a69"
+  "task": "Keep Finished custody verification alive across late Declined callbacks",
+  "resume_instruction": "Implement shared late-decline handling for pending Finished receipts; retain exact inventory verification and mismatch recovery. Owner builds/tests.",
+  "base_commit": "0f4617f8386781652d164a3b1d4f3ba426c829dd"
 }
