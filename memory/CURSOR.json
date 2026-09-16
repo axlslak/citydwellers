@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 115,
+  "current_session": 116,
   "last_completed_session": 115,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-115-colonist-portable-bank",
+  "transaction": "session-116-small-backpacks-only",
   "checkpoint_commit": "e0f8c2ca05cc40b268ff222f6ed766a8de95b6bc",
-  "task": "Colonist repair and portable bank preference published",
-  "resume_instruction": "Published. Owner compiles/runs with portable288762 in normal inventory. Review COLONIST REPAIR COMPLETE/BLOCKED logs; after all banker completions remove temporary ColonistBackpackRepair and hooks, retaining StorageBagPolicy/personal exclusions/portable fallback. No assistant build/live test. Next journal seq 285.",
-  "base_commit": "2bcb9740a2e1829d416bc2ddba31bdcb9d57b9df"
+  "task": "Restrict banker storage to Small Backpack99228 and warn on shortages",
+  "resume_instruction": "Implement strict small-backpack eligibility and startup shortage warning; owner builds/tests.",
+  "base_commit": "2fac486dc15033acae109adaf44679e7fcf0b135"
 }
