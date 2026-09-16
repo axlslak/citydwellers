@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 112,
+  "current_session": 113,
   "last_completed_session": 112,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-112-late-trade-decline",
+  "transaction": "session-113-froob-buffers",
   "checkpoint_commit": "3d904634d44bbd3faf6e714b4c022fdb63a6c171",
-  "task": "Late trade decline resilience published",
-  "resume_instruction": "Resolved. Pending Finished receipt survives late Declined; exact inventory verification and mismatch recovery retained. Owner builds/tests. Next journal seq 279.",
-  "base_commit": "0f4617f8386781652d164a3b1d4f3ba426c829dd"
+  "task": "Import Mali froob buffers into unified host",
+  "resume_instruction": "Implement optional froob Buffers config, loader, shared logs/tell queue and IPC status; preserve Mali discovery/casting. Owner compiles and runs. Paid scheduling and duplicate balancing deferred.",
+  "base_commit": "762c6f46167a07feee4346ea3b6b00cb9886bbb6"
 }
