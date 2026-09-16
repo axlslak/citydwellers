@@ -1,0 +1,17 @@
+<a href="text://
+<a href='chatcmd:///tell {{ botname }} Buffmacro'>Buffmacro</a><font color=#00BDBD> - creates a macro of current ncu buffs</a>
+<a href='chatcmd:///tell {{ botname }} Rebuff'>Rebuff</a> - rebuffs current active ncu buffs</a>
+<a href='chatcmd:///tell {{ botname }} Help'>Help</a> - displays this script</font></a>
+{{ for bufflist in db ~}}
+
+	<img src=tdb://id:GFX_GUI_FRIENDLIST_SPLITTER>
+	{{~ if bufflist.prof == "Generic"}}
+	<img src=tdb://id:GFX_GUI_FRIENDLIST_STATUS_GREEN>  <font color=#DEDE42>{{ bufflist.prof -}}
+	{{~ else }}
+		<img src=tdb://id:GFX_GUI_FRIENDLIST_STATUS_GREEN> <img src=tdb://id:GFX_GUI_ICON_PROFESSION_{{ bufflist.id }}> <font color=#DEDE42>{{ bufflist.prof }}</font>
+	{{- end ~}}
+	{{- for buff in bufflist.entries }}
+		<a href='chatcmd:///tell {{ botname }} cast {{ buff.tag }}'>{{ buff.nanoname }}</a> {{if buff.type == "Team"}}<font color=#FBFF96>[Team]</font> {{ else }} {{ end }}</font><font color=#F07171>[{{ buff.description }}]</font><font color=#00BDBD> [NCU: {{ buff.ncu }}]</font>
+	{{- end }}
+{{ end }}
+">Buff Menu</font></a>

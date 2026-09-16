@@ -1,3 +1,11 @@
+## Session 113 — initial froob buffer integration
+
+- Imported public Mali buff engine at eb78c7f460a66dba6b1c8f8cf6cf66f5b231cc03 as CityBuffers. Optional Buffers.Froobs entries load under the unified host using official Clientless AppDomains, existing multithreaded log pipeline and serialized static-data warmup. Configuration uses the existing citydwellers.json; no per-character nano maps. Full setup is in docs/BUFFERS.md; provenance in plugins/CityBuffers/UPSTREAM.md.
+- Retained Mali nano discovery, casting/team rules and queues. Added City Dwellers status IPC and Manager buffers command. All tells use the existing shared scheduler; Mali replies stay pinned to their originating buffer. The scheduler selects the oldest deliverable tell so an offline pinned buffer cannot block unrelated output. Existing Manager authorization still applies.
+- Portable packaged assets; per-character mutable bans/ranks; empty initial privilege lists; received bans persist locally; direct Log.txt writer replaced by host logging. Missing or disabled Buffers leaves existing services alone. Enabled buffers cannot reuse another configured service account.
+- Owner approved SDK1.0.91 trial with official Clientless1.0.16. Previous SDK1.0.84 was a historical downgrade after a later SDK ChatHeader.Size failure, not proof that1.0.91 cannot work. No compatible-runtime claim without owner evidence.
+- Static source, project/config and whitespace review only. Owner compiles and performs live testing. Paid account rotation/catalogue and duplicate/composite balancing deferred; paid must never serve froob requests. No accounts logged in by assistant.
+
 ## Session 112 — late decline during completed-trade verification
 
 - Owner log shows a player trade rejected for pending storage work, worker receipt of the dispatched item, then Central receiving Declined while its earlier Finished receipt was still awaiting inventory verification. The old handler immediately started a global census. Callback attribution is not proven by the log; the ordering is consistent with the unrelated rejection callback crossing the completion window.
@@ -965,7 +973,7 @@ Timing anchors used for automation design:
 Known dependency state from recovery:
 
 - `AOSharp.Clientless` pinned to `1.0.16`.
-- `AOSharpSDK` pinned exactly to `1.0.84`.
+- `AOSharpSDK` pinned exactly to `1.0.91` for the owner-approved session113 trial; previous baseline `1.0.84`. Not live-verified.
 - Fresh-clone/runtime failures previously observed included:
   - `OutOfMemoryException` in `SmokeLounge.AOtomation ArraySerializer.Deserialize`.
   - `MissingMethodException` for `ChatHeader.get_Size()`, indicating AOSharp binary/version coupling.

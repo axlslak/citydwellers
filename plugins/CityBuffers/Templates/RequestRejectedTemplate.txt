@@ -1,0 +1,1 @@
+<font color =#{{ red }}>I am still loading and awaiting other bots. Cancelling request.</font>

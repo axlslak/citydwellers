@@ -41,6 +41,7 @@ namespace CityManager
                 "bankid",
                 "cloak",
                 "status",
+                "buffers",
                 "stock",
                 "symb",
                 "symbs",
@@ -450,6 +451,7 @@ namespace CityManager
                 ((command == "cru" ||
                   command == "cloak" ||
                   command == "status" ||
+                  command == "buffers" ||
                   command == "leave" ||
                   command == "join" ||
                   command == "adminlist" ||
@@ -627,6 +629,10 @@ namespace CityManager
 
                 case "dynel":
                     ProcessCentralDynelCommand(senderName, replyTarget);
+                    break;
+
+                case "buffers":
+                    BeginBufferStatus(replyTarget);
                     break;
 
                 case "status":

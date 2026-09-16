@@ -1,0 +1,1 @@
+<font color =#{{ red }}>Command not found, try '<font color =#{{ yellow }}>help</font>'.</font>

@@ -1,0 +1,1 @@
+<font color =#{{ red }}>You are already in team. Please wait for the automatic timeout period before rerequesting team buffs!</font>

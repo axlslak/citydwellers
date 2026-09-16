@@ -1,0 +1,1 @@
+<font color =#{{ red }}>Team buff '<font color =#{{ green }}>{{ nanoname }}</font>' timed out.</font>

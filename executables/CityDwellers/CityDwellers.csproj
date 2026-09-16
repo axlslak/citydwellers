@@ -34,6 +34,10 @@
   </PropertyGroup>
   <!-- Build plugins before final portable dependency preparation. They share the output directory. -->
   <ItemGroup>
+    <ProjectReference Include="..\..\plugins\CityBuffers\CityBuffers.csproj">
+      <Project>{FB7792AC-2714-45BE-832D-BBDBFF8CB001}</Project><Name>CityBuffers</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
     <ProjectReference Include="..\..\plugins\CityManager\CityManager.csproj">
       <Project>{BABA4B25-B66F-41B6-930C-DF68CB217F2E}</Project>
       <Name>CityManager</Name>
@@ -57,6 +61,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="BuffersHost.cs" />
     <Compile Include="RuntimeLog.cs" />
     <Compile Include="ServiceCommands.cs" />
     <Compile Include="TimeReadinessGate.cs" />

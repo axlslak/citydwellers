@@ -1,0 +1,1 @@
+<font color =#{{ yellow }}>I will be processing your team buffs. Please accept my invite and wait patiently.</font>

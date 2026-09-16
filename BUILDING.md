@@ -240,3 +240,9 @@ safe default of 4. Every account has its own serialized worker, so different
 buddies can start, stop, report position, and later navigate independently;
 raise `MaxParallelLogins` only if the AO login service and machine handle the
 extra simultaneous handshakes reliably.
+
+## Optional froob buffers
+
+CityBuffers builds with the solution. Copy the complete output, including its
+Buffers asset directory and Scriban dependency. See [buffer setup](docs/BUFFERS.md).
+The current owner-approved dependency trial is Clientless 1.0.16 / SDK 1.0.91.

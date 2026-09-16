@@ -1,0 +1,1 @@
+<font color =#{{ red }}>You don't have enough permissions to use command '<font color =#{{ green }}>{{ command }}</font>'.</font>

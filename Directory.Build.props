@@ -27,6 +27,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\BuildIdentity.cs">
       <Link>BuildIdentity.cs</Link>
     </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\BufferSettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)shared\LocalIpc.cs">
       <Link>LocalIpc.cs</Link>
     </Compile>
@@ -54,11 +55,9 @@
 
   <ItemGroup>
     <PackageReference Include="AOSharp.Clientless" Version="1.0.16" />
-    <!--
-      AOSharp.Clientless 1.0.16 is binary-coupled to AOSharpSDK 1.0.84.
-      Later SDKs change packet member signatures, including ChatHeader.Size.
-    -->
-    <PackageReference Include="AOSharpSDK" Version="[1.0.84]" />
+    <!-- Owner-approved 1.0.91 trial for Mali integration. Previous baseline: 1.0.84.
+         1.0.106 previously failed ChatHeader.Size; 1.0.91 is not live-verified. -->
+    <PackageReference Include="AOSharpSDK" Version="[1.0.91]" />
     <PackageReference Include="HtmlAgilityPack" Version="1.11.45" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Serilog" Version="3.1.1" />

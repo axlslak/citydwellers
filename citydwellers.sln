@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.12.35707.178
@@ -17,12 +17,18 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Executables", "Executables"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CityDwellers", "executables\CityDwellers\CityDwellers.csproj", "{A44A13CA-F0EF-4C15-961D-E9BB102928D8}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CityBuffers", "plugins\CityBuffers\CityBuffers.csproj", "{FB7792AC-2714-45BE-832D-BBDBFF8CB001}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FB7792AC-2714-45BE-832D-BBDBFF8CB001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FB7792AC-2714-45BE-832D-BBDBFF8CB001}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FB7792AC-2714-45BE-832D-BBDBFF8CB001}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FB7792AC-2714-45BE-832D-BBDBFF8CB001}.Release|Any CPU.Build.0 = Release|Any CPU
 		{BABA4B25-B66F-41B6-930C-DF68CB217F2E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{BABA4B25-B66F-41B6-930C-DF68CB217F2E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BABA4B25-B66F-41B6-930C-DF68CB217F2E}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -48,6 +54,7 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
+		{FB7792AC-2714-45BE-832D-BBDBFF8CB001} = {95E29EAD-3858-43A5-9ADC-4C4B3302F99B}
 		{BABA4B25-B66F-41B6-930C-DF68CB217F2E} = {95E29EAD-3858-43A5-9ADC-4C4B3302F99B}
 		{FA82DD5A-388B-420A-B565-0675B72D1CD4} = {95E29EAD-3858-43A5-9ADC-4C4B3302F99B}
 		{C6C6016D-3571-4FF1-80BE-2E6428EDFEB4} = {95E29EAD-3858-43A5-9ADC-4C4B3302F99B}

@@ -1,0 +1,1 @@
+<font color =#{{ red }}>Failed to cast '<font color =#{{ green }}>{{ nanoname }}</font>': {{ errormsg }}</font>

@@ -1,0 +1,1 @@
+<font color =#{{ red }}>'<font color =#{{ green }}>{{ nanoname }}</font>' is already in the queue. Please wait.</font>

@@ -1,0 +1,22 @@
+{
+  "Generic": [
+    {
+      "Buffs": [ "c1", "c2" ]
+    }
+  ],
+  "Trader": [
+    {
+      "Buffs": [ "mcmo", "tsmo", "mmmo", "pmmo", "simo" ]
+    }
+  ],
+  "MartialArtist": [
+    {
+      "Buffs": [ "pmmo", "tsmo", "simo", "bmmo" ]
+    }
+  ],
+  "Bureaucrat": [
+    {
+      "Buffs": [ "pmmo", "simo" ]
+    }
+  ]
+}

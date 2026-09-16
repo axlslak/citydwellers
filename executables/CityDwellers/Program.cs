@@ -158,6 +158,8 @@ namespace CityDwellers.Host
                     "Buddies",
                     () => BuddiesHost.Run(new string[0], stop, false))
             };
+            if (BuffersHost.IsEnabled())
+                components.Add(new ComponentRunner("Buffers", () => BuffersHost.Run(stop)));
             if (settings.BankersEnabled)
                 components.Add(new ComponentRunner("Bankers", () => BankerLoader.RunAll(stop, false)));
             else

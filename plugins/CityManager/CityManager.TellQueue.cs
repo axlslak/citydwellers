@@ -48,6 +48,16 @@ namespace CityManager
                         AddTellSender(GetString(role.Value as JObject, "Character"));
                 }
 
+                try
+                {
+                    foreach (var buffer in BufferSettings.Read().Active)
+                        AddTellSender(buffer.Character);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning("BUFFERS tell senders disabled: " + ex.Message);
+                }
+
                 _tellQueueInitialized = true;
                 Logger.Information(
                     "TELL QUEUE initialized: coordinator=" +
@@ -106,26 +116,23 @@ namespace CityManager
             if (TellQueue.HasAssignment(_dataDir))
                 return;
 
-            TellQueueJob job = TellQueue.ReadPending(_dataDir).FirstOrDefault();
-            if (job == null)
-                return;
-
             HashSet<string> configured = new HashSet<string>(
-                _tellQueueSenders,
-                StringComparer.OrdinalIgnoreCase);
-            List<TellSenderHeartbeat> available = TellQueue
-                .ReadFreshSenders(_dataDir, now)
+                _tellQueueSenders, StringComparer.OrdinalIgnoreCase);
+            var fresh = TellQueue.ReadFreshSenders(_dataDir, now)
                 .Where(h => configured.Contains(h.Character))
-                .Where(h => string.IsNullOrWhiteSpace(job.RequiredSender) ||
-                            string.Equals(
-                                h.Character,
-                                job.RequiredSender,
-                                StringComparison.OrdinalIgnoreCase))
                 .Where(h => !h.LastSentUtc.HasValue ||
                             h.LastSentUtc.Value > now.AddSeconds(5) ||
                             h.LastSentUtc.Value <= now.AddMilliseconds(
-                                -TellQueue.SenderIntervalMilliseconds))
-                .ToList();
+                                -TellQueue.SenderIntervalMilliseconds)).ToList();
+            // A disconnected buffer's pinned reply must not stall all city tells.
+            // Select the oldest deliverable job, preserving order per sender.
+            TellQueueJob job = TellQueue.ReadPending(_dataDir).FirstOrDefault(j =>
+                fresh.Any(h => string.IsNullOrWhiteSpace(j.RequiredSender) ||
+                    string.Equals(h.Character, j.RequiredSender, StringComparison.OrdinalIgnoreCase)));
+            if (job == null) return;
+            List<TellSenderHeartbeat> available = fresh.Where(h =>
+                string.IsNullOrWhiteSpace(job.RequiredSender) || string.Equals(
+                    h.Character, job.RequiredSender, StringComparison.OrdinalIgnoreCase)).ToList();
 
             string sender = SelectNextTellSender(available);
             if (sender == null)

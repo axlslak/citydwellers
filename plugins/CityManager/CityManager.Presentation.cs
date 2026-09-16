@@ -86,6 +86,7 @@ namespace CityManager
                         "Use commands naturally in a tell, or prefix them with # in organization and guest chat.") +
                         HelpSyntaxLine(target, "help [topic]", "Open the manual or a specific topic.") +
                         HelpSyntaxLine(target, "status", "Open the live Manager status blob.") +
+                        HelpSyntaxLine(target, "buffers", "Show froob buffer readiness and queue counts.") +
                         "\n<font color='" + ColorMuted + "'>Words in [brackets] are values you supply. " +
                         "A vertical bar means choose one option. Commands and buttons are case-insensitive.</font>";
                     return true;
