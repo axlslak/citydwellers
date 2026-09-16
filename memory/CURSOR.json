@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 114,
+  "current_session": 115,
   "last_completed_session": 114,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-114-buffer-build-fix",
+  "transaction": "session-115-colonist-portable-bank",
   "checkpoint_commit": "ea41f7c03ebb984a8f6d3635270ccb34b14638a9",
-  "task": "Buffer build corrections published",
-  "resume_instruction": "Resolved on publication. Owner reloads solution and rebuilds; no assistant compile/live run. SDK1.0.91 unchanged; Scriban7.4.0 and supporting floors updated. Next journal seq 283.",
-  "base_commit": "ade6379acf7100c3dfc4ada85cd27ab6b3623340"
+  "task": "One-run Colonist backpack repair and portable bank preference",
+  "resume_instruction": "Repair Colonist296977 contents and back equipment under startup custody freeze, persist completion per character; permanently reject equipped/Colonist storage bags. Prefer portable bank288762 Use; retain real terminal fallback. Owner builds/tests.",
+  "base_commit": "2bcb9740a2e1829d416bc2ddba31bdcb9d57b9df"
 }
