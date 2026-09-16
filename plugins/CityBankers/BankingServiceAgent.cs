@@ -578,6 +578,24 @@ namespace CityBankers
             {
                 if (_withdrawalCensus != null || _withdrawalDispute ||
                     WithdrawalStore.GetWithdrawalCensusId(_settingsDir, Client.CharacterName) != null) return;
+                // A newly rejected incoming trade can report Declined while the
+                // preceding Finished is still awaiting its inventory delta.
+                // Callback identities cannot reliably distinguish those trades.
+                // Preserve the Finished receipt and its original verification
+                // deadline; only an exact settled delta may complete it. A real
+                // mismatch still follows the existing custody recovery path.
+                if (status == TradeStatus.Declined && _afterReceipt != null &&
+                    _receipt != null && _receipt.Direction != 0)
+                {
+                    if (!_lateReceiptDeclineReported)
+                    {
+                        _lateReceiptDeclineReported = true;
+                        Logger.Warning("[CityBankers] Late Declined while verifying Finished; " +
+                            "retaining physical verification for " + _receipt.Kind +
+                            " transaction=" + _receipt.TransactionId + ".");
+                    }
+                    return;
+                }
                 if (TryReturnTradeStatus(status)) return;
                 if (TryHandleWithdrawalTradeStatus(target, status))
                     return;

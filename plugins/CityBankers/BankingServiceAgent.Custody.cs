@@ -16,6 +16,7 @@ namespace CityBankers
         private ReceiptEvidence _receipt;
         private string _receiptDirectory;
         private Action _afterReceipt;
+        private bool _lateReceiptDeclineReported;
         private Stopwatch _custodyVerificationWait;
         private int _receiptSequence;
         private string _settledOffer;
@@ -184,6 +185,7 @@ namespace CityBankers
             _receipt.Expected = new List<TransferItemState>(expected ?? new List<TransferItemState>());
             PersistReceipt("finished-awaiting-inventory");
             _custodyVerificationWait = Stopwatch.StartNew();
+            _lateReceiptDeclineReported = false;
             _afterReceipt = apply;
         }
 

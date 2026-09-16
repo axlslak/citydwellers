@@ -2192,3 +2192,9 @@ and runs live validation. CRU diagnostic state remains unchanged.
 
 - Owner member add Sonstern-1 was rejected by letters/digits-only validation. Member, alt, administrator and ban name validators now permit literal hyphens, preserving the complete character name. Existing trim, length, case handling, authorization and list persistence remain unchanged; add/remove/load share these validators.
 - Static four-validator diff and whitespace review only. No live member added by assistant and no compilation/test run. Owner rebuilds then retries #member add Sonstern-1. Resolved on publication.
+
+## Session 112 — late decline during completed-trade verification
+
+- Owner log shows a player trade rejected for pending storage work, worker receipt of the dispatched item, then Central receiving Declined while its earlier Finished receipt was still awaiting inventory verification. The old handler immediately started a global census. Callback attribution is not proven by the log; the ordering is consistent with the unrelated rejection callback crossing the completion window.
+- Shared status handling now retains a pending Finished receipt across Declined callbacks for donation, dispatch, withdrawal and return flows. Logs once per receipt; does not reset the verification timer, resend items, infer success, or convert completion into cancellation. Existing exact inventory delta, settling, accounting and mismatch recovery remain authoritative. Declines before Finished keep their existing cancellation handling.
+- Static callback ordering, receipt lifecycle and whitespace review only; no compilation or live AO test under owner build policy. Resolved on publication.
