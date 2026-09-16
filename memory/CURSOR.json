@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 113,
+  "current_session": 114,
   "last_completed_session": 113,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-113-froob-buffers",
+  "transaction": "session-114-buffer-build-fix",
   "checkpoint_commit": "43000dbcd6ed2bb72e0b7909b4351768338eaa55",
-  "task": "Initial froob buffer integration published",
-  "resume_instruction": "Resolved on publication. Owner compiles and tests Clientless1.0.16/SDK1.0.91 and first froob using docs/BUFFERS.md. Paid scheduling and duplicate buff balancing deferred. Next journal seq 281.",
-  "base_commit": "762c6f46167a07feee4346ea3b6b00cb9886bbb6"
+  "task": "Correct buffer settings compile failures and old Scriban dependency",
+  "resume_instruction": "Use accessible settings path API, ensure host compiles BufferSettings, update Scriban and required dependency floors. Owner builds/tests.",
+  "base_commit": "ade6379acf7100c3dfc4ada85cd27ab6b3623340"
 }
