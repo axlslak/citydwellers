@@ -863,7 +863,7 @@ namespace CityBankers
         {
             IEnumerable<Item> candidates = (source ?? Enumerable.Empty<Item>())
                 .Where(item => item != null &&
-                    item.UniqueIdentity.Type == IdentityType.Container &&
+                    StorageBagPolicy.IsStorageBag(item) &&
                     (!requireInventorySlot || item.Slot.Type == IdentityType.Inventory));
 
             if (!string.IsNullOrWhiteSpace(bag?.LastUniqueIdentity))
@@ -893,7 +893,7 @@ namespace CityBankers
         private void WorkerWaitBagOpen()
         {
             Container container = Inventory.Containers?.FirstOrDefault(c =>
-                c != null &&
+                StorageBagPolicy.IsStorageContainer(c) &&
                 string.Equals(c.Identity.ToString(), _workerBagLiveIdentity, StringComparison.Ordinal));
             if (container == null || !container.IsOpen || container.Items == null)
                 return;
@@ -945,7 +945,7 @@ namespace CityBankers
         {
             Item bag = Inventory.Bank.Items?.FirstOrDefault(item =>
                 item != null &&
-                item.UniqueIdentity.Type == IdentityType.Container &&
+                StorageBagPolicy.IsStorageBag(item) &&
                 string.Equals(
                     item.UniqueIdentity.ToString(),
                     _workerBagLiveIdentity,
@@ -1289,7 +1289,7 @@ namespace CityBankers
             return Inventory.Items?.FirstOrDefault(item =>
                 item != null &&
                 item.Slot.Type == IdentityType.Inventory &&
-                item.UniqueIdentity.Type == IdentityType.Container &&
+                StorageBagPolicy.IsStorageBag(item) &&
                 string.Equals(item.UniqueIdentity.ToString(), identity, StringComparison.Ordinal));
         }
 

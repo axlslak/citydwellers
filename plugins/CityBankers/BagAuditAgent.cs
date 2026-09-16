@@ -203,7 +203,7 @@ namespace CityBankers
             {
                 result.AddRange(
                     Inventory.Bank.Items
-                        .Where(IsBag)
+                        .Where(StorageBagPolicy.IsStorageBag)
                         .Select(item => SnapshotTarget("bank", item)));
             }
 
@@ -213,7 +213,7 @@ namespace CityBankers
                     Inventory.Items
                         .Where(item => item != null &&
                             item.Slot.Type == IdentityType.Inventory &&
-                            IsBag(item))
+                            StorageBagPolicy.IsStorageBag(item))
                         .Select(item => SnapshotTarget("inventory", item)));
             }
 
@@ -645,7 +645,7 @@ namespace CityBankers
         {
             return Inventory.Bank.Items != null
                 ? Inventory.Bank.Items.FirstOrDefault(item =>
-                    item != null && item.UniqueIdentity == identity)
+                    StorageBagPolicy.IsStorageBag(item) && item.UniqueIdentity == identity)
                 : null;
         }
 
@@ -654,7 +654,7 @@ namespace CityBankers
             return Inventory.Items != null
                 ? Inventory.Items.FirstOrDefault(item =>
                     item != null &&
-                    item.Slot.Type == IdentityType.Inventory &&
+                    StorageBagPolicy.IsNormalInventory(item) && StorageBagPolicy.IsStorageBag(item) &&
                     item.UniqueIdentity == identity)
                 : null;
         }
@@ -663,7 +663,7 @@ namespace CityBankers
         {
             return Inventory.Containers != null
                 ? Inventory.Containers.FirstOrDefault(c =>
-                    c != null && c.Identity == identity)
+                    StorageBagPolicy.IsStorageContainer(c) && c.Identity == identity)
                 : null;
         }
 

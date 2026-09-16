@@ -324,7 +324,7 @@ namespace CityBankers
 
             IEnumerable<Item> candidates = source.Where(item =>
                 item != null &&
-                item.UniqueIdentity.Type == IdentityType.Container &&
+                StorageBagPolicy.IsStorageBag(item) &&
                 (!inventory || item.Slot.Type == IdentityType.Inventory));
 
             if (!string.IsNullOrWhiteSpace(bag?.LastUniqueIdentity))
@@ -1070,7 +1070,7 @@ namespace CityBankers
             return Inventory.Items?.FirstOrDefault(item =>
                 item != null &&
                 item.Slot.Type == IdentityType.Inventory &&
-                item.UniqueIdentity.Type == IdentityType.Container &&
+                StorageBagPolicy.IsStorageBag(item) &&
                 string.Equals(item.UniqueIdentity.ToString(), identity, StringComparison.Ordinal));
         }
 
@@ -1078,14 +1078,14 @@ namespace CityBankers
         {
             return Inventory.Bank.Items?.FirstOrDefault(item =>
                 item != null &&
-                item.UniqueIdentity.Type == IdentityType.Container &&
+                StorageBagPolicy.IsStorageBag(item) &&
                 string.Equals(item.UniqueIdentity.ToString(), identity, StringComparison.Ordinal));
         }
 
         private static Container FindContainerByIdentity(string identity)
         {
             return Inventory.Containers?.FirstOrDefault(container =>
-                container != null &&
+                StorageBagPolicy.IsStorageContainer(container) &&
                 string.Equals(container.Identity.ToString(), identity, StringComparison.Ordinal));
         }
 

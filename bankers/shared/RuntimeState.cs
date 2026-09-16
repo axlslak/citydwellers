@@ -36,6 +36,16 @@ namespace CityBankers.Shared
         }
     }
 
+    // Personal/service equipment must never become stock or a worker-to-Central route.
+    public static class BankerPersonalItems
+    {
+        public const int ColonistBackpackId = 296977;
+        public const int PortableBankTerminalId = 288762;
+        public static bool IsPersonal(int lowId, int highId) =>
+            lowId == ColonistBackpackId || highId == ColonistBackpackId ||
+            lowId == PortableBankTerminalId || highId == PortableBankTerminalId;
+    }
+
     public static partial class CruPolicy
     {
         public const int AoId = 257110;

@@ -28,6 +28,9 @@ namespace CityBankers
         private const int DefaultCityOfficeBankTerminalInstance = SettingsPaths.InitialBankTerminalInstance;
         private int _cityOfficeBankTerminalInstance = DefaultCityOfficeBankTerminalInstance;
         private bool _usedCityOfficeBankFallback;
+        private bool _portableAttemptPending;
+        private DateTime _portableRetryUtc = DateTime.MaxValue;
+        private const int PortableBankTerminalId = BankerPersonalItems.PortableBankTerminalId;
         private bool _bankNeedsId;
         private bool _bankWasOpen;
         private string _bankTerminalRevision;
@@ -140,6 +143,8 @@ namespace CityBankers
                 _inPlay = true;
                 _diagnosticStarted = false;
                 _usedCityOfficeBankFallback = false;
+                _portableAttemptPending = false;
+                _portableRetryUtc = DateTime.MaxValue;
                 _snapshotWritten = false;
                 _pendingResult = null;
                 _snapshotDueUtc = DateTime.UtcNow.Add(DiagnosticSettleDelay);
@@ -147,7 +152,7 @@ namespace CityBankers
 
                 Logger.Information(
                     $"CityBankers ready: {Client.CharacterName} reached InPlay. " +
-                    $"Waiting {DiagnosticSettleDelay.TotalSeconds:F0}s for peers/static dynels to settle.");
+                    $"Waiting {DiagnosticSettleDelay.TotalSeconds:F0}s for inventory to settle before opening bank.");
             }
             catch (Exception ex)
             {
@@ -211,9 +216,16 @@ namespace CityBankers
 
             if (DateTime.UtcNow >= _bankDeadlineUtc)
             {
+                if (_portableAttemptPending)
+                {
+                    _portableAttemptPending = false;
+                    Logger.Warning("BANK portable terminal did not open bank; trying retained real-terminal fallback.");
+                    BeginTerminalDiagnostic();
+                    return;
+                }
                 CompleteDiagnostic(
                     $"Bank did not report open within {BankOpenTimeout.TotalSeconds:F0}s after Use()." +
-                    (_usedCityOfficeBankFallback
+                    (_usedCityOfficeBankFallback && FindPortableBank() == null
                         ? $" Office bank target instance={_cityOfficeBankTerminalInstance}. " +
                           "Compare with Info Manager: the terminal instance can change. " +
                           "Need new bankid: use #bankid <Instance shown in game>."
@@ -226,6 +238,8 @@ namespace CityBankers
             _inPlay = false;
             _diagnosticStarted = false;
             _usedCityOfficeBankFallback = false;
+            _portableAttemptPending = false;
+            _portableRetryUtc = DateTime.MaxValue;
             _snapshotWritten = false;
             _pendingResult = null;
             _snapshotDueUtc = DateTime.MaxValue;
@@ -242,7 +256,7 @@ namespace CityBankers
             bool open = Inventory.Bank != null && Inventory.Bank.IsOpen;
             bool closedSinceOpen = _bankWasOpen && !open;
             _bankWasOpen = open;
-            if (open && _bankNeedsId && _pendingResult != null)
+            if (open && _pendingResult != null && !_pendingResult.BankOpened)
             {
                 // A late server response must replace the failed startup snapshot,
                 // otherwise enrollment can keep waiting despite an open bank.
@@ -260,11 +274,14 @@ namespace CityBankers
                 bool changed = revision != _bankTerminalRevision || instance != _cityOfficeBankTerminalInstance;
                 _bankTerminalRevision = revision;
                 _cityOfficeBankTerminalInstance = instance;
-                if (!open && (changed || closedSinceOpen))
+                if (!open && (changed || closedSinceOpen ||
+                    (DateTime.UtcNow >= _portableRetryUtc && FindPortableBank() != null)))
                 {
                     _snapshotWritten = false;
                     _diagnosticStarted = false;
                     _usedCityOfficeBankFallback = false;
+                    _portableAttemptPending = false;
+                    _portableRetryUtc = DateTime.MaxValue;
                     _bankNeedsId = false;
                     _pendingResult = null;
                     _snapshotDueUtc = DateTime.UtcNow;
@@ -308,7 +325,53 @@ namespace CityBankers
             });
         }
 
+        private static Item FindPortableBank() => Inventory.Items?.FirstOrDefault(item =>
+            StorageBagPolicy.IsNormalInventory(item) &&
+            (item.Id == PortableBankTerminalId || item.HighId == PortableBankTerminalId));
+
         private void BeginDiagnostic()
+        {
+            if (Trade.IsTrading || DynelManager.LocalPlayer == null) return;
+            if (Inventory.Bank.IsOpen) { CompleteDiagnostic(null); return; }
+            Item portable = FindPortableBank();
+            if (portable != null)
+            {
+                _diagnosticStarted = true;
+                _pendingResult = NewFallbackResult();
+                _pendingResult.ObservedUtc = DateTime.UtcNow;
+                _pendingResult.PlayfieldModelId = (int)Playfield.ModelId;
+                var transform = DynelManager.LocalPlayer.Transform;
+                if (transform != null)
+                {
+                    _pendingResult.X = transform.Position.X;
+                    _pendingResult.Y = transform.Position.Y;
+                    _pendingResult.Z = transform.Position.Z;
+                }
+                _pendingResult.BankAttempted = true;
+                _pendingResult.BankTargetName = portable.Name ?? "Portable Bank Terminal";
+                _pendingResult.BankTargetIdentity = portable.Slot.ToString();
+                _pendingResult.BankTargetTemplateId = PortableBankTerminalId;
+                _bankNeedsId = false;
+                _portableAttemptPending = true;
+                _portableRetryUtc = DateTime.MaxValue;
+                _bankDeadlineUtc = DateTime.UtcNow.Add(BankOpenTimeout);
+                try
+                {
+                    Logger.Information("BANK opening with inventory Portable Bank Terminal (288762).Use(); no room bankid required.");
+                    portable.Use();
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _portableAttemptPending = false;
+                    Logger.Warning("BANK portable Use failed: " + ex.Message + "; trying real-terminal fallback.");
+                }
+            }
+            BeginTerminalDiagnostic();
+        }
+
+        // Retained bank discovery/office bankid path, used only after portable absence/failure.
+        private void BeginTerminalDiagnostic()
         {
             try
             {
@@ -542,7 +605,9 @@ namespace CityBankers
             PopulateInventoryAndBagCounts(_pendingResult);
 
             _pendingResult.BankOpened = Inventory.Bank.IsOpen;
-            _bankNeedsId = !Inventory.Bank.IsOpen;
+            _bankNeedsId = !Inventory.Bank.IsOpen && FindPortableBank() == null;
+            _portableAttemptPending = false;
+            _portableRetryUtc = Inventory.Bank.IsOpen ? DateTime.MaxValue : DateTime.UtcNow.AddSeconds(30);
             _nextHealthUtc = DateTime.MinValue;
 
             if (Inventory.Bank.IsOpen)
@@ -551,7 +616,7 @@ namespace CityBankers
                 _pendingResult.BankFreeSlots = Inventory.Bank.NumFreeSlots;
                 _pendingResult.BankBagCount = Inventory.Bank.Items.Count(
                     item => item != null &&
-                        item.UniqueIdentity.Type == IdentityType.Container);
+                        StorageBagPolicy.IsStorageBag(item));
                 _pendingResult.TotalBagCount =
                     _pendingResult.InventoryBagCount + _pendingResult.BankBagCount;
 
@@ -614,7 +679,7 @@ namespace CityBankers
             result.InventoryBagCount = Inventory.Items.Count(
                 item => item != null &&
                     item.Slot.Type == IdentityType.Inventory &&
-                    item.UniqueIdentity.Type == IdentityType.Container);
+                    StorageBagPolicy.IsStorageBag(item));
         }
 
         private List<string> BuildCurrentDynelMessages()

@@ -42,6 +42,7 @@ namespace CityBankers
         private readonly Stopwatch _settled = Stopwatch.StartNew();
         private readonly Stopwatch _retry = Stopwatch.StartNew();
         private JObject _roles;
+        private ColonistBackpackRepair _colonistRepair;
 
         internal sealed class Presence
         {
@@ -251,6 +252,7 @@ namespace CityBankers
         private void RejectBeforeCensus(Identity target) { if (!IsOpen) Trade.Decline(); }
         private void OnDisconnected()
         {
+            _colonistRepair?.Dispose(); _colonistRepair = null;
             _stagingBag = _stagingFailureLayout = _stagingBeforeLayout = null;
             _extraReserveDeferred = false;
             _presenceRetryAfter = 0;
@@ -261,6 +263,7 @@ namespace CityBankers
         }
         public override void Teardown()
         {
+            _colonistRepair?.Dispose(); _colonistRepair = null;
             Client.OnUpdate -= Tick;
             Deferred.Clear();
             Client.Disconnected -= OnDisconnected;
@@ -341,6 +344,9 @@ namespace CityBankers
                     string signature = InventoryLayout();
                     if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                     if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
+                    // Temporary one-run migration owns item movement under this pause.
+                    if (_colonistRepair == null) _colonistRepair = new ColonistBackpackRepair(_settings);
+                    if (!_colonistRepair.Tick()) return;
                     if (!PrepareAuditStagingSlot()) return;
                     RuntimeStateStore.DeleteIfExists(resultPath);
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, _character + ".command.json"),
@@ -438,11 +444,11 @@ namespace CityBankers
             // census to finish but left every multi-item prepare permanently busy.
             int requiredSlots = _extraReserveDeferred ? 1 : ServicePolicy.MaxTradeItems + 1;
             if (Inventory.NumFreeSlots >= requiredSlots) return true;
-            var bag = Inventory.Items.FirstOrDefault(i => i != null && i.UniqueIdentity.Type == IdentityType.Container);
+            var bag = Inventory.Items.FirstOrDefault(i => StorageBagPolicy.IsStorageBag(i) && StorageBagPolicy.IsNormalInventory(i));
             if (Inventory.Bank.NumFreeSlots <= 0 || bag == null)
             {
                 if (Inventory.NumFreeSlots > 0 || !Inventory.Bank.Items.Any(i => i != null &&
-                    i.UniqueIdentity.Type == IdentityType.Container))
+                    StorageBagPolicy.IsStorageBag(i)))
                 {
                     // Audit still works at reduced capacity. Dispatch reports the
                     // actual space shortage if a later batch does not fit.

@@ -254,7 +254,7 @@ namespace CityBankers
                 Item staged = Inventory.Items.FirstOrDefault(item =>
                     item != null &&
                     item.Slot.Type == IdentityType.Inventory &&
-                    item.UniqueIdentity.Type == IdentityType.Container &&
+                    StorageBagPolicy.IsStorageBag(item) &&
                     string.Equals(
                         item.UniqueIdentity.ToString(),
                         persisted.LastUniqueIdentity,

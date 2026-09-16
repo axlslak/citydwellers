@@ -236,7 +236,7 @@ namespace CityBankers
         {
             return (source ?? Enumerable.Empty<Item>())
                 .Where(value => value != null &&
-                    value.UniqueIdentity.Type == IdentityType.Container &&
+                    StorageBagPolicy.IsStorageBag(value) &&
                     (!requireInventorySlot || value.Slot.Type == IdentityType.Inventory) &&
                     string.Equals(value.UniqueIdentity.ToString(), identity, StringComparison.Ordinal))
                 .ToList();

@@ -165,7 +165,7 @@ namespace CityBankers
                 Item live = Inventory.Items?.FirstOrDefault(item =>
                     item != null &&
                     item.Slot.Type == IdentityType.Inventory &&
-                    item.UniqueIdentity.Type == IdentityType.Container &&
+                    StorageBagPolicy.IsStorageBag(item) &&
                     string.Equals(
                         item.UniqueIdentity.ToString(),
                         persisted.LastUniqueIdentity,
@@ -233,7 +233,7 @@ namespace CityBankers
             if (_job.Phase == RescuePhase.OpeningStagedBag)
             {
                 Container container = Inventory.Containers?.FirstOrDefault(candidate =>
-                    candidate != null &&
+                    StorageBagPolicy.IsStorageContainer(candidate) &&
                     string.Equals(candidate.Identity.ToString(), _job.BagIdentity, StringComparison.Ordinal));
                 if (container == null || !container.IsOpen || container.Items == null)
                     return;
@@ -309,7 +309,7 @@ namespace CityBankers
                 Item staged = Inventory.Items?.FirstOrDefault(item =>
                     item != null &&
                     item.Slot.Type == IdentityType.Inventory &&
-                    item.UniqueIdentity.Type == IdentityType.Container &&
+                    StorageBagPolicy.IsStorageBag(item) &&
                     string.Equals(item.UniqueIdentity.ToString(), _job.BagIdentity, StringComparison.Ordinal));
                 if (staged == null)
                 {
@@ -327,7 +327,7 @@ namespace CityBankers
             {
                 Item returned = Inventory.Bank.Items?.FirstOrDefault(item =>
                     item != null &&
-                    item.UniqueIdentity.Type == IdentityType.Container &&
+                    StorageBagPolicy.IsStorageBag(item) &&
                     string.Equals(item.UniqueIdentity.ToString(), _job.BagIdentity, StringComparison.Ordinal));
                 if (returned == null)
                     return;

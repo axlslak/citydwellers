@@ -501,7 +501,7 @@ namespace CityBankers
                             string.Equals(value.Source, "bank", StringComparison.OrdinalIgnoreCase) &&
                             value.OuterSlotInstance == _withdrawal.SourceBagOuterSlot);
                     Item staged = (Inventory.Items ?? new List<Item>()).FirstOrDefault(item =>
-                        item != null && item.UniqueIdentity.Type == IdentityType.Container &&
+                        item != null && StorageBagPolicy.IsStorageBag(item) &&
                         !string.IsNullOrWhiteSpace(recoveryBag?.LastUniqueIdentity) &&
                         string.Equals(item.UniqueIdentity.ToString(), recoveryBag.LastUniqueIdentity, StringComparison.Ordinal));
                     if (staged != null)
@@ -537,7 +537,7 @@ namespace CityBankers
                 ? (Inventory.Bank != null ? Inventory.Bank.Items : null)
                 : Inventory.Items;
             Item bag = (bagItems ?? Enumerable.Empty<Item>()).FirstOrDefault(item => item != null &&
-                    item.UniqueIdentity.Type == IdentityType.Container &&
+                    StorageBagPolicy.IsStorageBag(item) &&
                     ((!string.IsNullOrWhiteSpace(_withdrawalBag.LastUniqueIdentity) &&
                       string.Equals(item.UniqueIdentity.ToString(), _withdrawalBag.LastUniqueIdentity, StringComparison.Ordinal)) ||
                      (string.IsNullOrWhiteSpace(_withdrawalBag.LastUniqueIdentity) &&
@@ -547,7 +547,7 @@ namespace CityBankers
                 if (_withdrawalBankBag)
                 {
                     Item staged = (Inventory.Items ?? new List<Item>()).FirstOrDefault(item =>
-                        item != null && item.UniqueIdentity.Type == IdentityType.Container &&
+                        item != null && StorageBagPolicy.IsStorageBag(item) &&
                         !string.IsNullOrWhiteSpace(_withdrawalBag.LastUniqueIdentity) &&
                         string.Equals(item.UniqueIdentity.ToString(), _withdrawalBag.LastUniqueIdentity, StringComparison.Ordinal));
                     if (staged != null)

@@ -161,7 +161,7 @@ namespace CityBankers
                 InventoryBagCount = (Inventory.Items ?? new List<Item>())
                     .Count(item => item != null &&
                         item.Slot.Type == IdentityType.Inventory &&
-                        item.UniqueIdentity.Type == IdentityType.Container),
+                        StorageBagPolicy.IsStorageBag(item)),
                 LooseItems = items
             };
 
