@@ -43,6 +43,7 @@ namespace CityBankers
         private readonly Stopwatch _retry = Stopwatch.StartNew();
         private JObject _roles;
         private ColonistBackpackRepair _colonistRepair;
+        private string _capacityLoggedRun;
 
         internal sealed class Presence
         {
@@ -344,6 +345,7 @@ namespace CityBankers
                     string signature = InventoryLayout();
                     if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                     if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
+                    ReportSmallBackpackCapacity();
                     // Temporary one-run migration owns item movement under this pause.
                     if (_colonistRepair == null) _colonistRepair = new ColonistBackpackRepair(_settings);
                     if (!_colonistRepair.Tick()) return;
@@ -402,6 +404,24 @@ namespace CityBankers
             Logger.Error("[CityBankers] Census staging waiting: " + reason +
                 " Change inventory/bank space or request recovery to retry.");
             return false;
+        }
+
+        private void ReportSmallBackpackCapacity()
+        {
+            if (_capacityLoggedRun == _auditRun || !Inventory.Bank.IsOpen) return;
+            if (!string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
+            {
+                var rules = SymbiantCatalog.GetRules(_settings).Where(r =>
+                    string.Equals(r.Role, _role, StringComparison.OrdinalIgnoreCase)).ToList();
+                int available = Inventory.Items.Count(StorageBagPolicy.IsStorageBag) +
+                    Inventory.Bank.Items.Count(StorageBagPolicy.IsStorageBag);
+                int required = (rules.Where(r => r.MaxCopies > 0).Sum(r => r.MaxCopies) + 20) / 21;
+                if (available < required)
+                    Logger.Warning("[CityBankers] SMALL BACKPACK SHORTAGE " + _character +
+                        ": have=" + available + "; need=" + required + "; missing=" + (required - available) +
+                        ". Supply Small Backpacks (99228). Equipped and other bag types cannot be used for storage.");
+            }
+            _capacityLoggedRun = _auditRun;
         }
 
         private bool PrepareAuditStagingSlot()

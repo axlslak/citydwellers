@@ -16,7 +16,8 @@ namespace CityBankers
             item.Slot.Instance >= Inventory.INVENTORY_START &&
             item.Slot.Instance < Inventory.INVENTORY_END;
         public static bool IsStorageBag(Item item) => item != null &&
-            item.UniqueIdentity.Type == IdentityType.Container && !IsColonist(item) &&
+            item.UniqueIdentity.Type == IdentityType.Container &&
+            (item.Id == SmallBackpackId || item.HighId == SmallBackpackId) && !IsColonist(item) &&
             (IsNormalInventory(item) || item.Slot.Type == IdentityType.BankByRef);
         public static bool IsStorageContainer(Container container) => container != null &&
             ((Inventory.Items != null && Inventory.Items.Any(i => IsStorageBag(i) && i.UniqueIdentity == container.Identity)) ||

@@ -51,3 +51,8 @@ entering storage rotation again. Leave the completed markers as historical proof
 
 This change was statically reviewed. The owner performs compilation and live AO
 verification; no assistant account login or live item movement was performed.
+
+Storage rotation accepts only Small Backpacks (AOID99228) in normal inventory or
+bank. Other bag types and all equipped bags are excluded. Startup reports
+`SMALL BACKPACK SHORTAGE` against configured finite copy limits; a shortage does
+not authorize use of another bag type or equipped bag.

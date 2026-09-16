@@ -1,3 +1,10 @@
+## Session 116 — Small Backpacks only
+
+- Owner clarified that mentioning worn bags as an alternative never authorized their use. StorageBagPolicy now accepts only Small Backpack99228 in normal inventory or bank; equipped bags and all other types are excluded across existing selectors and capacity diagnostics.
+- Startup logs SMALL BACKPACK SHORTAGE once per audit run when eligible bags cannot cover the configured finite copy limits. Existing capacity report remains available. Shortages never authorize equipment use. Colonist migration and portable-first opening retained.
+- Default symbiant capacity: Artillery251 types/120 bags, Infantry229/110, Control231/110, Support231/110, Extermination235/112; ten copies per type,21 slots per bag. Counts exclude worn Colonist.
+- Static review only; owner compiles and tests. No live success claimed.
+
 ## Session 115 — one-run Colonist repair and portable bank
 
 - Owner reports session114 build succeeds and tested behavior works; not all features tested. Reports worn Colonist backpacks found in storage holding symbiants, and manual rearrangement on Support. Code evidence: StartupCensusGate staging chose any Inventory.Items container without a normal-inventory slot check; official clientless collection includes equipped items. This is a concrete unintended-unequip path, not proof that all historical audits had this cause.
