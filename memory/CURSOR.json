@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 114,
-  "last_completed_session": 113,
-  "status": "in_progress",
+  "last_completed_session": 114,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-114-buffer-build-fix",
-  "checkpoint_commit": "43000dbcd6ed2bb72e0b7909b4351768338eaa55",
-  "task": "Correct buffer settings compile failures and old Scriban dependency",
-  "resume_instruction": "Use accessible settings path API, ensure host compiles BufferSettings, update Scriban and required dependency floors. Owner builds/tests.",
+  "checkpoint_commit": "ea41f7c03ebb984a8f6d3635270ccb34b14638a9",
+  "task": "Buffer build corrections published",
+  "resume_instruction": "Resolved on publication. Owner reloads solution and rebuilds; no assistant compile/live run. SDK1.0.91 unchanged; Scriban7.4.0 and supporting floors updated. Next journal seq 283.",
   "base_commit": "ade6379acf7100c3dfc4ada85cd27ab6b3623340"
 }
