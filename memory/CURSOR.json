@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 112,
-  "last_completed_session": 111,
-  "status": "in_progress",
+  "last_completed_session": 112,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-112-late-trade-decline",
-  "checkpoint_commit": "362d59d68d1326b018c248ec73dae977ed38eae3",
-  "task": "Keep Finished custody verification alive across late Declined callbacks",
-  "resume_instruction": "Implement shared late-decline handling for pending Finished receipts; retain exact inventory verification and mismatch recovery. Owner builds/tests.",
+  "checkpoint_commit": "3d904634d44bbd3faf6e714b4c022fdb63a6c171",
+  "task": "Late trade decline resilience published",
+  "resume_instruction": "Resolved. Pending Finished receipt survives late Declined; exact inventory verification and mismatch recovery retained. Owner builds/tests. Next journal seq 279.",
   "base_commit": "0f4617f8386781652d164a3b1d4f3ba426c829dd"
 }
