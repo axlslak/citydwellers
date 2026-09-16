@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 115,
-  "last_completed_session": 114,
-  "status": "in_progress",
+  "last_completed_session": 115,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-115-colonist-portable-bank",
-  "checkpoint_commit": "ea41f7c03ebb984a8f6d3635270ccb34b14638a9",
-  "task": "One-run Colonist backpack repair and portable bank preference",
-  "resume_instruction": "Repair Colonist296977 contents and back equipment under startup custody freeze, persist completion per character; permanently reject equipped/Colonist storage bags. Prefer portable bank288762 Use; retain real terminal fallback. Owner builds/tests.",
+  "checkpoint_commit": "e0f8c2ca05cc40b268ff222f6ed766a8de95b6bc",
+  "task": "Colonist repair and portable bank preference published",
+  "resume_instruction": "Published. Owner compiles/runs with portable288762 in normal inventory. Review COLONIST REPAIR COMPLETE/BLOCKED logs; after all banker completions remove temporary ColonistBackpackRepair and hooks, retaining StorageBagPolicy/personal exclusions/portable fallback. No assistant build/live test. Next journal seq 285.",
   "base_commit": "2bcb9740a2e1829d416bc2ddba31bdcb9d57b9df"
 }
