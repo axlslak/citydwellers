@@ -27,7 +27,9 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\BuildIdentity.cs">
       <Link>BuildIdentity.cs</Link>
     </Compile>
-    <Compile Include="$(MSBuildThisFileDirectory)shared\BufferSettings.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)shared\BufferSettings.cs" Condition="'$(MSBuildProjectName)' != 'CityDwellers'">
+      <Link>BufferSettings.cs</Link>
+    </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\LocalIpc.cs">
       <Link>LocalIpc.cs</Link>
     </Compile>
@@ -48,6 +50,12 @@
     </Compile>
   </ItemGroup>
 
+  <!-- Host also references Scriban so its dependency closure and binding redirects
+       are present when the plugin loads into client AppDomains. -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' == 'CityDwellers' Or '$(MSBuildProjectName)' == 'CityBuffers'">
+    <PackageReference Include="Scriban" Version="[7.4.0]" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'CityDwellers'">
     <!-- Build tooling only; never deployed or referenced by the host. -->
     <PackageReference Include="Mono.Cecil" Version="[0.11.6]" PrivateAssets="all" ExcludeAssets="all" />
@@ -63,13 +71,15 @@
     <PackageReference Include="Serilog" Version="3.1.1" />
     <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
     <PackageReference Include="Stateless" Version="5.11.0" />
-    <PackageReference Include="System.Buffers" Version="4.5.1" />
+    <!-- Keep the shared-output assemblies at the floors required by Scriban
+         and its System.Text.Json dependency; older direct pins cause NU1605. -->
+    <PackageReference Include="System.Buffers" Version="4.6.1" />
     <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="7.0.2" />
-    <PackageReference Include="System.Memory" Version="4.5.5" />
-    <PackageReference Include="System.Numerics.Vectors" Version="4.5.0" />
-    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.0.0" />
+    <PackageReference Include="System.Memory" Version="4.6.3" />
+    <PackageReference Include="System.Numerics.Vectors" Version="4.6.1" />
+    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Version="6.1.2" />
     <PackageReference Include="System.Text.Encoding.CodePages" Version="5.0.0" />
     <PackageReference Include="System.Threading.Channels" Version="8.0.0" />
-    <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.5.4" />
+    <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
   </ItemGroup>
 </Project>

@@ -85,3 +85,11 @@ old and new dependency DLLs. Report compile or runtime errors for correction.
 Composite/duplicate buff balancing, paid scheduling, paid catalogue discovery
 and Manager-mediated buff selection remain later work. Paid bots must never be
 selected for froob requests when that layer is introduced.
+
+Scriban is pinned to 7.4.0 in the shared project configuration for the plugin and
+host, replacing the imported 5.7.0 version reported by NuGet audit. Its package
+targets .NET Standard 2.0, compatible with this .NET Framework 4.8 solution;
+shared supporting package versions meet its dependency floors. See the
+[official package metadata](https://www.nuget.org/packages/Scriban/7.4.0) and
+[System.Text.Json dependency metadata](https://www.nuget.org/packages/System.Text.Json/10.0.8).
+After pulling build corrections, reload the solution and rebuild all projects.

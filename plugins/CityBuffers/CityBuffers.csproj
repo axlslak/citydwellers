@@ -32,7 +32,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="**\*.cs" Exclude="obj\**;bin\**" />
-    <PackageReference Include="Scriban" Version="5.7.0" />
     <Content Include="JSON\Settings.json;JSON\BuffsDb.json;JSON\RebuffInfo.json;Templates\*.txt">
       <Link>Buffers\%(Identity)</Link>
       <TargetPath>Buffers\%(Identity)</TargetPath>

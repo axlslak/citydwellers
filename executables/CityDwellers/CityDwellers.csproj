@@ -62,6 +62,9 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="BuffersHost.cs" />
+    <Compile Include="..\..\shared\BufferSettings.cs">
+      <Link>BufferSettings.cs</Link>
+    </Compile>
     <Compile Include="RuntimeLog.cs" />
     <Compile Include="ServiceCommands.cs" />
     <Compile Include="TimeReadinessGate.cs" />

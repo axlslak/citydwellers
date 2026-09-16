@@ -1,3 +1,9 @@
+## Session 114 — buffer build corrections
+
+- Owner build log reports CS0122 from BufferSettings calling private SettingsPaths.GetRuntimeDirectory in five plugins, and CS0103 for BufferSettings in the host. Replaced the private call with existing public TryEnsureDirectory. Host now explicitly links the shared source in its csproj; the global include excludes that project to avoid duplicate compilation. The host's missing-source cause is not established by the log alone.
+- Replaced imported Scriban5.7.0 with exact7.4.0 for the reported vulnerability warnings. Package references now cover both CityBuffers and the host, so host output/binding redirects include the plugin dependency closure. Raised shared direct pins to required floors: System.Buffers4.6.1, Memory4.6.3, Numerics.Vectors4.6.1, Unsafe6.1.2, Tasks.Extensions4.6.3. All projects share the runtime directory; inconsistent versions could overwrite each other. AOSharp versions unchanged.
+- Package framework/dependency metadata and Template.Parse/Render API reviewed against official NuGet pages. Source/XML and diff review only, no compilation or live tests. Existing CS0649 JSON-field warnings and Git source-fingerprint fallback are not the reported compile blockers. Owner rebuilds the solution; do not claim an observed successful build.
+
 ## Session 113 — initial froob buffer integration
 
 - Imported public Mali buff engine at eb78c7f460a66dba6b1c8f8cf6cf66f5b231cc03 as CityBuffers. Optional Buffers.Froobs entries load under the unified host using official Clientless AppDomains, existing multithreaded log pipeline and serialized static-data warmup. Configuration uses the existing citydwellers.json; no per-character nano maps. Full setup is in docs/BUFFERS.md; provenance in plugins/CityBuffers/UPSTREAM.md.

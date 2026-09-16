@@ -15,8 +15,11 @@ namespace CityDwellers.Shared
 
         public static BufferSettings Read()
         {
+            string settingsDirectory, error;
+            if (!SettingsPaths.TryEnsureDirectory(out settingsDirectory, out error))
+                throw new InvalidOperationException(error);
             var root = JObject.Parse(File.ReadAllText(System.IO.Path.Combine(
-                SettingsPaths.GetRuntimeDirectory(), "citydwellers.json")));
+                settingsDirectory, "citydwellers.json")));
             var token = root.GetValue("Buffers", StringComparison.OrdinalIgnoreCase);
             var result = token == null ? new BufferSettings() : token.ToObject<BufferSettings>();
             if (result == null) throw new InvalidOperationException("Buffers must be an object.");
