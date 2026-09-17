@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 123,
-  "last_completed_session": 122,
-  "status": "in_progress",
+  "last_completed_session": 123,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-123-idle-disconnect-recovery",
-  "checkpoint_commit": "b0b0dd1050dfad5e806a59615c09b755c19dbdc0",
-  "task": "Keep healthy bankers running across idle disconnects; validate idle reconnect without full roster audit",
-  "resume_instruction": "Implement idle reconnect evidence and released-roster availability separation; retain custody recovery for actual interrupted operations. Owner compiles/tests. Next seq301.",
+  "checkpoint_commit": "145de723b09b79591c1a07cabbe140e22eeb6875",
+  "task": "Idle disconnect and reconnect no longer force healthy roster audits",
+  "resume_instruction": "Published idle availability/lightweight reconnect fix; owner compiles/tests. Same-process idle snapshot match resumes without audit; mismatch uses local census. Startup and actual interrupted-work recovery remain. No claim of live validation. Next journal seq302.",
   "base_commit": "1c25c942f9c33cee78044c124450c15a6a55011b"
 }
