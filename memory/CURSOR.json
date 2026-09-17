@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 120,
-  "last_completed_session": 119,
-  "status": "in_progress",
+  "last_completed_session": 120,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-120-nullable-highid-build",
-  "checkpoint_commit": "1ecb111f76b0c63b16b6adf4dd1b8acd75d24b3c",
-  "task": "Fix CS1503 nullable ledger HighId in personal-item comparison",
-  "resume_instruction": "Use explicit missing HighId fallback in ledger predicate; static review only; owner rebuilds.",
+  "checkpoint_commit": "3864375fe0ccbd9007df1336393b66c89a3439e3",
+  "task": "Nullable ledger HighId build fix published",
+  "resume_instruction": "Owner rebuilds/tests. Preserve Manager-owned structured reporting and full timestamps. Review new logs if supplied. Next journal seq296.",
   "base_commit": "2252c584cd97893e4f53d54b239c9010eb297956"
 }
