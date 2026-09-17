@@ -124,8 +124,15 @@ namespace CityDwellers.Shared
                     catch (Exception ex) when (!(ex is OperationCanceledException))
                     {
                         CloseTransport();
-                        if (!failed) _status("WARNING: Syslog unavailable (" + ex.GetType().Name +
-                            "); retrying in background. Manager event logging continues.");
+                        if (!failed)
+                        {
+                            var socket = ex as SocketException;
+                            string detail = socket == null ? ex.GetType().Name + ": " + ex.Message :
+                                socket.SocketErrorCode + " (native " + socket.NativeErrorCode + "): " + socket.Message;
+                            _status("WARNING: Syslog " + _settings.Transport + " " + _settings.Host + ":" +
+                                _settings.Port + " unavailable: " + detail +
+                                ". Retrying in background; Manager event file continues.");
+                        }
                         failed = true;
                         await Task.Delay(5000, _stop.Token).ConfigureAwait(false);
                     }

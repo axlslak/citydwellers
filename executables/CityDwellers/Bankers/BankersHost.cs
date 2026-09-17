@@ -446,7 +446,7 @@ public class BankerLoader
 
                 Console.WriteLine(
                     $"[{timer.Elapsed.TotalSeconds:F3}s] Central is online and its " +
-                    "bank diagnostic completed. Starting storage bankers.");
+                    "bank-open result received. Starting storage bankers.");
 
                 foreach (BankerRuntime runtime in runtimes.Where(r => r != central))
                     StartRuntime(runtime, timer);
@@ -465,25 +465,26 @@ public class BankerLoader
                 Thread.Sleep(50);
             }
 
-            Console.WriteLine();
-            Console.WriteLine("======================================");
-            Console.WriteLine(" CityBankers diagnostic results");
-            Console.WriteLine("======================================");
-
+            // Legacy diagnostic presentation is only reached for fallback results.
+            bool diagnosticHeadingPrinted = false;
             foreach (BankerRuntime runtime in runtimes.Where(r => r.Started))
             {
-                Console.WriteLine();
-                Console.WriteLine($"[{runtime.Role}] {runtime.Character}");
-
                 if (!File.Exists(runtime.ResultPath))
                 {
                     Console.WriteLine(
-                        $"  Diagnostic snapshot did not arrive within {timeoutMs} ms.");
+                        $"[{runtime.Role}] {runtime.Character}: bank readiness did not arrive within {timeoutMs} ms.");
                     continue;
                 }
 
                 runtime.Result = JsonConvert.DeserializeObject<DiagnosticResult>(
                     File.ReadAllText(runtime.ResultPath));
+                if (runtime.Result?.BankOpenOnly == true) continue;
+                if (!diagnosticHeadingPrinted)
+                {
+                    Console.WriteLine("CityBankers fallback diagnostic results");
+                    diagnosticHeadingPrinted = true;
+                }
+                Console.WriteLine($"[{runtime.Role}] {runtime.Character}");
                 PrintDiagnostic(runtime.Result, timer.Elapsed.TotalSeconds);
             }
 
@@ -896,6 +897,7 @@ public class BankerLoader
         public List<DynelSnapshot> Dynels;
         public bool BankAttempted;
         public bool BankOpened;
+        public bool BankOpenOnly;
         public string BankTargetName;
         public string BankTargetIdentity;
         public int? BankTargetTemplateId;

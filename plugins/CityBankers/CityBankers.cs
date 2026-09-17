@@ -49,6 +49,7 @@ namespace CityBankers
         private string _dataDir;
         private bool _inPlay;
         private bool _diagnosticStarted;
+        private bool _legacyDiagnosticActive;
         private bool _snapshotWritten;
         private DateTime _snapshotDueUtc = DateTime.MaxValue;
         private DateTime _bankDeadlineUtc = DateTime.MaxValue;
@@ -217,7 +218,7 @@ namespace CityBankers
 
             if (Inventory.Bank.IsOpen)
             {
-                CompleteDiagnostic(null);
+                CompleteBankOpen();
                 return;
             }
 
@@ -250,6 +251,7 @@ namespace CityBankers
             _snapshotWritten = false;
             _pendingResult = null;
             _snapshotDueUtc = DateTime.MaxValue;
+            _legacyDiagnosticActive = false;
             _bankDeadlineUtc = DateTime.MaxValue;
             DeleteIfExists(_healthPath);
             DeleteIfExists(_healthPath + ".tmp");
@@ -268,7 +270,7 @@ namespace CityBankers
                 // A late server response must replace the failed startup snapshot,
                 // otherwise enrollment can keep waiting despite an open bank.
                 _snapshotWritten = false;
-                CompleteDiagnostic(null);
+                CompleteBankOpen();
             }
             if (open) _bankNeedsId = false;
             if (!closedSinceOpen && _bankConfigPoll.ElapsedMilliseconds < 1000) return;
@@ -339,21 +341,14 @@ namespace CityBankers
         private void BeginDiagnostic()
         {
             if (Trade.IsTrading || DynelManager.LocalPlayer == null) return;
-            if (Inventory.Bank.IsOpen) { CompleteDiagnostic(null); return; }
+            _legacyDiagnosticActive = false;
+            if (Inventory.Bank.IsOpen) { CompleteBankOpen(); return; }
             Item portable = FindPortableBank();
             if (portable != null)
             {
                 _diagnosticStarted = true;
                 _pendingResult = NewFallbackResult();
                 _pendingResult.ObservedUtc = DateTime.UtcNow;
-                _pendingResult.PlayfieldModelId = (int)Playfield.ModelId;
-                var transform = DynelManager.LocalPlayer.Transform;
-                if (transform != null)
-                {
-                    _pendingResult.X = transform.Position.X;
-                    _pendingResult.Y = transform.Position.Y;
-                    _pendingResult.Z = transform.Position.Z;
-                }
                 _pendingResult.BankAttempted = true;
                 _pendingResult.BankTargetName = portable.Name ?? "Portable Bank Terminal";
                 _pendingResult.BankTargetIdentity = portable.Slot.ToString();
@@ -380,6 +375,7 @@ namespace CityBankers
         // Retained bank discovery/office bankid path, used only after portable absence/failure.
         private void BeginTerminalDiagnostic()
         {
+            _legacyDiagnosticActive = true;
             try
             {
                 LocalPlayer localPlayer = DynelManager.LocalPlayer;
@@ -599,6 +595,33 @@ namespace CityBankers
             });
 
             return true;
+        }
+
+        private void CompleteBankOpen()
+        {
+            if (_legacyDiagnosticActive) { CompleteDiagnostic(null); return; }
+            if (_snapshotWritten || !Inventory.Bank.IsOpen) return;
+            // Portable/already-open path: no dynel/player/position diagnostic.
+            // Keep the existing readiness file contract for startup and capacity consumers.
+            if (_pendingResult == null) _pendingResult = NewFallbackResult();
+            _pendingResult.ObservedUtc = DateTime.UtcNow;
+            _pendingResult.BankOpenOnly = true;
+            _pendingResult.BankOpened = true;
+            _pendingResult.BankError = null;
+            PopulateInventoryAndBagCounts(_pendingResult);
+            _pendingResult.BankItemCount = Inventory.Bank.Items.Count;
+            _pendingResult.BankFreeSlots = Inventory.Bank.NumFreeSlots;
+            _pendingResult.BankBagCount = Inventory.Bank.Items.Count(StorageBagPolicy.IsStorageBag);
+            _pendingResult.TotalBagCount = _pendingResult.InventoryBagCount + _pendingResult.BankBagCount;
+            _bankNeedsId = false;
+            _portableAttemptPending = false;
+            _portableRetryUtc = DateTime.MaxValue;
+            _nextHealthUtc = DateTime.MinValue;
+            WriteAtomicJson(_pendingResult);
+            _snapshotWritten = true;
+            Logger.Information("BANK open verified; legacy diagnostics skipped.");
+            CityDwellers.Shared.ServiceEvents.Report("bank.open", "info", "Bank opened without legacy diagnostics.",
+                new { _pendingResult.TotalBagCount, _pendingResult.InventoryFreeSlots });
         }
 
         private void CompleteDiagnostic(string error)
@@ -879,6 +902,7 @@ namespace CityBankers
             public List<DynelSnapshot> Dynels;
             public bool BankAttempted;
             public bool BankOpened;
+            public bool BankOpenOnly;
             public string BankTargetName;
             public string BankTargetIdentity;
             public int? BankTargetTemplateId;

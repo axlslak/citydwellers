@@ -2256,3 +2256,10 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Owner build log: CityBankers CS1503 at BankingServiceAgent.LocalCensus.cs344, nullable int HighId passed to int parameter. Five other projects succeeded/up-to-date; no live validation implied.
 - Ledger personal-item predicate now uses HighId ?? AoId, matching existing ledger materialization fallback. Low ID remains checked; absent high ID does not invent another item identity. This corrects session117's compile oversight without changing live-item comparison or syslog behavior.
 - Static type/call-site and diff review only; owner compiles/tests.
+
+## Session 121 — portable success bypasses legacy diagnostics
+
+- Owner confirms console manageable and log appears settled. New log shows all nine BANKER READY, no repeating local census loop. Syslog configuration accepted; sender reports SocketException, but old log omitted socket code so refused/unreachable cannot be distinguished. Separate AO packet-deserialization ArraySerializer OutOfMemoryException appears once and Manager continues; not evidence that syslog queue exhausted memory.
+- Owner clarified: move old diagnostic sequence down fallback order, not merely hide output. Added separate CompleteBankOpen path for portable/already-open success; bypasses CompleteDiagnostic and position/dynel/player snapshots. Writes only bank-open/readiness/capacity data under existing result-file contract, one confirmation and structured event. BankOpenOnly flag prevents host diagnostic presentation on this path. Retained full discovery/diagnostic/reporting for portable absence/Use failure/timeout; no bank-ID code deleted. Disconnect resets mode; late-open publication follows active mode.
+- Syslog failures now include transport, configured destination, SocketErrorCode/native code/message (or exception detail); no receiver configuration or connectivity conclusion invented. Owner may test UDP. No live network action performed.
+- Static path/call-site/diff review only. Owner compiles and tests.
