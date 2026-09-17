@@ -1,3 +1,9 @@
+## Session 120 — nullable ledger HighId compile fix
+
+- Owner build log: CityBankers CS1503 at BankingServiceAgent.LocalCensus.cs344, nullable int HighId passed to int parameter. Five other projects succeeded/up-to-date; no live validation implied.
+- Ledger personal-item predicate now uses HighId ?? AoId, matching existing ledger materialization fallback. Low ID remains checked; absent high ID does not invent another item identity. This corrects session117's compile oversight without changing live-item comparison or syslog behavior.
+- Static type/call-site and diff review only; owner compiles/tests.
+
 ## Session 119 — Manager-owned structured syslog events
 
 - Owner corrected initial raw-console forwarding proposal: banker identifies itself, reports to Central, Central reports to Manager; only Manager has logging authority. Owner explicitly selected structured events rather than forwarding every diagnostic line. Full local diagnostic logs retained. Unpublished raw-tee sender plan abandoned; no tee changes published.

@@ -341,7 +341,7 @@ namespace CityBankers
             if (ledger?.Items == null) return;
             var expected = ledger.Items.Where(e => string.Equals(e.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                 e.Location == "inventory" && !e.Bag.HasValue && !CruPolicy.IsCru(e.AoId) &&
-                !BankerPersonalItems.IsPersonal(e.AoId, e.HighId)).Select(e =>
+                !BankerPersonalItems.IsPersonal(e.AoId, e.HighId ?? e.AoId)).Select(e =>
                 (e.Slot.HasValue ? (e.Slot.Value & 65535).ToString() : "?") + "/" + e.AoId + "/" + e.HighId + "/" + e.Ql).OrderBy(k => k);
             var actual = Inventory.Items.Where(i => StorageBagPolicy.IsNormalInventory(i) &&
                 i.UniqueIdentity.Type != IdentityType.Container && !CruPolicy.IsCru(i.Id) &&

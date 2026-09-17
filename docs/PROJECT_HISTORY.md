@@ -2250,3 +2250,9 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - IPC256/sender1024 queues bound resource use; transient failures retry away from game threads, overflow warns locally. IPC acknowledgment is in-memory receipt, not disk durability. Bounded shutdown/crashes can lose pending reports; TCP retries can duplicate after ambiguous sends. Stable ID permits deduplication. No automatic disk replay. Existing raw diagnostics retained; Manager JSONL retained for server loss. Large UDP messages over60000 bytes are skipped with local notice (persisted JSONL remains); TCP preferred.
 - docs/SYSLOG.md includes config, rsyslog source-IP formatting/full event timestamps, retention note, ccze limitations, exact-time commands. tools/citylog.py filters timezone-aware original event intervals, bot/event and rotated gzip files; no dependency beyond Python3. Receiver was not accessed and no logs sent by assistant.
 - Static source/API/framing/lifecycle, project XML, Python AST and diff review only; owner compiles/tests. No live/compile success claim.
+
+## Session 120 — nullable ledger HighId compile fix
+
+- Owner build log: CityBankers CS1503 at BankingServiceAgent.LocalCensus.cs344, nullable int HighId passed to int parameter. Five other projects succeeded/up-to-date; no live validation implied.
+- Ledger personal-item predicate now uses HighId ?? AoId, matching existing ledger materialization fallback. Low ID remains checked; absent high ID does not invent another item identity. This corrects session117's compile oversight without changing live-item comparison or syslog behavior.
+- Static type/call-site and diff review only; owner compiles/tests.
