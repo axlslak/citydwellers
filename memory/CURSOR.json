@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 116,
+  "current_session": 117,
   "last_completed_session": 116,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-116-small-backpacks-only",
+  "transaction": "session-117-census-loop-console",
   "checkpoint_commit": "4a2fd10f57aef0458af71b150fbf9611a4c38286",
-  "task": "Small-backpack-only storage and shortage warning published",
-  "resume_instruction": "Owner builds/tests portable bank and Colonist migration. Remove temporary repair only after completion evidence. Preserve strict Small Backpack99228 policy. Next journal seq287.",
-  "base_commit": "2fac486dc15033acae109adaf44679e7fcf0b135"
+  "task": "Fix personal-item census loop, quiet/color console, retire completed Colonist migration",
+  "resume_instruction": "Implement matching inventory stock filters; preserve full file diagnostics and critical console messages; owner builds/tests.",
+  "base_commit": "0c3d0322828e967fbf0fb4ed31e8a0c20bfc12cc"
 }
