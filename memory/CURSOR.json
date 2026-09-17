@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 120,
+  "current_session": 121,
   "last_completed_session": 120,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-120-nullable-highid-build",
+  "transaction": "session-121-portable-no-diagnostic",
   "checkpoint_commit": "3864375fe0ccbd9007df1336393b66c89a3439e3",
-  "task": "Nullable ledger HighId build fix published",
-  "resume_instruction": "Owner rebuilds/tests. Preserve Manager-owned structured reporting and full timestamps. Review new logs if supplied. Next journal seq296.",
-  "base_commit": "2252c584cd97893e4f53d54b239c9010eb297956"
+  "task": "Bypass legacy diagnostics on portable success; expose syslog socket failure detail",
+  "resume_instruction": "Separate minimal portable completion and retained fallback diagnostic; host only prints fallback diagnostic. Owner builds/tests.",
+  "base_commit": "eb237ccb502e2a872f2a7ccaefc8a82f232e00de"
 }
