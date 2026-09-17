@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 118,
+  "current_session": 119,
   "last_completed_session": 118,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-118-full-console-timestamps",
+  "transaction": "session-119-syslog",
   "checkpoint_commit": "356350d892a2d97d971525cb4e7a05555401069f",
-  "task": "Full console timestamps restored and published",
-  "resume_instruction": "Owner builds/tests. Preserve full timestamps on all logging destinations. LAN syslog discussed only; await target/transport details. Next journal seq291.",
-  "base_commit": "c5e29c15310a397c8a15235647acd14630b29a88"
+  "task": "Optional background TCP/UDP syslog with full timestamps and bot identity; operator filtering guide",
+  "resume_instruction": "Implement optional Syslog JSON settings, bounded background RFC5424 sender, raw tee before console filtering, rsyslog and time-filter recipes. Owner builds/tests; do not send to live server.",
+  "base_commit": "4cdb32f19dc7d246c70ffd02b60f930b9c385b6c"
 }
