@@ -107,6 +107,7 @@ namespace CityBankers
                 $"CityBankers diagnostic plugin initialized. Runtime state root='{pluginDir}'.");
 
             Client.Config.AutoReconnect = true;
+            ClientlessSessionGuard.Install();
             Client.MessageReceived += MessageReceived;
             Logger.Information("TRADE CACHE remote offer removal guard installed.");
             Client.OnUpdate += Tick;
@@ -119,6 +120,7 @@ namespace CityBankers
 
         public override void Teardown()
         {
+            ClientlessSessionGuard.Stop();
             CityDwellers.Shared.ServiceEvents.Stop();
             Client.MessageReceived -= MessageReceived;
             Client.OnUpdate -= Tick;

@@ -123,9 +123,11 @@ namespace CityDwellers.Host
         {
             bool error = line.Contains(" ERR]") || line.Contains(" FTL]");
             bool warning = line.Contains(" WRN]");
+            bool connectionStatus = line.Contains("Gameserver state transition from ") ||
+                line.Contains("Failed to connect to ") || line.Contains("Failed to login:");
             if (!_verbose && !error && !warning &&
                 (line.Contains("[AOSharp.Clientless] MoveToBank Slot ") ||
-                 line.Contains(" DBG]") || line.Contains(" VRB]") ||
+                 (line.Contains(" DBG]") && !connectionStatus) || line.Contains(" VRB]") ||
                  line.Contains("BAG AUDIT opens inventory bags in place."))) return;
             if (!_verbose)
                 line = line.Replace("[CityBankers] [CityBankers]", "[CityBankers]");
