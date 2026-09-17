@@ -1,3 +1,11 @@
+## Session 122 — excluded disconnects no longer restart the roster
+
+- Owner log shows Artillery/Support disconnect callbacks recurring about331 seconds apart; Support follows Artillery by about14 seconds, superseding healthy audits. Seven remaining bankers repeatedly complete census. Underlying connection failure is not diagnosed from this console log.
+- StartupCensusGate now retires local readiness, operational presence and audit ownership on every disconnect, but publishes a new global recovery only if the retired connection epoch belongs to the current cycle. Membership check and request publication share Coordinate's mutex, preventing an excluded reconnect failure from restarting an already reconciled roster. Existing independent recovery requests remain intact; membership/publication failures retain fail-closed global recovery.
+- Active-participant disconnects still reconcile interrupted custody. Returning connections still join through the existing fresh census; no stale ready token or audit result can release them. This is a bounded fix for repeated excluded/offline callbacks, not replacement of all global recovery with per-banker recovery.
+- Owner confirms UDP syslog reception. Spirit120/156 capacity is knowingly accepted; a second Spirit banker is deferred. HQ-specific packet deserialization warning is longstanding and non-blocking per owner; do not repeatedly present it as a new blocker or infer process memory exhaustion from it. Full timestamps retained.
+- Static review of active/excluded disconnects, coordinator ordering, existing requests and reconnection admission; git diff --check. No assistant compilation, test suites or live AO run; owner owns those. Connection failure cause remains unconfirmed.
+
 ## Session 121 — portable success bypasses legacy diagnostics
 
 - Owner confirms console manageable and log appears settled. New log shows all nine BANKER READY, no repeating local census loop. Syslog configuration accepted; sender reports SocketException, but old log omitted socket code so refused/unreachable cannot be distinguished. Separate AO packet-deserialization ArraySerializer OutOfMemoryException appears once and Manager continues; not evidence that syslog queue exhausted memory.

@@ -256,9 +256,49 @@ namespace CityBankers
             _stagingBag = _stagingFailureLayout = _stagingBeforeLayout = null;
             _extraReserveDeferred = false;
             _presenceRetryAfter = 0;
+            string retiredConnection = _connection;
             _connection = Guid.NewGuid().ToString("N");
-            Block("Banker disconnected; retire connection-bound work and obtain fresh physical evidence.");
-            try { RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json")); }
+            const string reason = "Banker disconnected; retire connection-bound work and obtain fresh physical evidence.";
+            // Invalidate this actor immediately, including any local audit token.
+            // A failed reconnect is not a new loss of custody for the roster.
+            _invalidated = true;
+            _holdVersion++;
+            bool recoveryRequested = false;
+            try
+            {
+                Locked(() =>
+                {
+                    var cycle = Current();
+                    Hold(reason);
+                    ClearOperational();
+                    RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                    // Compare the retired epoch, not the newly allocated one.
+                    // Coordinate uses this same mutex: it either already excluded
+                    // us or must reconcile the participant it still depends on.
+                    if (Includes(cycle, _character, retiredConnection))
+                    {
+                        _recoveryRequest = _recoveryRequest ?? Guid.NewGuid().ToString("N");
+                        _requestPublished = false;
+                        PublishRequest(reason);
+                        recoveryRequested = true;
+                    }
+                    // Preserve any independent recovery request. Never delete or
+                    // acknowledge one just because this connection is absent.
+                });
+                if (recoveryRequested)
+                {
+                    Logger.Error("[CityBankers] CENSUS RECOVERY " + MemberCharacter + ": " + reason);
+                    CityDwellers.Shared.ServiceEvents.Report("census.recovery", "error", reason);
+                }
+                else
+                    Logger.Information("[CityBankers] " + MemberCharacter +
+                        " disconnected outside the current census roster; local work retired, healthy census retained.");
+            }
+            catch (Exception ex)
+            {
+                // Unknown membership/publication state must still fail closed.
+                Block("Disconnect recovery could not verify census membership: " + ex.Message);
+            }
             finally { BagAuditAgent.CancelForRecovery(); }
         }
         public override void Teardown()
