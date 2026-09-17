@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 121,
-  "last_completed_session": 120,
-  "status": "in_progress",
+  "last_completed_session": 121,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-121-portable-no-diagnostic",
-  "checkpoint_commit": "3864375fe0ccbd9007df1336393b66c89a3439e3",
-  "task": "Bypass legacy diagnostics on portable success; expose syslog socket failure detail",
-  "resume_instruction": "Separate minimal portable completion and retained fallback diagnostic; host only prints fallback diagnostic. Owner builds/tests.",
+  "checkpoint_commit": "02482707eca7d6ee0b7c86dc13fcdd995a4d2e19",
+  "task": "Portable diagnostic bypass and syslog socket detail published",
+  "resume_instruction": "Owner builds/tests portable minimal startup and syslog TCP/UDP. Fallback diagnostics retained. Latest log all nine ready; separate packet decoder OOM noted, no syslog receiver diagnosis beyond SocketException. Next journal seq298.",
   "base_commit": "eb237ccb502e2a872f2a7ccaefc8a82f232e00de"
 }
