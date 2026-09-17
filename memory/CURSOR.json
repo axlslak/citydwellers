@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 121,
+  "current_session": 122,
   "last_completed_session": 121,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-121-portable-no-diagnostic",
+  "transaction": "session-122-disconnect-census-storm",
   "checkpoint_commit": "02482707eca7d6ee0b7c86dc13fcdd995a4d2e19",
-  "task": "Portable diagnostic bypass and syslog socket detail published",
-  "resume_instruction": "Owner builds/tests portable minimal startup and syslog TCP/UDP. Fallback diagnostics retained. Latest log all nine ready; separate packet decoder OOM noted, no syslog receiver diagnosis beyond SocketException. Next journal seq298.",
-  "base_commit": "eb237ccb502e2a872f2a7ccaefc8a82f232e00de"
+  "task": "Prevent excluded banker disconnect retries from restarting healthy census participants",
+  "resume_instruction": "Inspect StartupCensusGate disconnect membership under coordinator lock; preserve active connection recovery and reconnection census. Owner builds/tests. Next journal seq299.",
+  "base_commit": "5e861490266c6371e55dd722ca5852192804ed54"
 }
