@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 118,
-  "last_completed_session": 117,
-  "status": "in_progress",
+  "last_completed_session": 118,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-118-full-console-timestamps",
-  "checkpoint_commit": "c563c4275cf3b6b69f54986c22a83a682ef677e4",
-  "task": "Restore full console timestamps; discuss optional LAN syslog",
-  "resume_instruction": "Remove timestamp shortening only; retain full file logs and console noise filtering. Syslog is discussion only.",
+  "checkpoint_commit": "356350d892a2d97d971525cb4e7a05555401069f",
+  "task": "Full console timestamps restored and published",
+  "resume_instruction": "Owner builds/tests. Preserve full timestamps on all logging destinations. LAN syslog discussed only; await target/transport details. Next journal seq291.",
   "base_commit": "c5e29c15310a397c8a15235647acd14630b29a88"
 }
