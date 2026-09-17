@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 117,
-  "last_completed_session": 116,
-  "status": "in_progress",
+  "last_completed_session": 117,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-117-census-loop-console",
-  "checkpoint_commit": "4a2fd10f57aef0458af71b150fbf9611a4c38286",
-  "task": "Fix personal-item census loop, quiet/color console, retire completed Colonist migration",
-  "resume_instruction": "Implement matching inventory stock filters; preserve full file diagnostics and critical console messages; owner builds/tests.",
+  "checkpoint_commit": "c563c4275cf3b6b69f54986c22a83a682ef677e4",
+  "task": "Portable-item census loop and console cleanup published; temporary migration retired",
+  "resume_instruction": "Owner compiles/live tests. Inspect next log for stable readiness without repeated local census; console condensed, full data/citydwellers.log retained. Colonist repair removed after nine completion results. Next journal seq289.",
   "base_commit": "0c3d0322828e967fbf0fb4ed31e8a0c20bfc12cc"
 }
