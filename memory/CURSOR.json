@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 122,
+  "current_session": 123,
   "last_completed_session": 122,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-122-disconnect-census-storm",
+  "transaction": "session-123-idle-disconnect-recovery",
   "checkpoint_commit": "b0b0dd1050dfad5e806a59615c09b755c19dbdc0",
-  "task": "Excluded disconnect census storm fixed and published",
-  "resume_instruction": "Owner compiles/live tests. Repeated disconnects outside the current connection roster no longer request global census; active participant and returning connection recovery retained. Underlying connection failure cause unconfirmed. UDP syslog confirmed; known HQ packet warning and Spirit capacity accepted. Next journal seq300.",
-  "base_commit": "5e861490266c6371e55dd722ca5852192804ed54"
+  "task": "Keep healthy bankers running across idle disconnects; validate idle reconnect without full roster audit",
+  "resume_instruction": "Implement idle reconnect evidence and released-roster availability separation; retain custody recovery for actual interrupted operations. Owner compiles/tests. Next seq301.",
+  "base_commit": "1c25c942f9c33cee78044c124450c15a6a55011b"
 }
