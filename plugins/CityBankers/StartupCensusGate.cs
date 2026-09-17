@@ -42,7 +42,6 @@ namespace CityBankers
         private readonly Stopwatch _settled = Stopwatch.StartNew();
         private readonly Stopwatch _retry = Stopwatch.StartNew();
         private JObject _roles;
-        private ColonistBackpackRepair _colonistRepair;
         private string _capacityLoggedRun;
 
         internal sealed class Presence
@@ -253,7 +252,6 @@ namespace CityBankers
         private void RejectBeforeCensus(Identity target) { if (!IsOpen) Trade.Decline(); }
         private void OnDisconnected()
         {
-            _colonistRepair?.Dispose(); _colonistRepair = null;
             _stagingBag = _stagingFailureLayout = _stagingBeforeLayout = null;
             _extraReserveDeferred = false;
             _presenceRetryAfter = 0;
@@ -264,7 +262,6 @@ namespace CityBankers
         }
         public override void Teardown()
         {
-            _colonistRepair?.Dispose(); _colonistRepair = null;
             Client.OnUpdate -= Tick;
             Deferred.Clear();
             Client.Disconnected -= OnDisconnected;
@@ -313,7 +310,9 @@ namespace CityBankers
                         string reason = "cycle=" + cycle.Id + "; localCycle=" + _auditCycle + "; finished=" + _finished +
                             "; invalidated=" + _invalidated + "; pause=" + _auditPause + "/" + _holdVersion +
                             "; holdCycle=" + _holdCycle + "; recoveryRequested=" + Requested();
-                        if (_handoffError != reason) Logger.Warning("[CityBankers] Census released; local handoff waiting: " + reason);
+                        // A newer local recovery owns its own pause and reports its reason.
+                        // It is not a failed handoff of the completed startup audit.
+                        if (_holdVersion == _auditPause && _handoffError != reason) Logger.Warning("[CityBankers] Census released; local handoff waiting: " + reason);
                         _handoffError = reason;
                     }
                     return;
@@ -346,9 +345,6 @@ namespace CityBankers
                     if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                     if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
                     ReportSmallBackpackCapacity();
-                    // Temporary one-run migration owns item movement under this pause.
-                    if (_colonistRepair == null) _colonistRepair = new ColonistBackpackRepair(_settings);
-                    if (!_colonistRepair.Tick()) return;
                     if (!PrepareAuditStagingSlot()) return;
                     RuntimeStateStore.DeleteIfExists(resultPath);
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, _character + ".command.json"),

@@ -1,3 +1,11 @@
+## Session 117 — portable-item census loop and readable console
+
+- Owner log contains4813 lines, including3417 SDK MoveToBank lines. Central completes26 audits rather than failing for lack of slots. CRU snapshot has nine singles and a52-unit stack; the detector already excludes CRU. Verified code defect: census excludes personal288762, but DetectLocalInventoryDifference included it, producing a persistent difference after every successful census on all portable-equipped bankers.
+- Expected/live loose-inventory comparisons now both exclude personal service items. Live detector and census snapshot share normal-inventory bounds; worn items cannot manufacture a mismatch. Ordinary stock discrepancies still trigger recovery. Local census start now reports its reason. Legitimate local holds no longer emit the misleading startup-handoff warning; token ownership checks remain intact. Local bag-move timeout now matches startup15000ms rather than legacy3000ms; no claim that the log proves every partial audit's cause.
+- Console retains warnings/errors, audit progress and completion but hides SDK MoveToBank chatter, debug/verbose lines and the repeated audit tutorial. Thread-local line assembly under the existing output lock, short timestamps, duplicate banker-prefix removal and severity colors improve console readability. Full original diagnostics remain in data/citydwellers.log. CITYDWELLERS_VERBOSE_CONSOLE=1 restores uncondensed console detail. This is a focused first logging cleanup, not removal of all old logging paths.
+- Owner log verifies portable bank results for all nine; Colonist completion on seven with back equip, Central/Dyna absent. Removed temporary ColonistBackpackRepair and hooks/project entry per prior one-run direction. Permanent Small Backpack99228-only storage policy, personal exclusions, shortage warning and portable fallback remain. Completion markers retained as history.
+- Source/diff/project XML review only; owner compiles/live tests. Post-fix absence of repeated audits is not yet live-verified.
+
 ## Session 116 — Small Backpacks only
 
 - Owner clarified that mentioning worn bags as an alternative never authorized their use. StorageBagPolicy now accepts only Small Backpack99228 in normal inventory or bank; equipped bags and all other types are excluded across existing selectors and capacity diagnostics.

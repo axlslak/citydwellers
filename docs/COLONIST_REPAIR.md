@@ -1,3 +1,7 @@
+> Retired in session117 after owner logs verified completion for all nine bankers
+> (seven equipped, Central and Dyna absent). The following describes the historical
+> migration. Permanent storage restrictions and portable-bank support remain.
+
 # One-run Colonist backpack repair
 
 This release contains a temporary migration for AOID296977. The storage exclusion

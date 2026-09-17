@@ -76,6 +76,7 @@ namespace CityBankers
             _localCensusAttempt = 0;
             _localCensusRetry.Restart();
             _localCensusPause = StartupCensusGate.PauseLocalCensus(reason);
+            Logger.Warning("[CityBankers] LOCAL CENSUS START " + Client.CharacterName + ": " + reason);
             _localCensusPoll.Restart();
             return true;
         }
@@ -114,7 +115,7 @@ namespace CityBankers
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "intent.json"), new
                     { RunId = _localCensus, Character = Client.CharacterName, Reason = _localCensusReason, Extraction = _extraction });
                     RuntimeStateStore.DeleteIfExists(resultPath);
-                    var command = new BagAuditAgent.BagAuditCommand { RunId = _localCensus, Role = _role };
+                    var command = new BagAuditAgent.BagAuditCommand { RunId = _localCensus, Role = _role, BagMoveTimeoutMs = 15000 };
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "request.json"), command);
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(collector, Client.CharacterName + ".command.json"), command);
                     _localCensusIssued = true;
@@ -337,10 +338,12 @@ namespace CityBankers
             var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
             if (ledger?.Items == null) return;
             var expected = ledger.Items.Where(e => string.Equals(e.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
-                e.Location == "inventory" && !e.Bag.HasValue && !CruPolicy.IsCru(e.AoId)).Select(e =>
+                e.Location == "inventory" && !e.Bag.HasValue && !CruPolicy.IsCru(e.AoId) &&
+                !BankerPersonalItems.IsPersonal(e.AoId, e.HighId)).Select(e =>
                 (e.Slot.HasValue ? (e.Slot.Value & 65535).ToString() : "?") + "/" + e.AoId + "/" + e.HighId + "/" + e.Ql).OrderBy(k => k);
-            var actual = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory &&
-                i.UniqueIdentity.Type != IdentityType.Container && !CruPolicy.IsCru(i.Id)).Select(i =>
+            var actual = Inventory.Items.Where(i => StorageBagPolicy.IsNormalInventory(i) &&
+                i.UniqueIdentity.Type != IdentityType.Container && !CruPolicy.IsCru(i.Id) &&
+                !BankerPersonalItems.IsPersonal(i.Id, i.HighId)).Select(i =>
                 (i.Slot.Instance & 65535) + "/" + i.Id + "/" + i.HighId + "/" + i.Ql).OrderBy(k => k);
             string difference = string.Join(";", expected) + "|" + string.Join(";", actual);
             if (expected.SequenceEqual(actual)) { _localCensusMismatch = null; return; }

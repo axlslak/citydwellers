@@ -764,8 +764,7 @@ namespace CityBankers
                     // Bag contents alone are not a custody census. Preserve loose items
                     // separately, including Central's ordinary trade inventory.
                     LooseInventoryItems = Inventory.Items == null ? null : Inventory.Items
-                        .Where(item => item != null &&
-                            item.Slot.Type == IdentityType.Inventory && !IsBag(item))
+                        .Where(item => StorageBagPolicy.IsNormalInventory(item) && !IsBag(item))
                         .Select(SnapshotInnerItem).ToList(),
                     LooseBankItems = Inventory.Bank.Items == null ? null : Inventory.Bank.Items
                         .Where(item => item != null && !IsBag(item))

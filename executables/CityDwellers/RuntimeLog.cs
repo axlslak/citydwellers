@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace CityDwellers.Host
 {
@@ -85,37 +87,73 @@ namespace CityDwellers.Host
 
         public override Encoding Encoding => _second.Encoding;
 
-        public override void Write(char value)
-        {
-            lock (_sync)
-            {
-                _first.Write(value);
-                _second.Write(value);
-            }
-        }
+        // Keep complete diagnostics on disk. Only the operator console is condensed.
+        private readonly ThreadLocal<StringBuilder> _line =
+            new ThreadLocal<StringBuilder>(() => new StringBuilder());
+        private readonly bool _verbose = string.Equals(
+            Environment.GetEnvironmentVariable("CITYDWELLERS_VERBOSE_CONSOLE"), "1", StringComparison.Ordinal);
+        private static readonly Regex Timestamp = new Regex(
+            @"^\[\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})\.\d+[+-]\d{2}:\d{2} (\w{3})\] ");
+
+        public override void Write(char value) => Write(value.ToString());
 
         public override void Write(string value)
         {
+            if (value == null) return;
             lock (_sync)
             {
-                _first.Write(value);
                 _second.Write(value);
+                foreach (char character in value)
+                {
+                    if (character == '\n')
+                    {
+                        RenderLine(_line.Value.ToString().TrimEnd('\r'));
+                        _line.Value.Clear();
+                    }
+                    else _line.Value.Append(character);
+                    if (_line.Value.Length >= 16384)
+                    {
+                        RenderLine(_line.Value.ToString());
+                        _line.Value.Clear();
+                    }
+                }
             }
         }
 
-        public override void WriteLine(string value)
+        public override void WriteLine(string value) => Write((value ?? string.Empty) + NewLine);
+        public override void WriteLine() => Write(NewLine);
+
+        private void RenderLine(string line)
         {
-            lock (_sync)
+            bool error = line.Contains(" ERR]") || line.Contains(" FTL]");
+            bool warning = line.Contains(" WRN]");
+            if (!_verbose && !error && !warning &&
+                (line.Contains("[AOSharp.Clientless] MoveToBank Slot ") ||
+                 line.Contains(" DBG]") || line.Contains(" VRB]") ||
+                 line.Contains("BAG AUDIT opens inventory bags in place."))) return;
+            if (!_verbose)
+                line = Timestamp.Replace(line, "[$1 $2] ")
+                    .Replace("[CityBankers] [CityBankers]", "[CityBankers]");
+            if (Console.IsOutputRedirected) { _first.WriteLine(line); return; }
+            ConsoleColor previous = Console.ForegroundColor;
+            try
             {
-                _first.WriteLine(value);
-                _second.WriteLine(value);
+                Console.ForegroundColor = error ? ConsoleColor.Red : warning ? ConsoleColor.Yellow :
+                    line.Contains("COMPLETE") || line.Contains("BANKER READY") ? ConsoleColor.Green : ConsoleColor.Gray;
+                _first.WriteLine(line);
             }
+            finally { Console.ForegroundColor = previous; }
         }
 
         public override void Flush()
         {
             lock (_sync)
             {
+                if (_line.Value.Length > 0)
+                {
+                    _first.Write(_line.Value.ToString());
+                    _line.Value.Clear();
+                }
                 _first.Flush();
                 _second.Flush();
             }

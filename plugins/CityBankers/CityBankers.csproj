@@ -41,7 +41,6 @@
     <Compile Include="BagAuditAgent.cs" />
     <Compile Include="StartupCensusGate.cs" />
     <Compile Include="StorageBagPolicy.cs" />
-    <Compile Include="ColonistBackpackRepair.cs" />
     <Compile Include="BankingServiceAgent.cs" />
     <Compile Include="BankingServiceAgent.Custody.cs" />
     <Compile Include="BankingServiceAgent.Cancellation.cs" />
