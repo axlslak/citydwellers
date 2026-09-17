@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 123,
+  "current_session": 124,
   "last_completed_session": 123,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-123-idle-disconnect-recovery",
+  "transaction": "session-124-reconnect-session-guard",
   "checkpoint_commit": "145de723b09b79591c1a07cabbe140e22eeb6875",
-  "task": "Idle disconnect and reconnect no longer force healthy roster audits",
-  "resume_instruction": "Published idle availability/lightweight reconnect fix; owner compiles/tests. Same-process idle snapshot match resumes without audit; mismatch uses local census. Startup and actual interrupted-work recovery remain. No claim of live validation. Next journal seq302.",
-  "base_commit": "1c25c942f9c33cee78044c124450c15a6a55011b"
+  "task": "Repair stale reconnect login identity and protect banker client update pump; surface authentication progress",
+  "resume_instruction": "Implement per-banker clientless reconnect guard using verified 1.0.16 fields/APIs. Preserve idle census resume. Review exception/lifecycle paths. Owner compiles/tests. Next seq303.",
+  "base_commit": "551275da6cd3003fe08171b66fd6e31b4e5465cb"
 }
