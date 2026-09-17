@@ -28,6 +28,10 @@ namespace CityBankers
         private static string _holdCycle;
         private static string _recoveryRequest;
         private static bool _requestPublished;
+        private static string _idleInventory;
+        private string _idleReconnectCycle, _idleReconnectConnection, _idleReconnectInventory;
+        private string _reconnectObserved;
+        private readonly Stopwatch _reconnectSettled = new Stopwatch();
         private static readonly List<Action> Deferred = new List<Action>();
         private string _settings, _character, _role, _auditCycle, _auditRun, _signature, _error;
         private string _readyLoggedCycle, _handoffError;
@@ -112,6 +116,7 @@ namespace CityBankers
         {
             var cycle = Current();
             if (cycle?.Phase != "released" || !Includes(cycle, MemberCharacter, _connection) || !IsOpen) return;
+            _idleInventory = BankingServiceAgent.CanResumeIdleConnection() ? ReconnectInventory() : null;
             RuntimeStateStore.WriteJsonAtomic(MemberPath(MemberCharacter, ".operational.json"),
                 new { Cycle = cycle.Id, Connection = _connection, Stamp = Stopwatch.GetTimestamp() });
         }
@@ -257,6 +262,7 @@ namespace CityBankers
             _extraReserveDeferred = false;
             _presenceRetryAfter = 0;
             string retiredConnection = _connection;
+            bool invalidatedBeforeDisconnect = _invalidated;
             _connection = Guid.NewGuid().ToString("N");
             const string reason = "Banker disconnected; retire connection-bound work and obtain fresh physical evidence.";
             // Invalidate this actor immediately, including any local audit token.
@@ -269,13 +275,26 @@ namespace CityBankers
                 Locked(() =>
                 {
                     var cycle = Current();
+                    // Preserve the original proof through unsuccessful reconnect
+                    // attempts. They cannot create new item movements.
+                    bool idle = (_idleReconnectCycle != null && _idleReconnectCycle == cycle?.Id) ||
+                        (cycle?.Phase == "released" && !invalidatedBeforeDisconnect &&
+                         _idleInventory != null && BankingServiceAgent.CanResumeIdleConnection());
+                    if (idle && _idleReconnectCycle == null && Includes(cycle, _character, retiredConnection))
+                    {
+                        _idleReconnectCycle = cycle.Id;
+                        _idleReconnectConnection = retiredConnection;
+                        _idleReconnectInventory = _idleInventory;
+                    }
+                    _reconnectObserved = null;
+                    _reconnectSettled.Reset();
                     Hold(reason);
                     ClearOperational();
                     RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
                     // Compare the retired epoch, not the newly allocated one.
                     // Coordinate uses this same mutex: it either already excluded
                     // us or must reconcile the participant it still depends on.
-                    if (Includes(cycle, _character, retiredConnection))
+                    if (!idle && Includes(cycle, _character, retiredConnection))
                     {
                         _recoveryRequest = _recoveryRequest ?? Guid.NewGuid().ToString("N");
                         _requestPublished = false;
@@ -292,7 +311,9 @@ namespace CityBankers
                 }
                 else
                     Logger.Information("[CityBankers] " + MemberCharacter +
-                        " disconnected outside the current census roster; local work retired, healthy census retained.");
+                        " unavailable; healthy census retained. " +
+                        (_idleReconnectCycle != null ? "Idle reconnect will validate inventory without a bag audit." :
+                        "Connection was outside the current census roster."));
             }
             catch (Exception ex)
             {
@@ -319,6 +340,7 @@ namespace CityBankers
             try
             {
                 if (!Client.InPlay || !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
+                if (_idleReconnectCycle != null && !TryResumeIdleConnection()) return;
                 if (_stagingFailureLayout != null)
                 {
                     if (_stagingFailureLayout == InventoryLayout() && _recoveryRequest == null) return;
@@ -428,6 +450,98 @@ namespace CityBankers
                 .Select(i => "inventory/" + i.Slot + "/" + i.UniqueIdentity)
                 .Concat(Inventory.Bank.Items.Where(i => i != null)
                     .Select(i => "bank/" + i.Slot + "/" + i.UniqueIdentity)).OrderBy(s => s));
+        }
+
+        private static string ReconnectInventory()
+        {
+            // Fresh SDK objects must describe the same top-level items and bags.
+            // Slot location, template, quality and stack quantity all matter.
+            return string.Join(";", Inventory.Items.Where(i => i != null)
+                .Select(i => "inventory/" + i.Slot + "/" + i.UniqueIdentity + "/" + i.Id + "/" + i.HighId + "/" + i.Ql + "/" + StackableItems.Quantity(i))
+                .Concat(Inventory.Bank.Items.Where(i => i != null)
+                    .Select(i => "bank/" + i.Slot + "/" + i.UniqueIdentity + "/" + i.Id + "/" + i.HighId + "/" + i.Ql + "/" + StackableItems.Quantity(i)))
+                .OrderBy(s => s));
+        }
+
+        private bool TryResumeIdleConnection()
+        {
+            string observed = ReconnectInventory();
+            if (_reconnectObserved != observed)
+            {
+                _reconnectObserved = observed;
+                _reconnectSettled.Restart();
+                return false;
+            }
+            if (_reconnectSettled.ElapsedMilliseconds < 5000) return false;
+            bool resumed = false;
+            bool localAudit = false;
+            Locked(() =>
+            {
+                var cycle = Current();
+                if (cycle?.Id != _idleReconnectCycle || cycle.Phase != "released" || Requested())
+                {
+                    // An independently requested census owns recovery now.
+                    _idleReconnectCycle = null;
+                    return;
+                }
+                if (!Includes(cycle, _character, _idleReconnectConnection))
+                    throw new InvalidOperationException("Idle reconnect lost its prior census membership.");
+                if (!BankingServiceAgent.CanResumeIdleConnection())
+                {
+                    _idleReconnectCycle = null;
+                    Block("Reconnect validation found unresolved item work; retained idle evidence cannot release this banker.");
+                    return;
+                }
+                // Rebind only this member. Other members retain their current
+                // cycle, ready tokens and physical evidence, even while offline.
+                cycle.Participants[_character] = _connection;
+                RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                _idleReconnectConnection = _connection;
+                PublishReadyRoster(cycle);
+                RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".blocked"));
+                File.WriteAllText(MemberPath(_character, ".ready"), cycle.Id + "/" + _connection);
+                _invalidated = false;
+                if (observed != _idleReconnectInventory)
+                {
+                    // Ready is only provisional within this callback. No fresh
+                    // operational heartbeat is published before the local hold.
+                    bool acquired;
+                    try { acquired = BankingServiceAgent.ReconcileIdleReconnect(); }
+                    catch
+                    {
+                        _invalidated = true;
+                        RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".ready"));
+                        throw;
+                    }
+                    if (!acquired)
+                    {
+                        Hold("Waiting for ownership of reconnect inventory reconciliation.");
+                        return;
+                    }
+                    localAudit = true;
+                }
+                else _auditPause = _holdVersion;
+                _idleReconnectCycle = null;
+                resumed = true;
+            });
+            if (resumed && !localAudit)
+            {
+                Logger.Information("[CityBankers] " + _character + " idle reconnect verified; resumed without bag audit.");
+                CityDwellers.Shared.ServiceEvents.Report("banker.reconnected", "info", "Idle reconnect verified; resumed without bag audit.");
+            }
+            return _idleReconnectCycle == null;
+        }
+
+        private void PublishReadyRoster(Cycle cycle)
+        {
+            RuntimeStateStore.WriteJsonAtomic(Path.Combine(RuntimeStateStore.GetDataDirectory(_settings),
+                TrustedOperators.AllBankersReadyMarkerFileName), new
+            {
+                format = "citybankers-all-bankers-ready-v2", generation = Generation, cycle = cycle.Id,
+                readyUtc = DateTime.UtcNow,
+                characters = cycle.Participants.Select(p => new { character = p.Key, connection = p.Value,
+                    role = _roles.Properties().Single(r => string.Equals((string)r.Value["Character"], p.Key, StringComparison.OrdinalIgnoreCase)).Name }).ToList()
+            });
         }
 
         private bool WaitForStagingChange(string reason)
@@ -547,14 +661,7 @@ namespace CityBankers
                     _roles.Properties().ToDictionary(p => p.Name, p => (string)p.Value["Character"], StringComparer.OrdinalIgnoreCase));
                 bool release = cycle.Participants.All(p => Present(p.Key, p.Value)) && !Requested();
                 cycle.Phase = release ? "released" : "superseded";
-                if (release)
-                    RuntimeStateStore.WriteJsonAtomic(Path.Combine(RuntimeStateStore.GetDataDirectory(_settings),
-                        TrustedOperators.AllBankersReadyMarkerFileName), new
-                    {
-                        format = "citybankers-all-bankers-ready-v2", generation = Generation, cycle = cycle.Id,
-                        readyUtc = DateTime.UtcNow,
-                        characters = cycle.Participants.Select(p => new { character = p.Key, connection = p.Value, role = _roles.Properties().Single(r => string.Equals((string)r.Value["Character"], p.Key, StringComparison.OrdinalIgnoreCase)).Name }).ToList()
-                    });
+                if (release) PublishReadyRoster(cycle);
                 RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
                 Logger.Information("[CityBankers] Census " + cycle.Id + " " + cycle.Phase + "; audited bankers=" + censuses.Count + "; queued routes=" + application.Queue.Batches.Count);
                 return;
@@ -563,7 +670,9 @@ namespace CityBankers
                 .Where(p => p.Presence != null && Present(p.Character, p.Presence.Connection))
                 .ToDictionary(p => p.Character, p => p.Presence.Connection, StringComparer.OrdinalIgnoreCase);
             if (!online.ContainsKey(_character)) return;
-            if (cycle?.Phase == "released" && !Requested() && membersPresent &&
+            // A missing heartbeat changes availability, not physical custody.
+            // ReadyConnection already excludes that banker from new requests.
+            if (cycle?.Phase == "released" && !Requested() &&
                 online.All(p => Includes(cycle, p.Key, p.Value))) return;
             var next = new Cycle { Id = Guid.NewGuid().ToString("N"), Phase = "collecting", Participants = online };
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(CycleDirectory(next), "participants.json"), next);

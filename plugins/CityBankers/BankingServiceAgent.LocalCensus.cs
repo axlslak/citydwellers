@@ -40,6 +40,28 @@ namespace CityBankers
         private string _localCensusMismatch;
         private string _localCensusError;
 
+        // Does not require InPlay: the disconnect callback runs after the SDK
+        // has already dropped the connection. Retained operation state is what
+        // decides whether an idle session can be resumed without recounting bags.
+        internal static bool CanResumeIdleConnection()
+        {
+            var a = _ipcOwner;
+            return a != null && a._enabled && !Trade.IsTrading &&
+                a._stackOperation == null && a._receipt == null && a._afterReceipt == null &&
+                a._returnOffer == null && a._returnRequest == null &&
+                a._workerCommand == null && a._reservedDispatch == null &&
+                a._withdrawal == null && a._activeBatch == null && !a._donationActive &&
+                a._donationCleanup == null && a._storageJob == null && a._dispatchPreparation == null &&
+                a._extraction == null && (a._extractionCommit == null || a._extractionCommit.IsCompleted) &&
+                a._localCensus == null && a._dispatchCensus == null && a._dispatchDispute == null &&
+                a._withdrawalCensus == null && !a._withdrawalDispute && a._storageRecovery == null &&
+                a._pickupItems.Count == 0 && a._centralWithdrawalItems.Count == 0 &&
+                !a.HasPendingPeerWork(Client.CharacterName) && !a.CensusReservedHere();
+        }
+
+        internal static bool ReconcileIdleReconnect() => _ipcOwner != null &&
+            _ipcOwner.StartLocalCensus("Idle reconnect inventory differs from the last settled snapshot; reconcile only this banker.");
+
         // A local move needs no peer. Failed dispatch storage additionally
         // requires a grant backed by both peers' applied physical receipts.
         private bool CanStartLocalCensus() => StartupCensusGate.IsOpen &&
