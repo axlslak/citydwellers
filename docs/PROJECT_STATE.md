@@ -1,3 +1,9 @@
+## Session 118 — full timestamps retained
+
+- Owner requires full date, milliseconds and timezone in console as well as saved logs. Removed session117 console timestamp shortening; full file timestamps were never changed. Color/noise filtering and duplicate-prefix cleanup remain.
+- LAN syslog is discussion only: optional plaintext UDP sender, full timestamps/severity/character labels, background bounded queue and retained local log proposed. Exact server address/port/transport not supplied; no sender implemented or network messages sent.
+- Static diff review only; owner builds/tests.
+
 ## Session 117 — portable-item census loop and readable console
 
 - Owner log contains4813 lines, including3417 SDK MoveToBank lines. Central completes26 audits rather than failing for lack of slots. CRU snapshot has nine singles and a52-unit stack; the detector already excludes CRU. Verified code defect: census excludes personal288762, but DetectLocalInventoryDifference included it, producing a persistent difference after every successful census on all portable-equipped bankers.

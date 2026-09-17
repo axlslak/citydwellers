@@ -2235,3 +2235,9 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Console retains warnings/errors, audit progress and completion but hides SDK MoveToBank chatter, debug/verbose lines and the repeated audit tutorial. Thread-local line assembly under the existing output lock, short timestamps, duplicate banker-prefix removal and severity colors improve console readability. Full original diagnostics remain in data/citydwellers.log. CITYDWELLERS_VERBOSE_CONSOLE=1 restores uncondensed console detail. This is a focused first logging cleanup, not removal of all old logging paths.
 - Owner log verifies portable bank results for all nine; Colonist completion on seven with back equip, Central/Dyna absent. Removed temporary ColonistBackpackRepair and hooks/project entry per prior one-run direction. Permanent Small Backpack99228-only storage policy, personal exclusions, shortage warning and portable fallback remain. Completion markers retained as history.
 - Source/diff/project XML review only; owner compiles/live tests. Post-fix absence of repeated audits is not yet live-verified.
+
+## Session 118 — full timestamps retained
+
+- Owner requires full date, milliseconds and timezone in console as well as saved logs. Removed session117 console timestamp shortening; full file timestamps were never changed. Color/noise filtering and duplicate-prefix cleanup remain.
+- LAN syslog is discussion only: optional plaintext UDP sender, full timestamps/severity/character labels, background bounded queue and retained local log proposed. Exact server address/port/transport not supplied; no sender implemented or network messages sent.
+- Static diff review only; owner builds/tests.

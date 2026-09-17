@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace CityDwellers.Host
@@ -92,9 +91,6 @@ namespace CityDwellers.Host
             new ThreadLocal<StringBuilder>(() => new StringBuilder());
         private readonly bool _verbose = string.Equals(
             Environment.GetEnvironmentVariable("CITYDWELLERS_VERBOSE_CONSOLE"), "1", StringComparison.Ordinal);
-        private static readonly Regex Timestamp = new Regex(
-            @"^\[\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}:\d{2})\.\d+[+-]\d{2}:\d{2} (\w{3})\] ");
-
         public override void Write(char value) => Write(value.ToString());
 
         public override void Write(string value)
@@ -132,8 +128,7 @@ namespace CityDwellers.Host
                  line.Contains(" DBG]") || line.Contains(" VRB]") ||
                  line.Contains("BAG AUDIT opens inventory bags in place."))) return;
             if (!_verbose)
-                line = Timestamp.Replace(line, "[$1 $2] ")
-                    .Replace("[CityBankers] [CityBankers]", "[CityBankers]");
+                line = line.Replace("[CityBankers] [CityBankers]", "[CityBankers]");
             if (Console.IsOutputRedirected) { _first.WriteLine(line); return; }
             ConsoleColor previous = Console.ForegroundColor;
             try
