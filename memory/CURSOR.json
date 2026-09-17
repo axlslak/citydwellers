@@ -6,7 +6,7 @@
   "active_project": "citydwellers",
   "transaction": "session-119-syslog",
   "checkpoint_commit": "356350d892a2d97d971525cb4e7a05555401069f",
-  "task": "Optional background TCP/UDP syslog with full timestamps and bot identity; operator filtering guide",
-  "resume_instruction": "Implement optional Syslog JSON settings, bounded background RFC5424 sender, raw tee before console filtering, rsyslog and time-filter recipes. Owner builds/tests; do not send to live server.",
+  "task": "Manager-owned structured event reporting via banker->Central->Manager, optional syslog",
+  "resume_instruction": "Owner selected structured reports, not raw console forwarding. Review/publish event router, Manager-only syslog sender, selected operation events and filtering docs/script. Owner builds/tests.",
   "base_commit": "4cdb32f19dc7d246c70ffd02b60f930b9c385b6c"
 }

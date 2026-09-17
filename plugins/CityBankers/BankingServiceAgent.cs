@@ -2669,6 +2669,10 @@ namespace CityBankers
         {
             try
             {
+                CityDwellers.Shared.ServiceEvents.Report("bank.transfer",
+                    stage.IndexOf("FAIL", StringComparison.OrdinalIgnoreCase) >= 0 ? "error" :
+                    stage == "WAITING" || stage.Contains("DECLINED") ? "warning" : "info",
+                    message, new { Stage = stage, BatchId = batchId, Items = items?.ToList() });
                 string prefix = "BANKERS " + stage + " batch=" + (batchId ?? "-") + " ";
                 var details = new List<string> { message ?? string.Empty };
                 if (items != null)

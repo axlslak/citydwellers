@@ -30,6 +30,9 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\BufferSettings.cs" Condition="'$(MSBuildProjectName)' != 'CityDwellers'">
       <Link>BufferSettings.cs</Link>
     </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\ServiceEvents.cs">
+      <Link>ServiceEvents.cs</Link>
+    </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\LocalIpc.cs">
       <Link>LocalIpc.cs</Link>
     </Compile>

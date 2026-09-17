@@ -67,6 +67,12 @@ namespace CityBankers
                 throw new InvalidOperationException(settingsError);
 
             _settingsDir = settingsDir;
+            try
+            {
+                CityDwellers.Shared.ServiceEvents.Start(settingsDir, Client.CharacterName,
+                    () => Client.LocalDynelId, message => Logger.Warning(message));
+            }
+            catch (Exception ex) { Logger.Warning("Event reporting disabled: " + ex.Message); }
             var bankTerminal = SettingsPaths.ReadBankTerminal(settingsDir);
             _cityOfficeBankTerminalInstance = (int)bankTerminal["Instance"];
             _bankTerminalRevision = (string)bankTerminal["Revision"];
@@ -112,6 +118,7 @@ namespace CityBankers
 
         public override void Teardown()
         {
+            CityDwellers.Shared.ServiceEvents.Stop();
             Client.MessageReceived -= MessageReceived;
             Client.OnUpdate -= Tick;
             Client.Disconnected -= Disconnected;
@@ -644,6 +651,9 @@ namespace CityBankers
                 $"bags={_pendingResult.InventoryBagCount}; " +
                 $"bank+inventory bags={_pendingResult.TotalBagCount}.");
 
+            CityDwellers.Shared.ServiceEvents.Report("bank.open", _pendingResult.BankOpened ? "info" : "warning",
+                _pendingResult.BankOpened ? "Bank opened." : "Bank opening failed.",
+                new { _pendingResult.BankError, _pendingResult.TotalBagCount, _pendingResult.InventoryFreeSlots });
             WriteAtomicJson(_pendingResult);
             _snapshotWritten = true;
 

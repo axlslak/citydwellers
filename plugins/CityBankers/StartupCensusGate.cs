@@ -179,6 +179,7 @@ namespace CityBankers
             }
             catch (Exception ex) { Logger.Error("[CityBankers] Recovery publication retry: " + ex.Message); }
             Logger.Error("[CityBankers] CENSUS RECOVERY " + MemberCharacter + ": " + reason);
+            CityDwellers.Shared.ServiceEvents.Report("census.recovery", "error", reason);
         }
 
         private static void PublishRequest(string reason)
@@ -300,6 +301,7 @@ namespace CityBankers
                         {
                             Logger.Information("[CityBankers] BANKER READY " + _character + "; cycle=" + cycle.Id +
                                 "; starting deferred components=" + Deferred.Count);
+                            CityDwellers.Shared.ServiceEvents.Report("banker.ready", "info", "Banker ready.", new { Cycle = cycle.Id });
                             _readyLoggedCycle = cycle.Id;
                         }
                         InitializeDeferred();

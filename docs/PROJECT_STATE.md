@@ -1,3 +1,12 @@
+## Session 119 — Manager-owned structured syslog events
+
+- Owner corrected initial raw-console forwarding proposal: banker identifies itself, reports to Central, Central reports to Manager; only Manager has logging authority. Owner explicitly selected structured events rather than forwarding every diagnostic line. Full local diagnostic logs retained. Unpublished raw-tee sender plan abandoned; no tee changes published.
+- Optional root Syslog {Enabled:false,Host:"",Port:514,Transport:"tcp"}; supports plaintext TCP (RFC6587 octet counting) and UDP. Only Manager creates sender. Source hostname automatic, APP-NAME citydwellers, host PID preserved, body contains original character/actual Client.LocalDynelId (unknown before available), source UTC time, severity, stable event ID and data. No identity guessed from text.
+- New shared ServiceEvents reports asynchronously over process-scoped named pipes through Central. Configured role/source and relay validated; Manager deduplicates recent4096 IDs, writes data/citydwellers-events.jsonl, queues syslog. Initial events cover bank opening/readiness, census start/apply/recovery, existing transfer stages and Manager cloak observations/startup. This is not yet instrumentation of Buffers/Buddies/Flipper or every diagnostic event.
+- IPC256/sender1024 queues bound resource use; transient failures retry away from game threads, overflow warns locally. IPC acknowledgment is in-memory receipt, not disk durability. Bounded shutdown/crashes can lose pending reports; TCP retries can duplicate after ambiguous sends. Stable ID permits deduplication. No automatic disk replay. Existing raw diagnostics retained; Manager JSONL retained for server loss. Large UDP messages over60000 bytes are skipped with local notice (persisted JSONL remains); TCP preferred.
+- docs/SYSLOG.md includes config, rsyslog source-IP formatting/full event timestamps, retention note, ccze limitations, exact-time commands. tools/citylog.py filters timezone-aware original event intervals, bot/event and rotated gzip files; no dependency beyond Python3. Receiver was not accessed and no logs sent by assistant.
+- Static source/API/framing/lifecycle, project XML, Python AST and diff review only; owner compiles/tests. No live/compile success claim.
+
 ## Session 118 — full timestamps retained
 
 - Owner requires full date, milliseconds and timezone in console as well as saved logs. Removed session117 console timestamp shortening; full file timestamps were never changed. Color/noise filtering and duplicate-prefix cleanup remain.

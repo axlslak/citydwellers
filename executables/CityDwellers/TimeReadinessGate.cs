@@ -10,6 +10,7 @@ namespace CityDwellers.Host
 {
     internal sealed class HostSettings
     {
+        public CityDwellers.Shared.SyslogSettings Syslog = new CityDwellers.Shared.SyslogSettings();
         public bool BankersEnabled = true;
         public bool RequireTrustedTime = true;
         public List<string> NtpServers = new List<string>();

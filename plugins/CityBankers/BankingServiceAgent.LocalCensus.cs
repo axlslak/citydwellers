@@ -77,6 +77,7 @@ namespace CityBankers
             _localCensusRetry.Restart();
             _localCensusPause = StartupCensusGate.PauseLocalCensus(reason);
             Logger.Warning("[CityBankers] LOCAL CENSUS START " + Client.CharacterName + ": " + reason);
+            CityDwellers.Shared.ServiceEvents.Report("census.started", "warning", reason, new { Run = run });
             _localCensusPoll.Restart();
             return true;
         }
@@ -169,6 +170,7 @@ namespace CityBankers
                     }
                     FinishDispatchCensus();
                     FinishWithdrawalCensus();
+                    CityDwellers.Shared.ServiceEvents.Report("census.applied", "info", "Local census applied.", new { Run = _localCensus });
                     _localCensus = null;
                     _localCensusResult = null;
                     _localCensusIssued = false;

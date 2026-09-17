@@ -146,6 +146,12 @@ namespace CityManager
 
             Logger.Information($"CityManager settings: {_settingsDir}");
             Logger.Information($"CityManager data: {_dataDir}");
+            try { InitializeEventReporting(); }
+            catch (Exception ex)
+            {
+                ShutdownEventReporting();
+                Logger.Warning("Manager syslog reporting disabled: " + ex.Message);
+            }
             AdminListStore.Initialize(_dataDir);
             BanListStore.Initialize(_dataDir);
             DevTrace(
@@ -173,6 +179,7 @@ namespace CityManager
         {
             try
             {
+                ShutdownEventReporting();
                 Client.MessageReceived -= MessageReceived;
                 CityRaidAutomation.Shutdown();
                 OrgRankAuthorizer.Shutdown();
@@ -2626,6 +2633,7 @@ namespace CityManager
                 };
 
                 File.AppendAllText(_eventsPath, JsonConvert.SerializeObject(record) + Environment.NewLine);
+                CityDwellers.Shared.ServiceEvents.Report("cloak.changed", "info", "Cloak observation recorded.", record);
             }
             catch (Exception ex)
             {
