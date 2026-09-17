@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 119,
+  "current_session": 120,
   "last_completed_session": 119,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-119-syslog",
+  "transaction": "session-120-nullable-highid-build",
   "checkpoint_commit": "1ecb111f76b0c63b16b6adf4dd1b8acd75d24b3c",
-  "task": "Manager-owned structured syslog pipeline and time-filter guide published",
-  "resume_instruction": "Owner configures Syslog.Host/Enabled and compiles/tests. Verify banker origin ID/time preserved through Central to Manager, receiver output and bounded outage behavior. Initial banker/Manager event coverage documented in docs/SYSLOG.md; other components not instrumented. No raw console forwarding. Next journal seq294.",
-  "base_commit": "4cdb32f19dc7d246c70ffd02b60f930b9c385b6c"
+  "task": "Fix CS1503 nullable ledger HighId in personal-item comparison",
+  "resume_instruction": "Use explicit missing HighId fallback in ledger predicate; static review only; owner rebuilds.",
+  "base_commit": "2252c584cd97893e4f53d54b239c9010eb297956"
 }
