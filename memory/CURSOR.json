@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 124,
-  "last_completed_session": 123,
-  "status": "in_progress",
+  "last_completed_session": 124,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-124-reconnect-session-guard",
-  "checkpoint_commit": "145de723b09b79591c1a07cabbe140e22eeb6875",
-  "task": "Repair stale reconnect login identity and protect banker client update pump; surface authentication progress",
-  "resume_instruction": "Implement per-banker clientless reconnect guard using verified 1.0.16 fields/APIs. Preserve idle census resume. Review exception/lifecycle paths. Owner compiles/tests. Next seq303.",
+  "checkpoint_commit": "02bc8a1ce752f19723c0de5e840dbd4db65a7f04",
+  "task": "Banker reconnect identity/update guard and visible connection progress published",
+  "resume_instruction": "Owner rebuilds/restarts and tests reconnect. Source hazards fixed/guarded; exact live cause not proven. Expect update guard installed, login stages, InPlay, then idle resume/local reconciliation. Existing dead runtime is not resurrected by source publication. Next journal seq304.",
   "base_commit": "551275da6cd3003fe08171b66fd6e31b4e5465cb"
 }
