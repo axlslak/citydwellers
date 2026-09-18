@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 138,
+  "current_session": 139,
   "last_completed_session": 138,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-138-ambiguous-bag-evidence",
+  "transaction": "session-139-packet-guard-enum-bor",
   "checkpoint_commit": "720d1966c5bb086ef85733d3cd39311879ea1e31",
-  "task": "Ambiguous bag evidence recorded; owner rebuild and bag move pending",
-  "resume_instruction": "Owner rebuilds for the session137 census withdrawal fix, then physically moves Kbarty's bag (inventory/66+69) and Kbsupp's bag (bank/92+1) with the ordinary AO client; a host restart clears neither. Send the next console log. Next journal seq331.",
-  "base_commit": "0c0c21f"
+  "task": "Fix packet guard enum -bor InvalidCastException",
+  "resume_instruction": "Move the MethodAttributes flag combination into the typed Cecil bridge and bump it to V2. Seal with COMMIT seq332.",
+  "base_commit": "ec4d7d350ba3f4fa9cdeb51c75dd31d998385aa8"
 }
