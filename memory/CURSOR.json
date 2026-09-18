@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 149,
-  "last_completed_session": 148,
-  "status": "in_progress",
+  "last_completed_session": 149,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-149-a-held-banker-must-come-back",
-  "checkpoint_commit": "978ed46181a37a7b843e5da811055b84d187b2f6",
-  "task": "A held banker must rejoin; the phantom must not cost a slot",
-  "resume_instruction": "Session 149 opened from the 112-agent sweep. A staging hold deletes presence and never republishes it, so the worker is parked until restart; and NumFreeSlots counts records, so the phantom is why Kbarty stages at all. Next journal seq349.",
+  "checkpoint_commit": "1e246a8be3bf0b82ed546d566d5c4a7bb2463526",
+  "task": "Hold retries and headroom fixed; duplicate-tolerance sweep next",
+  "resume_instruction": "Sessions 146-149 published. Next: session 150 takes the remaining confirmed findings from the 112-agent sweep - SingleOrDefault crash in Extraction, BuildCurrentStock and FindNextFreeBag double-counting, CensusApplication donor anchor, and bank free slots from distinct identities. Still needs evidence: second audit on one connection fails all inventory bags. Next journal seq350.",
   "base_commit": "e966c49419c23661a80b148234c121376a0dc5d6"
 }
