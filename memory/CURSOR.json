@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 147,
+  "current_session": 148,
   "last_completed_session": 147,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-147-phantom-bag-record",
+  "transaction": "session-148-staging-picks-a-real-bag",
   "checkpoint_commit": "31794a178970f32f8068227e775b884e33daff0b",
-  "task": "Duplicate bag record tolerated; owner rebuild pending",
-  "resume_instruction": "Sessions 146 and 147 published: shared-state contention is retried instead of restarting the roster, and one container identity listed at two outer slots is treated as one bag rather than a fatal layout error. Owner rebuilds and runs. Watch DUPLICATE BAG RECORD and the ledger reconciliation of the 21 Kbarty and 9 Kbsupp unbacked entries. Next journal seq346.",
-  "base_commit": "ffcf5903128a3c585641675b8b76cbbe319bcbba"
+  "task": "Census staging must act on a bag that exists",
+  "resume_instruction": "Session 148 opened. Kbarty parks because PrepareAuditStagingSlot moves a stale record (Item.Use is slot-addressed, proven from IL) and verifies with absolute counts a duplicate makes unreachable. Also fixing the unstable dedupe choice. Still open afterwards: every banker's second audit on one connection fails all inventory bags. Next journal seq347.",
+  "base_commit": "a367e306933be8f5db9c420c34879cf46d3b4d88"
 }
