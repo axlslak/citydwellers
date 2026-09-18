@@ -38,6 +38,8 @@ namespace CityBankers
         private string _readyLoggedCycle, _handoffError;
         private long _auditPause;
         private long _presenceRetryAfter;
+        private long _stagingRetryAfter;
+        private int _stagingHolds;
         private int _censusRejections;
         private string _stagingBag, _stagingFailureLayout, _stagingBeforeLayout;
         private string _stagingRecordLocation;
@@ -358,7 +360,13 @@ namespace CityBankers
                 if (_idleReconnectCycle != null && !TryResumeIdleConnection()) return;
                 if (_stagingFailureLayout != null)
                 {
-                    if (_stagingFailureLayout == InventoryLayout() && _recoveryRequest == null) return;
+                    // A hold used to end only when the layout changed, and the hold
+                    // itself withdraws presence, so a worker that nobody moved a bag
+                    // for never rejoined: it sat out every later cycle until the host
+                    // was restarted. Retry on a cool-off as well, so the staging step
+                    // gets another attempt with a fresh candidate bag.
+                    if (_stagingFailureLayout == InventoryLayout() && _recoveryRequest == null &&
+                        Stopwatch.GetTimestamp() < _stagingRetryAfter) return;
                     _stagingFailureLayout = null;
                     _stagingBag = null;
                 }
@@ -574,17 +582,20 @@ namespace CityBankers
         {
             _stagingFailureLayout = InventoryLayout();
             _stagingBag = null;
+            if (_stagingHolds < 5) _stagingHolds++;
+            long cooloff = 60L << (_stagingHolds - 1);
+            _stagingRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * cooloff;
             RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".blocked"), new { Reason = reason });
-            // A full worker must not periodically rejoin and restart every healthy
-            // banker's census. A changed layout, recovery request or reconnect retries.
+            // Withdrawing presence lets the running cycle drop this member and
+            // finish instead of waiting for a result it will not produce. The
+            // cool-off above is what brings the member back: without it the hold
+            // was permanent, because presence is republished only after this
+            // check clears and the roster of every later cycle is built from
+            // presence files alone.
             if (!string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
                 RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
-            // "Request recovery" named an internal file mechanism the operator
-            // cannot invoke. State the action that actually clears this: any
-            // observed layout change re-evaluates the hold automatically.
             Logger.Error("[CityBankers] Census staging waiting: " + reason +
-                " Move the affected bag with the game client so the server reports it once;" +
-                " this banker re-evaluates automatically when the observed layout changes.");
+                " Retrying in " + cooloff + "s, or sooner if the observed layout changes.");
 
             // This character is already logged in by this process, so nobody can
             // inspect it with the game client. Record the banker's own view of
@@ -640,9 +651,10 @@ namespace CityBankers
                 // none in inventory is unreachable for a bag the client lists twice,
                 // even when the move itself succeeded.
                 if (bankCopies == _stagingBankBefore + 1 && inventoryCopies == _stagingInventoryBefore - 1 &&
-                    Inventory.NumFreeSlots > 0)
+                    StorageBagPolicy.FreeInventorySlots() > 0)
                 {
                     Logger.Information("[CityBankers] Census staging slot verified; bag=" + _stagingBag);
+                    _stagingHolds = 0;
                     _stagingBag = null;
                     _signature = null;
                     _settled.Restart();
@@ -651,6 +663,7 @@ namespace CityBankers
                 if (_stagingAge.ElapsedMilliseconds >= 15000)
                 {
                     if (bankCopies == _stagingBankBefore && inventoryCopies == _stagingInventoryBefore &&
+                        StorageBagPolicy.FreeInventorySlots() > 0 &&
                         InventoryLayout() == _stagingBeforeLayout)
                     {
                         // Nothing moved and nothing changed. Moves carry the item's
@@ -664,7 +677,8 @@ namespace CityBankers
                         // change the observed layout, so audit the actual location.
                         // Do not resend this failed reserve move in later cycles.
                         Logger.Warning("[CityBankers] Extra receiving reserve move left inventory unchanged; " +
-                            "continuing census with " + Inventory.NumFreeSlots + " free slots; bag=" + _stagingBag);
+                            "continuing census with " + StorageBagPolicy.FreeInventorySlots() +
+                            " free slots; bag=" + _stagingBag);
                         _extraReserveDeferred = true;
                         _stagingBag = null;
                         _signature = null;
@@ -672,7 +686,9 @@ namespace CityBankers
                         return false;
                     }
                     return WaitForStagingChange("Inventory bag move to bank was not verified; bag=" + _stagingBag +
-                        "; inInventory=" + inInventory + "; inBank=" + inBank + "; freeSlots=" + Inventory.NumFreeSlots);
+                        "; inInventory=" + inInventory + "; inBank=" + inBank +
+                        "; freeSlots=" + StorageBagPolicy.FreeInventorySlots() +
+                        " (client reports " + Inventory.NumFreeSlots + ")");
                 }
                 return false;
             }
@@ -683,7 +699,15 @@ namespace CityBankers
             // one slot to stage its destination bag. Moving only one bag allowed
             // census to finish but left every multi-item prepare permanently busy.
             int requiredSlots = _extraReserveDeferred ? 1 : ServicePolicy.MaxTradeItems + 1;
-            if (Inventory.NumFreeSlots >= requiredSlots) return true;
+            // Count slots, not records. A bag the client lists twice occupies one
+            // slot; NumFreeSlots subtracts two. Kbarty reported ten free against a
+            // requirement of eleven while physically holding eleven, so the phantom
+            // was the only reason this step ran at all.
+            if (StorageBagPolicy.FreeInventorySlots() >= requiredSlots)
+            {
+                _stagingHolds = 0;
+                return true;
+            }
             // Never stage a bag the client lists twice while an unambiguous one is
             // available. A move carries the item's slot, so acting on the stale
             // record of a duplicated bag sends the server an action for a slot it
@@ -696,13 +720,14 @@ namespace CityBankers
             var bag = staging == null ? null : staging.Bag;
             if (Inventory.Bank.NumFreeSlots <= 0 || bag == null)
             {
-                if (Inventory.NumFreeSlots > 0 || !Inventory.Bank.Items.Any(i => i != null &&
+                if (StorageBagPolicy.FreeInventorySlots() > 0 || !Inventory.Bank.Items.Any(i => i != null &&
                     StorageBagPolicy.IsStorageBag(i)))
                 {
                     // Audit still works at reduced capacity. Dispatch reports the
                     // actual space shortage if a later batch does not fit.
                     Logger.Warning("[CityBankers] Census receiving reserve limited: free inventory slots=" +
-                        Inventory.NumFreeSlots + "; desired=" + requiredSlots + "; bank free slots=" + Inventory.Bank.NumFreeSlots);
+                        StorageBagPolicy.FreeInventorySlots() + "; desired=" + requiredSlots +
+                        "; bank free slots=" + Inventory.Bank.NumFreeSlots);
                     return true;
                 }
                 return WaitForStagingChange("No normal-inventory staging slot and no bank space for an inventory bag.");

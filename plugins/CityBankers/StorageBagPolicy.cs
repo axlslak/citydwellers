@@ -99,6 +99,22 @@ namespace CityBankers
                 .ToList();
         }
 
+        // Inventory.NumFreeSlots is 30 minus the number of RECORDS the client holds
+        // with an inventory slot type, so a stale duplicate subtracts a slot that
+        // is physically free. Add those back: a bag listed twice occupies one slot,
+        // not two, and the difference is the whole reason a banker can believe it
+        // is one slot short of room it already has.
+        public static int PhantomInventoryRecords()
+        {
+            var inventory = AllBagRecords().Where(r => r.Location == "inventory").ToList();
+            return inventory.Count - inventory.Select(r => r.Identity).Distinct().Count();
+        }
+
+        public static int FreeInventorySlots()
+        {
+            return Inventory.NumFreeSlots + PhantomInventoryRecords();
+        }
+
         public static List<Identity> DuplicatedIdentities()
         {
             return AllBagRecords()

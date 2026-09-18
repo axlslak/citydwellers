@@ -2367,3 +2367,10 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - `citymanager-org-size.json` registered as a known data file.
 - `[OPEN]` Second audit on one connection fails all inventory bags (`failed=18` on every banker, bank bags unaffected; a freshly relogged Kbinfa passed). Suspected: `ProcessOpen` requires a new Container object, and a container already open from the first audit keeps `IsOpen` true with the same object. Needs the audit result file's per-bag error text before changing custody code.
 - Static review only: no .NET toolchain in this container, so no compilation and no live run.
+
+## Session 149 — the hold retries, and headroom is counted in slots
+
+- A staging hold was permanent: it withdraws presence so the running cycle can drop it, but presence is only republished *after* the hold check clears, and later rosters are built from presence files alone. The hold now has an escalating 60s–960s cool-off that clears it, republishes presence and rejoins.
+- `Inventory.NumFreeSlots` is `30 - record count` (SDK IL), so a bag listed twice subtracts two slots for one. Kbarty saw 10 against a requirement of 11 while physically holding 11 — the phantom was the only reason the staging step ran. `StorageBagPolicy.FreeInventorySlots()` adds the duplicates back and is used by every free-slot test in the staging path.
+- Both findings were confirmed independently by multiple verifiers in a 112-agent sweep; the `NumFreeSlots` root cause was reached by four separate lenses.
+- Static review only: no .NET toolchain in this container, so no compilation and no live run.
