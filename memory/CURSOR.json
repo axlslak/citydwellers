@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 129,
-  "last_completed_session": 128,
-  "status": "in_progress",
+  "last_completed_session": 129,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-129-settings-accessibility",
-  "checkpoint_commit": "e7f4a908a89a390b3dccf98512d983c45b0feff0",
-  "task": "Fix stock summary CS0122 settings accessor visibility",
-  "resume_instruction": "Tiny accessor fix: banker SettingsPaths.GetSettingsDirectory is internal so linked StockCommandEngine can call it. Publish and seal; owner rebuilds. Next seq313.",
+  "checkpoint_commit": "2d3b83952003603b16650e7be17046d2ac52d86e",
+  "task": "Stock summary settings accessor compile fix published",
+  "resume_instruction": "Owner rebuilds. CS0122 fixed by internal banker SettingsPaths.GetSettingsDirectory; no path behavior change. Items/Phatz family work retained. Next seq314.",
   "base_commit": "e7f4a908a89a390b3dccf98512d983c45b0feff0"
 }
