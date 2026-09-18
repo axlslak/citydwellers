@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 127,
-  "last_completed_session": 126,
-  "status": "in_progress",
+  "last_completed_session": 127,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-127-items-catalog",
-  "checkpoint_commit": "f395f90eb5b5061fbc91375bb39154339539248d",
-  "task": "Shared tinkerparser item reader and items search command",
-  "resume_instruction": "Implement #items against owner-provided runtime data/items.json. Stream raw dump, shared lookup API for Flags/Can (NoDrop Unique Stackable CantSplit), connect inventory attribute seam. Preserve CRU operation policy. No builds/live tests. Session126 published and clean; buddy packet noise deferred. Source items.zip already materialized under scratch stack-source. Next journal seq309.",
+  "checkpoint_commit": "9e31ed133229ab07827daf2a23e4d5f2204e7cd4",
+  "task": "Shared items reader and exact-template search published",
+  "resume_instruction": "Owner builds/tests. Extract unmodified items.json to runtime data/items.json. #items/#i search exact templates; #itemid shows nullable Flags/Can properties. Inventory attribute seam connected; CRU operational policy unchanged. No inferred QL families: dump lacks authoritative low/high pairing. See docs/ITEMS.md. Next journal seq310.",
   "base_commit": "f395f90eb5b5061fbc91375bb39154339539248d"
 }
