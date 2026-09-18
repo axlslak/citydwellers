@@ -13,7 +13,14 @@ namespace CityManager
 {
     public partial class CityManager
     {
-        private const int OrgBlobPageSize = 5200;
+        // [VERIFIED 2026-09-18] Organization replies are sent on the game
+        // connection as a GroupMsgMessage, not over the chat connection that
+        // carries guest and tell traffic, and its ceiling is far lower. A 2487
+        // byte #help reply was accepted by Client.Send with Stat.Clan resolved
+        // and never arrived, while the shorter #stock reply on the identical
+        // code path did. 5200 let those replies through unsplit; paginating
+        // under the AO chat ceiling is what #stock was already benefiting from.
+        private const int OrgBlobPageSize = 900;
         private const int GuestBlobPageSize = 8000;
         private const int TellBlobPageSize = 7200;
 

@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 143,
-  "last_completed_session": 143,
+  "current_session": 144,
+  "last_completed_session": 144,
   "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-143-org-send-correction",
+  "transaction": "session-144-org-reply-size",
   "checkpoint_commit": "5460fbb869c7e198378fc9fed292e2e182a6b581",
-  "task": "Org send correction published; owner rebuild pending",
-  "resume_instruction": "Owner rebuilds. Needed next: #stock and #help on org from one run with their ORG SEND lines (now carrying Stat.Clan and len=), plus the Kbarty/Kbsupp ambiguous-bag reports from session 142. Next journal seq340.",
-  "base_commit": "ba9ee8c7145b88aeeac88a61e7a947ed03664fb7"
+  "task": "Org reply pagination corrected; owner rebuild pending",
+  "resume_instruction": "Org replies were oversized, not misrouted. OrgBlobPageSize 5200->900. Owner rebuilds and tests #help on org; expect paginated pages and ORG DELIVERY CONFIRMED. Ambiguous bag phantom now proven by the container view (one container per duplicated identity, two outer entries); identity dedupe can be implemented next. Next journal seq341.",
+  "base_commit": "8213473d32f66da88710f071f3dab640896c85f4"
 }
