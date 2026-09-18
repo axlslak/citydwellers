@@ -98,16 +98,45 @@ in the supplied snapshot.
 - `SMALL BACKPACK SHORTAGE Kbspirit: have=120; need=156; missing=36` is a real
   capacity warning but does not block the audit and is not part of this loop.
 
-## Proposed direction — not yet implemented
+## Fix — session 137
 
-1. Make stepping aside distinct from superseding. A participant that withdraws
-   should be removed from the cycle's participant set without cancelling peers
-   whose audits are healthy or already written.
-2. Retain a peer census that was written successfully for the current cycle
-   instead of discarding it when the cycle is replaced, so a completed audit is
-   not repeated.
-3. Treat a persistently unscannable worker as excluded for the cycle rather than
-   re-admitting it every 60 seconds into a cycle it cannot complete.
+`[IMPLEMENTED]` Source published; owner builds and live-tests.
 
-Any change here alters custody reconciliation. It must preserve the existing
-fail-closed behavior: an incomplete census must still never be applied.
+**Withdrawal is no longer supersession.** `Coordinate()` previously replaced the
+cycle whenever any participant lost presence. It now drops that member from
+`cycle.Participants` and keeps the same cycle id. A banker only retires its own
+audit when it observes a *changed* cycle id (`StartupCensusGate.cs:396-402`), and
+only acts on a cycle that `Includes()` it, so mutating the participant set
+withdraws one member without disturbing anyone else.
+
+Guards retained:
+
+- An explicit recovery request (`Requested()`) still supersedes. That is a
+  deliberate instruction, not an absence.
+- A member that already wrote a census for the cycle is **not** withdrawn; its
+  physical evidence stands and the existing release check applies.
+- Central is mandatory. If Central would be dropped, or nothing would remain,
+  the cycle is superseded as before — `CensusApplication.Apply` requires Central
+  and would otherwise throw.
+
+**Why a smaller roster is safe.** `CensusApplication.Apply` scopes reconciliation
+to `censuses.Select(c => c.Character)`. Anchors outside that scope are skipped
+rather than reclassified, and `bundle.Storage.Workers` carries every unaudited
+worker's previous state forward unchanged. A cycle that loses a member is
+therefore the same condition as one created while that member was offline, which
+is already normal: cycles are built from `online` members only. Fail-closed
+behavior is untouched — `ReadCensus` still rejects any incomplete census, and an
+incomplete census is still never applied.
+
+**Escalating rejection backoff.** A worker whose census is rejected used to
+delete its presence for a fixed 60 seconds, then rejoin, fail, and force another
+fresh cycle — re-auditing the entire roster every minute. The backoff now
+escalates 60s, 120s, 240s, 480s, 960s and resets when the worker completes a
+census or reconnects. Each retry is logged with its consecutive rejection count.
+
+**Expected behavior after this change.** In the 12:11 run, the six healthy
+bankers would complete and release while `Kbarty` and `Kbsupp` stay withdrawn.
+`Kbinfa`'s clean 12:13:46 audit would have been kept rather than discarded.
+
+The two ambiguous bags still need owner action; this fix stops them from taking
+the rest of the roster down, it does not resolve them.

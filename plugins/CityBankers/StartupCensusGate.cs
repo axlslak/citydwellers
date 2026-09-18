@@ -38,6 +38,7 @@ namespace CityBankers
         private string _readyLoggedCycle, _handoffError;
         private long _auditPause;
         private long _presenceRetryAfter;
+        private int _censusRejections;
         private string _stagingBag, _stagingFailureLayout, _stagingBeforeLayout;
         private bool _extraReserveDeferred;
         private readonly Stopwatch _stagingAge = new Stopwatch();
@@ -268,6 +269,7 @@ namespace CityBankers
             _stagingBag = _stagingFailureLayout = _stagingBeforeLayout = null;
             _extraReserveDeferred = false;
             _presenceRetryAfter = 0;
+            _censusRejections = 0;
             string retiredConnection = _connection;
             bool invalidatedBeforeDisconnect = _invalidated;
             _connection = Guid.NewGuid().ToString("N");
@@ -436,12 +438,22 @@ namespace CityBankers
                     // that prevents healthy members from starting indefinitely.
                     if (!string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
                     {
-                        _presenceRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * 60;
+                        // Rejoining on a fixed interval lets a persistently
+                        // unscannable worker force a fresh cycle indefinitely.
+                        // Back off so a repeatedly failing member cannot keep
+                        // re-auditing the whole roster: 60s, 120s, 240s, 480s,
+                        // then 960s. A census this worker completes resets it.
+                        if (_censusRejections < 5) _censusRejections++;
+                        long backoff = 60L << (_censusRejections - 1);
+                        Logger.Warning("[CityBankers] Census rejected for " + _character +
+                            "; retrying in " + backoff + "s (consecutive rejections=" + _censusRejections + ").");
+                        _presenceRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * backoff;
                         RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
                     }
                     throw;
                 }
                 RuntimeStateStore.WriteJsonAtomic(Path.Combine(CycleDirectory(cycle), _character.ToLowerInvariant() + ".json"), result);
+                _censusRejections = 0;
                 _finished = true;
             }
             catch (Exception ex)
@@ -655,11 +667,51 @@ namespace CityBankers
         private void Coordinate()
         {
             var cycle = Current();
-            bool membersPresent = cycle?.Participants != null && cycle.Participants.All(p => Present(p.Key, p.Value));
-            if (cycle?.Phase == "collecting" && (!membersPresent || Requested()))
+            if (cycle?.Phase == "collecting" && cycle.Participants != null)
             {
-                cycle.Phase = "superseded";
-                RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                // An explicit recovery request is a deliberate instruction and
+                // still replaces the cycle.
+                if (Requested())
+                {
+                    cycle.Phase = "superseded";
+                    RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                }
+                else
+                {
+                    // A member that stops publishing presence withdraws from this
+                    // cycle; it does not cancel it. Replacing the cycle changes its
+                    // id, and every banker that observes a new id retires its own
+                    // audit, so one unscannable member used to destroy healthy and
+                    // already completed peer censuses and the roster could never
+                    // converge. Reconciliation is scoped to the characters that
+                    // actually produced a census, so a smaller participant set is
+                    // the same condition as those members having been offline when
+                    // the cycle was created.
+                    var withdrawn = cycle.Participants.Where(p => !Present(p.Key, p.Value) &&
+                        Read<BagAuditAgent.BagAuditResult>(Path.Combine(CycleDirectory(cycle),
+                            p.Key.ToLowerInvariant() + ".json")) == null).Select(p => p.Key).ToList();
+                    if (withdrawn.Count != 0)
+                    {
+                        var remaining = cycle.Participants
+                            .Where(p => !withdrawn.Contains(p.Key, StringComparer.OrdinalIgnoreCase))
+                            .ToDictionary(p => p.Key, p => p.Value, StringComparer.OrdinalIgnoreCase);
+                        // Reconciliation requires Central. Without it there is no
+                        // scoped census to apply, so the cycle is replaced instead.
+                        if (remaining.Count == 0 ||
+                            !remaining.ContainsKey(_character))
+                        {
+                            cycle.Phase = "superseded";
+                        }
+                        else
+                        {
+                            cycle.Participants = remaining;
+                            Logger.Warning("[CityBankers] Census " + cycle.Id + " withdrew " +
+                                string.Join(", ", withdrawn) + "; " + remaining.Count +
+                                " participants continue without restarting their audits.");
+                        }
+                        RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                    }
+                }
             }
             if (cycle?.Phase == "collecting" || cycle?.Phase == "applying")
             {
