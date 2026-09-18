@@ -53,6 +53,15 @@ namespace CityBankers
         private int _currentStagedInventorySlotInstance;
         private bool _active;
 
+        // A move is verified by how the client's records change, not by their
+        // absolute count. One physical bag can be listed twice when an earlier
+        // move lost its removal, and an absolute "one here, none there" can then
+        // never be satisfied even though the move itself succeeded.
+        private int _preMoveBankOccurrences;
+        private int _preMoveInventoryOccurrences;
+        private readonly HashSet<int> _preMoveBankSlots = new HashSet<int>();
+        private readonly HashSet<int> _preMoveInventorySlots = new HashSet<int>();
+
         private enum AuditPhase
         {
             None,
@@ -207,25 +216,17 @@ namespace CityBankers
             string layoutError;
             if (!StorageBagPolicy.TryValidatePhysicalLayout(out layoutError))
                 throw new InvalidOperationException(layoutError + " Fresh bank evidence is required before an audit.");
-            var result = new List<BagTarget>();
+            string duplicates = StorageBagPolicy.DescribeDuplicates();
+            if (duplicates != null)
+                Logger.Warning("[CityBankers] BAG AUDIT sees a bag listed more than once for " +
+                    Client.CharacterName + "; auditing it once. " + duplicates);
 
-            if (Inventory.Bank.Items != null)
-            {
-                result.AddRange(
-                    Inventory.Bank.Items
-                        .Where(StorageBagPolicy.IsStorageBag)
-                        .Select(item => SnapshotTarget("bank", item)));
-            }
-
-            if (Inventory.Items != null)
-            {
-                result.AddRange(
-                    Inventory.Items
-                        .Where(item => item != null &&
-                            item.Slot.Type == IdentityType.Inventory &&
-                            StorageBagPolicy.IsStorageBag(item))
-                        .Select(item => SnapshotTarget("inventory", item)));
-            }
+            // One entry per container identity. A repeated identity is the same
+            // physical bag, and both records resolve to the same container, so
+            // auditing it twice would only record its contents twice.
+            var result = StorageBagPolicy.DistinctBags()
+                .Select(record => SnapshotTarget(record.Location, record.Bag))
+                .ToList();
 
             return result
                 .OrderBy(target => target.Source == "bank" ? 0 : 1)
@@ -340,6 +341,7 @@ namespace CityBankers
                 _phase = AuditPhase.MovingBankBagToInventory;
                 _phaseAge.Restart();
                 _phaseTimeoutMs = GetBagMoveTimeoutMs();
+                CapturePreMoveOccurrences();
 
                 try
                 {
@@ -372,9 +374,10 @@ namespace CityBankers
 
         private void ProcessMoveToInventory()
         {
-            Item inventoryItem = FindInventoryItem(_current.UniqueIdentity);
-            if (inventoryItem != null && BagOccurrenceCount(_current.UniqueIdentity, false) == 1 &&
-                BagOccurrenceCount(_current.UniqueIdentity, true) == 0)
+            Item inventoryItem = ArrivedItem(_current.UniqueIdentity, false);
+            if (inventoryItem != null &&
+                BagOccurrenceCount(_current.UniqueIdentity, false) == _preMoveInventoryOccurrences + 1 &&
+                BagOccurrenceCount(_current.UniqueIdentity, true) == _preMoveBankOccurrences - 1)
             {
                 _currentMoveToInventoryElapsedMs = (int)_phaseAge.ElapsedMilliseconds;
                 _currentStagedInventorySlot = inventoryItem.Slot.ToString();
@@ -470,6 +473,7 @@ namespace CityBankers
             _phase = AuditPhase.ReturningBankBag;
             _phaseAge.Restart();
             _phaseTimeoutMs = GetBagMoveTimeoutMs();
+            CapturePreMoveOccurrences();
 
             try
             {
@@ -493,9 +497,10 @@ namespace CityBankers
 
         private void ProcessReturnToBank()
         {
-            Item bankItem = FindBankItem(_current.UniqueIdentity);
-            if (bankItem != null && BagOccurrenceCount(_current.UniqueIdentity, true) == 1 &&
-                BagOccurrenceCount(_current.UniqueIdentity, false) == 0)
+            Item bankItem = ArrivedItem(_current.UniqueIdentity, true);
+            if (bankItem != null &&
+                BagOccurrenceCount(_current.UniqueIdentity, true) == _preMoveBankOccurrences + 1 &&
+                BagOccurrenceCount(_current.UniqueIdentity, false) == _preMoveInventoryOccurrences - 1)
             {
                 _pendingEntry.ReturnedToBank = true;
                 _pendingEntry.ReturnedOuterSlot = bankItem.Slot.ToString();
@@ -663,29 +668,68 @@ namespace CityBankers
                 : DefaultBagMoveTimeoutMs;
         }
 
+        // Record the client's view of this bag immediately before a move is sent,
+        // so the move is judged by what changed rather than by an absolute count
+        // a stale second record would make unreachable.
+        private void CapturePreMoveOccurrences()
+        {
+            _preMoveBankOccurrences = BagOccurrenceCount(_current.UniqueIdentity, true);
+            _preMoveInventoryOccurrences = BagOccurrenceCount(_current.UniqueIdentity, false);
+            _preMoveBankSlots.Clear();
+            _preMoveInventorySlots.Clear();
+            foreach (int slot in OccurrenceSlots(_current.UniqueIdentity, true)) _preMoveBankSlots.Add(slot);
+            foreach (int slot in OccurrenceSlots(_current.UniqueIdentity, false)) _preMoveInventorySlots.Add(slot);
+        }
+
+        // The record at a slot the bag did not occupy before the move is the one
+        // the move produced. Preferring it keeps a lingering record from being
+        // reported as the bag's new location.
+        private Item ArrivedItem(Identity identity, bool bank)
+        {
+            var before = bank ? _preMoveBankSlots : _preMoveInventorySlots;
+            var candidates = (bank ? FindBankItems(identity) : FindInventoryItems(identity)).ToList();
+            return candidates.FirstOrDefault(item => !before.Contains(item.Slot.Instance)) ??
+                candidates.FirstOrDefault();
+        }
+
+        private static IEnumerable<int> OccurrenceSlots(Identity identity, bool bank)
+        {
+            return (bank ? FindBankItems(identity) : FindInventoryItems(identity))
+                .Select(item => item.Slot.Instance);
+        }
+
+        private static IEnumerable<Item> FindBankItems(Identity identity)
+        {
+            return Inventory.Bank.Items == null
+                ? Enumerable.Empty<Item>()
+                : Inventory.Bank.Items.Where(item =>
+                    StorageBagPolicy.IsStorageBag(item) && item.UniqueIdentity == identity);
+        }
+
+        private static IEnumerable<Item> FindInventoryItems(Identity identity)
+        {
+            return Inventory.Items == null
+                ? Enumerable.Empty<Item>()
+                : Inventory.Items.Where(item => item != null &&
+                    StorageBagPolicy.IsNormalInventory(item) && StorageBagPolicy.IsStorageBag(item) &&
+                    item.UniqueIdentity == identity);
+        }
+
         private static int BagOccurrenceCount(Identity identity, bool bank)
         {
-            return bank
-                ? Inventory.Bank.Items.Count(item => item != null && item.UniqueIdentity == identity)
-                : Inventory.Items.Count(item => StorageBagPolicy.IsNormalInventory(item) && item.UniqueIdentity == identity);
+            // Counted from the same enumerations the slot helpers use, so a move
+            // cannot be judged against one view and located against another.
+            return (bank ? FindBankItems(identity) : FindInventoryItems(identity)).Count();
         }
 
         private static Item FindBankItem(Identity identity)
         {
-            return Inventory.Bank.Items != null
-                ? Inventory.Bank.Items.FirstOrDefault(item =>
-                    StorageBagPolicy.IsStorageBag(item) && item.UniqueIdentity == identity)
-                : null;
+            return FindBankItems(identity).FirstOrDefault();
         }
 
         private static Item FindInventoryItem(Identity identity)
         {
-            return Inventory.Items != null
-                ? Inventory.Items.FirstOrDefault(item =>
-                    item != null &&
-                    StorageBagPolicy.IsNormalInventory(item) && StorageBagPolicy.IsStorageBag(item) &&
-                    item.UniqueIdentity == identity)
-                : null;
+            return FindInventoryItems(identity).FirstOrDefault();
         }
 
         private static Container FindContainer(Identity identity)

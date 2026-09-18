@@ -546,7 +546,10 @@ namespace CityDwellers.Shared
             if (string.Equals(directoryName, "NavigationTraces", StringComparison.OrdinalIgnoreCase))
                 expectedPatterns = new[] { "*.jsonl" };
             else if (string.Equals(directoryName, "diagnostic-dumps", StringComparison.OrdinalIgnoreCase))
-                expectedPatterns = new[] { "apcmanager-dump-*.log", "citybankers-bagaudit-*.log" };
+                // The banker writes its own duplicate-bag evidence here; a clientless
+                // character cannot be inspected with the game client.
+                expectedPatterns = new[] { "apcmanager-dump-*.log", "citybankers-bagaudit-*.log",
+                    "ambiguous-bags-*.json" };
             else if (string.Equals(directoryName, "incident-dumps", StringComparison.OrdinalIgnoreCase))
                 expectedPatterns = new[] { "incident-*.log", "incident-*.log.signature" };
             else if (string.Equals(directoryName, "transaction-traces", StringComparison.OrdinalIgnoreCase))

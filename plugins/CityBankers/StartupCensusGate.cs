@@ -49,6 +49,7 @@ namespace CityBankers
         private readonly Stopwatch _retry = Stopwatch.StartNew();
         private JObject _roles;
         private string _capacityLoggedRun;
+        private string _duplicateLoggedRun;
 
         internal sealed class Presence
         {
@@ -419,6 +420,7 @@ namespace CityBankers
                     if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                     if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
                     ReportSmallBackpackCapacity();
+                    ReportDuplicateBagRecords();
                     if (!PrepareAuditStagingSlot()) return;
                     RuntimeStateStore.DeleteIfExists(resultPath);
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, _character + ".command.json"),
@@ -589,6 +591,21 @@ namespace CityBankers
             return false;
         }
 
+        // A bag listed at two outer slots is one physical bag whose removal at the
+        // source slot was missed. It no longer stops the census, but it is still
+        // recorded: the audit works from the client's view, and a view that is
+        // wrong about where a bag sits is worth keeping evidence of.
+        private void ReportDuplicateBagRecords()
+        {
+            string duplicates = StorageBagPolicy.DescribeDuplicates();
+            if (duplicates == null) { _duplicateLoggedRun = null; return; }
+            if (_duplicateLoggedRun == _auditRun) return;
+            _duplicateLoggedRun = _auditRun;
+            Logger.Warning("[CityBankers] DUPLICATE BAG RECORD " + _character + ": " + duplicates +
+                " Auditing each bag once and continuing.");
+            AmbiguousBagReport.Write(_settings, _character, _role, duplicates);
+        }
+
         private void ReportSmallBackpackCapacity()
         {
             if (_capacityLoggedRun == _auditRun || !Inventory.Bank.IsOpen) return;
@@ -596,8 +613,8 @@ namespace CityBankers
             {
                 var rules = SymbiantCatalog.GetRetentionRules(_settings).Where(r =>
                     string.Equals(r.Role, _role, StringComparison.OrdinalIgnoreCase)).ToList();
-                int available = Inventory.Items.Count(StorageBagPolicy.IsStorageBag) +
-                    Inventory.Bank.Items.Count(StorageBagPolicy.IsStorageBag);
+                // Count bags, not records: a bag listed twice is still one bag.
+                int available = StorageBagPolicy.DistinctBags().Count;
                 int required = (rules.Where(r => r.MaxCopies > 0).Sum(r => r.MaxCopies) + 20) / 21;
                 if (available < required)
                     Logger.Warning("[CityBankers] SMALL BACKPACK SHORTAGE " + _character +
