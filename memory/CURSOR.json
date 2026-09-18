@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 132,
+  "current_session": 133,
   "last_completed_session": 132,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-132-buddies-game-only",
-  "checkpoint_commit": "574efd3c498fb8bae144b90e162cc6c940b136be",
-  "task": "City buddies game-only login published",
-  "resume_instruction": "Only city buddies now use ClientDomain factory useChat=false before initialization. Manager/bankers/buffers/tell queue unchanged. Owner rebuilds/restarts; no assistant builds/live tests. Optional proxy control integration remains separate. Next journal seq320.",
-  "base_commit": "0ed8259517becfdb7b7e22dbd1d1afc4b4e1b474"
+  "transaction": "session-133-full-log-reliability",
+  "checkpoint_commit": "aebdf98e0e66b529c746c9924097d5c89cdd88af",
+  "task": "Audit full owner log and repair evidenced runtime bugs",
+  "resume_instruction": "Full-log review active: reconnect local census duplicate physical slots and repeated audit failures; host domain teardown/remoting leases; runtime inventory false warnings and atomic heartbeat writes. Root sole writer; reviewers read-only. Preserve manager/banker chat, existing tell queue semantics and104 buddy game-only path. No builds/test suites/live AO unless owner explicitly requests. Next journal seq321. Publish concrete fixes plus accurate source-only verification; never raw log or credentials.",
+  "base_commit": "aebdf98e0e66b529c746c9924097d5c89cdd88af"
 }
