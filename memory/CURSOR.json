@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 125,
+  "current_session": 126,
   "last_completed_session": 125,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-125-transaction-incidents",
+  "transaction": "session-126-stack-inventory",
   "checkpoint_commit": "3a44758769b1f9caa2e993695862b5142148a849",
-  "task": "Transaction incident tracing and Manager dump commands published",
-  "resume_instruction": "Owner compiles/tests. dump incidents lists problem traces; dump incident-ID exports linked evidence. Manager refreshes data/incident-dumps every30s independently of syslog. Lost/found links included. No pre-deployment history reconstruction or live validation claimed. See docs/INCIDENTS.md. Next journal seq306.",
-  "base_commit": "9605d68a98a7fbbb5236e128e0e34c5be0f6b018"
+  "task": "General stackable inventory quantities",
+  "resume_instruction": "Implement attribute-based stack detection and inventory quantity display. Owner builds/tests.",
+  "base_commit": "2ea3fe6a7238274ee0568e0881230cbaf9f7730d"
 }
