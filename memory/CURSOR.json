@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 133,
+  "current_session": 134,
   "last_completed_session": 133,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-133-full-log-reliability",
-  "checkpoint_commit": "490ffa25867403c9e8d7af37b9f0be7444e96353",
-  "task": "Full-log reliability fixes published; evidence and limits recorded",
-  "resume_instruction": "Supported full-log fixes published; see docs/RUNTIME_RELIABILITY_REVIEW.md. Owner builds/deploys full output and validates fresh physical census. Snapshot untouched; 30 extra claims/displaced attribution not automatically repaired. HQ schema and buddy SimpleCharFullUpdate decoding and missing nano definitions remain explicitly unresolved; allocation guard is only hardening. Manager/banker/buffer chat and tell semantics preserved;104 buddies game-only; KWorker integration separate. Next journal seq322.",
-  "base_commit": "aebdf98e0e66b529c746c9924097d5c89cdd88af"
+  "transaction": "session-134-packet-build-cast",
+  "checkpoint_commit": "7a7fcae858b3bc54fba2a89584319a250694210a",
+  "task": "Correct post-build packet guard Cecil operand assignment",
+  "resume_instruction": "Owner build compiles C# but post-build Prepare-PortableClientless reports InvalidCastException without internal location. Replace object-typed IL operand mutations with typed Cecil bridge and improve stage/stack diagnostics. Retain allocation guard and all runtime fixes. No assistant builds or test suites. Next seq323.",
+  "base_commit": "7a7fcae858b3bc54fba2a89584319a250694210a"
 }
