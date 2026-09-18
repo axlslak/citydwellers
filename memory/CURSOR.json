@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 143,
-  "last_completed_session": 142,
-  "status": "in_progress",
+  "last_completed_session": 143,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-143-org-send-correction",
-  "checkpoint_commit": "f48be1f62ec05c15b58b3ddd7eeb4e42ad5ba05b",
-  "task": "Correct the org send gate and retract the session 140 connection claim",
-  "resume_instruction": "Gate SendOrgMessage on Stat.Clan, log payload length, retract session 140. Seal with COMMIT seq339.",
+  "checkpoint_commit": "5460fbb869c7e198378fc9fed292e2e182a6b581",
+  "task": "Org send correction published; owner rebuild pending",
+  "resume_instruction": "Owner rebuilds. Needed next: #stock and #help on org from one run with their ORG SEND lines (now carrying Stat.Clan and len=), plus the Kbarty/Kbsupp ambiguous-bag reports from session 142. Next journal seq340.",
   "base_commit": "ba9ee8c7145b88aeeac88a61e7a947ed03664fb7"
 }
