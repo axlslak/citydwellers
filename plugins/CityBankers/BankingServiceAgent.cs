@@ -255,6 +255,14 @@ namespace CityBankers
         private string _blockedRecovery;
         private readonly Stopwatch _blockedRecoveryAge = Stopwatch.StartNew();
 
+        // Two bankers reading and publishing the same shared state file can
+        // overlap. That overlap moves nothing, so it is retried rather than
+        // escalated; only contention that keeps recurring is a real fault.
+        private const int StateContentionTolerance = 8;
+        private const int StateContentionQuietSeconds = 60;
+        private int _stateContentionFaults;
+        private readonly Stopwatch _stateContentionAge = new Stopwatch();
+
         private bool TickRecoveryOwnership()
         {
             if (_localCensus != null) return false; // Full bag scans may legitimately take minutes.
@@ -333,6 +341,37 @@ namespace CityBankers
                     TickLooseReturnRecovery();
                     StartRecoveryExtraction();
                 }
+            }
+            catch (StateContentionException contention)
+            {
+                // This fault is raised only by a read that waited out another
+                // process and gave up. Nothing was sent, opened or moved, so no
+                // item's location became unknown and the whole roster must not be
+                // sent back through a census for it. Retry on the next tick.
+                if (_stateContentionAge.IsRunning &&
+                    _stateContentionAge.Elapsed > TimeSpan.FromSeconds(StateContentionQuietSeconds))
+                    _stateContentionFaults = 0;
+                _stateContentionAge.Restart();
+                _stateContentionFaults++;
+                RuntimeStateStore.AppendActivity(
+                    _settingsDir,
+                    Client.CharacterName,
+                    _role,
+                    "CONTENTION tick " + _stateContentionFaults + "/" + StateContentionTolerance +
+                    ": " + contention.Message);
+                if (_stateContentionFaults < StateContentionTolerance)
+                {
+                    Logger.Warning("[CityBankers] Shared state busy for " + Client.CharacterName +
+                        " (" + _stateContentionFaults + "/" + StateContentionTolerance + "); retrying: " +
+                        contention.Message);
+                    return;
+                }
+                // Contention that will not clear is no longer a passing overlap.
+                _stateContentionFaults = 0;
+                _stateContentionAge.Reset();
+                Logger.Error($"BANKING SERVICE tick blocked by persistent state contention character={Client.CharacterName}: {contention}");
+                StartupCensusGate.Block("Shared state stayed locked across " + StateContentionTolerance +
+                    " ticks; evidence retained: " + contention);
             }
             catch (Exception ex)
             {

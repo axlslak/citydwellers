@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.Serialization;
 using System.Text;
 using System.Threading;
 
@@ -213,6 +214,25 @@ namespace CityBankers.Shared
         public int? InnerSlot;
     }
 
+    // Raised only by a read that moved nothing: the file was held by a
+    // concurrent writer for longer than the reader was willing to wait. It
+    // carries no custody implication, so a caller may retry it instead of
+    // treating it as evidence that an item's location is now unknown.
+    [Serializable]
+    public sealed class StateContentionException : IOException
+    {
+        public StateContentionException(string path, Exception inner)
+            : base("Another process still holds '" + path + "'.", inner)
+        {
+        }
+
+        // Plugins run in their own AppDomains, so this must survive marshalling.
+        private StateContentionException(SerializationInfo info, StreamingContext context)
+            : base(info, context)
+        {
+        }
+    }
+
     public static class RuntimeStateStore
     {
         private const string StorageFileName = "storage-state.json";
@@ -224,6 +244,8 @@ namespace CityBankers.Shared
         private const string IdentityNoneText = "(None:0000)";
         private const int AtomicFileRetryCount = 50;
         private const int AtomicFileRetryDelayMilliseconds = 100;
+        private const int SharedReadRetryCount = 12;
+        private const int SharedReadRetryDelayMilliseconds = 25;
 
         public static bool TryReadUtc(JToken token, out DateTime value)
         {
@@ -827,6 +849,42 @@ namespace CityBankers.Shared
             {
                 return null;
             }
+        }
+
+        // Every writer here publishes by writing a temporary file and replacing
+        // the destination, so a reader never observes a half-written document
+        // and only has to survive the instant of replacement. Sharing write and
+        // delete lets the read proceed while a writer holds the file; the retry
+        // covers the replacement window itself. Unlike ReadTextStrict this takes
+        // no mutex, so it is safe to call while holding a caller's own lock.
+        public static string ReadTextShared(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", "path");
+            IOException lastError = null;
+            for (int attempt = 1; attempt <= SharedReadRetryCount; attempt++)
+            {
+                if (!File.Exists(path)) return null;
+                try
+                {
+                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete))
+                    using (var reader = new StreamReader(stream, Encoding.UTF8, true))
+                        return reader.ReadToEnd();
+                }
+                catch (FileNotFoundException)
+                {
+                    // Replaced between the existence check and the open.
+                    lastError = null;
+                }
+                catch (IOException ex)
+                {
+                    lastError = ex;
+                }
+                if (attempt < SharedReadRetryCount)
+                    Thread.Sleep(SharedReadRetryDelayMilliseconds);
+            }
+            if (lastError == null) return null;
+            throw new StateContentionException(path, lastError);
         }
 
         // Unlike ReadJson, evidence/readiness reads must not turn sharing,

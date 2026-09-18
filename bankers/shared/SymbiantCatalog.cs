@@ -372,10 +372,11 @@ namespace CityBankers.Shared
                 if (file.Exists)
                 {
                     // Local ledger is already atomic. Never use item names as equivalence evidence.
-                    JObject ledger;
-                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
-                    using (var text = new StreamReader(stream))
-                        ledger = JObject.Parse(text.ReadToEnd());
+                    // Read it shared: another banker publishing the ledger must not turn a
+                    // catalogue lookup into a failed banking tick. PolicySync is held here, so
+                    // this read deliberately takes no file mutex of its own.
+                    string document = RuntimeStateStore.ReadTextShared(path);
+                    JObject ledger = string.IsNullOrWhiteSpace(document) ? new JObject() : JObject.Parse(document);
                     foreach (JToken item in ledger["Items"] as JArray ?? new JArray())
                     {
                         int low = (int?)item["AoId"] ?? 0, high = (int?)item["HighId"] ?? 0;
