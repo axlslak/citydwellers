@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 128,
+  "current_session": 129,
   "last_completed_session": 128,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-128-observed-item-families",
-  "checkpoint_commit": "7f0d2a038ba0f049f2911e01e0afe6716d215e4f",
-  "task": "Observed QL families integrated with items and Phatz",
-  "resume_instruction": "Owner builds/tests. Existing policy/ledger seed data/items-pairs.json automatically; observed donation pairs persist too. #items supports known interpolated QL ranges, #phatz groups families with original variant links, add/remove and future caps operate across known aliases. 45 policy rows/53 stock variants in owner snapshot resolve to39 families/129 copies. No existing stock deletion. Unknown families remain exact. Next journal seq312.",
-  "base_commit": "1f3e522ffaa54f212e0b20b09f74b0acf0341966"
+  "transaction": "session-129-settings-accessibility",
+  "checkpoint_commit": "e7f4a908a89a390b3dccf98512d983c45b0feff0",
+  "task": "Fix stock summary CS0122 settings accessor visibility",
+  "resume_instruction": "Tiny accessor fix: banker SettingsPaths.GetSettingsDirectory is internal so linked StockCommandEngine can call it. Publish and seal; owner rebuilds. Next seq313.",
+  "base_commit": "e7f4a908a89a390b3dccf98512d983c45b0feff0"
 }

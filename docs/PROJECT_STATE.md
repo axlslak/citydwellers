@@ -2189,3 +2189,8 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Phatz list and stock group known variants; each QL/template keeps its original links and physical records. Add/update applies to family and consolidates duplicate dynamic rules, remove disables known aliases. No automatic policy-file rewrite merely to display grouping. Existing AOID GET semantics remain; no promised exact-QL retrieval.
 - Future donation retention counts aggregate Phatz variants, including projected same-trade counts. Conflicting old caps keep all until explicit admin update; equal caps apply once per family. Existing stock is never retroactively trimmed. Other-role/explicit rejection precedence preserved for inherited aliases. Route enumeration includes aliases; capacity/type summaries deduplicate family retention rules. CRU policy unchanged.
 - Static source/API/routing/counting/mutex/cache/publication review, attachment data analysis, XML and diff checks only. No assistant compilation, test suites or live AO test. Owner builds/tests. See docs/ITEMS.md.
+
+## Session 129 — stock summary build correction
+
+- Owner build log reports CityManager CS0122 in linked StockCommandEngine.cs620: banker SettingsPaths.GetSettingsDirectory was private. Five projects succeeded/up-to-date; Manager failed.
+- Changed that existing accessor to internal so linked code in the same assembly can call it. Path resolution and runtime behavior unchanged. Static accessibility/call-site and diff review only; owner rebuilds.

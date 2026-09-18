@@ -114,7 +114,7 @@ namespace CityBankers.Shared
             }
         }
 
-        private static string GetSettingsDirectory()
+        internal static string GetSettingsDirectory()
         {
             string processRuntimeDirectory = Environment.GetEnvironmentVariable(
                 RuntimeRootEnvironmentVariable,
