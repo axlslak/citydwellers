@@ -579,6 +579,13 @@ namespace CityBankers
             Logger.Error("[CityBankers] Census staging waiting: " + reason +
                 " Move the affected bag with the game client so the server reports it once;" +
                 " this banker re-evaluates automatically when the observed layout changes.");
+
+            // This character is already logged in by this process, so nobody can
+            // inspect it with the game client. Record the banker's own view of
+            // its inventory, bank and containers instead. Read-only, and written
+            // once per observed layout because this method is reached only when
+            // the layout has changed.
+            AmbiguousBagReport.Write(_settings, _character, _role, reason);
             return false;
         }
 

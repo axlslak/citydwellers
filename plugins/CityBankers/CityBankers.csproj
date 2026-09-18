@@ -38,6 +38,7 @@
     <Compile Include="PhysicalLedgerReconciliation.cs" />
     <Compile Include="CensusApplication.cs" />
     <Compile Include="AllBankersReadinessBarrierAgent.cs" />
+    <Compile Include="AmbiguousBagReport.cs" />
     <Compile Include="AuditRecoveryHoldGuard.cs" />
     <Compile Include="BagAuditAgent.cs" />
     <Compile Include="StartupCensusGate.cs" />
