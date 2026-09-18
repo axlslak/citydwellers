@@ -686,7 +686,7 @@ public class BankerLoader
                     StringComparison.OrdinalIgnoreCase));
 
             List<SymbiantCatalog.AcceptanceRule> rules = SymbiantCatalog
-                .GetRules(_settingsDir)
+                .GetRetentionRules(_settingsDir)
                 .Where(rule => string.Equals(rule.Role, role, StringComparison.OrdinalIgnoreCase))
                 .ToList();
             bool unbounded = rules.Any(rule => rule.MaxCopies == SymbiantCatalog.KeepAllCopies);

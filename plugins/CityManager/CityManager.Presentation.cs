@@ -96,10 +96,10 @@ namespace CityManager
                 case "itemid":
                     title = "Items";
                     body = HelpHeader("Items", "Search your local item database. Alias: i.") +
-                        HelpSyntaxLine(target, "items [QL] <name words> [-excluded-word] [--page N]", "All name words must match; minus excludes a word. QL filters recorded template QLs.") +
+                        HelpSyntaxLine(target, "items [QL] <name words> [-excluded-word] [--page N]", "All name words must match; minus excludes a word. QL selects within observed low/high ranges, or exact QL for unpaired templates.") +
                         HelpSyntaxLine(target, "itemid <AOID>", "Open an exact template with NoDrop, Unique, Stackable and splitting attributes.") +
                         "\nExamples: #items combined commando; #items 300 combined; #itemid 257110.\n" +
-                        "Links use exact template IDs and QLs. This dump does not specify interpolation pairs or which templates are obtainable in game.";
+                        "Ranges use actual low/high pairs from policy, ledger and observed trades. Unpaired templates remain exact; in-game availability is not inferred.";
                     return true;
 
                 case "bankid":
@@ -420,9 +420,9 @@ namespace CityManager
                 body.Append(HelpSyntaxLine(target, "dump", "Save a diagnostic snapshot."));
                 body.Append(HelpSyntaxLine(target, "restart", "Restart Apcmanager and its AO session."));
                 body.Append(HelpSyntaxLine(target,
-                    "phatz add [linked item] [-1|positive max]", "Accept the linked AOID on Kbphatz; -1 keeps all. Excess incoming copies are deleted after receipt; lowering a limit does not trim existing stock."));
+                    "phatz add [linked item] [-1|positive max]", "Accept the linked item family on Kbphatz; -1 keeps all. A finite limit counts known QL variants together. Excess incoming copies are deleted after receipt; existing stock is not trimmed."));
                 body.Append(HelpSyntaxLine(target,
-                    "phatz remove [AOID]", "Stop accepting that Phatz item; this command does not delete stored items."));
+                    "phatz remove [AOID]", "Stop accepting that known Phatz family; this command does not delete stored items."));
                 body.Append(HelpSyntaxLine(target,
                     "phatz list", "Open the accepted Phatz list with remove buttons."));
             }

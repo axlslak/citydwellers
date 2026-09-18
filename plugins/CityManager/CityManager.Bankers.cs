@@ -37,7 +37,7 @@ namespace CityManager
                 var lines = new StringBuilder();
                 var diagnostics = new List<string>();
                 IReadOnlyCollection<SymbiantCatalog.AcceptanceRule> acceptanceRules =
-                    SymbiantCatalog.GetRules(_settingsDir);
+                    SymbiantCatalog.GetRetentionRules(_settingsDir);
 
                 var operationalCharacters = BankerReadiness.GetReadyCharacters(_settingsDir);
                 foreach (string role in new[]
@@ -390,10 +390,9 @@ namespace CityManager
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
             foreach (WithdrawalState row in WithdrawalStore.LoadAll(_settingsDir))
                 HideReservedWithdrawalCopy(stock, row);
-            if (parts.Length == 1 && (string.Equals(parts[0], "phatz", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(parts[0], "phat", StringComparison.OrdinalIgnoreCase)))
+            if (phatzCommand)
             {
-                ReplyPhatzStock(target, stock);
+                ReplyPhatzStock(target, stock, string.Join(" ", parts.Skip(1)));
                 return;
             }
             string response;
@@ -427,28 +426,35 @@ namespace CityManager
             else Reply(target, response);
         }
 
-        private void ReplyPhatzStock(ReplyTarget target, CurrentStockState stock)
+        private void ReplyPhatzStock(ReplyTarget target, CurrentStockState stock, string search)
         {
+            var families = SymbiantCatalog.GetPhatzFamilies(_settingsDir);
             var items = (stock.Items ?? new List<StockItemState>()).Where(item => item != null &&
-                string.Equals(item.Role, "phatz", StringComparison.OrdinalIgnoreCase)).ToList();
-            // Same exact-template definition as stock search; QL variants retain their
-            // own item/GET links, while repeated copies occupy just one row.
-            var types = items.GroupBy(item => new { item.AoId, item.HighId, item.Ql })
-                .OrderBy(group => group.First().Name, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(group => group.Key.Ql).ThenBy(group => group.Key.AoId).ToList();
-            if (types.Count == 0) { Reply(target, "No Phatz items are in stock right now."); return; }
-            string summary = "Phatz " + types.Count + " types / " + items.Count + " copies";
-            var body = new StringBuilder();
-            body.Append(EscapeBlobText(summary)).Append("\n\n");
-            foreach (var group in types)
+                string.Equals(item.Role, "phatz", StringComparison.OrdinalIgnoreCase));
+            int ql;
+            if (!string.IsNullOrWhiteSpace(search))
+                items = int.TryParse(search, out ql) ? items.Where(i => i.Ql == ql) :
+                    items.Where(i => (i.Name ?? "").IndexOf(search, StringComparison.OrdinalIgnoreCase) >= 0);
+            var groups = items.GroupBy(item => families.Key(item.AoId))
+                .OrderBy(g => g.First().Name, StringComparer.OrdinalIgnoreCase).ToList();
+            if (groups.Count == 0) { Reply(target, "No matching Phatz items are in stock right now."); return; }
+            string summary = "Phatz " + groups.Count + " item families / " + groups.Sum(g => g.Count()) + " copies";
+            var body = new StringBuilder(); body.Append(EscapeBlobText(summary)).Append("\n\n");
+            foreach (var family in groups)
             {
-                StockItemState item = group.First();
-                body.Append(BuildDonationItemLink(new DonationRecord {
-                    AoId = item.AoId, HighId = item.HighId, Ql = item.Ql, Name = item.Name }))
-                    .Append(" <font color='").Append(ColorGood).Append("'>(x")
-                    .Append(group.Count()).Append(")</font>  ")
-                    .Append(CommandLink(target, "get " + item.AoId, "GET")).Append("\n");
+                body.Append("<b>").Append(EscapeBlobText(family.First().Name)).Append("</b> (x")
+                    .Append(family.Count()).Append(")  ").Append(CommandLink(target, "itemid " + family.Key, "FAMILY")).Append("\n");
+                foreach (var group in family.GroupBy(i => new { i.AoId, i.HighId, i.Ql }).OrderBy(g => g.Key.Ql).ThenBy(g => g.Key.AoId))
+                {
+                    var item = group.First();
+                    body.Append("  QL ").Append(item.Ql).Append("  ").Append(BuildDonationItemLink(new DonationRecord {
+                        AoId = item.AoId, HighId = item.HighId, Ql = item.Ql, Name = item.Name }))
+                        .Append(" <font color='").Append(ColorGood).Append("'>(x").Append(group.Count()).Append(")</font>  ")
+                        .Append(CommandLink(target, "get " + item.AoId, "GET")).Append("\n");
+                }
+                body.Append("\n");
             }
+            body.Append("GET retains the existing AOID selection; it does not promise a particular QL when several copies share that AOID.");
             Reply(target, BuildBlobLinks(target, "Phatz Stock", "Open Phatz stock", body.ToString())
                 .Select(link => summary + " - " + link));
         }
@@ -505,7 +511,8 @@ namespace CityManager
                     });
                 Reply(target, CityBankersChatPalette.Green("Added") + " " +
                     CityBankersChatPalette.ItemLabel(aoid, highid, ql, name) + " - limit: " +
-                    CityBankersChatPalette.Cyan(maximum == SymbiantCatalog.KeepAllCopies ? "unlimited" : maximum.ToString()) + ".");
+                    CityBankersChatPalette.Cyan(maximum == SymbiantCatalog.KeepAllCopies ? "unlimited" : maximum.ToString()) +
+                    " across known family AOIDs " + string.Join(", ", SymbiantCatalog.GetPhatzFamilies(_settingsDir).Members(aoid)) + ".");
                 return;
             }
 
@@ -518,7 +525,7 @@ namespace CityManager
                     return;
                 }
                 Reply(target, SymbiantCatalog.RemovePhatzItem(_settingsDir, aoid)
-                    ? "Phatz no longer accepts AOID " + aoid + "."
+                    ? "Phatz no longer accepts the known item family containing AOID " + aoid + "."
                     : "AOID " + aoid + " is not in the Phatz acceptance list.");
             }
         }
@@ -562,16 +569,23 @@ namespace CityManager
             body.Append(HelpHeader("Phatz Acceptance", "Items Kbcentral accepts and routes to Kbphatz."));
             if (rows.Count == 0)
                 body.Append("<font color='").Append(ColorMuted).Append("'>No accepted Phatz items.</font>");
-            foreach (SymbiantCatalog.PhatzPolicyItem item in rows.Values.OrderBy(value => value.Name))
+            var families = SymbiantCatalog.GetPhatzFamilies(_settingsDir);
+            foreach (var group in rows.Values.GroupBy(value => families.Key(value.AoId)).OrderBy(g => g.First().Name))
             {
+                var item = group.First();
+                SymbiantCatalog.AcceptanceRule rule;
+                if (!SymbiantCatalog.TryGetRule(_settingsDir, item.AoId, out rule) ||
+                    !string.Equals(rule.Role, "phatz", StringComparison.OrdinalIgnoreCase)) continue;
+                int maximum = rule.MaxCopies;
                 body.Append("  ").Append(CityBankersChatPalette.ItemLabel(item.AoId, item.HighId, item.Ql, item.Name, true)).Append(" ")
                     .Append("<font color='").Append(ColorMuted).Append("'>AOID ")
-                    .Append(item.AoId).Append(" | ")
-                    .Append(item.MaxCopies == SymbiantCatalog.KeepAllCopies ? "unlimited" :
-                        item.MaxCopies + " max").Append("</font> ")
+                    .Append(string.Join(", ", families.Members(item.AoId))).Append(" | ")
+                    .Append(maximum == SymbiantCatalog.KeepAllCopies ? "unlimited" :
+                        maximum + " max across family").Append("</font> ")
                     .Append(CommandLink(target, "phatz remove " + item.AoId, "REMOVE"))
                     .Append("\n");
             }
+            body.Append("\nKnown QL variants share one rule. Conflicting legacy limits stay unlimited until an administrator adds the family again with one limit. Existing stored items are never trimmed by this command.");
             return BuildBlobLinks(target, "Phatz Acceptance", "Open Phatz list", body.ToString());
         }
 

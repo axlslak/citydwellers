@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json.Linq;
+using CityDwellers.Shared;
 
 namespace CityBankers.Shared
 {
@@ -47,6 +48,7 @@ namespace CityBankers.Shared
             public int AoId;
             public string Role;
             public int MaxCopies;
+            public int RetentionKey;
         }
 
         public sealed class PhatzPolicyItem
@@ -66,6 +68,7 @@ namespace CityBankers.Shared
             public DateTime UpdatedUtc;
             public List<PhatzPolicyItem> Items = new List<PhatzPolicyItem>();
             public List<int> DisabledAoIds = new List<int>();
+            public List<ItemTemplatePair> KnownPairs = new List<ItemTemplatePair>();
         }
 
         public static IReadOnlyDictionary<int, string> Routes => RoutesByAoid;
@@ -168,19 +171,36 @@ namespace CityBankers.Shared
             }
 
             PhatzPolicyState phatz = LoadPhatzPolicy(settingsDirectory);
-            PhatzPolicyItem dynamicItem = (phatz.Items ?? new List<PhatzPolicyItem>())
-                .LastOrDefault(item => item != null && item.AoId == aoid);
-            if (dynamicItem != null)
+            ItemFamilyIndex families = GetPhatzFamilies(settingsDirectory);
+            int familyKey = families.Key(aoid);
+            var matching = phatz.Items.Where(item => item != null && families.Key(item.AoId) == familyKey &&
+                !phatz.DisabledAoIds.Contains(item.AoId)).ToList();
+            bool directDynamic = matching.Any(item => item.AoId == aoid);
+            if (matching.Count == 0)
+            {
+                foreach (var property in items?.Properties() ?? Enumerable.Empty<JProperty>())
+                {
+                    int configuredId;
+                    var configured = property.Value as JObject;
+                    if (!int.TryParse(property.Name, out configuredId) || families.Key(configuredId) != familyKey ||
+                        phatz.DisabledAoIds.Contains(configuredId) || !string.Equals(
+                        configured?.GetValue("Role", StringComparison.OrdinalIgnoreCase)?.ToString(), "phatz", StringComparison.OrdinalIgnoreCase)) continue;
+                    int cap = ReadMaximum(configured.GetValue("MaxCopies", StringComparison.OrdinalIgnoreCase), KeepAllCopies);
+                    if (cap != 0) matching.Add(new PhatzPolicyItem { AoId = configuredId, MaxCopies = cap });
+                }
+            }
+            bool disabled = phatz.DisabledAoIds.Contains(aoid);
+            // Explicit non-Phatz routes retain precedence over inherited aliases.
+            bool mayInherit = directDynamic || (itemProperty == null && !builtIn) ||
+                (builtIn && maximum != 0 && string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase));
+            if (!disabled && matching.Count > 0 && mayInherit)
             {
                 role = "phatz";
-                maximum = dynamicItem.MaxCopies;
+                maximum = PhatzFamilyMaximum(matching);
                 builtIn = true;
             }
-            else if ((phatz.DisabledAoIds ?? new List<int>()).Contains(aoid) &&
-                string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase))
-            {
+            else if (disabled && string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase))
                 builtIn = false;
-            }
 
             if (!builtIn || maximum == 0)
             {
@@ -190,7 +210,8 @@ namespace CityBankers.Shared
             if (maximum < KeepAllCopies)
                 throw new InvalidOperationException(
                     "AcceptancePolicy MaxCopies must be -1 (keep all), 0 (reject), or a positive number.");
-            rule = new AcceptanceRule { AoId = aoid, Role = role, MaxCopies = maximum };
+            rule = new AcceptanceRule { AoId = aoid, Role = role, MaxCopies = maximum,
+                RetentionKey = string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase) ? familyKey : aoid };
             return true;
         }
 
@@ -205,13 +226,13 @@ namespace CityBankers.Shared
                 if (!int.TryParse(property.Name, NumberStyles.None, CultureInfo.InvariantCulture, out aoid) || aoid <= 0)
                     throw new InvalidOperationException(
                         "AcceptancePolicy.Items keys must be positive AOIDs; invalid key '" + property.Name + "'.");
-                ids.Add(aoid);
+                foreach (int id in GetPhatzFamilies(settingsDirectory).Members(aoid)) ids.Add(id);
             }
             foreach (PhatzPolicyItem item in LoadPhatzPolicy(settingsDirectory).Items ??
                 new List<PhatzPolicyItem>())
             {
                 if (item != null && item.AoId > 0)
-                    ids.Add(item.AoId);
+                    foreach (int id in GetPhatzFamilies(settingsDirectory).Members(item.AoId)) ids.Add(id);
             }
             var result = new List<AcceptanceRule>();
             foreach (int aoid in ids.OrderBy(value => value))
@@ -221,6 +242,9 @@ namespace CityBankers.Shared
             }
             return result;
         }
+
+        public static IReadOnlyCollection<AcceptanceRule> GetRetentionRules(string settingsDirectory) =>
+            GetRules(settingsDirectory).GroupBy(r => r.Role + ":" + r.RetentionKey).Select(g => g.First()).ToList();
 
         public static bool IsAtRetentionLimit(AcceptanceRule rule, int storedCopies)
         {
@@ -263,11 +287,15 @@ namespace CityBankers.Shared
 
             lock (PolicySync)
             {
-                PhatzPolicyState state = LoadPhatzPolicy(settingsDirectory);
-                state.Items.RemoveAll(value => value != null && value.AoId == item.AoId);
+                PhatzPolicyState state = CopyPhatzPolicy(LoadPhatzPolicy(settingsDirectory));
+                var families = new ItemFamilyIndex(GetPhatzFamilies(settingsDirectory).Pairs.Concat(new[] {
+                    new ItemTemplatePair { LowId = item.AoId, HighId = item.HighId } }));
+                state.KnownPairs = families.Pairs.ToList();
+                int key = families.Key(item.AoId);
+                state.Items.RemoveAll(value => value != null && families.Key(value.AoId) == key);
                 state.Items.Add(item);
                 state.Items = state.Items.OrderBy(value => value.AoId).ToList();
-                state.DisabledAoIds.RemoveAll(value => value == item.AoId);
+                state.DisabledAoIds.RemoveAll(value => families.Key(value) == key);
                 SavePhatzPolicy(settingsDirectory, state);
             }
         }
@@ -277,22 +305,20 @@ namespace CityBankers.Shared
             if (aoid <= 0) return false;
             lock (PolicySync)
             {
-                PhatzPolicyState state = LoadPhatzPolicy(settingsDirectory);
-                int removed = state.Items.RemoveAll(value => value != null && value.AoId == aoid);
+                PhatzPolicyState state = CopyPhatzPolicy(LoadPhatzPolicy(settingsDirectory));
+                var families = GetPhatzFamilies(settingsDirectory);
+                int key = families.Key(aoid);
+                int[] aliases = families.Members(aoid);
+                int removed = state.Items.RemoveAll(value => value != null && families.Key(value.AoId) == key);
                 JObject configuredItems = LoadPolicy(settingsDirectory)?
                     .GetValue("Items", StringComparison.OrdinalIgnoreCase) as JObject;
-                JObject configuredItem = configuredItems?
-                    [aoid.ToString(CultureInfo.InvariantCulture)] as JObject;
-                bool acceptedAsPhatz = string.Equals(
-                    configuredItem?.GetValue("Role", StringComparison.OrdinalIgnoreCase)?.ToString(),
-                    "phatz",
-                    StringComparison.OrdinalIgnoreCase) &&
-                    ReadMaximum(configuredItem.GetValue(
-                        "MaxCopies", StringComparison.OrdinalIgnoreCase), KeepAllCopies) != 0;
-                if ((removed > 0 || acceptedAsPhatz) && !state.DisabledAoIds.Contains(aoid))
-                    state.DisabledAoIds.Add(aoid);
-                if (removed == 0 && !acceptedAsPhatz)
-                    return false;
+                bool acceptedAsPhatz = aliases.Any(id => string.Equals(
+                    (configuredItems?[id.ToString(CultureInfo.InvariantCulture)] as JObject)?
+                        .GetValue("Role", StringComparison.OrdinalIgnoreCase)?.ToString(),
+                    "phatz", StringComparison.OrdinalIgnoreCase));
+                if (removed == 0 && !acceptedAsPhatz) return false;
+                state.KnownPairs = families.Pairs.ToList();
+                state.DisabledAoIds = state.DisabledAoIds.Concat(aliases).Distinct().ToList();
                 state.DisabledAoIds.Sort();
                 SavePhatzPolicy(settingsDirectory, state);
                 return true;
@@ -311,6 +337,92 @@ namespace CityBankers.Shared
                 RuntimeStateStore.GetDataDirectory(settingsDirectory),
                 "citybankers-phatz-policy.json"));
         }
+
+        private static ItemFamilyIndex CachedFamilies;
+        private static PhatzPolicyState FamilyPolicy;
+        private static string FamilyDirectory;
+        private static DateTime FamilyLedgerWrite;
+        private static long FamilyLedgerLength;
+        private static DateTime FamilyEvidenceWrite;
+        private static long FamilyEvidenceLength;
+
+        // Sanitized low/high evidence survives the last copy leaving and runtime restarts.
+        // Policy edits retain it too; no ledger occurrence is rewritten.
+        public static ItemFamilyIndex GetPhatzFamilies(string settingsDirectory)
+        {
+            lock (PolicySync)
+            {
+                var policy = LoadPhatzPolicy(settingsDirectory);
+                string path = Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "ledger.json");
+                string evidencePath = Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "items-pairs.json");
+                var evidence = new FileInfo(evidencePath);
+                DateTime evidenceStamp = evidence.Exists ? evidence.LastWriteTimeUtc : DateTime.MinValue;
+                long evidenceLength = evidence.Exists ? evidence.Length : 0;
+                var file = new FileInfo(path);
+                DateTime stamp = file.Exists ? file.LastWriteTimeUtc : DateTime.MinValue;
+                long length = file.Exists ? file.Length : 0;
+                if (CachedFamilies != null && FamilyDirectory == settingsDirectory &&
+                    ReferenceEquals(FamilyPolicy, policy) && FamilyLedgerWrite == stamp && FamilyLedgerLength == length &&
+                    FamilyEvidenceWrite == evidenceStamp && FamilyEvidenceLength == evidenceLength)
+                    return CachedFamilies;
+                var pairs = new List<ItemTemplatePair>();
+                if (CachedFamilies != null && FamilyDirectory == settingsDirectory) pairs.AddRange(CachedFamilies.Pairs);
+                pairs.AddRange(policy.KnownPairs ?? new List<ItemTemplatePair>());
+                pairs.AddRange(policy.Items.Where(i => i != null).Select(i => new ItemTemplatePair { LowId = i.AoId, HighId = i.HighId }));
+                if (file.Exists)
+                {
+                    // Local ledger is already atomic. Never use item names as equivalence evidence.
+                    JObject ledger;
+                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
+                    using (var text = new StreamReader(stream))
+                        ledger = JObject.Parse(text.ReadToEnd());
+                    foreach (JToken item in ledger["Items"] as JArray ?? new JArray())
+                    {
+                        int low = (int?)item["AoId"] ?? 0, high = (int?)item["HighId"] ?? 0;
+                        if (low > 0 && high > 0 && low != high)
+                            pairs.Add(new ItemTemplatePair { LowId = low, HighId = high });
+                    }
+                }
+                CachedFamilies = new ItemFamilyIndex(ItemPairEvidenceStore.Merge(evidencePath, pairs));
+                // Keep the pre-read stamp: a concurrent writer must cause another refresh.
+                FamilyEvidenceWrite = evidenceStamp;
+                FamilyEvidenceLength = evidenceLength;
+                FamilyPolicy = policy; FamilyDirectory = settingsDirectory;
+                FamilyLedgerWrite = stamp; FamilyLedgerLength = length;
+                return CachedFamilies;
+            }
+        }
+
+        public static void ObserveItemPair(string settingsDirectory, int lowId, int highId)
+        {
+            if (lowId <= 0 || highId <= 0 || lowId == highId) return;
+            lock (PolicySync)
+            {
+                var families = GetPhatzFamilies(settingsDirectory);
+                if (families.PairsFor(lowId).Any(p => p.LowId == lowId && p.HighId == highId)) return;
+                ItemPairEvidenceStore.Merge(Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "items-pairs.json"),
+                    families.Pairs.Concat(new[] { new ItemTemplatePair { LowId = lowId, HighId = highId } }));
+                FamilyPolicy = null; // Next read picks up the persisted evidence in every domain.
+            }
+        }
+
+        public static int PhatzFamilyMaximum(IEnumerable<PhatzPolicyItem> rows)
+        {
+            int[] limits = rows.Select(i => i.MaxCopies).Distinct().ToArray();
+            if (limits.Any(value => value < KeepAllCopies || value == 0))
+                throw new InvalidOperationException("Phatz MaxCopies must be -1 or a positive number.");
+            // Legacy aliases with conflicting caps must not silently cause extra deletion.
+            return limits.Length == 1 ? limits[0] : KeepAllCopies;
+        }
+
+        public static int RetentionKeyFor(string settingsDirectory, int aoid)
+        {
+            AcceptanceRule rule;
+            return TryGetRule(settingsDirectory, aoid, out rule) ? rule.RetentionKey : aoid;
+        }
+
+        private static PhatzPolicyState CopyPhatzPolicy(PhatzPolicyState state) =>
+            Newtonsoft.Json.JsonConvert.DeserializeObject<PhatzPolicyState>(Newtonsoft.Json.JsonConvert.SerializeObject(state));
 
         private static int ReadMaximum(JToken token, int fallback)
         {
@@ -357,7 +469,7 @@ namespace CityBankers.Shared
 
         public static int CountForRole(string settingsDirectory, string role)
         {
-            return GetRules(settingsDirectory).Count(rule => string.Equals(
+            return GetRetentionRules(settingsDirectory).Count(rule => string.Equals(
                 rule.Role, role, StringComparison.OrdinalIgnoreCase));
         }
 

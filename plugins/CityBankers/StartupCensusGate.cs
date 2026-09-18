@@ -569,7 +569,7 @@ namespace CityBankers
             if (_capacityLoggedRun == _auditRun || !Inventory.Bank.IsOpen) return;
             if (!string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
             {
-                var rules = SymbiantCatalog.GetRules(_settings).Where(r =>
+                var rules = SymbiantCatalog.GetRetentionRules(_settings).Where(r =>
                     string.Equals(r.Role, _role, StringComparison.OrdinalIgnoreCase)).ToList();
                 int available = Inventory.Items.Count(StorageBagPolicy.IsStorageBag) +
                     Inventory.Bank.Items.Count(StorageBagPolicy.IsStorageBag);

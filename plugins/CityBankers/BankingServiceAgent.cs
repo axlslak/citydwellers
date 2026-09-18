@@ -892,6 +892,7 @@ namespace CityBankers
                     if (item.Quantity < 1 || CruInventory().Any(i => StackableItems.Quantity(i) < 1)) { error = "CRU stack quantity has not arrived yet. Please reopen trade shortly."; return false; }
                     continue;
                 }
+                SymbiantCatalog.ObserveItemPair(_settingsDir, item.AoId, item.HighId);
                 string destination;
                 if (!SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.AoId, out destination))
                 {
@@ -963,7 +964,7 @@ namespace CityBankers
             foreach (TransferItemState item in received)
             {
                 if (CruPolicy.IsCru(item.AoId)) continue; // Central inventory is its permanent storage.
-                string key = TemplateKey(item);
+                string key = RetentionCountKey(item.AoId);
                 int count;
                 if (!projectedCounts.TryGetValue(key, out count))
                     count = CountStoredCopies(stock, item);
@@ -995,7 +996,7 @@ namespace CityBankers
                 };
                 TellDonationPartner(
                     "Donation received. " + deleteItems.Count +
-                    " item(s) exceed their configured per-AOID retention cap; Central will delete those excess copies and verify each deletion before dispatching the remaining " +
+                    " item(s) exceed their configured retention cap (shared across known Phatz QL variants); Central will delete those excess copies and verify each deletion before dispatching the remaining " +
                     storeItems.Count + " item(s).");
                 return;
             }
@@ -1087,7 +1088,7 @@ namespace CityBankers
                 _role,
                 "DELETE REQUESTED one of " + matches.Count + " matching loose copies of " +
                 expected.Name + " QL" + expected.Ql +
-                " because projected exact-template stock exceeds configured cap " +
+                " because projected retention-group stock exceeds configured cap " +
                 GetAcceptanceRule(expected.AoId).MaxCopies + ".");
             matches[0].Delete();
         }
@@ -2279,6 +2280,8 @@ namespace CityBankers
                 _donationPreviousOffer ?? new List<TransferItemState>();
             List<TransferItemState> added = MultisetDifference(current, previous);
             List<TransferItemState> removed = MultisetDifference(previous, current);
+            foreach (var observed in current)
+                SymbiantCatalog.ObserveItemPair(_settingsDir, observed.AoId, observed.HighId);
             List<TransferItemState> alreadyOffered = new List<TransferItemState>(previous);
 
             foreach (TransferItemState item in removed)
@@ -2295,7 +2298,7 @@ namespace CityBankers
             {
                 tradeIndex++;
                 int earlierCopies = alreadyOffered.Count(candidate =>
-                    candidate != null && candidate.AoId == item.AoId);
+                    candidate != null && RetentionCountKey(candidate.AoId) == RetentionCountKey(item.AoId));
                 AnnounceDonationItemAdded(item, tradeIndex, earlierCopies);
                 alreadyOffered.Add(item);
             }
@@ -2410,13 +2413,25 @@ namespace CityBankers
                 .Replace(">", "&gt;");
         }
 
-        private static int CountStoredCopies(CurrentStockState stock, TransferItemState item)
+        private int CountStoredCopies(CurrentStockState stock, TransferItemState item)
         {
             if (item == null)
                 return 0;
-            return (stock?.Items ?? new List<StockItemState>()).Count(candidate =>
-                candidate != null &&
-                candidate.AoId == item.AoId);
+            SymbiantCatalog.AcceptanceRule rule;
+            bool phatz = SymbiantCatalog.TryGetRule(_settingsDir, item.AoId, out rule) &&
+                string.Equals(rule.Role, "phatz", StringComparison.OrdinalIgnoreCase);
+            var families = phatz ? SymbiantCatalog.GetPhatzFamilies(_settingsDir) : null;
+            return (stock?.Items ?? new List<StockItemState>()).Count(candidate => candidate != null &&
+                (phatz ? string.Equals(candidate.Role, "phatz", StringComparison.OrdinalIgnoreCase) &&
+                    families.Key(candidate.AoId) == families.Key(item.AoId) : candidate.AoId == item.AoId));
+        }
+
+        private string RetentionCountKey(int aoid)
+        {
+            SymbiantCatalog.AcceptanceRule rule;
+            return SymbiantCatalog.TryGetRule(_settingsDir, aoid, out rule) &&
+                string.Equals(rule.Role, "phatz", StringComparison.OrdinalIgnoreCase)
+                ? "phatz:" + rule.RetentionKey : "aoid:" + aoid;
         }
 
         private static List<TransferItemState> MultisetDifference(

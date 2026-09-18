@@ -52,6 +52,7 @@ namespace CityManager
             {
                 try
                 {
+                    var families = CityBankers.Shared.SymbiantCatalog.GetPhatzFamilies(_settingsDir);
                     if (numeric)
                     {
                         ItemDefinition item = catalog.Find(id);
@@ -60,27 +61,32 @@ namespace CityManager
                             "NoDrop: " + ItemFact(item.NoDrop) + "\nUnique: " + ItemFact(item.Unique) +
                             "\nStackable: " + ItemFact(item.Stackable) + "\nCantSplit: " + ItemFact(item.CantSplit) +
                             "\nSplittable: " + ItemFact(item.Splittable) +
-                            "\nFlags: " + ItemBits(item.Flags) + "\nCan: " + ItemBits(item.Can);
+                            "\nFlags: " + ItemBits(item.Flags) + "\nCan: " + ItemBits(item.Can) +
+                            "\n\nObserved family AOIDs: " + string.Join(", ", families.Members(id)) +
+                            "\n" + string.Join("\n", families.PairsFor(id).Select(p =>
+                                "Observed pair " + p.LowId + "/" + p.HighId + " | template QLs " +
+                                ItemQuality(catalog.Find(p.LowId)?.Quality) + "-" +
+                                ItemQuality(catalog.Find(p.HighId)?.Quality)));
                         Reply(target, BuildBlobLinks(target, "Item " + id, "Item " + id, details));
                         return;
                     }
                     int total;
-                    ItemDefinition[] results = catalog.Search(query, quality, page, ItemsPageSize, out total);
-                    if (total == 0) { Reply(target, "No item templates match " + EscapeBlobText(query) +
-                        (quality.HasValue ? " at recorded QL " + quality.Value : "") + "."); return; }
+                    ItemSearchMatch[] results = catalog.SearchFamilies(query, quality, families, page, ItemsPageSize, out total);
+                    if (total == 0) { Reply(target, "No items match " + EscapeBlobText(query) +
+                        (quality.HasValue ? " at QL " + quality.Value : "") + "."); return; }
                     int pages = (total + ItemsPageSize - 1) / ItemsPageSize;
                     if (page > pages) { Reply(target, "This search has " + pages + " pages."); return; }
                     var body = new StringBuilder();
-                    body.Append(HelpHeader("Items", total + " templates; page " + page + "/" + pages + "."));
-                    foreach (ItemDefinition item in results)
+                    body.Append(HelpHeader("Items", total + " results; page " + page + "/" + pages + "."));
+                    foreach (ItemSearchMatch item in results)
                     {
-                        body.Append(ItemRow(item)).Append(" ")
-                            .Append(CommandLink(target, "itemid " + item.AoId, "INFO")).Append("\n");
+                        body.Append(ItemMatchRow(item)).Append(" ")
+                            .Append(CommandLink(target, "itemid " + item.LowId, "INFO")).Append("\n");
                     }
                     string command = "items " + (quality.HasValue ? quality.Value + " " : "") + query;
                     if (page > 1) body.Append("\n").Append(CommandLink(target, command + " --page " + (page - 1), "Previous"));
                     if (page < pages) body.Append("\n").Append(CommandLink(target, command + " --page " + (page + 1), "Next"));
-                    body.Append("\n\nQLs are the templates recorded in your dump. Low/high interpolation pairs and in-game availability are not supplied by this source.");
+                    body.Append("\n\nRanges use low/high pairs observed in local policy or ledger. Unpaired templates keep their exact QL; names alone never establish a range.");
                     Reply(target, BuildBlobLinks(target, "Items", "Items: " + query + " (" + total + ")", body.ToString()));
                 }
                 catch (Exception ex)
@@ -91,6 +97,15 @@ namespace CityManager
                 finally { Interlocked.Exchange(ref _itemsSearchBusy, 0); }
             });
         }
+        private static string ItemMatchRow(ItemSearchMatch item)
+        {
+            string label = EscapeBlobText(item.Template.Name);
+            if (item.Quality > 0)
+                label = "<a href='itemref://" + item.LowId + "/" + item.HighId + "/" + item.Quality.Value + "'>" + label + "</a>";
+            return "QL " + ItemQuality(item.Quality) + "  " + label + "  [" + item.LowId +
+                (item.ObservedPair ? "/" + item.HighId + "; range " + item.LowQuality + "-" + item.HighQuality : "") + "]";
+        }
+
         private static string ItemRow(ItemDefinition item)
         {
             string label = EscapeBlobText(item.Name);
@@ -100,6 +115,7 @@ namespace CityManager
                 "  " + label + "  [" + item.AoId + "]" + (item.NoDrop == true ? " NoDrop" : "") +
                 (item.Unique == true ? " Unique" : "");
         }
+        private static string ItemQuality(int? quality) => quality.HasValue ? quality.Value.ToString(CultureInfo.InvariantCulture) : "?";
         private static string ItemFact(bool? value) => value.HasValue ? (value.Value ? "yes" : "no") : "unknown";
         private static string ItemBits(uint? value) => value.HasValue ? "0x" + value.Value.ToString("X8", CultureInfo.InvariantCulture) : "unknown";
     }

@@ -27,6 +27,17 @@ namespace CityDwellers.Shared
         { AoId = id; Name = name; Quality = quality; Flags = flags; Can = can; }
     }
 
+    public sealed class ItemSearchMatch
+    {
+        public ItemDefinition Template;
+        public int LowId;
+        public int HighId;
+        public int? Quality;
+        public int? LowQuality;
+        public int? HighQuality;
+        public bool ObservedPair;
+    }
+
     public sealed class ItemCatalogSnapshot
     {
         private readonly Dictionary<int, ItemDefinition> byId;
@@ -55,6 +66,38 @@ namespace CityDwellers.Shared
             long offset = ((long)page - 1) * pageSize;
             return offset >= total ? new ItemDefinition[0] : ordered.Skip((int)offset).Take(pageSize).ToArray();
         }
+        public ItemSearchMatch[] SearchFamilies(string query, int? quality, ItemFamilyIndex families,
+            int page, int pageSize, out int total)
+        {
+            if (page < 1 || pageSize < 1 || pageSize > 100) throw new ArgumentOutOfRangeException();
+            string[] terms = (query ?? "").Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            var found = new List<ItemSearchMatch>();
+            var matching = entries.Where(i => terms.All(t => t.Length > 1 && t[0] == '-'
+                ? i.Name.IndexOf(t.Substring(1), StringComparison.OrdinalIgnoreCase) < 0
+                : i.Name.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0));
+            foreach (var group in matching.GroupBy(i => families.Key(i.AoId)))
+            {
+                var covered = new HashSet<int>();
+                foreach (var pair in families.PairsFor(group.Key))
+                {
+                    var low = Find(pair.LowId); var high = Find(pair.HighId);
+                    if (low?.Quality == null || high?.Quality == null || low.Quality < 1 || low.Quality >= high.Quality) continue;
+                    covered.Add(low.AoId); covered.Add(high.AoId);
+                    if (quality.HasValue && (quality < low.Quality || quality > high.Quality)) continue;
+                    found.Add(new ItemSearchMatch { Template = high, LowId = low.AoId, HighId = high.AoId,
+                        Quality = quality ?? high.Quality, LowQuality = low.Quality, HighQuality = high.Quality, ObservedPair = true });
+                }
+                foreach (var item in group.Where(i => !covered.Contains(i.AoId) && (!quality.HasValue || quality == i.Quality)))
+                    found.Add(new ItemSearchMatch { Template = item, LowId = item.AoId, HighId = item.AoId,
+                        Quality = item.Quality, LowQuality = item.Quality, HighQuality = item.Quality });
+            }
+            var ordered = found.OrderBy(i => string.Equals(i.Template.Name, query, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(i => i.Template.Name, StringComparer.OrdinalIgnoreCase).ThenBy(i => i.LowId).ThenBy(i => i.HighId).ToArray();
+            total = ordered.Length;
+            long offset = ((long)page - 1) * pageSize;
+            return offset >= total ? new ItemSearchMatch[0] : ordered.Skip((int)offset).Take(pageSize).ToArray();
+        }
+
         internal IEnumerable<ItemDefinition> Entries => entries;
     }
 

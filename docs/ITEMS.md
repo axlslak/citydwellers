@@ -14,7 +14,7 @@ service, database server, generated embedded catalogue or credentials are used.
 
 - `#items combined commando` — all words must occur, case-insensitively.
 - `#i combined -headwear` — `i` is an alias; minus excludes a word.
-- `#items 300 combined` — restrict to recorded template QL 300.
+- `#items 250 strong lead` — use an observed low/high range at QL 250; unpaired templates still require their recorded QL.
 - `#items combined --page 2` — 30 templates per page, with Previous/Next buttons.
 - `#itemid 257110` or `#items 257110` — exact AOID, link and attribute details.
 - `#help items` — in-game instructions.
@@ -24,21 +24,58 @@ it. Existing membership and ban checks remain. Search is available to normal bot
 members/guests, not administrator-only. Only one search runs at a time; requests
 are bounded to 300 characters and output uses existing byte-aware blob pagination.
 
-Results show exact template AOIDs, recorded QLs and clickable item links. Info
+Results show template AOIDs, observed QL ranges and clickable item links. Info
 shows NoDrop, Unique, Stackable, CantSplit, Splittable and raw Flags/Can masks.
 Unknown attributes are explicitly unknown. NoDrop and Unique are not filters:
 this is a general item database, not the bankable-item catalogue.
 
-## Source limits
+## Observed families and QL ranges
 
-The raw dump does **not** supply Nadybot-style low/high interpolation pairs or an
-obtainable/in-game catalogue. Matching names and adjacent IDs are not proof of a
-family (the supplied dump includes duplicate named endpoint variants). Thus this
-version shows separate templates and uses `itemref://AOID/AOID/recordedQL`.
-An explicit QL searches recorded endpoints, not inferred ranges. It does not yet
-reproduce Nadybot's arbitrary intermediate-QL links or in-game-only filtering.
-These features need an authoritative pairing/availability source. Nothing is
-silently dropped as a presumed GM/test item.
+The dump contains endpoint stats but no explicit interpolation pairing table.
+The shared family index now supplements it with actual low/high pairs from the
+local ledger, administrator-supplied Phatz item links and live donation offers.
+Equal names and adjacent IDs never create a relationship. Existing v1 policy
+files need no manual migration.
+
+For example, Strong Lead Viralbots has an observed pair 247138/247139. The dump
+places those templates at QLs 1 and 300. A physical QL 300 copy may instead carry
+247139/247139; the shared endpoint connects both representations to one family.
+`#items 250 strong lead` can now build a 247138/247139/250 link, and `#itemid`
+shows the known family IDs and endpoint QLs. Observed edges can connect multiple
+QL segments; only recorded edges with valid increasing endpoint QLs render ranges.
+Unpaired templates remain exact. This is not a complete global interpolation or
+obtainability database: an unseen relationship remains unknown until observed.
+
+Sanitized pairs (only two numeric IDs) persist in `data/items-pairs.json`, so
+withdrawing the last copy does not erase the relationship on restart. Writers
+merge under a path-specific cross-domain/process mutex and replace the file
+atomically. Explicit Phatz policy edits also retain `KnownPairs`. Source metadata
+changes refresh domain-local family snapshots. The large raw catalogue still
+loads once per domain as described below.
+
+## Phatz integration
+
+- `#phatz` and its name/QL filters group stock by observed family, with total
+  copies and separate exact-QL/template rows. Physical ledger records retain
+  their original IDs, QLs, donors and locations; no copies are merged or removed.
+- `#phatz list` shows one effective rule per family. Existing duplicate policy
+  rows remain intact until an explicit add/update/remove consolidates that family.
+- `#phatz add <linked item> [limit]` replaces duplicate dynamic rules for the
+  known family. Adding either known endpoint covers all known aliases.
+- `#phatz remove <AOID>` disables the known family, retaining its pair evidence.
+- Finite limits count all known family variants for **future incoming donations**,
+  including projected copies in the same trade. Existing stock is not trimmed.
+  Conflicting legacy caps resolve to unlimited until an admin adds the family
+  with one explicit limit. Identical caps are applied once across the family.
+- Explicit non-Phatz routes/rejections retain precedence over inherited aliases;
+  a direct dynamic rule retains its pre-existing override semantics.
+- Retention/capacity totals count family rules once; route/index enumeration
+  still includes each alias. GET keeps the existing AOID-based selection and
+  cannot promise a particular QL when several copies share that AOID.
+
+The owner's supplied snapshot resolves 45 policy rows and 53 exact stock
+variants to 39 families, preserving all 129 physical Phatz copies. No owner
+attachments are embedded, edited or published by this change.
 
 ## Shared API
 
@@ -52,7 +89,9 @@ var catalog = ItemCatalog.Current;      // null while unavailable/loading
 var definition = catalog?.Find(257110);
 bool? stackable = definition?.Stackable;
 bool? splittable = definition?.Splittable;
-// catalog.Search(query, optionalRecordedQl, page, pageSize, out total)
+// catalog.Search(query, optionalRecordedQl, page, pageSize, out total) keeps exact semantics.
+// catalog.SearchFamilies(query, requestedQl, familyIndex, page, pageSize, out total) uses observed pairs.
+// ItemFamilyIndex.Key / Members / PairsFor expose the relationship without changing physical IDs.
 ```
 
 `ItemDefinition` exposes AOID, Name, Quality, nullable raw Flags/Can and nullable
@@ -89,6 +128,8 @@ unknown templates retain the observed-count fallback. CRU admission, quantities,
 stacking, splitting and movement policy are unchanged. No catalogue lookup
 triggers an item movement.
 
-Validation: inspected the complete supplied dump for schema, unique AOIDs and
+Validation: compared supplied policy/ledger pair evidence, reviewed family routing,
+future retention counts, persistence and exact physical identity boundaries;
+inspected the complete supplied dump for schema, unique AOIDs and
 missing retained stats; static source, integration, project XML and whitespace
 review. No assistant build, test suite or live AO run; the owner builds/tests.

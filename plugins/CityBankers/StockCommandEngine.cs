@@ -615,11 +615,11 @@ namespace CityBankers
 
         private static int CountTemplates(IEnumerable<StockItemState> items)
         {
-            return (items ?? Enumerable.Empty<StockItemState>())
-                .Where(item => item != null)
-                .Select(item => item.AoId + ":" + item.HighId + ":" + item.Ql)
-                .Distinct(StringComparer.Ordinal)
-                .Count();
+            var source = (items ?? Enumerable.Empty<StockItemState>()).Where(i => i != null).ToList();
+            var families = source.Any(i => string.Equals(i.Role, "phatz", StringComparison.OrdinalIgnoreCase))
+                ? SymbiantCatalog.GetPhatzFamilies(SettingsPaths.GetSettingsDirectory()) : null;
+            return source.Select(i => families != null && string.Equals(i.Role, "phatz", StringComparison.OrdinalIgnoreCase)
+                ? "phatz:" + families.Key(i.AoId) : i.AoId + ":" + i.HighId + ":" + i.Ql).Distinct().Count();
         }
 
         private static bool TryNormalizeFamily(string token, out string family)
