@@ -330,6 +330,8 @@ namespace CityBankers
                         HighId = item.HighId,
                         Ql = item.Ql,
                         Name = item.Name ?? string.Empty,
+                        IsStackable = StackableItems.StackableAttribute(item),
+                        Quantity = StackableItems.ObservedQuantity(item),
                         IsContainer = item.UniqueIdentity.Type == IdentityType.Container
                     })
                     .ToList()
@@ -940,6 +942,8 @@ namespace CityBankers
             public int Ql;
             public string Name;
             public bool IsContainer;
+            public bool? IsStackable;
+            public int? Quantity;
         }
 
         public class PlayerSnapshot

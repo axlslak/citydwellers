@@ -286,6 +286,13 @@ namespace CityManager
                 body.Append("  <font color='").Append(ColorMuted).Append("'>slot ")
                     .Append(slot.ToString("X4", CultureInfo.InvariantCulture)).Append("</font> ");
                 body.Append(CityBankersChatPalette.ItemLabel(aoid, highid, ql, name, true));
+                bool? stackable = (bool?)item["IsStackable"];
+                int? quantity = (int?)item["Quantity"];
+                // Until #items supplies attributes, show positive observed counts.
+                // Missing/zero wire counts do not establish stackability or one unit.
+                if (stackable == true || (stackable == null && quantity > 0))
+                    body.Append(" x").Append(quantity > 0
+                        ? quantity.Value.ToString(CultureInfo.InvariantCulture) : "?");
                 body.Append(" <font color='").Append(ColorMuted).Append("'>")
                     .Append(container ? "bag" : "loose").Append("</font>\n");
             }

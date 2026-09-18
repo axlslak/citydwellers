@@ -2164,3 +2164,10 @@ over queued-work failure text. Existing office location guards remain. New help
 topic explains operation; no future rebuild is needed to update the Instance.
 Static routing, authority, persistence and lifecycle review only; owner builds
 and runs live validation. CRU diagnostic state remains unchanged.
+
+## Session 126 — inventory quantities, attribute lookup deferred
+
+- Inventory heartbeats carry nullable observed Quantity and IsStackable; Manager appends x<count> for positive server counts, including x1. A known stack without quantity renders x?. No fabricated one-unit fallback.
+- Generalized server count capture across item types (login, container, add-template, trade-template and MultipleCount). Existing CRU service admission, merging and split policies remain unchanged.
+- Owner explicitly deferred Stackable/CantSplit classification to the upcoming #items plugin. StackableAttribute intentionally returns unknown; no item catalogue is generated or embedded. Until connected, positive counts are displayed without claiming they establish stackability; other count-bearing items may also show a count.
+- Static source/API and diff review only. Owner builds/tests. Display work resolved on publication; attribute data remains intentionally unfinished.

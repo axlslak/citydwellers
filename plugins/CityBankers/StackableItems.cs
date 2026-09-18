@@ -28,12 +28,24 @@ namespace CityBankers
         {
             if (item == null) return 0;
             if (!IsStack(item)) return 1;
+            return ObservedQuantity(item) ?? -1;
+        }
+
+        // TODO #items: resolve Stackable/CantSplit from the shared item attributes.
+        // Unknown is intentional; neither an AOID nor a count proves that flag.
+        public static bool? StackableAttribute(Item item) => null;
+
+        // Raw server evidence for any item, independent of the CRU service policy.
+        // Do not substitute the service Quantity() fallback of one for missing data.
+        public static int? ObservedQuantity(Item item)
+        {
+            if (item == null) return null;
             int value;
             if (item.UniqueIdentity != Identity.None && identities.TryGetValue(item.UniqueIdentity, out value)) return value;
             CountValue count;
             if (counts.TryGetValue(item, out count)) return count.Value;
             var unique = item as UniqueItem;
-            return unique?.Stats != null && unique.Stats.TryGetValue(Stat.MultipleCount, out value) ? value : -1;
+            return unique?.Stats != null && unique.Stats.TryGetValue(Stat.MultipleCount, out value) ? (int?)value : null;
         }
         private static void Set(Item item, int count)
         {
@@ -97,9 +109,9 @@ namespace CityBankers
                     {
                         var item = Inventory.Items?.FirstOrDefault(i => i.Slot.Instance == slot.Placement);
                         // Wire field is 16 bits; full-client inventory reads it unsigned.
+                        Set(item, (ushort)slot.Count);
                         if (IsStack(item))
                         {
-                            Set(item, (ushort)slot.Count);
                             Logger.Information("[CityBankers] STACK login slot=" + item.Slot + "; CRU count=" + (ushort)slot.Count);
                         }
                     }
@@ -111,7 +123,6 @@ namespace CityBankers
             {
                 foreach (var slot in update.Items ?? new InventorySlot[0])
                 {
-                    if (!CruPolicy.IsCru(slot.ItemLowId)) continue;
                     SetIdentity(slot.Identity, (ushort)slot.Count);
                     afterNative.Enqueue(() =>
                     {
@@ -124,7 +135,7 @@ namespace CityBankers
                 return;
             }
             var add = message.Body as AddTemplateMessage;
-            if (add != null && CruPolicy.IsCru(add.LowId))
+            if (add != null)
             {
                 var before = new HashSet<Item>(Inventory.Items ?? new List<Item>());
                 afterNative.Enqueue(() =>
@@ -132,15 +143,13 @@ namespace CityBankers
                     var added = (Inventory.Items ?? new List<Item>()).Where(i => !before.Contains(i) &&
                         i.Id == add.LowId && i.HighId == add.HighId && i.Ql == add.Quality).ToList();
                     if (added.Count == 1) Set(added[0], add.Count);
-                    Logger.Information("[CityBankers] STACK add-template count=" + add.Count + "; new objects=" + added.Count);
+                    if (CruPolicy.IsCru(add.LowId)) Logger.Information("[CityBankers] STACK add-template count=" + add.Count + "; new objects=" + added.Count);
                 });
                 return;
             }
             var simple = message.Body as SimpleItemFullUpdateMessage;
             if (simple != null)
             {
-                var templateId = simple.Stats?.FirstOrDefault(s => s.Value1 == Stat.ACGItemTemplateID);
-                if (templateId == null || !CruPolicy.IsCru(templateId.Value2)) return;
                 var count = simple.Stats?.FirstOrDefault(s => s.Value1 == Stat.MultipleCount);
                 if (count != null) SetIdentity(simple.Identity, count.Value2);
                 return;
@@ -148,7 +157,7 @@ namespace CityBankers
             var stat = message.Body as StatMessage;
             if (stat != null)
             {
-                if (!identities.ContainsKey(stat.Identity) && !AllItems().Any(i => IsStack(i) &&
+                if (!identities.ContainsKey(stat.Identity) && !AllItems().Any(i => i != null &&
                     (i.UniqueIdentity == stat.Identity || i.Slot == stat.Identity))) return;
                 var count = stat.Stats?.FirstOrDefault(s => s.Value1 == Stat.MultipleCount);
                 if (count != null)
@@ -165,9 +174,9 @@ namespace CityBankers
                 action.Action == StackItemsAction))
                 LogStackAction("RECV", action);
             var template = message.Body as TemplateActionMessage;
-            if (template != null && CruPolicy.IsCru(template.ItemLowId))
+            if (template != null)
             {
-                Logger.Information("[CityBankers] STACK template-action placement=" + template.Placement +
+                if (CruPolicy.IsCru(template.ItemLowId)) Logger.Information("[CityBankers] STACK template-action placement=" + template.Placement +
                     "; fields=" + template.Unknown1 + "," + template.Unknown2 + "," + template.Unknown3 + "," + template.Unknown4);
                 // Match Clientless's trade-template route. Owner's live 13-unit
                 // offer confirms Unknown1 carries quantity; native handling drops it.
@@ -185,7 +194,7 @@ namespace CityBankers
                     // Bind the actual new object, never a template-wide or reusable
                     // slot count. Clientless carries this object into inventory.
                     if (added.Count == 1) Set(added[0], template.Unknown1);
-                    Logger.Information("[CityBankers] STACK trade-template count=" +
+                    if (CruPolicy.IsCru(template.ItemLowId)) Logger.Information("[CityBankers] STACK trade-template count=" +
                         template.Unknown1 + "; new objects=" + added.Count);
                 });
             }
