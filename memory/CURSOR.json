@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 127,
+  "current_session": 128,
   "last_completed_session": 127,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-127-items-catalog",
-  "checkpoint_commit": "9e31ed133229ab07827daf2a23e4d5f2204e7cd4",
-  "task": "Shared items reader and exact-template search published",
-  "resume_instruction": "Owner builds/tests. Extract unmodified items.json to runtime data/items.json. #items/#i search exact templates; #itemid shows nullable Flags/Can properties. Inventory attribute seam connected; CRU operational policy unchanged. No inferred QL families: dump lacks authoritative low/high pairing. See docs/ITEMS.md. Next journal seq310.",
-  "base_commit": "f395f90eb5b5061fbc91375bb39154339539248d"
+  "transaction": "session-128-observed-item-families",
+  "checkpoint_commit": "1f3e522ffaa54f212e0b20b09f74b0acf0341966",
+  "task": "Use observed low/high pairs to connect items and Phatz families",
+  "resume_instruction": "Owner attachments demonstrate six duplicate policy groups. Implement shared observed-pair family index, range links in items, family-aware Phatz acceptance/list/stock and future donation caps. Preserve physical ledger IDs/QLs. No name-only merges, no retroactive stock deletion, no builds. Next seq311.",
+  "base_commit": "1f3e522ffaa54f212e0b20b09f74b0acf0341966"
 }
