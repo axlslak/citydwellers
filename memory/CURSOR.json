@@ -5,8 +5,8 @@
   "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-135-journal-repair-and-claude-md",
-  "checkpoint_commit": "e179d4f552b9fdf520397e976e74b989a2408126",
-  "task": "Journal repair and CLAUDE.md bootstrap published",
-  "resume_instruction": "Journal restored to 324 contiguous records and CLAUDE.md added, on branch claude/git-access-question-j8ie1j; merge into master to apply. Owner rebuild for session 134 packet guard outstanding. Next work: reconstruct session 133's 30 displaced donor attributions from custody receipts/ledger archives. Snapshot analysed, never committed. Next journal seq326.",
+  "checkpoint_commit": "73fa69b735d6a955e54383bf3aa8ebec62eb2673",
+  "task": "Journal repair and CLAUDE.md bootstrap published to master",
+  "resume_instruction": "Journal restored to 325 contiguous records (seq1-325, no unparseable lines) and CLAUDE.md added; published on master at 73fa69b. Owner rebuild for the session134 packet guard is still outstanding. Next work: reconstruct session133's 30 displaced donor attributions from custody receipts and ledger archives. The duplicate-container signature is absent from the 2026-09-18T08:38Z snapshot (2,636 stock records, zero slot collisions, ledger agreeing) but prior attribution is not thereby restored. Owner data snapshot analysed and deliberately never committed. Next journal seq326.",
   "base_commit": "d454ace5824a0b61ba2737b8fefee01b76ce2008"
 }
