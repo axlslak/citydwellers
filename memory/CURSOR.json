@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 133,
-  "last_completed_session": 132,
-  "status": "in_progress",
+  "last_completed_session": 133,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-133-full-log-reliability",
-  "checkpoint_commit": "aebdf98e0e66b529c746c9924097d5c89cdd88af",
-  "task": "Audit full owner log and repair evidenced runtime bugs",
-  "resume_instruction": "Full-log review active: reconnect local census duplicate physical slots and repeated audit failures; host domain teardown/remoting leases; runtime inventory false warnings and atomic heartbeat writes. Root sole writer; reviewers read-only. Preserve manager/banker chat, existing tell queue semantics and104 buddy game-only path. No builds/test suites/live AO unless owner explicitly requests. Next journal seq321. Publish concrete fixes plus accurate source-only verification; never raw log or credentials.",
+  "checkpoint_commit": "490ffa25867403c9e8d7af37b9f0be7444e96353",
+  "task": "Full-log reliability fixes published; evidence and limits recorded",
+  "resume_instruction": "Supported full-log fixes published; see docs/RUNTIME_RELIABILITY_REVIEW.md. Owner builds/deploys full output and validates fresh physical census. Snapshot untouched; 30 extra claims/displaced attribution not automatically repaired. HQ schema and buddy SimpleCharFullUpdate decoding and missing nano definitions remain explicitly unresolved; allocation guard is only hardening. Manager/banker/buffer chat and tell semantics preserved;104 buddies game-only; KWorker integration separate. Next journal seq322.",
   "base_commit": "aebdf98e0e66b529c746c9924097d5c89cdd88af"
 }
