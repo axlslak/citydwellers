@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 140,
-  "last_completed_session": 139,
-  "status": "in_progress",
+  "last_completed_session": 140,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-140-org-reply-chat-route",
-  "checkpoint_commit": "7654a680a7aa242b7a5baab1d38fce08bc8a1c1f",
-  "task": "Route org replies over the chat connection and confirm delivery by echo",
-  "resume_instruction": "Prefer Client.SendOrgMessage, report the raw game-connection route as unverified, confirm delivery from the observed echo. Seal with COMMIT seq334.",
+  "checkpoint_commit": "c4aec02f5a766154ab96b28dc6be424132974c75",
+  "task": "Org reply chat-route correction published; owner rebuild pending",
+  "resume_instruction": "Org reply chat-route fix published. Owner rebuilds and tests #help in org chat; the log now names the route, the observed Client.OrgId, and ORG DELIVERY CONFIRMED or UNCONFIRMED. If Client.OrgId is 0, a chat-connection send independent of the LocalPlayer organization stat is the next step. Also pending: the session137 census withdrawal fix needs a live run, and Kbarty's bag (inventory/66+69) and Kbsupp's (bank/92+1) still need a physical move. Next journal seq335.",
   "base_commit": "f72b82062ab854f96bf0e02e70f5d85da0241bb5"
 }
