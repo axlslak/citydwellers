@@ -5,7 +5,7 @@
   "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-145-org-size-self-calibration",
-  "checkpoint_commit": "446d7f9942545899fbc038ff8ef88fc06f7f537a",
+  "checkpoint_commit": "85aa9044f76ad32289521082f1f10d3c77a9f48f",
   "task": "Org page size self-calibration published; owner rebuild pending",
   "resume_instruction": "Org chat confirmed working. Page size now self-calibrating between confirmed and failed lengths, seeded 569/2487, persisted to data/citymanager-org-size.json. Owner rebuilds; watch ORG SIZE CALIBRATION converge. Next open item: ambiguous bag identity dedupe for Kbarty and Kbsupp, now evidence-backed by the container view. Next journal seq342.",
   "base_commit": "815d6feeb733c81be77cbf4617395f8f18f8ec11"
