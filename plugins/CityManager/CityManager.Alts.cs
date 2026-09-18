@@ -82,6 +82,8 @@ namespace CityManager
                 _altQueue.Clear();
                 _passiveAltResponses.Clear();
                 _onlineCharacters.Clear();
+                _observedOnlineGuests.Clear();
+                _orgOnlineSnapshotReceived = false;
                 _pendingAltLookup = null;
                 _altSendInFlight = false;
                 _altsShuttingDown = false;
@@ -501,7 +503,14 @@ namespace CityManager
             if (loggedOff.Success)
             {
                 lock (_altsSync)
-                    _onlineCharacters.Remove(loggedOff.Groups[1].Value);
+                {
+                    string name = loggedOff.Groups[1].Value;
+                    _onlineCharacters.Remove(name);
+                    foreach (uint id in _observedOnlineGuests.Where(pair =>
+                        string.Equals(pair.Value, name, StringComparison.OrdinalIgnoreCase))
+                        .Select(pair => pair.Key).ToList())
+                        _observedOnlineGuests.Remove(id);
+                }
                 return;
             }
 
@@ -619,6 +628,7 @@ namespace CityManager
 
                 if (complete)
                 {
+                    _orgOnlineSnapshotReceived = true;
                     _onlineCharacters.Clear();
                     foreach (string name in _onlineSnapshotResponse.Groups.Values
                         .SelectMany(names => names))

@@ -39,6 +39,7 @@ namespace CityManager
             {
                 "help",
                 "changelog",
+                "online",
                 "items",
                 "i",
                 "itemid",
@@ -386,6 +387,7 @@ namespace CityManager
                 // Any incoming guest-channel traffic proves the diagnostic channel
                 // is live. Confirm it without treating ordinary chatter as commands.
                 ConfirmDevChannel();
+                ObserveGuestOnline(msg.SenderId, msg.SenderName);
 
                 string text = msg.Message.TrimStart();
                 if (!text.StartsWith(CommandPrefix, StringComparison.Ordinal))
@@ -462,6 +464,7 @@ namespace CityManager
             bool hasCommandShape =
                 ((command == "cru" ||
                   command == "changelog" ||
+                  command == "online" ||
                   command == "cloak" ||
                   command == "status" ||
                   command == "buffers" ||
@@ -633,6 +636,10 @@ namespace CityManager
                 case "i":
                 case "itemid":
                     ProcessItemsCommand(parts, replyTarget);
+                    break;
+
+                case "online":
+                    ProcessOnlineCommand(parts, replyTarget);
                     break;
 
                 case "changelog":
@@ -2072,6 +2079,8 @@ namespace CityManager
             packet[7] = (byte)characterId;
 
             Client.Chat.Send(packet);
+            lock (_altsSync)
+                _observedOnlineGuests.Remove(characterId);
         }
 
         private void TryInviteDeveloper()

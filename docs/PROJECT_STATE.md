@@ -2200,3 +2200,9 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Added #changelog (also bare changelog in tells) under existing member/guest and ban checks. Source array in CityManager.Changelog.cs retains complete chronological history in Git; displays last25, oldest-to-newest within that window, with existing byte-aware blob pagination. No runtime JSON/data-file reads or writes.
 - Exactly two owner-supplied entries: "created changelog." and "now we have items." No inferred features, dates or release prose. Future entries only when owner supplies wording; durable rule added to AGENTS.md. Help and project compile include added.
 - Static routing, accessibility, boundary calculation, XML and diff review only. Owner builds/tests; no assistant compilation or test suite.
+
+## Session 131 — online presence display
+
+- Added #online and bare online in tells, with existing member/guest/ban routing, help, alphabetized names, separate counts and byte-aware blob pagination. Org list reads the existing _onlineCharacters set maintained by configured Bobsan startup snapshots and login/logout announcements; it does not poll, infer online alts or create a second org tracker. Missing complete snapshot is shown as incomplete, including an empty list.
+- Guest side previously had no retained roster or join/leave event feed. New in-memory observations capture speakers only in Manager own guest channel; known Bobsan logoffs and successful leave/kick sends remove names. Invites do not imply presence. View explicitly labels observed guests and warns silent joins/departures may be missing. These observations reset at initialization and are not persisted as current presence. An individual can appear in both independent sections.
+- Static routing, callback scope, locking, source/API, project XML and diff review only; no assistant builds/test suites/live AO tests. Changelog entries unchanged: owner supplied no new entry.
