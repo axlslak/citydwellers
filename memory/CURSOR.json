@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 139,
-  "last_completed_session": 138,
-  "status": "in_progress",
+  "last_completed_session": 139,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-139-packet-guard-enum-bor",
-  "checkpoint_commit": "720d1966c5bb086ef85733d3cd39311879ea1e31",
-  "task": "Fix packet guard enum -bor InvalidCastException",
-  "resume_instruction": "Move the MethodAttributes flag combination into the typed Cecil bridge and bump it to V2. Seal with COMMIT seq332.",
+  "checkpoint_commit": "7654a680a7aa242b7a5baab1d38fce08bc8a1c1f",
+  "task": "Packet guard enum fix published; owner rebuild pending",
+  "resume_instruction": "Packet guard enum fix published. Owner rebuilds; a successful build also deploys the session137 census withdrawal fix. Then move Kbarty's bag (inventory/66+69) and Kbsupp's bag (bank/92+1) with the ordinary AO client and send the console log. Watch for 'Census <id> withdrew ...' and a stable BANKER READY. Still open: inventory-side bag-open escalation needs data/startup-census/ from a looping run; session 133's 30 displaced donor attributions. Next journal seq333.",
   "base_commit": "ec4d7d350ba3f4fa9cdeb51c75dd31d998385aa8"
 }
