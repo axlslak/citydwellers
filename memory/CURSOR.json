@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 142,
+  "current_session": 143,
   "last_completed_session": 142,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-142-self-diagnosing-banker",
+  "transaction": "session-143-org-send-correction",
   "checkpoint_commit": "f48be1f62ec05c15b58b3ddd7eeb4e42ad5ba05b",
-  "task": "Self-diagnosing banker report published; owner rebuild pending",
-  "resume_instruction": "Owner rebuilds and runs; Kbarty and Kbsupp each write data/diagnostic-dumps/ambiguous-bags-*.json on their staging hold. Those two files decide whether identity-level dedupe is safe. Also pending a live test: the org reply chat-route fix (#help in org chat, log now names route and Client.OrgId). Session 133's 30 displaced donor attributions remain open. Next journal seq338.",
-  "base_commit": "b7c8cbd4493baf2ac755913483965e78844a2a08"
+  "task": "Correct the org send gate and retract the session 140 connection claim",
+  "resume_instruction": "Gate SendOrgMessage on Stat.Clan, log payload length, retract session 140. Seal with COMMIT seq339.",
+  "base_commit": "ba9ee8c7145b88aeeac88a61e7a947ed03664fb7"
 }

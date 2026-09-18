@@ -1702,26 +1702,51 @@ namespace CityManager
             // another one.
             ObserveOrgEcho(null);
 
-            // Organization chat is carried by the chat-server connection. That
-            // is where Client.Chat.GroupMessageReceived delivers it and what
-            // Client.SendOrgMessage writes to. The raw GroupMsgMessage route
-            // below goes out through Client.Send on the *game* connection,
-            // which does not carry org chat: the server discards it, nothing
-            // throws, and the attempt used to be reported as a delivered reply
-            // while shadowing this working route. Chat route first.
-            string detail = "Client.OrgId=" + Client.OrgId;
-            if (Client.OrgId > 0)
+            // [CORRECTION] Organization chat is SENT on the game connection and
+            // only received on the chat connection. Disassembly of
+            // AOSharp.Clientless 1.0.16 shows Client.SendOrgMessage reads
+            // Stat.Clan (5) from LocalPlayer, builds a GroupMsgMessage with
+            // MessageType 3 and ChannelId set to that stat, then calls
+            // Client.Send. GroupMessageType.Org is 3, so the raw route below
+            // emits the identical packet. Neither route is "the wrong
+            // connection"; what differs is only where the channel id comes from.
+            //
+            // The real defect here was gating the SDK call on Client.OrgId,
+            // which is populated by OnOrgInfoPacket and is a different source
+            // from the Stat.Clan value SendOrgMessage actually reads. A zero
+            // Client.OrgId therefore skipped the SDK path for the wrong reason.
+            int clanStat = 0;
+            string statDetail;
+            try
+            {
+                LocalPlayer localPlayer = DynelManager.LocalPlayer;
+                clanStat = localPlayer == null ? 0 : Convert.ToInt32(localPlayer.GetStat(Stat.Clan));
+                statDetail = "Stat.Clan=" + clanStat;
+            }
+            catch (Exception ex)
+            {
+                statDetail = "Stat.Clan unreadable (" + ex.Message + ")";
+            }
+
+            // #stock reaches org chat while #help, #cloak and #status do not,
+            // through the identical Reply -> TrySendOrgMessage path with the
+            // same target. The transport therefore works and the payload is
+            // what differs, so every attempt records its own length.
+            string detail = statDetail + "; Client.OrgId=" + Client.OrgId +
+                "; observedChannel=" + (channelId == null ? "none" : channelId.ToString()) +
+                "; orgName=" + (Client.OrgName ?? "none") +
+                "; len=" + (text == null ? 0 : text.Length);
+
+            if (clanStat > 0)
             {
                 try
                 {
-                    Client.SendOrgMessage(text);
+                    Client.SendOrgMessage(text, false);
                     NoteOrgEchoPending("Client.SendOrgMessage", text);
-                    SetOrgOutboundHealth(
-                        false,
-                        "Client.SendOrgMessage on the chat connection (" + detail + ")");
+                    SetOrgOutboundHealth(false, "Client.SendOrgMessage (" + detail + ")");
                     Logger.Information(
                         "Org reply submitted through AOSharp.Clientless.Client.SendOrgMessage; " +
-                        "awaiting echo confirmation.");
+                        "awaiting echo confirmation. " + detail);
                     return true;
                 }
                 catch (Exception ex)
@@ -1731,7 +1756,11 @@ namespace CityManager
             }
             else
             {
-                detail += "; LocalPlayer organization stat is unavailable";
+                // The game server never reported this character's organization
+                // stat. That is the condition first recorded on 2026-09-06, not
+                // a chat-proxy or transport fault: inbound org chat is healthy.
+                detail += "; LocalPlayer Stat.Clan is absent, so the game connection " +
+                    "does not know this character's organization";
             }
 
             string directDetail;
