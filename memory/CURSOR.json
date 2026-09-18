@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 148,
+  "current_session": 149,
   "last_completed_session": 148,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-148-staging-picks-a-real-bag",
+  "transaction": "session-149-a-held-banker-must-come-back",
   "checkpoint_commit": "978ed46181a37a7b843e5da811055b84d187b2f6",
-  "task": "Staging fix published; second-audit inventory failure still open",
-  "resume_instruction": "Sessions 146-148 published. Staging now acts on an unambiguous bag and verifies by delta; dedupe order is deterministic. STILL OPEN and important: every banker's second audit on one connection fails all inventory bags (failed=18 each) while bank bags pass; a relogged Kbinfa passed. Suspect ProcessOpen's requirement of a new Container object against Container.IsOpen being Handle != 0. Ask the owner for a startup-census result JSON to read per-bag Error, PreOpenHandle and Handle. Next journal seq348.",
-  "base_commit": "a367e306933be8f5db9c420c34879cf46d3b4d88"
+  "task": "A held banker must rejoin; the phantom must not cost a slot",
+  "resume_instruction": "Session 149 opened from the 112-agent sweep. A staging hold deletes presence and never republishes it, so the worker is parked until restart; and NumFreeSlots counts records, so the phantom is why Kbarty stages at all. Next journal seq349.",
+  "base_commit": "e966c49419c23661a80b148234c121376a0dc5d6"
 }
