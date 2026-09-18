@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 135,
-  "last_completed_session": 135,
+  "current_session": 136,
+  "last_completed_session": 136,
   "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-135-journal-repair-and-claude-md",
-  "checkpoint_commit": "73fa69b735d6a955e54383bf3aa8ebec62eb2673",
-  "task": "Journal repair and CLAUDE.md bootstrap published to master",
-  "resume_instruction": "Journal restored to 325 contiguous records (seq1-325, no unparseable lines) and CLAUDE.md added; published on master at 73fa69b. Owner rebuild for the session134 packet guard is still outstanding. Next work: reconstruct session133's 30 displaced donor attributions from custody receipts and ledger archives. The duplicate-container signature is absent from the 2026-09-18T08:38Z snapshot (2,636 stock records, zero slot collisions, ledger agreeing) but prior attribution is not thereby restored. Owner data snapshot analysed and deliberately never committed. Next journal seq326.",
-  "base_commit": "d454ace5824a0b61ba2737b8fefee01b76ce2008"
+  "transaction": "session-136-census-livelock-diagnosis",
+  "checkpoint_commit": "30111f9f99c6db7fffe71573df00c526e02736bb",
+  "task": "Startup census livelock diagnosed; fix not yet implemented",
+  "resume_instruction": "Census livelock diagnosis published in docs/CENSUS_LIVELOCK.md. Owner clears the two ambiguous bags first (Kbarty inventory/66+69, Kbsupp bank/1+92). Fix still open: separate worker withdrawal from cycle supersession, retain written peer censuses across cycle replacement, and stop re-admitting an unscannable worker every 60 seconds, all while keeping the fail-closed rule that an incomplete census is never applied. Session 133's 30 displaced donor attributions also remain open. Next journal seq328.",
+  "base_commit": "b196939a81695fa5c545f43871d096c43a3e7e38"
 }
