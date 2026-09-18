@@ -3,6 +3,50 @@
 # fields require 20 bytes per element. Other types follow Array.CreateInstance
 # unchanged. This prevents impossible allocation, NOT unsupported HQ decoding.
 function Protect-ClientlessPlayfieldArrayAllocation([string]$RuntimeDirectory) {
+    # Instruction.Operand is object-typed. Keep these mutations inside a
+    # typed .NET call: PowerShell wrappers must not reach Cecil's IL writer,
+    # which casts operands directly to Instruction/MethodReference.
+    if (-not ('CityDwellers.Build.CecilOperandsV1' -as [type])) {
+        Add-Type -ReferencedAssemblies ([Mono.Cecil.Cil.Instruction].Assembly.Location) -TypeDefinition @'
+using System;
+using Mono.Cecil;
+using Mono.Cecil.Cil;
+namespace CityDwellers.Build
+{
+    public static class CecilOperandsV1
+    {
+        public static void ReplaceAllocation(MethodDefinition method, Instruction allocation, MethodDefinition guard)
+        {
+            if (method.Body.ExceptionHandlers.Count != 0)
+                throw new InvalidOperationException("Array Deserialize exception regions changed.");
+            var loadReader = Instruction.Create(OpCodes.Ldarg_1);
+            foreach (var instruction in method.Body.Instructions)
+            {
+                if (Object.ReferenceEquals(instruction.Operand, allocation))
+                    instruction.Operand = loadReader;
+                var targets = instruction.Operand as Instruction[];
+                if (targets != null)
+                    for (int i = 0; i < targets.Length; i++)
+                        if (Object.ReferenceEquals(targets[i], allocation)) targets[i] = loadReader;
+                if (instruction.OpCode.OperandType == OperandType.ShortInlineBrTarget)
+                {
+                    string name = instruction.OpCode.Code.ToString();
+                    if (!name.EndsWith("_S", StringComparison.Ordinal))
+                        throw new InvalidOperationException("Unknown short branch opcode.");
+                    var field = typeof(OpCodes).GetField(name.Substring(0, name.Length - 2));
+                    if (field == null) throw new InvalidOperationException("Unable to widen array serializer branch.");
+                    instruction.OpCode = (OpCode)field.GetValue(null);
+                }
+            }
+            method.Body.GetILProcessor().InsertBefore(allocation, loadReader);
+            allocation.Operand = guard;
+            method.Body.MaxStackSize = Math.Max(3, method.Body.MaxStackSize + 1);
+        }
+    }
+}
+'@
+    }
+    $guardStage = 'opening dependency'
     $commonFiles = @(Get-ChildItem -LiteralPath $RuntimeDirectory -File |
         Where-Object { $_.Name -ieq 'AOSharp.Common.dll' })
     if ($commonFiles.Count -ne 1) { throw 'Expected exactly one AOSharp.Common.dll for the allocation guard.' }
@@ -24,6 +68,7 @@ function Protect-ClientlessPlayfieldArrayAllocation([string]$RuntimeDirectory) {
             throw 'AOSharp wire serializer layout changed; allocation guard requires review.'
         }
 
+        $guardStage = 'validating wire metadata'
         # Establish the actual wire width; do not infer a minimum byte count
         # for arbitrary serializer types or fabricate the unknown HQ layout.
         $expectedNames = @('IdentityType', 'Unknown1', 'Unknown2', 'Unknown3', 'Instance')
@@ -58,6 +103,7 @@ function Protect-ClientlessPlayfieldArrayAllocation([string]$RuntimeDirectory) {
             }
         }
 
+        $guardStage = 'validating serializer and reader'
         $streamFields = @($wireReader.Fields | Where-Object {
             $_.Name -ceq 'stream' -and !$_.IsStatic -and $_.FieldType.FullName -ceq 'System.IO.Stream'
         })
@@ -105,6 +151,7 @@ function Protect-ClientlessPlayfieldArrayAllocation([string]$RuntimeDirectory) {
             $createReference = $markerCreates[0].Operand
         }
 
+        $guardStage = 'constructing bounded allocation helper'
         # Use target-module references, never import the build host's runtime
         # assemblies (PowerShell editions can use different core libraries).
         $systemRefs = @($module.AssemblyReferences | Where-Object { $_.Name -ceq 'System' })
@@ -192,6 +239,7 @@ function Protect-ClientlessPlayfieldArrayAllocation([string]$RuntimeDirectory) {
             }
             return [string]::Join('|', $parts)
         }
+        $guardStage = 'checking prior patch'
         if ($null -ne $marker) {
             if ($marker.Attributes -ne $expected.Attributes -or $marker.ReturnType.FullName -cne $expected.ReturnType.FullName -or
                 $marker.Parameters.Count -ne 3 -or !$marker.HasBody -or !$marker.Body.InitLocals -or
@@ -209,38 +257,19 @@ function Protect-ClientlessPlayfieldArrayAllocation([string]$RuntimeDirectory) {
             }
         } else {
             $wireReader.Methods.Add($expected)
-            $allocation = $directCalls[0]
-            $deserializeIl = $deserialize.Body.GetILProcessor()
-            $loadReader = $deserializeIl.Create([Mono.Cecil.Cil.OpCodes]::Ldarg_1)
-            # Preserve all incoming branches if the allocation is a join point.
-            # The original method has no exception regions; fail explicitly if
-            # that changes instead of guessing where the injected code belongs.
-            if ($deserialize.Body.ExceptionHandlers.Count -ne 0) { throw 'Array Deserialize exception regions changed.' }
-            foreach ($instruction in $deserialize.Body.Instructions) {
-                if ($instruction.Operand -is [Mono.Cecil.Cil.Instruction] -and [object]::ReferenceEquals($instruction.Operand, $allocation)) {
-                    $instruction.Operand = $loadReader
-                } elseif ($instruction.Operand -is [Mono.Cecil.Cil.Instruction[]]) {
-                    for ($target = 0; $target -lt $instruction.Operand.Length; $target++) {
-                        if ([object]::ReferenceEquals($instruction.Operand[$target], $allocation)) { $instruction.Operand[$target] = $loadReader }
-                    }
-                }
-                # Cecil does not automatically widen short branches when an
-                # inserted instruction pushes a branch beyond its byte range.
-                if ($instruction.OpCode.OperandType -eq [Mono.Cecil.Cil.OperandType]::ShortInlineBrTarget) {
-                    $shortName = [string]$instruction.OpCode.Code
-                    if (!$shortName.EndsWith('_S', [StringComparison]::Ordinal)) { throw 'Unknown short branch opcode.' }
-                    $longName = $shortName.Substring(0, $shortName.Length - 2)
-                    $opcodeField = [Mono.Cecil.Cil.OpCodes].GetField($longName)
-                    if ($null -eq $opcodeField) { throw 'Unable to widen array serializer branch.' }
-                    $instruction.OpCode = $opcodeField.GetValue($null)
-                }
-            }
-            $deserializeIl.InsertBefore($allocation, $loadReader)
-            $allocation.Operand = $expected
-            $deserialize.Body.MaxStackSize = [Math]::Max(3, $deserialize.Body.MaxStackSize + 1)
+            $guardStage = 'rewriting allocation operands'
+            [CityDwellers.Build.CecilOperandsV1]::ReplaceAllocation($deserialize, $directCalls[0], $expected)
             $guardChanged = $true
+            $guardStage = 'writing guarded dependency'
             $commonAssembly.Write($guardTemp)
         }
+    } catch {
+        [Console]::Error.WriteLine("Packet allocation guard failed during: " + $guardStage)
+        [Console]::Error.WriteLine($_.InvocationInfo.PositionMessage)
+        [Console]::Error.WriteLine($_.ScriptStackTrace)
+        [Console]::Error.WriteLine($_.Exception.ToString())
+        if (Test-Path -LiteralPath $guardTemp) { Remove-Item -LiteralPath $guardTemp -Force -ErrorAction SilentlyContinue }
+        throw
     } finally {
         $commonAssembly.Dispose()
     }

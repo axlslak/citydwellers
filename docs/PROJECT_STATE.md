@@ -1,3 +1,9 @@
+## Session 134 — packet guard build compatibility
+
+- Owner build generated all C# outputs, then Prepare-PortableClientless failed with InvalidCastException/MSB3073. The log did not retain the inner script line or stack, so the exact throwing instruction is not proven.
+- Packet guard now performs object-typed Cecil operand mutation inside a small typed C# bridge loaded by the existing owner-side PowerShell build step. This prevents PowerShell object wrappers from being stored where Cecil expects MethodReference/Instruction operands. Branch redirection, short-branch widening, stack sizing, bound logic and repeat-build validation are preserved. No runtime/dependency guard removed.
+- Failures now print guard stage, exact script location, script stack and underlying exception; partial output temp is cleaned without replacing the original dependency. No credentials or data changes. Source and diff review only; no assistant build/test suite. Owner rebuilds to establish execution success.
+
 ## Session 133 — full-log and data-snapshot reliability review
 
 - Owner supplied the complete current data snapshot and runtime log, then authorized resuming the paused review. Manual in-game work was limited to adding personal bank terminals and moving bags/items the prior day; no manual JSON edits reported. Snapshot kept intact, never committed. Reviewed 61,238 current-log lines plus 173,527 previous-log lines and correlated current state, census applications, receipt histories and ledger archives. No assistant compilation, test suites, live AO or live-data edits.
