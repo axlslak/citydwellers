@@ -36,11 +36,29 @@ namespace CityBankers
                 .FirstOrDefault(g => g.Count() != 1);
             if (repeatedSlot != null)
                 error = "More than one outer item occupies " + repeatedSlot.Key + ".";
-            var repeatedBag = outer.Where(x => IsStorageBag(x.Item))
+            var storageBags = outer.Where(x => IsStorageBag(x.Item)).ToList();
+            var repeatedBag = storageBags
                 .GroupBy(x => x.Item.UniqueIdentity).FirstOrDefault(g => g.Key.Instance == 0 || g.Count() != 1);
             if (repeatedBag != null)
-                error = "Ambiguous bag " + repeatedBag.Key + " at " +
-                    string.Join(", ", repeatedBag.Select(x => x.Location + "/" + (x.Item.Slot.Instance & 65535))) + ".";
+            {
+                var sample = repeatedBag.First().Item;
+                string label = (string.IsNullOrEmpty(sample.Name) ? "" : " '" + sample.Name + "'") +
+                    " QL" + sample.Ql;
+                string where = string.Join(", ",
+                    repeatedBag.Select(x => x.Location + "/" + (x.Item.Slot.Instance & 65535)));
+                if (repeatedBag.Key.Instance == 0)
+                    error = "Storage bag" + label + " at " + where + " has no container identity.";
+                else
+                    // A container identity belongs to exactly one physical bag, so a
+                    // second entry is a stale client record rather than another bag.
+                    // Report the counts that make that visible instead of leaving the
+                    // operator with a bare identity to chase.
+                    error = "Ambiguous bag " + repeatedBag.Key + label + " reported at " + where +
+                        ". A container identity belongs to exactly one bag, so one of those entries is a " +
+                        "stale client record, not a second bag. Storage bag entries=" + storageBags.Count +
+                        "; distinct identities=" +
+                        storageBags.Select(x => x.Item.UniqueIdentity).Distinct().Count() + ".";
+            }
             return error == null;
         }
     }

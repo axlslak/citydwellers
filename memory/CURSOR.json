@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 140,
-  "last_completed_session": 140,
+  "current_session": 141,
+  "last_completed_session": 141,
   "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-140-org-reply-chat-route",
+  "transaction": "session-141-ambiguous-bag-diagnostics",
   "checkpoint_commit": "c4aec02f5a766154ab96b28dc6be424132974c75",
-  "task": "Org reply chat-route correction published; owner rebuild pending",
-  "resume_instruction": "Org reply chat-route fix published. Owner rebuilds and tests #help in org chat; the log now names the route, the observed Client.OrgId, and ORG DELIVERY CONFIRMED or UNCONFIRMED. If Client.OrgId is 0, a chat-connection send independent of the LocalPlayer organization stat is the next step. Also pending: the session137 census withdrawal fix needs a live run, and Kbarty's bag (inventory/66+69) and Kbsupp's (bank/92+1) still need a physical move. Next journal seq335.",
+  "task": "Census withdrawal confirmed live; ambiguous-bag diagnostics improved",
+  "resume_instruction": "Session137 census withdrawal fix VERIFIED-LIVE in the 13:09 run. Two bankers remain held on ambiguous bags. Awaiting owner observation of Kbarty inventory 66/69 and Kbsupp bank 1/92 in the ordinary game client before any auto-resolution is written. Org reply chat-route fix still needs a live #help test. Next journal seq336.",
   "base_commit": "f72b82062ab854f96bf0e02e70f5d85da0241bb5"
 }

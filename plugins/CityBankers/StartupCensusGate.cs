@@ -573,8 +573,12 @@ namespace CityBankers
             // banker's census. A changed layout, recovery request or reconnect retries.
             if (!string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
                 RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+            // "Request recovery" named an internal file mechanism the operator
+            // cannot invoke. State the action that actually clears this: any
+            // observed layout change re-evaluates the hold automatically.
             Logger.Error("[CityBankers] Census staging waiting: " + reason +
-                " Change inventory/bank space or request recovery to retry.");
+                " Move the affected bag with the game client so the server reports it once;" +
+                " this banker re-evaluates automatically when the observed layout changes.");
             return false;
         }
 
