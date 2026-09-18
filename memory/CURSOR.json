@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 134,
-  "last_completed_session": 133,
-  "status": "in_progress",
+  "last_completed_session": 134,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-134-packet-build-cast",
-  "checkpoint_commit": "7a7fcae858b3bc54fba2a89584319a250694210a",
-  "task": "Correct post-build packet guard Cecil operand assignment",
-  "resume_instruction": "Owner build compiles C# but post-build Prepare-PortableClientless reports InvalidCastException without internal location. Replace object-typed IL operand mutations with typed Cecil bridge and improve stage/stack diagnostics. Retain allocation guard and all runtime fixes. No assistant builds or test suites. Next seq323.",
+  "checkpoint_commit": "2973289d03b17812def955fe66f0b3f2c48a1a60",
+  "task": "Packet guard build compatibility correction published",
+  "resume_instruction": "Typed Cecil operand bridge and precise build failure diagnostics published; owner rebuilds. Exact prior throwing line not retained; no assistant build/test. Session133 runtime fixes and allocation guard retained. Snapshot accounting/protocol limits remain in docs/RUNTIME_RELIABILITY_REVIEW.md. Next journal seq324.",
   "base_commit": "7a7fcae858b3bc54fba2a89584319a250694210a"
 }
