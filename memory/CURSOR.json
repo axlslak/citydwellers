@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 126,
-  "last_completed_session": 125,
-  "status": "in_progress",
+  "last_completed_session": 126,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-126-stack-inventory",
-  "checkpoint_commit": "3a44758769b1f9caa2e993695862b5142148a849",
-  "task": "General stackable inventory quantities",
-  "resume_instruction": "Implement attribute-based stack detection and inventory quantity display. Owner builds/tests.",
+  "checkpoint_commit": "61370e5ec7aaef5c97c15d7acc8ec46320c3b445",
+  "task": "Inventory quantity display published; item attributes deliberately deferred",
+  "resume_instruction": "Owner builds/tests. #inventory shows positive observed server counts for all item types. StackableAttribute intentionally returns null pending #items integration; CRU policies unchanged. Next journal seq308.",
   "base_commit": "2ea3fe6a7238274ee0568e0881230cbaf9f7730d"
 }
