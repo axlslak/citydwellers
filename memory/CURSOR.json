@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 139,
+  "current_session": 140,
   "last_completed_session": 139,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-139-packet-guard-enum-bor",
+  "transaction": "session-140-org-reply-chat-route",
   "checkpoint_commit": "7654a680a7aa242b7a5baab1d38fce08bc8a1c1f",
-  "task": "Packet guard enum fix published; owner rebuild pending",
-  "resume_instruction": "Packet guard enum fix published. Owner rebuilds; a successful build also deploys the session137 census withdrawal fix. Then move Kbarty's bag (inventory/66+69) and Kbsupp's bag (bank/92+1) with the ordinary AO client and send the console log. Watch for 'Census <id> withdrew ...' and a stable BANKER READY. Still open: inventory-side bag-open escalation needs data/startup-census/ from a looping run; session 133's 30 displaced donor attributions. Next journal seq333.",
-  "base_commit": "ec4d7d350ba3f4fa9cdeb51c75dd31d998385aa8"
+  "task": "Route org replies over the chat connection and confirm delivery by echo",
+  "resume_instruction": "Prefer Client.SendOrgMessage, report the raw game-connection route as unverified, confirm delivery from the observed echo. Seal with COMMIT seq334.",
+  "base_commit": "f72b82062ab854f96bf0e02e70f5d85da0241bb5"
 }
