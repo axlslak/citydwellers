@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 130,
-  "last_completed_session": 129,
-  "status": "in_progress",
+  "last_completed_session": 130,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-130-owner-changelog",
-  "checkpoint_commit": "fadf7500a037a146d237fb564ef6613b8a95a11a",
-  "task": "Add owner-authored Git-backed changelog command",
-  "resume_instruction": "Add #changelog with exactly two owner entries: created changelog. / now we have items. Keep complete source history in Git, show latest25 in chronological order, no runtime JSON/data files or inferred entries. Next seq315.",
+  "checkpoint_commit": "99741480491bc38756cebf515135e7b8ba10831a",
+  "task": "Owner-authored changelog published",
+  "resume_instruction": "Owner builds/tests. #changelog displays latest 25 owner-dictated entries retained in source; only created changelog. / now we have items. so far. Append future entries only with owner wording. No runtime JSON/data files. Next journal seq316.",
   "base_commit": "fadf7500a037a146d237fb564ef6613b8a95a11a"
 }
