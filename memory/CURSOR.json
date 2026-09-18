@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 130,
+  "current_session": 131,
   "last_completed_session": 130,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-130-owner-changelog",
-  "checkpoint_commit": "99741480491bc38756cebf515135e7b8ba10831a",
-  "task": "Owner-authored changelog published",
-  "resume_instruction": "Owner builds/tests. #changelog displays latest 25 owner-dictated entries retained in source; only created changelog. / now we have items. so far. Append future entries only with owner wording. No runtime JSON/data files. Next journal seq316.",
-  "base_commit": "fadf7500a037a146d237fb564ef6613b8a95a11a"
+  "transaction": "session-131-online",
+  "checkpoint_commit": "cfc35272eb5b50cebd04942fe8dfa914ef95a6ac",
+  "task": "Add online command from existing Bobsan presence and observed guests",
+  "resume_instruction": "Use existing _onlineCharacters for org; guest observations from messages, remove known logoffs/leaves/kicks. Clearly label incomplete guest observations. No polling, fabricated roster or changelog entry. Owner builds/tests. Next seq317.",
+  "base_commit": "cfc35272eb5b50cebd04942fe8dfa914ef95a6ac"
 }
