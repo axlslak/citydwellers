@@ -114,6 +114,9 @@ namespace CityManager
         private string _lastOrgChannelName;
         private DateTime? _lastOrgChannelObservedUtc;
         private bool _orgOutboundDegraded;
+        private string _pendingOrgEchoText;
+        private string _pendingOrgEchoRoute;
+        private long _pendingOrgEchoStamp;
         private string _orgOutboundDetail = "not tested since startup";
         private DateTime? _lastOrgOutboundAttemptUtc;
 
@@ -318,6 +321,8 @@ namespace CityManager
                     return;
 
                 RememberOrganizationChannel(msg.ChannelId, msg.ChannelName);
+                // Our own reply coming back is the only proof it was delivered.
+                ObserveOrgEcho(msg.Message);
                 ObserveAltPresenceAnnouncement(msg.SenderName, msg.Message);
                 string cityMessage;
                 bool nativeCityEvent = CityExtendedMessageParser.TryDecodeNative(msg, out cityMessage);
@@ -1693,46 +1698,129 @@ namespace CityManager
                 _lastOrgOutboundAttemptUtc = DateTime.UtcNow;
             }
 
-            string directDetail;
-            if (TrySendDirectGroupMessage(channelId, text, out directDetail))
-            {
-                SetOrgOutboundHealth(
-                    false,
-                    "direct channel delivery via " +
-                    (channelName ?? "remembered organization channel") +
-                    " (" + directDetail + ")");
-                Logger.Information(
-                    "Org reply sent directly to observed channel " +
-                    (channelName ?? "unknown") + ".");
-                return true;
-            }
+            // Retire a previous send that was never echoed back before starting
+            // another one.
+            ObserveOrgEcho(null);
 
+            // Organization chat is carried by the chat-server connection. That
+            // is where Client.Chat.GroupMessageReceived delivers it and what
+            // Client.SendOrgMessage writes to. The raw GroupMsgMessage route
+            // below goes out through Client.Send on the *game* connection,
+            // which does not carry org chat: the server discards it, nothing
+            // throws, and the attempt used to be reported as a delivered reply
+            // while shadowing this working route. Chat route first.
+            string detail = "Client.OrgId=" + Client.OrgId;
             if (Client.OrgId > 0)
             {
                 try
                 {
                     Client.SendOrgMessage(text);
+                    NoteOrgEchoPending("Client.SendOrgMessage", text);
                     SetOrgOutboundHealth(
                         false,
-                        "Client.SendOrgMessage using LocalPlayer organization stat");
+                        "Client.SendOrgMessage on the chat connection (" + detail + ")");
                     Logger.Information(
-                        "Org reply submitted through AOSharp.Clientless.Client.SendOrgMessage.");
+                        "Org reply submitted through AOSharp.Clientless.Client.SendOrgMessage; " +
+                        "awaiting echo confirmation.");
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    directDetail += "; SendOrgMessage threw " + ex.Message;
+                    detail += "; SendOrgMessage threw " + ex.Message;
                 }
             }
             else
             {
-                directDetail += "; LocalPlayer organization stat is unavailable";
+                detail += "; LocalPlayer organization stat is unavailable";
             }
 
-            SetOrgOutboundHealth(true, directDetail);
-            Logger.Warning("Organization reply unavailable: " + directDetail);
-            DevTrace("ORG SEND DEGRADED: " + directDetail);
+            string directDetail;
+            if (TrySendDirectGroupMessage(channelId, text, out directDetail))
+            {
+                NoteOrgEchoPending("raw game-connection GroupMsgMessage", text);
+                // Deliberately reported as degraded rather than delivered. The
+                // game connection neither acknowledges nor carries org chat, so
+                // this attempt is unverified until an echo proves otherwise.
+                SetOrgOutboundHealth(
+                    true,
+                    "unverified raw org-channel attempt via " +
+                    (channelName ?? "remembered organization channel") +
+                    " (" + directDetail + "; " + detail + ")");
+                Logger.Warning(
+                    "Organization reply attempted on the raw game-connection route, which " +
+                    "cannot be confirmed: " + directDetail + "; " + detail);
+                DevTrace("ORG SEND UNVERIFIED: " + directDetail + "; " + detail);
+                return true;
+            }
+
+            detail += "; " + directDetail;
+            SetOrgOutboundHealth(true, detail);
+            Logger.Warning("Organization reply unavailable: " + detail);
+            DevTrace("ORG SEND DEGRADED: " + detail);
             return false;
+        }
+
+        private void NoteOrgEchoPending(string route, string text)
+        {
+            lock (_orgOutputSync)
+            {
+                _pendingOrgEchoText = text;
+                _pendingOrgEchoRoute = route;
+                _pendingOrgEchoStamp = Stopwatch.GetTimestamp();
+            }
+        }
+
+        // An organization reply is only proven delivered when the chat server
+        // sends it back. Pass the observed org text, or null to age out a
+        // pending send. This reports evidence; it never retries or blocks.
+        private void ObserveOrgEcho(string observedText)
+        {
+            string route;
+            bool confirmed = false;
+            bool expired = false;
+
+            lock (_orgOutputSync)
+            {
+                if (_pendingOrgEchoText == null)
+                    return;
+
+                route = _pendingOrgEchoRoute;
+                string expected = _pendingOrgEchoText.Trim();
+                string observed = observedText == null ? null : observedText.Trim();
+
+                if (!string.IsNullOrEmpty(observed) && expected.Length != 0)
+                {
+                    int prefix = Math.Min(32, expected.Length);
+                    // A prefix comparison tolerates server-side decoration of
+                    // blob replies without matching an unrelated message.
+                    confirmed = string.Equals(observed, expected, StringComparison.Ordinal) ||
+                        observed.StartsWith(expected.Substring(0, prefix), StringComparison.Ordinal);
+                }
+
+                if (!confirmed)
+                    expired = Stopwatch.GetTimestamp() - _pendingOrgEchoStamp >
+                        Stopwatch.Frequency * 15;
+
+                if (confirmed || expired)
+                {
+                    _pendingOrgEchoText = null;
+                    _pendingOrgEchoRoute = null;
+                }
+            }
+
+            if (confirmed)
+            {
+                SetOrgOutboundHealth(false, "delivery confirmed by observed echo via " + route);
+                Logger.Information("ORG DELIVERY CONFIRMED via " + route + ".");
+                DevTrace("ORG ECHO CONFIRMED via " + route);
+            }
+            else if (expired)
+            {
+                SetOrgOutboundHealth(true, "no observed echo within 15s via " + route);
+                Logger.Warning(
+                    "ORG DELIVERY UNCONFIRMED: no echo observed within 15s via " + route + ".");
+                DevTrace("ORG ECHO MISSING via " + route);
+            }
         }
 
         private bool TrySendDirectGroupMessage(
