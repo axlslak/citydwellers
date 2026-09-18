@@ -2171,3 +2171,10 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Generalized server count capture across item types (login, container, add-template, trade-template and MultipleCount). Existing CRU service admission, merging and split policies remain unchanged.
 - Owner explicitly deferred Stackable/CantSplit classification to the upcoming #items plugin. StackableAttribute intentionally returns unknown; no item catalogue is generated or embedded. Until connected, positive counts are displayed without claiming they establish stackability; other count-bearing items may also show a count.
 - Static source/API and diff review only. Owner builds/tests. Display work resolved on publication; attribute data remains intentionally unfinished.
+
+## Session 127 — items catalogue preparation (in progress)
+
+- Owner requests #items comparable to common AO bot item search, backed by unmodified tinkerparser data/items.json extracted locally from their items.zip. Shared lookup must expose NoDrop, Unique, Stackable and splittable attributes to other plugins. Do not publish the owner's dump.
+- Session126 quantity display complete; classification seam remains intentionally unknown until this catalogue. CRU merging and movement experiments remain parked; buddy packet warnings are deferred by owner.
+- Imported Mali rebuff tracker maintains the bot's own configured buffs using buff-change events; player rebuff is a separate one-shot request. No buffer changes requested.
+- Owner compiles/tests. Continue this transaction from cursor/journal after interruption.

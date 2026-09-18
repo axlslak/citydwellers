@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 126,
+  "current_session": 127,
   "last_completed_session": 126,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-126-stack-inventory",
-  "checkpoint_commit": "61370e5ec7aaef5c97c15d7acc8ec46320c3b445",
-  "task": "Inventory quantity display published; item attributes deliberately deferred",
-  "resume_instruction": "Owner builds/tests. #inventory shows positive observed server counts for all item types. StackableAttribute intentionally returns null pending #items integration; CRU policies unchanged. Next journal seq308.",
-  "base_commit": "2ea3fe6a7238274ee0568e0881230cbaf9f7730d"
+  "transaction": "session-127-items-catalog",
+  "checkpoint_commit": "f395f90eb5b5061fbc91375bb39154339539248d",
+  "task": "Shared tinkerparser item reader and items search command",
+  "resume_instruction": "Implement #items against owner-provided runtime data/items.json. Stream raw dump, shared lookup API for Flags/Can (NoDrop Unique Stackable CantSplit), connect inventory attribute seam. Preserve CRU operation policy. No builds/live tests. Session126 published and clean; buddy packet noise deferred. Source items.zip already materialized under scratch stack-source. Next journal seq309.",
+  "base_commit": "f395f90eb5b5061fbc91375bb39154339539248d"
 }
