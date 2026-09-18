@@ -5,7 +5,7 @@
   "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-141-ambiguous-bag-diagnostics",
-  "checkpoint_commit": "c4aec02f5a766154ab96b28dc6be424132974c75",
+  "checkpoint_commit": "316f5e505301c79e32c306eacc56f107a5862936",
   "task": "Census withdrawal confirmed live; ambiguous-bag diagnostics improved",
   "resume_instruction": "Session137 census withdrawal fix VERIFIED-LIVE in the 13:09 run. Two bankers remain held on ambiguous bags. Awaiting owner observation of Kbarty inventory 66/69 and Kbsupp bank 1/92 in the ordinary game client before any auto-resolution is written. Org reply chat-route fix still needs a live #help test. Next journal seq336.",
   "base_commit": "f72b82062ab854f96bf0e02e70f5d85da0241bb5"
