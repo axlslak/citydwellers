@@ -559,9 +559,9 @@ public class BuddiesHost
             loginGateEntered = true;
 
             Console.WriteLine(
-                $"Starting buddy {character} on {username}...");
+                $"Starting game-only buddy {character} on {username} (chat disabled)...");
 
-            domain = Client.CreateInstance(
+            domain = CreateGameOnlyBuddyDomain(
                 username,
                 _config.Password,
                 character,
@@ -1791,6 +1791,48 @@ public class BuddiesHost
         return indexes == null || indexes.Count == 0
             ? "none"
             : string.Join(",", indexes);
+    }
+
+    // AOSharp.Clientless 1.0.16's public CreateInstance always enables chat.
+    // Its internal factory sets useChat before initializing the child domain,
+    // so no chat client, connection or reconnect loop is ever created.
+    // This adapter is deliberately confined to city buddies.
+    private static ClientDomain CreateGameOnlyBuddyDomain(
+        string username, string password, string character,
+        Dimension dimension, Logger logger)
+    {
+        Type[] signature = { typeof(string), typeof(string), typeof(string),
+            typeof(Dimension), typeof(Logger), typeof(bool) };
+        foreach (MethodInfo method in typeof(ClientDomain).GetMethods(
+            BindingFlags.Static | BindingFlags.NonPublic))
+        {
+            if (method.Name != "CreateDomain" || method.IsGenericMethod ||
+                method.ReturnType != typeof(ClientDomain))
+                continue;
+            ParameterInfo[] parameters = method.GetParameters();
+            if (parameters.Length != signature.Length)
+                continue;
+            bool matches = true;
+            for (int i = 0; i < signature.Length; ++i)
+                if (parameters[i].ParameterType != signature[i])
+                    matches = false;
+            if (!matches)
+                continue;
+            try
+            {
+                return (ClientDomain)method.Invoke(null, new object[] {
+                    username, password, character, dimension, logger, false });
+            }
+            catch (TargetInvocationException ex)
+            {
+                throw new InvalidOperationException(
+                    "Unable to create game-only buddy domain.", ex.InnerException ?? ex);
+            }
+        }
+        // Never fall back to chat-enabled login: KWorker owns these sessions.
+        throw new NotSupportedException(
+            "The installed clientless version lacks the required game-only domain factory. " +
+            "Expected AOSharp.Clientless 1.0.16; buddy login was not started.");
     }
 
     private static string BuildCharacterName(int level, int index)
