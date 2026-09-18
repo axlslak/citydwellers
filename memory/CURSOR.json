@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 136,
+  "current_session": 137,
   "last_completed_session": 136,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-136-census-livelock-diagnosis",
+  "transaction": "session-137-census-withdrawal-fix",
   "checkpoint_commit": "30111f9f99c6db7fffe71573df00c526e02736bb",
-  "task": "Startup census livelock diagnosed; fix not yet implemented",
-  "resume_instruction": "Census livelock diagnosis published in docs/CENSUS_LIVELOCK.md. Owner clears the two ambiguous bags first (Kbarty inventory/66+69, Kbsupp bank/1+92). Fix still open: separate worker withdrawal from cycle supersession, retain written peer censuses across cycle replacement, and stop re-admitting an unscannable worker every 60 seconds, all while keeping the fail-closed rule that an incomplete census is never applied. Session 133's 30 displaced donor attributions also remain open. Next journal seq328.",
-  "base_commit": "b196939a81695fa5c545f43871d096c43a3e7e38"
+  "task": "Publish the census withdrawal fix diagnosed in session 136",
+  "resume_instruction": "Withdrawal-not-supersede change plus escalating census rejection backoff in StartupCensusGate. Update docs/CENSUS_LIVELOCK.md and state/history, then seal with COMMIT seq329.",
+  "base_commit": "0c0c21f"
 }
