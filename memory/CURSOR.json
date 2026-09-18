@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 131,
+  "current_session": 132,
   "last_completed_session": 131,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-131-online",
-  "checkpoint_commit": "6267da07dbd41bf1e19e0f829de7528eeb03a773",
-  "task": "Online presence command published",
-  "resume_instruction": "Resolved on publication. #online uses existing Bobsan org presence plus explicitly incomplete guest speaker observations. No full guest join/leave roster in current integration. Owner builds/tests. Changelog remains owner-authored with two entries. Next journal seq318.",
-  "base_commit": "cfc35272eb5b50cebd04942fe8dfa914ef95a6ac"
+  "transaction": "session-132-buddies-game-only",
+  "checkpoint_commit": "0ed8259517becfdb7b7e22dbd1d1afc4b4e1b474",
+  "task": "Disable chat creation only for city buddies",
+  "resume_instruction": "Use pinned ClientDomain internal factory useChat=false before domain initialization. Manager/bankers/buffers/tell queue unchanged. No proxy integration in this scoped step. Owner builds/tests. Next seq319.",
+  "base_commit": "0ed8259517becfdb7b7e22dbd1d1afc4b4e1b474"
 }
