@@ -11,8 +11,21 @@ namespace CityManager
     public partial class CityManager
     {
         private SyslogSender _syslog;
+        private System.Threading.Timer _incidentTimer;
+        private int _incidentExporting;
         private void InitializeEventReporting()
         {
+            _incidentTimer = new System.Threading.Timer(_ =>
+            {
+                if (System.Threading.Interlocked.Exchange(ref _incidentExporting, 1) != 0) return;
+                try
+                {
+                    foreach (var incident in IncidentJournal.Recent(_dataDir, int.MaxValue))
+                        IncidentJournal.Export(_dataDir, incident.Id, true);
+                }
+                catch (Exception ex) { Logger.Warning("Incident dump export will retry: " + ex.Message); }
+                finally { System.Threading.Interlocked.Exchange(ref _incidentExporting, 0); }
+            }, null, 15000, 30000);
             // Manager alone owns the external sender and canonical event file.
             _syslog = SyslogSender.Create(_settingsDir, message => Logger.Warning(message));
             if (_syslog == null) return;
@@ -30,6 +43,8 @@ namespace CityManager
 
         private void ShutdownEventReporting()
         {
+            _incidentTimer?.Dispose();
+            _incidentTimer = null;
             ServiceEvents.Stop();
             _syslog?.Dispose();
             _syslog = null;

@@ -19,6 +19,7 @@ namespace CityBankers
         private static readonly string Generation = Process.GetCurrentProcess().Id + "-" +
             Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
         private static string _directory;
+        private static string _traceData;
         private static string _memberCharacter;
         private static string MemberCharacter => _memberCharacter ?? Client.CharacterName;
         private static string _connection = Guid.NewGuid().ToString("N");
@@ -173,6 +174,10 @@ namespace CityBankers
             _invalidated = true;
             _holdVersion++;
             _recoveryRequest = _recoveryRequest ?? Guid.NewGuid().ToString("N");
+            BankingServiceAgent.TraceRecovery(reason, "recovery-request:" + _recoveryRequest);
+            if (_directory != null)
+                CityDwellers.Shared.IncidentJournal.Record(_traceData,
+                    "recovery-request:" + _recoveryRequest, MemberCharacter, "recovery.requested", new { Reason = reason }, true);
             _requestPublished = false;
             try
             {
@@ -249,6 +254,7 @@ namespace CityBankers
             _role = _roles.Properties().Single(p => string.Equals((string)p.Value["Character"],
                 _character, StringComparison.OrdinalIgnoreCase)).Name;
             _directory = CensusDirectory(_settings);
+            _traceData = RuntimeStateStore.GetDataDirectory(_settings);
             Directory.CreateDirectory(_directory);
             _connection = Guid.NewGuid().ToString("N");
             Client.OnUpdate += Tick;
@@ -675,6 +681,15 @@ namespace CityBankers
             if (cycle?.Phase == "released" && !Requested() &&
                 online.All(p => Includes(cycle, p.Key, p.Value))) return;
             var next = new Cycle { Id = Guid.NewGuid().ToString("N"), Phase = "collecting", Participants = online };
+            var requests = _characters.Select(c => Read<JObject>(MemberPath(c, ".recovery.json"))).Where(r => r != null).ToList();
+            CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settings),
+                "recovery:history/census-" + next.Id + ".json", _character, "recovery.started",
+                new { Participants = online.Keys.ToList(), Requests = requests, Reason = requests.Count == 0 ? "Startup or roster admission" : "Explicit recovery requests" },
+                requests.Count > 0, requests.Select(r => "recovery-request:" + (string)r["Id"]));
+            foreach (var request in requests)
+                CityDwellers.Shared.IncidentJournal.Record(_traceData, "recovery-request:" + (string)request["Id"],
+                    _character, "recovery.assigned", new { Cycle = next.Id }, false,
+                    new[] { "recovery:history/census-" + next.Id + ".json" });
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(CycleDirectory(next), "participants.json"), next);
             // Close admission before consuming requests. A failed publication
             // must never expose the previous released cycle in between writes.

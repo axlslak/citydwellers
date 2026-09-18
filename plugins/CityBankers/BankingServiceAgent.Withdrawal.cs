@@ -16,7 +16,26 @@ namespace CityBankers
     {
         private const int WithdrawalPhaseTimeoutSeconds = 30;
         private WithdrawalState _withdrawal;
-        private WithdrawalWorkerPhase _withdrawalWorkerPhase;
+        private WithdrawalWorkerPhase _withdrawalWorkerPhaseValue;
+        private WithdrawalWorkerPhase _withdrawalWorkerPhase
+        {
+            get => _withdrawalWorkerPhaseValue;
+            set
+            {
+                if (_withdrawalWorkerPhaseValue == value) return;
+                _withdrawalWorkerPhaseValue = value;
+                if (_withdrawal == null) return;
+                try
+                {
+                    CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
+                        _withdrawal.Id, Client.CharacterName, "retrieval.phase",
+                        new { Phase = value.ToString(), _withdrawal.Item, _withdrawal.SourceBag,
+                            _withdrawal.SourceInnerSlot, _withdrawal.TransferAttemptId }, false,
+                        new[] { "ledger:" + _withdrawal.ActiveLedgerId });
+                }
+                catch { /* Phase telemetry cannot change retrieval behavior. */ }
+            }
+        }
         private readonly Stopwatch _withdrawalPhaseAge = Stopwatch.StartNew();
         private Stopwatch _withdrawalClosedAge;
         private StorageBagState _withdrawalBag;

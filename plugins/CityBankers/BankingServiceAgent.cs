@@ -171,11 +171,31 @@ namespace CityBankers
         private BankingServiceAgent _successor;
         private BankingServiceAgent _lifecycleRoot;
         private Action _resumeAfterCensus;
+        private string _tradeTrace;
+        internal static void TraceRecovery(string reason, string recovery) =>
+            _ipcOwner?.TraceTrade("recovery.requested", new { Reason = reason }, true, recovery);
+
+        private void TraceTrade(string stage, object detail, bool problem = false, string recovery = null)
+        {
+            try
+            {
+                var ids = new[] { _tradeTrace, _donationTransactionId, _activeBatch?.TransactionId,
+                    _workerCommand?.TransactionId, _withdrawal?.Id, _returnOffer?.Id,
+                    _storageJob?.Command?.TransactionId, _reservedDispatch?.TransactionId, _receipt?.TransactionId }
+                    .Concat(_pickupItems.Select(p => p.Id)).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct();
+                foreach (string id in ids)
+                    CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
+                        id, Client.CharacterName, stage, detail, problem, new[] { recovery });
+            }
+            catch { /* Incident recording must not interrupt a trade. */ }
+        }
 
         internal static bool QuiesceForCensus(string directory)
         {
             var actor = _ipcOwner;
             if (actor == null) return true; // Startup actors have not been initialized yet.
+            actor.TraceTrade("recovery.quiescing", new { Directory = Path.GetFileName(directory) }, true,
+                "recovery:history/census-" + Path.GetFileName(directory).Replace("cycle-", "") + ".json");
             if (Trade.IsTrading) { TryDeclineTrade(); return false; }
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, Client.CharacterName + ".retired-operations.json"), new
             {
@@ -477,9 +497,12 @@ namespace CityBankers
             if (!_enabled || !Client.InPlay)
                 return;
 
+            _tradeTrace = "trade-" + Guid.NewGuid().ToString("N");
+
             try
             {
                 string targetName = FindPlayerName(target);
+                TraceTrade("trade.opened", new { Partner = target.ToString(), Name = targetName });
                 if (_stackOperation != null)
                 { DeclineIncomingTrade(targetName, "Central is preparing CRU. Please reopen trade shortly."); return; }
                 if (_withdrawalCensus != null || _withdrawalDispute ||
@@ -567,6 +590,10 @@ namespace CityBankers
             if (!StartupCensusGate.IsOpen) return;
             if (!_enabled)
                 return;
+
+            TraceTrade("trade.status", new { Partner = target.ToString(), Status = status.ToString() },
+                status == TradeStatus.Declined);
+            if (status == TradeStatus.Finished || status == TradeStatus.Declined) _tradeTrace = null;
 
             RuntimeStateStore.AppendActivity(
                 _settingsDir,
@@ -767,6 +794,8 @@ namespace CityBankers
             _donationPartner = partner;
             _donationPartnerName = partnerName;
             _donationTransactionId = "don-" + Guid.NewGuid().ToString("N");
+            CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
+                _donationTransactionId, Client.CharacterName, "donation.started", new { Player = partnerName }, false, new[] { _tradeTrace });
             PrepareReceipt("donation", _donationTransactionId, null, null, 1);
             _donationOpenedUtc = DateTime.UtcNow;
             _donationLastChangeUtc = _donationOpenedUtc;
@@ -2673,6 +2702,9 @@ namespace CityBankers
                     stage.IndexOf("FAIL", StringComparison.OrdinalIgnoreCase) >= 0 ? "error" :
                     stage == "WAITING" || stage.Contains("DECLINED") ? "warning" : "info",
                     message, new { Stage = stage, BatchId = batchId, Items = items?.ToList() });
+                CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
+                    batchId ?? _donationTransactionId ?? _tradeTrace, Client.CharacterName, stage,
+                    new { Message = message, Items = items?.ToList() }, CityDwellers.Shared.IncidentJournal.IsProblem(stage));
                 string prefix = "BANKERS " + stage + " batch=" + (batchId ?? "-") + " ";
                 var details = new List<string> { message ?? string.Empty };
                 if (items != null)
@@ -2815,6 +2847,11 @@ namespace CityBankers
                 return;
             _storageJob.PhaseStartedUtc = DateTime.UtcNow;
             _storageJob.DeadlineUtc = DateTime.UtcNow.AddMilliseconds(milliseconds);
+            CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
+                _storageJob.Command?.TransactionId ?? _storageJob.Command?.BatchId, Client.CharacterName,
+                "storage.phase", new { Phase = _storageJob.Phase.ToString(), _storageJob.Index,
+                    _storageJob.Expected, _storageJob.BagLiveIdentity, _storageJob.InnerSlot, DeadlineUtc = _storageJob.DeadlineUtc },
+                false, new[] { _storageJob.Command?.BatchId });
         }
 
         private static string ShortId(string value)

@@ -135,6 +135,11 @@ namespace CityBankers
             WithdrawalStore.ResetRecoveryAfterCensus(settings, Path.Combine(directory, "previous-recovery-reservations.json"));
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "applied.json"), new
             { Generation = generation, bundle.Runs, Count = bundle.Plan.Items.Count });
+            CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(settings),
+                "recovery:history/census-" + generation + ".json", "central", "recovery.applied",
+                new { Generation = generation, bundle.Runs, RemainingClaims = bundle.Plan.Items.Count,
+                    Differences = bundle.Plan.Differences.GroupBy(d => d.Kind).ToDictionary(g => g.Key, g => g.Count()),
+                    Outcome = "Reconciliation applied; discrepancies do not establish an original loss time or cause." });
             return bundle;
         }
 

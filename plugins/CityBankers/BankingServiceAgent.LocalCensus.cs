@@ -95,6 +95,9 @@ namespace CityBankers
             if (!WithdrawalStore.TryReserveCensus(_settingsDir, run, Client.CharacterName, _isCentral)) return false;
             _localCensus = run;
             _localCensusReason = reason;
+            CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
+                "recovery:history/census-local-" + run + ".json", Client.CharacterName, "recovery.started", new { Reason = reason, Run = run }, true);
+            TraceTrade("recovery.local", new { Reason = reason, Run = run }, true, "recovery:history/census-local-" + run + ".json");
             _localCensusAttempt = 0;
             _localCensusRetry.Restart();
             _localCensusPause = StartupCensusGate.PauseLocalCensus(reason);
@@ -347,6 +350,11 @@ namespace CityBankers
             WithdrawalStore.ReconcileQueuedRequestsAfterLocalCensus(_settingsDir, census.RunId,
                 census.Character, bundle.QueuedRequests);
             CompleteStorageRecoveryCensus(bundle.StorageGrant);
+            CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
+                "recovery:history/census-local-" + census.RunId + ".json", census.Character, "recovery.applied",
+                new { census.RunId, RemainingClaims = bundle.Plan.Items.Count,
+                    Differences = bundle.Plan.Differences.GroupBy(d => d.Kind).ToDictionary(g => g.Key, g => g.Count()),
+                    Outcome = "Local reconciliation applied; discrepancy cause remains unproven." }, false, null, true);
         }
 
         private void DetectLocalInventoryDifference()

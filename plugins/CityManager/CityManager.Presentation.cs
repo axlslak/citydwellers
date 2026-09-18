@@ -240,7 +240,7 @@ namespace CityManager
                         target,
                         "dump",
                         "Write a timestamped diagnostic snapshot to disk and report its full path.",
-                        "The guest channel carries new events live after it is connected. It never replays the old backlog. Use dump when Kavey needs a file for investigation.",
+                        "Use dump incidents to list recent transaction problems, then dump incident-ID for a small report. Problem reports are also saved automatically under data/incident-dumps. Bare dump retains the full diagnostic snapshot.",
                         "Administrator",
                         null);
                     return true;
@@ -910,6 +910,33 @@ namespace CityManager
             string[] parts,
             ReplyTarget target)
         {
+            if (parts.Length == 2)
+            {
+                ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    try
+                    {
+                        if (string.Equals(parts[1], "incidents", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var incidents = CityDwellers.Shared.IncidentJournal.Recent(_dataDir);
+                            var body = new StringBuilder("Recent transaction incidents (UTC)\n\n");
+                            foreach (var incident in incidents)
+                                body.Append(EscapeBlobText(incident.UpdatedUtc.ToString("O") + " " + incident.Trace))
+                                    .Append("\n").Append(HelpMenuLine(target, "dump " + incident.Id, incident.Id, "Export this incident and related evidence.")).Append("\n");
+                            if (incidents.Count == 0) body.Append("No incidents recorded yet.");
+                            Reply(target, BuildBlobLinks(target, "Transaction incidents", "View incidents", body.ToString()));
+                        }
+                        else
+                        {
+                            string path = CityDwellers.Shared.IncidentJournal.Export(_dataDir, parts[1]);
+                            Reply(target, BuildBlobLinks(target, "Incident dump", "File ready",
+                                "Transaction evidence saved to:\n" + EscapeBlobText(path)));
+                        }
+                    }
+                    catch (Exception ex) { Reply(target, "Incident dump unavailable: " + ex.Message); }
+                });
+                return;
+            }
             if (parts.Length != 1)
             {
                 Reply(target, Usage(target, "dump"));

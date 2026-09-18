@@ -770,6 +770,11 @@ namespace CityBankers.Shared
             if (record.Utc == DateTime.MinValue)
                 record.Utc = DateTime.UtcNow;
 
+            CityDwellers.Shared.IncidentJournal.Record(GetDataDirectory(settingsDir),
+                record.TransactionId ?? record.BatchId, record.Actor ?? record.Character,
+                record.Event, record, CityDwellers.Shared.IncidentJournal.IsProblem(record.Event),
+                new[] { record.BatchId });
+
             WithMutex(LedgerMutexName, delegate
             {
                 string directory = GetLedgerDirectory(settingsDir);
@@ -858,6 +863,7 @@ namespace CityBankers.Shared
             WithMutex(GetFileMutexName(path), delegate
             {
                 WriteJsonAtomicNoLock(path, value);
+                CityDwellers.Shared.IncidentJournal.ObserveWrite(path, value);
             });
         }
 

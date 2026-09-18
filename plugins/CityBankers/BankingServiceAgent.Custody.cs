@@ -176,6 +176,9 @@ namespace CityBankers
                 stream.Write(bytes, 0, bytes.Length);
                 stream.Flush(true);
             }
+            CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
+                _receipt.TransactionId ?? _receipt.BatchId, Client.CharacterName, "receipt." + phase, _receipt,
+                CityDwellers.Shared.IncidentJournal.IsProblem(phase), new[] { _receipt.BatchId, _tradeTrace });
         }
 
         private void AwaitPhysicalReceipt(List<TransferItemState> expected, Action apply)
