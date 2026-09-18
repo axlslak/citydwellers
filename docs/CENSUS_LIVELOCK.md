@@ -1,0 +1,113 @@
+# Startup census livelock
+
+Diagnosed from the owner's console run of 2026-09-18T12:11:35+03:00 (build
+`source-44377b3a2496`) plus source review. No assistant build or live test.
+
+## Symptom
+
+Seven bankers restart their startup bag audit indefinitely, roughly every
+100-145 seconds, and never release a census. Completed audits are discarded.
+`Kbinfa` finished a clean audit at 12:13:46 (`opened=110 failed=0`,
+`BAG AUDIT COMPLETE`) and that work was destroyed four seconds later.
+
+## Root trigger — two workers blocked on ambiguous bags
+
+At 12:12:09, before any audit could finish:
+
+```
+[Kbsupp] Census staging waiting: Ambiguous bag (Container:BB49C56) at bank/1, bank/92.
+[Kbarty] Census staging waiting: Ambiguous bag (Container:BB49D3F) at inventory/66, inventory/69.
+```
+
+This is `StorageBagPolicy` (session 133) refusing ambiguous evidence, which is
+correct behavior. `Kbarty` and `Kbsupp` never appear again in the run: they
+never start an audit and never recover on their own.
+
+`[VERIFIED]` These duplicates are new. The 2026-09-11 storage baseline
+(`data/storage-baseline.json`, runId `20260911-013435-104b6746`) contains zero
+duplicate bag identities across all eight workers (artillery 120, infantry 110,
+control 110, support 110, extermination 112, spirit 120, dyna 120, phatz 120).
+`[OPEN]` The origin of the new aliases is not established here. Session 133
+recorded the same limitation; do not assert a cause without fresh evidence.
+
+## The livelock — why healthy bankers never converge
+
+The amplifier is independent of the ambiguous bags and is a code defect.
+
+1. `PhysicalLedgerReconciliation.ReadCensus` rejects a census when
+   `FailedCount != 0` or `OpenedCount != TotalBagCount`. **One** failed bag open
+   out of 110 invalidates the entire worker census.
+2. On that rejection `StartupCensusGate` (around line 430) requeues a fresh
+   audit run and, for any non-central role, sets a 60-second
+   `_presenceRetryAfter` and **deletes its own `.presence.json`**. The intent is
+   recorded in the source comment: *"An unscannable worker is unavailable, not a
+   prerequisite that prevents healthy members from starting indefinitely."*
+3. But `Coordinate()` supersedes the **entire collecting cycle** as soon as any
+   participant loses presence:
+
+   ```csharp
+   bool membersPresent = cycle?.Participants != null && cycle.Participants.All(p => Present(p.Key, p.Value));
+   if (cycle?.Phase == "collecting" && (!membersPresent || Requested()))
+       cycle.Phase = "superseded";
+   ```
+
+4. A new cycle is published. Every banker observing a changed cycle id resets
+   its audit state and calls `BagAuditAgent.CancelForRecovery()`
+   (`StartupCensusGate.cs:396-402`), producing
+   `BAG AUDIT FAILED ... Census superseded or client disconnected` on peers
+   whose audits were healthy and in some cases already complete.
+5. After 60 seconds the stepped-aside worker republishes presence, rejoins,
+   audits, fails again, and deletes presence again.
+
+`[INVARIANT VIOLATED]` A worker intending to remove itself from a cycle instead
+destroys that cycle for everyone. Stepping aside and superseding are the same
+action, so the system cannot make progress while any single worker keeps
+failing.
+
+## Escalation signature
+
+Failure counts climb across rounds and then pin to an exact value:
+
+| Worker | bank | inventory | round 1 | later rounds | steady `opened` |
+|---|---|---|---|---|---|
+| Kbinfa | 92 | 18 | failed=0 (COMPLETE) | 6, 9, 18, 18, 17 | 92 |
+| Kbcont | 92 | 18 | failed=1 | 8, 9, 18, 18 | 92 |
+| Kbexte | 94 | 18 | failed=0 | 6, 7, 16, 17, 18 | 94 |
+| Kbspirit | 102 | 18 | failed=0 | 15, 16 | 102 |
+| Kbdyna | 102 | 18 | failed=0 | 13 | 102 |
+| Kbphatz | 102 | 18 | failed=0 | 13, 14 | 102 |
+
+`[VERIFIED]` In the steady-state loop `opened` equals `bankBagCount` exactly for
+every worker, and `failed` approaches the inventory bag count. Every bank bag
+opens; the inventory-side bags do not. The first round does not show this, so it
+is a consequence of repeated aborted rounds rather than the initial state.
+
+`[OPEN]` The mechanism is not proven here. `BagAuditAgent.DefaultBagOpenTimeoutMs`
+is 3000 ms while session 117 raised the local bag-move timeout to 15000 ms;
+whether aborted staging leaves inventory bags unopenable within 3000 ms needs
+the per-run result files under `data/startup-census/` to confirm. Those were not
+in the supplied snapshot.
+
+## Not the cause
+
+- The `ArraySerializer` `OutOfMemoryException` on `Apcmanager` at 12:11:38 is the
+  longstanding HQ packet variant. Session 122 recorded it as non-blocking;
+  Manager continued and reached InPlay. Do not treat it as heap exhaustion.
+- `WARNING: Alien file in settings/runtime root: 'data.zip'` is an owner-created
+  archive, not a runtime file.
+- `SMALL BACKPACK SHORTAGE Kbspirit: have=120; need=156; missing=36` is a real
+  capacity warning but does not block the audit and is not part of this loop.
+
+## Proposed direction — not yet implemented
+
+1. Make stepping aside distinct from superseding. A participant that withdraws
+   should be removed from the cycle's participant set without cancelling peers
+   whose audits are healthy or already written.
+2. Retain a peer census that was written successfully for the current cycle
+   instead of discarding it when the cycle is replaced, so a completed audit is
+   not repeated.
+3. Treat a persistently unscannable worker as excluded for the cycle rather than
+   re-admitting it every 60 seconds into a cycle it cannot complete.
+
+Any change here alters custody reconciliation. It must preserve the existing
+fail-closed behavior: an incomplete census must still never be applied.
