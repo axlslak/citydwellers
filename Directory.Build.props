@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\ItemCatalog.cs"><Link>ItemCatalog.cs</Link></Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\RepositoryUpdates.cs">
       <Link>RepositoryUpdates.cs</Link>
     </Compile>

@@ -31,9 +31,18 @@ namespace CityBankers
             return ObservedQuantity(item) ?? -1;
         }
 
-        // TODO #items: resolve Stackable/CantSplit from the shared item attributes.
-        // Unknown is intentional; neither an AOID nor a count proves that flag.
-        public static bool? StackableAttribute(Item item) => null;
+        // This is descriptive only. IsStack/Quantity still enforce the existing CRU policy.
+        // Both interpolation endpoints must agree; missing/conflicting facts remain unknown.
+        public static bool? StackableAttribute(Item item)
+        {
+            if (item == null) return null;
+            var catalog = CityDwellers.Shared.ItemCatalog.Current;
+            if (catalog == null) return null;
+            bool? low = catalog.Find(item.Id)?.Stackable;
+            bool? high = item.HighId > 0 && item.HighId != item.Id
+                ? catalog.Find(item.HighId)?.Stackable : low;
+            return low.HasValue && high == low ? low : null;
+        }
 
         // Raw server evidence for any item, independent of the CRU service policy.
         // Do not substitute the service Quantity() fallback of one for missing data.

@@ -2304,3 +2304,12 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Generalized server count capture across item types (login, container, add-template, trade-template and MultipleCount). Existing CRU service admission, merging and split policies remain unchanged.
 - Owner explicitly deferred Stackable/CantSplit classification to the upcoming #items plugin. StackableAttribute intentionally returns unknown; no item catalogue is generated or embedded. Until connected, positive counts are displayed without claiming they establish stackability; other count-bearing items may also show a count.
 - Static source/API and diff review only. Owner builds/tests. Display work resolved on publication; attribute data remains intentionally unfinished.
+
+## Session 127 — shared item catalogue and search
+
+- Implemented Manager #items / #i name search with word exclusions, exact recorded-QL filter, bounded pages and clickable template links; #itemid/exact numeric lookup exposes raw masks and nullable NoDrop/Unique/Stackable/CantSplit/Splittable. Existing membership/ban routing and blob limits remain.
+- Owner may copy the unmodified extracted dump to runtime data/items.json. Streaming reader retains only ID/name/QL/Flags/Can; background loading, compact source-metadata-keyed disk cache and per-process cache mutex avoid full JSON materialization and concurrent raw parsing. Independent plugin AppDomains hold compact immutable snapshots. Missing/invalid source stays unknown with delayed retry; loaded snapshots refresh on restart.
+- Supplied dump inspected:445001349 bytes,120842 distinct AOIDs, no duplicates; one missing Can and three missing QL stats. Signed flag masks preserved. No owner dump published. docs/ITEMS.md records API, setup and limits.
+- Explicit source limitation: no low/high family relationships or in-game availability field. Search returns exact templates/QLs, not guessed intermediate-QL families; equal names/adjacent IDs are insufficient. Arbitrary interpolated QL links remain unsupported pending authoritative pairing data.
+- Inventory Stackable seam now consults both endpoint attributes, requiring agreement; unknown remains unknown. Existing CRU movement/admission/split policies unchanged. Buddy warning work remains deferred.
+- Static source/API, reader/cache/concurrency/routing review, source-data inspection, project XML and git diff --check only. No compilation, test suite or live AO run; owner builds/tests.

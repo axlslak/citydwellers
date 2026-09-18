@@ -34,6 +34,7 @@
     <Compile Include="AdminListStore.cs" />
     <Compile Include="BanListStore.cs" />
     <Compile Include="CityManager.cs" />
+    <Compile Include="CityManager.Items.cs" />
     <Compile Include="CityManager.Events.cs" />
     <Compile Include="SyslogSender.cs" />
     <Compile Include="CityManager.Buffers.cs" />

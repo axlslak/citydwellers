@@ -91,6 +91,17 @@ namespace CityManager
                         "A vertical bar means choose one option. Commands and buttons are case-insensitive.</font>";
                     return true;
 
+                case "items":
+                case "i":
+                case "itemid":
+                    title = "Items";
+                    body = HelpHeader("Items", "Search your local item database. Alias: i.") +
+                        HelpSyntaxLine(target, "items [QL] <name words> [-excluded-word] [--page N]", "All name words must match; minus excludes a word. QL filters recorded template QLs.") +
+                        HelpSyntaxLine(target, "itemid <AOID>", "Open an exact template with NoDrop, Unique, Stackable and splitting attributes.") +
+                        "\nExamples: #items combined commando; #items 300 combined; #itemid 257110.\n" +
+                        "Links use exact template IDs and QLs. This dump does not specify interpolation pairs or which templates are obtainable in game.";
+                    return true;
+
                 case "bankid":
                     title = "Bank Terminal";
                     body = CommandHelp(target, "bankid [Instance]",
@@ -382,6 +393,7 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
             body.Append(HelpSyntaxLine(target, "raid status", "View current raid information."));
             body.Append(HelpSyntaxLine(target, "cancel [raid-token]", "Cancel your active raid."));
+            body.Append(HelpSyntaxLine(target, "items [QL] <name words>", "Search item templates. Alias: i; itemid <AOID> shows attributes."));
             body.Append(HelpSyntaxLine(target, "alts [character]", "Show known mains and alts."));
             body.Append(HelpSyntaxLine(target, "join", "Ask for a guest-channel invite."));
             body.Append(HelpSyntaxLine(target, "leave", "Leave the guest channel."));

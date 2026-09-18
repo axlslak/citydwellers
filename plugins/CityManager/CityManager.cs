@@ -38,6 +38,9 @@ namespace CityManager
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "help",
+                "items",
+                "i",
+                "itemid",
                 "bankid",
                 "cloak",
                 "status",
@@ -152,6 +155,7 @@ namespace CityManager
                 ShutdownEventReporting();
                 Logger.Warning("Manager syslog reporting disabled: " + ex.Message);
             }
+            ItemCatalog.StartLoading();
             AdminListStore.Initialize(_dataDir);
             BanListStore.Initialize(_dataDir);
             DevTrace(
@@ -471,6 +475,7 @@ namespace CityManager
                 (command == "donor" && parts.Length <= 2) ||
                 command == "lost" || command == "found" ||
                 ((command == "withdraw" || command == "get") && parts.Length == 2) ||
+                command == "items" || command == "i" || command == "itemid" ||
                 command == "stock" ||
                 command == "symb" || command == "symbs" ||
                 command == "spirit" || command == "spirits" ||
@@ -622,6 +627,12 @@ namespace CityManager
 
             switch (command)
             {
+                case "items":
+                case "i":
+                case "itemid":
+                    ProcessItemsCommand(parts, replyTarget);
+                    break;
+
                 case "help":
                     ProcessHelpCommand(parts, replyTarget, isAdmin);
                     break;

@@ -288,7 +288,7 @@ namespace CityManager
                 body.Append(CityBankersChatPalette.ItemLabel(aoid, highid, ql, name, true));
                 bool? stackable = (bool?)item["IsStackable"];
                 int? quantity = (int?)item["Quantity"];
-                // Until #items supplies attributes, show positive observed counts.
+                // With unknown catalogue attributes, still show positive observed counts.
                 // Missing/zero wire counts do not establish stackability or one unit.
                 if (stackable == true || (stackable == null && quantity > 0))
                     body.Append(" x").Append(quantity > 0
