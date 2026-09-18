@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 135,
-  "last_completed_session": 134,
-  "status": "in_progress",
+  "last_completed_session": 135,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-135-journal-repair-and-claude-md",
-  "checkpoint_commit": "d454ace5824a0b61ba2737b8fefee01b76ce2008",
-  "task": "Repair corrupted append-only journal; add CLAUDE.md session bootstrap",
-  "resume_instruction": "Restore journal seq78-86 from commit f888aca and remove the three non-JSON lines. Add CLAUDE.md. Update state/history. Seal with COMMIT seq325 and return cursor to idle. Damaged journal state is preserved in Git history; nothing is lost by the repair.",
+  "checkpoint_commit": "e179d4f552b9fdf520397e976e74b989a2408126",
+  "task": "Journal repair and CLAUDE.md bootstrap published",
+  "resume_instruction": "Journal restored to 324 contiguous records and CLAUDE.md added, on branch claude/git-access-question-j8ie1j; merge into master to apply. Owner rebuild for session 134 packet guard outstanding. Next work: reconstruct session 133's 30 displaced donor attributions from custody receipts/ledger archives. Snapshot analysed, never committed. Next journal seq326.",
   "base_commit": "d454ace5824a0b61ba2737b8fefee01b76ce2008"
 }
