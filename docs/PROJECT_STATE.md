@@ -1,3 +1,13 @@
+## Session 145 — organization page size is learned, not configured
+
+- `[VERIFIED-LIVE 2026-09-18T13:50]` Organization replies deliver and are proven: `ORG DELIVERY CONFIRMED via Client.SendOrgMessage`, twice, for `#help` and `#help bankers`. Org chat works end to end with echo evidence rather than an assumption.
+- `[VERIFIED]` 900 was far too small. `#help` emitted eight pages at 435-569 bytes because `BuildBlobLinks` subtracts a roughly 400 byte envelope from the budget, leaving about 500 of content per page. `[OWNER-DIRECTION]` Kavey is right that 5200 was not arbitrary and that a hand-picked constant is the wrong mechanism: the size must heal itself.
+- `OrgBlobPageSize` is removed. `OrgPageBudget()` now probes midway between `_orgSafeLength`, the largest length the chat server echoed back, and `_orgFailLength`, the smallest that vanished, converging on the real ceiling by binary search. Seeded from measured evidence: 569 delivered, 2487 dropped, so the first budget is about 1528 rather than 900.
+- `RecordOrgDelivery` feeds every echo result back. A confirmed delivery raises the safe bound; a confirmed disappearance lowers the fail bound and pulls the safe bound under it. A delivery confirmed above a recorded failure reopens the upper bound, because that failure was then not a size limit. Bounds persist to `data/citymanager-org-size.json` and are restored at startup, so the ceiling is learned once and survives restarts.
+- `[DECISION]` Guest 8000 and tell 7200 are unchanged. They ride the chat connection, which is not subject to the game-connection limit, and there is no evidence they need calibrating.
+- `[OPEN]` The true ceiling is still unmeasured; the system now discovers it instead of being told. Convergence needs a few org replies of increasing size, and each step is logged as `ORG SIZE CALIBRATION`.
+- Validation: log correlation, source review, brace and parenthesis balance, `git diff --check`. No assistant compilation or live run; owner builds and tests.
+
 ## Session 144 — org replies were oversized, not misrouted
 
 - `[VERIFIED-LIVE 2026-09-18T13:43]` The session 143 gate fix worked: `Org reply submitted through AOSharp.Clientless.Client.SendOrgMessage; awaiting echo confirmation. Stat.Clan=4736; Client.OrgId=0; observedChannel=4736; orgName=Athen Paladins; len=2487`. `Stat.Clan` resolves even though `Client.OrgId` is 0, which confirms those are different sources and that gating on `Client.OrgId` was the wrong test.
