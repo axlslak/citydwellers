@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 146,
+  "current_session": 147,
   "last_completed_session": 146,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-146-ledger-read-contention",
+  "transaction": "session-147-phantom-bag-record",
   "checkpoint_commit": "c83064742900105be3a7bf3163022701597f3584",
-  "task": "Ledger read contention fixed and published; owner rebuild pending",
-  "resume_instruction": "Shared-state contention no longer restarts the roster: ReadTextShared plus a bounded StateContentionException retry in the banking tick. Owner rebuilds and runs. Next open item is the phantom ambiguous bag on Kbarty and Kbsupp, evidence-backed by the container view. Next journal seq344.",
-  "base_commit": "7459702c9e80a4242b1642ebf173ade8ed9e84bc"
+  "task": "A stale duplicate bag record must not hold the roster",
+  "resume_instruction": "Session 147 opened. One container identity recorded at two outer slots is a stale client record; evidence is in the owner's storage-state.json (same handle, same contents). Making the layout validator and the bag audit tolerate it instead of failing. Next journal seq345.",
+  "base_commit": "ffcf5903128a3c585641675b8b76cbbe319bcbba"
 }
