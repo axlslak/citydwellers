@@ -6,15 +6,23 @@ function Protect-ClientlessPlayfieldArrayAllocation([string]$RuntimeDirectory) {
     # Instruction.Operand is object-typed. Keep these mutations inside a
     # typed .NET call: PowerShell wrappers must not reach Cecil's IL writer,
     # which casts operands directly to Instruction/MethodReference.
-    if (-not ('CityDwellers.Build.CecilOperandsV1' -as [type])) {
+    if (-not ('CityDwellers.Build.CecilOperandsV2' -as [type])) {
         Add-Type -ReferencedAssemblies ([Mono.Cecil.Cil.Instruction].Assembly.Location) -TypeDefinition @'
 using System;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 namespace CityDwellers.Build
 {
-    public static class CecilOperandsV1
+    public static class CecilOperandsV2
     {
+        // Mono.Cecil's attribute enums are ushort-backed. PowerShell's -bor
+        // routes two such operands through a dynamic call site and throws
+        // InvalidCastException, so the flags are combined here instead.
+        public static MethodAttributes GuardMethodAttributes
+        {
+            get { return MethodAttributes.Assembly | MethodAttributes.Static | MethodAttributes.HideBySig; }
+        }
+
         public static void ReplaceAllocation(MethodDefinition method, Instruction allocation, MethodDefinition guard)
         {
             if (method.Body.ExceptionHandlers.Count != 0)
@@ -170,7 +178,9 @@ namespace CityDwellers.Build
         $getPosition = [Mono.Cecil.MethodReference]::new('get_Position', $module.TypeSystem.Int64, $streamField.FieldType)
         $getPosition.HasThis = $true
 
-        $attributes = [Mono.Cecil.MethodAttributes]::Assembly -bor [Mono.Cecil.MethodAttributes]::Static -bor [Mono.Cecil.MethodAttributes]::HideBySig
+        # Combined in the typed bridge: PowerShell cannot -bor a ushort-backed
+        # enum. Do not inline this back into a PowerShell bitwise expression.
+        $attributes = [CityDwellers.Build.CecilOperandsV2]::GuardMethodAttributes
         $expected = [Mono.Cecil.MethodDefinition]::new($markerName, $attributes, $createReference.ReturnType)
         $expected.Parameters.Add([Mono.Cecil.ParameterDefinition]::new('elementType', [Mono.Cecil.ParameterAttributes]::None, $createReference.Parameters[0].ParameterType))
         $expected.Parameters.Add([Mono.Cecil.ParameterDefinition]::new('length', [Mono.Cecil.ParameterAttributes]::None, $module.TypeSystem.Int32))
@@ -258,7 +268,7 @@ namespace CityDwellers.Build
         } else {
             $wireReader.Methods.Add($expected)
             $guardStage = 'rewriting allocation operands'
-            [CityDwellers.Build.CecilOperandsV1]::ReplaceAllocation($deserialize, $directCalls[0], $expected)
+            [CityDwellers.Build.CecilOperandsV2]::ReplaceAllocation($deserialize, $directCalls[0], $expected)
             $guardChanged = $true
             $guardStage = 'writing guarded dependency'
             $commonAssembly.Write($guardTemp)
