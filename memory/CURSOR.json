@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 124,
+  "current_session": 125,
   "last_completed_session": 124,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-124-reconnect-session-guard",
+  "transaction": "session-125-transaction-incidents",
   "checkpoint_commit": "02bc8a1ce752f19723c0de5e840dbd4db65a7f04",
-  "task": "Banker reconnect identity/update guard and visible connection progress published",
-  "resume_instruction": "Owner rebuilds/restarts and tests reconnect. Source hazards fixed/guarded; exact live cause not proven. Expect update guard installed, login stages, InPlay, then idle resume/local reconciliation. Existing dead runtime is not resurrected by source publication. Next journal seq304.",
-  "base_commit": "551275da6cd3003fe08171b66fd6e31b4e5465cb"
+  "task": "Persist transaction-scoped incident evidence and Manager incident dumps for donation, retrieval and lost/found",
+  "resume_instruction": "Implement shared incident spool, explicit transaction/state and reconciliation hooks, Manager dump listing/export. No raw-log extraction or guessed lost/found provenance. Owner builds/tests. Next seq305.",
+  "base_commit": "9605d68a98a7fbbb5236e128e0e34c5be0f6b018"
 }
