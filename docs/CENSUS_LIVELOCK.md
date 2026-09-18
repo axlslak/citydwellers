@@ -140,3 +140,40 @@ bankers would complete and release while `Kbarty` and `Kbsupp` stay withdrawn.
 
 The two ambiguous bags still need owner action; this fix stops them from taking
 the rest of the roster down, it does not resolve them.
+
+## The two ambiguous bags — evidence
+
+`[VERIFIED]` From the owner's `data/storage-state.json`
+(`UpdatedUtc 2026-09-18T08:38:05Z`), bag counts against the 2026-09-11 baseline:
+
+| Character | role | bags | baseline | diff | duplicate |
+|---|---|---|---|---|---|
+| Kbarty | artillery | 121 | 120 | **+1** | `(Container:BB49D3F)` at inventory/66 and inventory/69 |
+| Kbsupp | support | 111 | 110 | **+1** | `(Container:BB49C56)` at bank/92 and bank/1 |
+| Kbinfa, Kbcont, Kbexte, Kbphatz, Kbdyna, Kbspirit | — | — | — | 0 | none |
+
+Only the two blocked bankers carry an extra bag, and only they have a repeated
+identity. The other six match their baseline exactly.
+
+`[VERIFIED]` Both duplicates are repeated observations of one physical bag, not
+two bags:
+
+- Kbarty's two entries share **the same handle (316)** and hold an identical set
+  of 21 items in identical inner slots.
+- Kbsupp's two entries have different handles (114 and 296) but an identical set
+  of 9 items. This matches the session 133 note that duplicate containers can
+  present different outer addresses.
+
+No item multiset is doubled by this; the duplication is in the observation, not
+in physical stock.
+
+`[VERIFIED]` It is not a transient artifact of one session. The persisted state
+observed at 08:15/08:38 carries the same identities at the same slots that the
+12:11 run reported live. **Restarting the host does not clear it** — the
+condition reappears from live observation each session.
+
+Owner action: log the affected character in with the ordinary AO client and
+physically move the bag (to a different slot, or into the bank and back), which
+forces a fresh server-side observation. `StartupCensusGate` re-evaluates a
+staging block when `InventoryLayout()` changes, so the banker retries on its own
+afterwards. Do not delete data files to clear the hold.

@@ -1,3 +1,12 @@
+## Session 138 — ambiguous bags are duplicate observations, not duplicate bags
+
+- `[VERIFIED]` From the owner's `data/storage-state.json` (`UpdatedUtc 2026-09-18T08:38:05Z`) measured against the 2026-09-11 baseline: only the two blocked bankers carry an extra bag. Kbarty 121 vs 120 with `(Container:BB49D3F)` repeated at inventory/66 and inventory/69; Kbsupp 111 vs 110 with `(Container:BB49C56)` repeated at bank/92 and bank/1. Kbinfa, Kbcont, Kbexte, Kbphatz, Kbdyna and Kbspirit match their baseline exactly with no repeated identity.
+- `[VERIFIED]` Both are repeated observations of one physical bag. Kbarty's two entries share the same handle 316 and hold an identical set of 21 items in identical inner slots. Kbsupp's two entries have different handles (114 and 296) but an identical set of 9 items, matching session 133's note that duplicate containers can present different outer addresses. No item multiset is doubled; the duplication is in the observation, not in physical stock.
+- `[VERIFIED]` Not a transient single-session artifact. The persisted state observed at 08:15/08:38 carries the same identities at the same slots that the 12:11 run reported live, so a host restart does not clear it and the condition reappears from live observation each session.
+- Owner action recorded in `docs/CENSUS_LIVELOCK.md`: log the affected character in with the ordinary AO client and physically move the bag so a fresh server-side observation is produced. `StartupCensusGate` re-evaluates a staging block when `InventoryLayout()` changes, so the banker retries by itself afterwards. Do not delete data files to clear the hold.
+- `[OPEN]` The origin of the aliasing is still unestablished, as in session 133. This records what the evidence shows, not a proven cause.
+- Analysis of owner-supplied snapshot only. No assistant compilation, test suite or live AO run. Snapshot analysed and never committed.
+
 ## Session 137 — census withdrawal replaces cycle supersession
 
 - Implements the session 136 diagnosis. `Coordinate()` no longer replaces the collecting cycle when a participant loses presence; it removes that member from `cycle.Participants` and keeps the cycle id stable. A banker retires its own audit only when it observes a changed cycle id (`StartupCensusGate.cs:396-402`) and only acts on a cycle that `Includes()` it, so withdrawing one member no longer cancels healthy or already completed peer censuses.

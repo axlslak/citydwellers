@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 137,
-  "last_completed_session": 137,
+  "current_session": 138,
+  "last_completed_session": 138,
   "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-137-census-withdrawal-fix",
+  "transaction": "session-138-ambiguous-bag-evidence",
   "checkpoint_commit": "062492c1fc5b765e97dc43922aa73a354894a0c7",
-  "task": "Census withdrawal fix published; owner rebuild and live test pending",
-  "resume_instruction": "Census withdrawal fix published. Owner rebuilds and runs; send the console log to confirm the roster converges. Owner still clears the two ambiguous bags (Kbarty inventory/66+69, Kbsupp bank/1+92). Open: inventory-side bag-open escalation needs per-run files under data/startup-census/ from a looping run; session 133's 30 displaced donor attributions remain unreconstructed. Next journal seq330.",
+  "task": "Ambiguous bag evidence recorded; owner rebuild and bag move pending",
+  "resume_instruction": "Owner rebuilds for the session137 census withdrawal fix, then physically moves Kbarty's bag (inventory/66+69) and Kbsupp's bag (bank/92+1) with the ordinary AO client; a host restart clears neither. Send the next console log. Next journal seq331.",
   "base_commit": "0c0c21f"
 }
