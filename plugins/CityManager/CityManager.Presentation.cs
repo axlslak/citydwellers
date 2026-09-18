@@ -91,6 +91,12 @@ namespace CityManager
                         "A vertical bar means choose one option. Commands and buttons are case-insensitive.</font>";
                     return true;
 
+                case "changelog":
+                    title = "Changelog";
+                    body = HelpHeader("Changelog", "Show the latest 25 owner-written entries.") +
+                        HelpSyntaxLine(target, "changelog", "Open the changelog.");
+                    return true;
+
                 case "items":
                 case "i":
                 case "itemid":
@@ -393,6 +399,7 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
             body.Append(HelpSyntaxLine(target, "raid status", "View current raid information."));
             body.Append(HelpSyntaxLine(target, "cancel [raid-token]", "Cancel your active raid."));
+            body.Append(HelpSyntaxLine(target, "changelog", "Show the latest 25 owner-written entries."));
             body.Append(HelpSyntaxLine(target, "items [QL] <name words>", "Search item templates. Alias: i; itemid <AOID> shows attributes."));
             body.Append(HelpSyntaxLine(target, "alts [character]", "Show known mains and alts."));
             body.Append(HelpSyntaxLine(target, "join", "Ask for a guest-channel invite."));

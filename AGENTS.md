@@ -105,3 +105,12 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
 - Keep validation claims accurate: resolved does not mean live-tested.
   Record what was actually reviewed or tested without making unperformed
   owner tests a pending gate. Do not label unfinished implementation resolved.
+
+## Owner-authored in-game changelog
+
+- `plugins/CityManager/CityManager.Changelog.cs` keeps the complete chronological
+  entry list in Git. `#changelog` displays only its last 25 entries.
+- Append only wording explicitly provided by Kavey. Do not automatically add
+  entries after implementation, infer entries from Git/recovery notes, invent
+  dates, or paraphrase the owner's text.
+- Do not move this changelog into runtime JSON or the user's data directory.

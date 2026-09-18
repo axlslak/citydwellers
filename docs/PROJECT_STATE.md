@@ -2194,3 +2194,9 @@ and runs live validation. CRU diagnostic state remains unchanged.
 
 - Owner build log reports CityManager CS0122 in linked StockCommandEngine.cs620: banker SettingsPaths.GetSettingsDirectory was private. Five projects succeeded/up-to-date; Manager failed.
 - Changed that existing accessor to internal so linked code in the same assembly can call it. Path resolution and runtime behavior unchanged. Static accessibility/call-site and diff review only; owner rebuilds.
+
+## Session 130 — owner-authored changelog
+
+- Added #changelog (also bare changelog in tells) under existing member/guest and ban checks. Source array in CityManager.Changelog.cs retains complete chronological history in Git; displays last25, oldest-to-newest within that window, with existing byte-aware blob pagination. No runtime JSON/data-file reads or writes.
+- Exactly two owner-supplied entries: "created changelog." and "now we have items." No inferred features, dates or release prose. Future entries only when owner supplies wording; durable rule added to AGENTS.md. Help and project compile include added.
+- Static routing, accessibility, boundary calculation, XML and diff review only. Owner builds/tests; no assistant compilation or test suite.

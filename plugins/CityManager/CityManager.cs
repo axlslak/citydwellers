@@ -38,6 +38,7 @@ namespace CityManager
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "help",
+                "changelog",
                 "items",
                 "i",
                 "itemid",
@@ -460,6 +461,7 @@ namespace CityManager
             string command = parts[0].ToLowerInvariant();
             bool hasCommandShape =
                 ((command == "cru" ||
+                  command == "changelog" ||
                   command == "cloak" ||
                   command == "status" ||
                   command == "buffers" ||
@@ -631,6 +633,10 @@ namespace CityManager
                 case "i":
                 case "itemid":
                     ProcessItemsCommand(parts, replyTarget);
+                    break;
+
+                case "changelog":
+                    ProcessChangelogCommand(parts, replyTarget);
                     break;
 
                 case "help":
