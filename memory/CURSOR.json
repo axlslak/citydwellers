@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 147,
-  "last_completed_session": 146,
-  "status": "in_progress",
+  "last_completed_session": 147,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-147-phantom-bag-record",
-  "checkpoint_commit": "c83064742900105be3a7bf3163022701597f3584",
-  "task": "A stale duplicate bag record must not hold the roster",
-  "resume_instruction": "Session 147 opened. One container identity recorded at two outer slots is a stale client record; evidence is in the owner's storage-state.json (same handle, same contents). Making the layout validator and the bag audit tolerate it instead of failing. Next journal seq345.",
+  "checkpoint_commit": "31794a178970f32f8068227e775b884e33daff0b",
+  "task": "Duplicate bag record tolerated; owner rebuild pending",
+  "resume_instruction": "Sessions 146 and 147 published: shared-state contention is retried instead of restarting the roster, and one container identity listed at two outer slots is treated as one bag rather than a fatal layout error. Owner rebuilds and runs. Watch DUPLICATE BAG RECORD and the ledger reconciliation of the 21 Kbarty and 9 Kbsupp unbacked entries. Next journal seq346.",
   "base_commit": "ffcf5903128a3c585641675b8b76cbbe319bcbba"
 }
