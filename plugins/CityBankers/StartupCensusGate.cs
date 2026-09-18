@@ -40,6 +40,10 @@ namespace CityBankers
         private long _presenceRetryAfter;
         private int _censusRejections;
         private string _stagingBag, _stagingFailureLayout, _stagingBeforeLayout;
+        private string _stagingRecordLocation;
+        private int _stagingRecordSlot = -1;
+        private int _stagingBankBefore, _stagingInventoryBefore;
+        private Identity _stagingIdentity;
         private bool _extraReserveDeferred;
         private readonly Stopwatch _stagingAge = new Stopwatch();
         private bool _issued, _finished, _quiesced;
@@ -632,7 +636,11 @@ namespace CityBankers
                 int inventoryCopies = Inventory.Items.Count(i => StorageBagPolicy.IsNormalInventory(i) && i.UniqueIdentity.ToString() == _stagingBag);
                 bool inBank = bankCopies != 0;
                 bool inInventory = inventoryCopies != 0;
-                if (bankCopies == 1 && inventoryCopies == 0 && Inventory.NumFreeSlots > 0)
+                // Judge the move by what it changed. Requiring one copy in bank and
+                // none in inventory is unreachable for a bag the client lists twice,
+                // even when the move itself succeeded.
+                if (bankCopies == _stagingBankBefore + 1 && inventoryCopies == _stagingInventoryBefore - 1 &&
+                    Inventory.NumFreeSlots > 0)
                 {
                     Logger.Information("[CityBankers] Census staging slot verified; bag=" + _stagingBag);
                     _stagingBag = null;
@@ -642,9 +650,16 @@ namespace CityBankers
                 }
                 if (_stagingAge.ElapsedMilliseconds >= 15000)
                 {
-                    if (inventoryCopies == 1 && bankCopies == 0 && Inventory.NumFreeSlots > 0 &&
+                    if (bankCopies == _stagingBankBefore && inventoryCopies == _stagingInventoryBefore &&
                         InventoryLayout() == _stagingBeforeLayout)
                     {
+                        // Nothing moved and nothing changed. Moves carry the item's
+                        // slot, so silence means the server has nothing in the slot
+                        // that was addressed: record it and prefer the other record
+                        // of that bag from now on.
+                        if (_stagingRecordSlot >= 0 && inventoryCopies > 1)
+                            StorageBagPolicy.NoteUnresponsiveRecord(
+                                _stagingRecordLocation, _stagingRecordSlot, _stagingIdentity);
                         // Extra receiving headroom is optional. The move did not
                         // change the observed layout, so audit the actual location.
                         // Do not resend this failed reserve move in later cycles.
@@ -669,7 +684,16 @@ namespace CityBankers
             // census to finish but left every multi-item prepare permanently busy.
             int requiredSlots = _extraReserveDeferred ? 1 : ServicePolicy.MaxTradeItems + 1;
             if (Inventory.NumFreeSlots >= requiredSlots) return true;
-            var bag = Inventory.Items.FirstOrDefault(i => StorageBagPolicy.IsStorageBag(i) && StorageBagPolicy.IsNormalInventory(i));
+            // Never stage a bag the client lists twice while an unambiguous one is
+            // available. A move carries the item's slot, so acting on the stale
+            // record of a duplicated bag sends the server an action for a slot it
+            // considers empty: nothing happens, and the census parks on a bag that
+            // was never going to move. Kbarty has one duplicated bag and seventeen
+            // clean ones; this picks a clean one.
+            var ambiguous = new HashSet<Identity>(StorageBagPolicy.DuplicatedIdentities());
+            var staging = StorageBagPolicy.DistinctBags()
+                .FirstOrDefault(r => r.Location == "inventory" && !ambiguous.Contains(r.Identity));
+            var bag = staging == null ? null : staging.Bag;
             if (Inventory.Bank.NumFreeSlots <= 0 || bag == null)
             {
                 if (Inventory.NumFreeSlots > 0 || !Inventory.Bank.Items.Any(i => i != null &&
@@ -685,8 +709,16 @@ namespace CityBankers
             }
             _stagingBeforeLayout = InventoryLayout();
             _stagingBag = bag.UniqueIdentity.ToString();
+            _stagingIdentity = bag.UniqueIdentity;
+            _stagingRecordLocation = "inventory";
+            _stagingRecordSlot = bag.Slot.Instance & 65535;
+            _stagingBankBefore = Inventory.Bank.Items.Count(i => i != null && i.UniqueIdentity == bag.UniqueIdentity);
+            _stagingInventoryBefore = Inventory.Items.Count(i =>
+                StorageBagPolicy.IsNormalInventory(i) && i.UniqueIdentity == bag.UniqueIdentity);
             _stagingAge.Restart();
-            Logger.Information("[CityBankers] Census preparing staging slot; moving inventory bag " + _stagingBag + " to bank.");
+            Logger.Information("[CityBankers] Census preparing staging slot; moving inventory bag " + _stagingBag +
+                " at inventory/" + _stagingRecordSlot + " to bank; bankCopiesBefore=" + _stagingBankBefore +
+                "; inventoryCopiesBefore=" + _stagingInventoryBefore + ".");
             try { bag.MoveToBank(); }
             catch (Exception ex) { return WaitForStagingChange("Inventory bag move failed: " + ex.Message); }
             return false;

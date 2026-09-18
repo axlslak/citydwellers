@@ -319,6 +319,9 @@ namespace CityDwellers.Shared
                 "citymanager-diagnostics.log.previous",
                 "citymanager-membership-state.json",
                 "citymanager-raid-state.json",
+                // Learned organization page size; written by the calibration that
+                // replaced the hand-picked OrgBlobPageSize constant.
+                "citymanager-org-size.json",
                 "citydwellers.log",
                 "citydwellers.log.previous",
                 "citydwellers-events.jsonl",

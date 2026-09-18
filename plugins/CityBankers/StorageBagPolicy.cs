@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using AOSharp.Clientless;
+using AOSharp.Clientless.Logging;
 using CityBankers.Shared;
 using AOSharp.Common.GameData;
 
@@ -60,17 +61,61 @@ namespace CityBankers
         // at the source slot, the record it adds at the destination is an extra.
         // Both records resolve to the same container, so working from either one
         // reaches the same physical bag; enumerate once and keep the order stable.
+        // A record that was sent a slot-addressed action and produced no change at
+        // all. Item.Use and the moves built on it carry the item's Slot, so an
+        // action aimed at a stale record is a no-op: silence is evidence that the
+        // server has nothing in that slot. Session-scoped, because a fresh login
+        // rebuilds the listing from the server and retires the whole question.
+        private static readonly HashSet<string> UnresponsiveRecords =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        public static void NoteUnresponsiveRecord(string location, int outerSlot, Identity identity)
+        {
+            if (UnresponsiveRecords.Add(identity + "@" + location + "/" + outerSlot))
+                Logger.Warning("[CityBankers] STALE BAG RECORD " + identity + " at " + location + "/" +
+                    outerSlot + " did not answer a slot-addressed action; preferring its other record.");
+        }
+
+        private static bool IsUnresponsive(BagRecord record)
+        {
+            return UnresponsiveRecords.Contains(record.Identity + "@" + record.Location + "/" + record.OuterSlot);
+        }
+
         public static List<BagRecord> DistinctBags()
         {
             return AllBagRecords()
                 .GroupBy(r => r.Identity)
-                // Keep the newest record of each bag. The stale one is the entry
-                // whose removal was missed, so it is the older of the two, and the
-                // record the client appended for the move is where the bag now is.
-                .Select(g => g.Last())
+                // Deterministic, so the choice cannot change between two audits of
+                // the same layout: a record proven unresponsive is never chosen,
+                // then bank before inventory, then the lowest slot. Nothing in the
+                // client's listing distinguishes a live record from a stale one, so
+                // the only thing that earns a preference is having answered.
+                .Select(g => g.OrderBy(r => IsUnresponsive(r) ? 1 : 0)
+                              .ThenBy(r => r.Location == "bank" ? 0 : 1)
+                              .ThenBy(r => r.OuterSlot)
+                              .First())
                 .OrderBy(r => r.Location == "bank" ? 0 : 1)
                 .ThenBy(r => r.OuterSlot)
                 .ToList();
+        }
+
+        public static List<Identity> DuplicatedIdentities()
+        {
+            return AllBagRecords()
+                .GroupBy(r => r.Identity)
+                .Where(g => g.Count() != 1)
+                .Select(g => g.Key)
+                .ToList();
+        }
+
+        // The records of one identity other than the one currently preferred.
+        public static List<BagRecord> AlternateRecords(Identity identity)
+        {
+            var group = AllBagRecords().Where(r => r.Identity == identity).ToList();
+            if (group.Count < 2) return new List<BagRecord>();
+            var chosen = DistinctBags().FirstOrDefault(r => r.Identity == identity);
+            return group.Where(r => chosen == null ||
+                r.Location != chosen.Location || r.OuterSlot != chosen.OuterSlot).ToList();
         }
 
         public static string DescribeDuplicates()
@@ -80,7 +125,7 @@ namespace CityBankers
             if (groups.Count == 0) return null;
             return string.Join("; ", groups.Select(g =>
                 g.Key + " listed at " + string.Join(", ", g.Select(r => r.ToString())) +
-                ", keeping " + g.Last())) +
+                ", keeping " + DistinctBags().First(r => r.Identity == g.Key))) +
                 ". A container identity belongs to exactly one bag, so the extra entries are stale " +
                 "client records. Storage bag entries=" + records.Count +
                 "; distinct identities=" + records.Select(r => r.Identity).Distinct().Count() + ".";

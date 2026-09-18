@@ -2357,3 +2357,13 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Duplicates are logged as `DUPLICATE BAG RECORD` with the slots and the record kept, and `AmbiguousBagReport` still writes the evidence file, now accepted by the data-directory scanner.
 - `[OPEN]` The ledger carries 21 Kbarty and 9 Kbsupp entries created from the duplicate reads. A clean census plus the existing reconciliation should retire them; that is custody code and is left to run rather than pre-empted.
 - Static review only: no .NET toolchain in this container, so no compilation and no live run. Owner rebuilds and runs.
+
+## Session 148 — staging acts on a bag that exists
+
+- Moves and uses are slot-addressed: `Item.Use` puts `this.Slot` in the packet. Acting on the stale record of a duplicated bag is a no-op, which is exactly what Kbarty's `inInventory=True; inBank=False` means.
+- `PrepareAuditStagingSlot` now takes its staging bag from `DistinctBags()` excluding duplicated identities, and verifies the move against counts captured before it. The old `bankCopies == 1 && inventoryCopies == 0` test could never pass for a bag listed twice.
+- The dedupe choice is deterministic again: unresponsive last, bank before inventory, lowest slot. The previous last-in-list-order rule flip-flopped between `bank/92` and `bank/1` on Kbsupp across three audits of the same layout.
+- A record that swallows a slot-addressed move without changing either listing is remembered as unresponsive for the session, and the other record of that bag is preferred everywhere after.
+- `citymanager-org-size.json` registered as a known data file.
+- `[OPEN]` Second audit on one connection fails all inventory bags (`failed=18` on every banker, bank bags unaffected; a freshly relogged Kbinfa passed). Suspected: `ProcessOpen` requires a new Container object, and a container already open from the first audit keeps `IsOpen` true with the same object. Needs the audit result file's per-bag error text before changing custody code.
+- Static review only: no .NET toolchain in this container, so no compilation and no live run.
