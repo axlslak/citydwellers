@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 131,
-  "last_completed_session": 130,
-  "status": "in_progress",
+  "last_completed_session": 131,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-131-online",
-  "checkpoint_commit": "cfc35272eb5b50cebd04942fe8dfa914ef95a6ac",
-  "task": "Add online command from existing Bobsan presence and observed guests",
-  "resume_instruction": "Use existing _onlineCharacters for org; guest observations from messages, remove known logoffs/leaves/kicks. Clearly label incomplete guest observations. No polling, fabricated roster or changelog entry. Owner builds/tests. Next seq317.",
+  "checkpoint_commit": "6267da07dbd41bf1e19e0f829de7528eeb03a773",
+  "task": "Online presence command published",
+  "resume_instruction": "Resolved on publication. #online uses existing Bobsan org presence plus explicitly incomplete guest speaker observations. No full guest join/leave roster in current integration. Owner builds/tests. Changelog remains owner-authored with two entries. Next journal seq318.",
   "base_commit": "cfc35272eb5b50cebd04942fe8dfa914ef95a6ac"
 }
