@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 134,
+  "current_session": 135,
   "last_completed_session": 134,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-134-packet-build-cast",
-  "checkpoint_commit": "2973289d03b17812def955fe66f0b3f2c48a1a60",
-  "task": "Packet guard build compatibility correction published",
-  "resume_instruction": "Typed Cecil operand bridge and precise build failure diagnostics published; owner rebuilds. Exact prior throwing line not retained; no assistant build/test. Session133 runtime fixes and allocation guard retained. Snapshot accounting/protocol limits remain in docs/RUNTIME_RELIABILITY_REVIEW.md. Next journal seq324.",
-  "base_commit": "7a7fcae858b3bc54fba2a89584319a250694210a"
+  "transaction": "session-135-journal-repair-and-claude-md",
+  "checkpoint_commit": "d454ace5824a0b61ba2737b8fefee01b76ce2008",
+  "task": "Repair corrupted append-only journal; add CLAUDE.md session bootstrap",
+  "resume_instruction": "Restore journal seq78-86 from commit f888aca and remove the three non-JSON lines. Add CLAUDE.md. Update state/history. Seal with COMMIT seq325 and return cursor to idle. Damaged journal state is preserved in Git history; nothing is lost by the repair.",
+  "base_commit": "d454ace5824a0b61ba2737b8fefee01b76ce2008"
 }
