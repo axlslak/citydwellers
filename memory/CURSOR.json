@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 148,
-  "last_completed_session": 147,
-  "status": "in_progress",
+  "last_completed_session": 148,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-148-staging-picks-a-real-bag",
-  "checkpoint_commit": "31794a178970f32f8068227e775b884e33daff0b",
-  "task": "Census staging must act on a bag that exists",
-  "resume_instruction": "Session 148 opened. Kbarty parks because PrepareAuditStagingSlot moves a stale record (Item.Use is slot-addressed, proven from IL) and verifies with absolute counts a duplicate makes unreachable. Also fixing the unstable dedupe choice. Still open afterwards: every banker's second audit on one connection fails all inventory bags. Next journal seq347.",
+  "checkpoint_commit": "978ed46181a37a7b843e5da811055b84d187b2f6",
+  "task": "Staging fix published; second-audit inventory failure still open",
+  "resume_instruction": "Sessions 146-148 published. Staging now acts on an unambiguous bag and verifies by delta; dedupe order is deterministic. STILL OPEN and important: every banker's second audit on one connection fails all inventory bags (failed=18 each) while bank bags pass; a relogged Kbinfa passed. Suspect ProcessOpen's requirement of a new Container object against Container.IsOpen being Handle != 0. Ask the owner for a startup-census result JSON to read per-bag Error, PreOpenHandle and Handle. Next journal seq348.",
   "base_commit": "a367e306933be8f5db9c420c34879cf46d3b4d88"
 }
