@@ -32,6 +32,12 @@ namespace CityDwellers.Host
 
         protected override void OnStop()
         {
+            RuntimeLog.Write("Stop requested by Windows Service Control Manager.");
+            StopHost();
+        }
+
+        private void StopHost()
+        {
             _stopRequested = true;
             RequestAdditionalTime(180000);
             _stop.Set();
@@ -45,7 +51,8 @@ namespace CityDwellers.Host
 
         protected override void OnShutdown()
         {
-            OnStop();
+            RuntimeLog.Write("Stop requested by Windows system shutdown.");
+            StopHost();
             base.OnShutdown();
         }
 

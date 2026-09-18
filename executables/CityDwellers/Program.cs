@@ -67,12 +67,15 @@ namespace CityDwellers.Host
                 Console.CancelKeyPress += (sender, eventArgs) =>
                 {
                     eventArgs.Cancel = true;
+                    RuntimeLog.Write("Stop requested from console: " + eventArgs.SpecialKey + ".");
                     stop.Set();
                 };
 
                 var inputThread = new Thread(() =>
                 {
-                    Console.ReadLine();
+                    string input = Console.ReadLine();
+                    RuntimeLog.Write(input == null ? "Stop requested: console input reached EOF." :
+                        "Stop requested: console ENTER.");
                     stop.Set();
                 })
                 {
@@ -398,9 +401,8 @@ namespace CityDwellers.Host
             }
 
             RuntimeLog.Write(
-                "WARNING: runtime inventory found " + warnings.Count +
-                " unused or misplaced " +
-                (warnings.Count == 1 ? "entry." : "entries."));
+                "Runtime inventory has " + warnings.Count +
+                (warnings.Count == 1 ? " notice." : " notices."));
             foreach (string warning in warnings)
                 RuntimeLog.Write("WARNING: " + warning);
         }
@@ -410,6 +412,7 @@ namespace CityDwellers.Host
             bool unexpectedExit)
         {
             RuntimeLog.Write("Stopping all City Dwellers components.");
+            bool cleanupFailure = false;
 
             var stopBudget = Stopwatch.StartNew();
             TimeSpan maximumStopTime = TimeSpan.FromSeconds(160);
@@ -424,19 +427,22 @@ namespace CityDwellers.Host
                 {
                     RuntimeLog.Write(
                         component.Name + " did not stop within the unified 160-second stop budget.");
-                    unexpectedExit = true;
+                    cleanupFailure = true;
                 }
                 else if (component.ExitCode != 0)
                 {
-                    unexpectedExit = true;
+                    RuntimeLog.Write(component.Name + " returned exit code " + component.ExitCode +
+                        " while components were stopping.");
+                    cleanupFailure = true;
                 }
             }
 
             RuntimeLog.Write(
                 unexpectedExit
-                    ? "Unified host stopped after a component failure."
+                    ? "Unified host stopped after an earlier component failure; shutdown results are reported above."
+                    : cleanupFailure ? "Unified host stopped with component cleanup errors."
                     : "Unified host stopped cleanly.");
-            return unexpectedExit ? 1 : 0;
+            return unexpectedExit || cleanupFailure ? 1 : 0;
         }
 
         private static ComponentRunner StartManager(WaitHandle managerStop)

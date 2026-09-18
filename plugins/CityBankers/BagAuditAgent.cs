@@ -45,6 +45,7 @@ namespace CityBankers
         private int _phaseTimeoutMs;
         private readonly Stopwatch _openAge = new Stopwatch();
         private int _currentPreOpenHandle;
+        private Container _preOpenContainer;
         private int _currentMoveToInventoryElapsedMs;
         private BagAuditEntry _pendingEntry;
         private string _currentStagedInventorySlot;
@@ -96,6 +97,7 @@ namespace CityBankers
         public override void Teardown()
         {
             Client.OnUpdate -= Tick;
+            _preOpenContainer = null;
             if (_owner == this) _owner = null;
             Logger.Information("CityBankers bag-audit agent teardown.");
         }
@@ -122,7 +124,7 @@ namespace CityBankers
 
         private void TryStart()
         {
-            if (!Client.InPlay ||
+            if (!Client.InPlay || !ClientlessSessionGuard.BankCacheTrusted ||
                 !Inventory.Bank.IsOpen)
             {
                 return;
@@ -168,8 +170,8 @@ namespace CityBankers
             }
 
             _command = command;
-            _bags = EnumerateBags();
-            _entries = new List<BagAuditEntry>(_bags.Count);
+            _bags = new List<BagTarget>();
+            _entries = new List<BagAuditEntry>();
             _index = 0;
             _current = null;
             _pendingEntry = null;
@@ -178,6 +180,11 @@ namespace CityBankers
 
             DeleteIfExists(_activeResultPath);
             DeleteIfExists(_activeResultPath + ".tmp");
+
+            // Mark the run active first so invalid topology produces a failed
+            // result instead of repeatedly re-reading the command. Never move
+            // a bag while the cache lists one identity in multiple places.
+            _bags = EnumerateBags();
 
             Logger.Information(
                 $"BAG AUDIT START run={_command.RunId} character={Client.CharacterName} " +
@@ -197,6 +204,9 @@ namespace CityBankers
 
         private static List<BagTarget> EnumerateBags()
         {
+            string layoutError;
+            if (!StorageBagPolicy.TryValidatePhysicalLayout(out layoutError))
+                throw new InvalidOperationException(layoutError + " Fresh bank evidence is required before an audit.");
             var result = new List<BagTarget>();
 
             if (Inventory.Bank.Items != null)
@@ -292,7 +302,14 @@ namespace CityBankers
 
         private void StartCurrent()
         {
+            string layoutError;
+            if (!StorageBagPolicy.TryValidatePhysicalLayout(out layoutError))
+            {
+                FinishWithFatalError(layoutError + " Audit stopped before another bag move.");
+                return;
+            }
             _current = _bags[_index];
+            _preOpenContainer = null;
             _pendingEntry = null;
             _currentPreOpenHandle = 0;
             _currentMoveToInventoryElapsedMs = 0;
@@ -356,7 +373,8 @@ namespace CityBankers
         private void ProcessMoveToInventory()
         {
             Item inventoryItem = FindInventoryItem(_current.UniqueIdentity);
-            if (inventoryItem != null)
+            if (inventoryItem != null && BagOccurrenceCount(_current.UniqueIdentity, false) == 1 &&
+                BagOccurrenceCount(_current.UniqueIdentity, true) == 0)
             {
                 _currentMoveToInventoryElapsedMs = (int)_phaseAge.ElapsedMilliseconds;
                 _currentStagedInventorySlot = inventoryItem.Slot.ToString();
@@ -383,6 +401,7 @@ namespace CityBankers
         private void BeginOpen(Item item)
         {
             Container before = FindContainer(_current.UniqueIdentity);
+            _preOpenContainer = before;
             _currentPreOpenHandle = before != null ? before.Handle : 0;
             _openAge.Restart();
             _phaseAge.Restart();
@@ -402,7 +421,7 @@ namespace CityBankers
         private void ProcessOpen()
         {
             Container container = FindContainer(_current.UniqueIdentity);
-            if (container != null && container.IsOpen)
+            if (container != null && container.IsOpen && !ReferenceEquals(container, _preOpenContainer))
             {
                 FinishOpen(container, null);
                 return;
@@ -465,6 +484,7 @@ namespace CityBankers
                 _entries.Add(entry);
                 _index++;
                 _pendingEntry = null;
+                _preOpenContainer = null;
                 _current = null;
                 _phase = AuditPhase.None;
                 FinishWithFatalError(entry.Error);
@@ -474,7 +494,8 @@ namespace CityBankers
         private void ProcessReturnToBank()
         {
             Item bankItem = FindBankItem(_current.UniqueIdentity);
-            if (bankItem != null)
+            if (bankItem != null && BagOccurrenceCount(_current.UniqueIdentity, true) == 1 &&
+                BagOccurrenceCount(_current.UniqueIdentity, false) == 0)
             {
                 _pendingEntry.ReturnedToBank = true;
                 _pendingEntry.ReturnedOuterSlot = bankItem.Slot.ToString();
@@ -513,7 +534,8 @@ namespace CityBankers
 
         private BagAuditEntry SnapshotCurrentEntry(Container container, string error)
         {
-            bool opened = container != null && container.IsOpen;
+            bool opened = error == null && container != null && container.IsOpen &&
+                !ReferenceEquals(container, _preOpenContainer);
             return new BagAuditEntry
             {
                 Ordinal = _index,
@@ -641,6 +663,13 @@ namespace CityBankers
                 : DefaultBagMoveTimeoutMs;
         }
 
+        private static int BagOccurrenceCount(Identity identity, bool bank)
+        {
+            return bank
+                ? Inventory.Bank.Items.Count(item => item != null && item.UniqueIdentity == identity)
+                : Inventory.Items.Count(item => StorageBagPolicy.IsNormalInventory(item) && item.UniqueIdentity == identity);
+        }
+
         private static Item FindBankItem(Identity identity)
         {
             return Inventory.Bank.Items != null
@@ -693,7 +722,7 @@ namespace CityBankers
 
         private static bool IsFailedEntry(BagAuditEntry entry)
         {
-            if (entry == null || !entry.Opened)
+            if (entry == null || !entry.Opened || entry.Error != null)
                 return true;
 
             return string.Equals(entry.Source, "bank", StringComparison.Ordinal) &&
@@ -774,12 +803,17 @@ namespace CityBankers
 
                 WriteAtomicJson(_activeResultPath, result);
 
-                Logger.Information(
-                    $"BAG AUDIT COMPLETE run={result.RunId} character={result.Character} " +
+                bool complete = result.BankOpened && result.FatalError == null && result.FailedCount == 0 &&
+                    result.Bags.Count == result.TotalBagCount && result.OpenedCount == result.TotalBagCount &&
+                    result.BankReturnedCount == result.BankBagCount;
+                string summary =
+                    $"BAG AUDIT {(complete ? "COMPLETE" : "INCOMPLETE")} run={result.RunId} character={result.Character} " +
                     $"bags={result.TotalBagCount} opened={result.OpenedCount} " +
                     $"failed={result.FailedCount} empty={result.EmptyCount} " +
                     $"nonempty={result.NonEmptyCount} staged={result.BankStagedCount} " +
-                    $"returned={result.BankReturnedCount} result='{_activeResultPath}'.");
+                    $"returned={result.BankReturnedCount} result='{_activeResultPath}'.";
+                if (complete) Logger.Information(summary);
+                else Logger.Warning(summary);
             }
             catch (Exception ex)
             {
@@ -789,6 +823,7 @@ namespace CityBankers
             {
                 _active = false;
                 _command = null;
+                _preOpenContainer = null;
                 _bags = null;
                 _entries = null;
                 _current = null;

@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
 using System.Reflection;
-using System.Runtime.Remoting.Lifetime;
 using System.Threading;
 
 using AOSharp.Clientless;
@@ -25,7 +24,6 @@ public class BuddiesHost
     // +975s and leave at +1125s after the city-targeted event.
     private const int DefaultDemoLeaseSeconds = 150;
     private const int DefaultRaidSafetyLeaseSeconds = 1365;
-    private const int ClientDomainLeaseMinutes = 60;
     private const int FailedCleanupRetrySeconds = 30;
     // ClientDomain unload is immediate locally, but AO can leave the avatar
     // visible and attackable for roughly 30 seconds. Keep the account slot
@@ -47,18 +45,6 @@ public class BuddiesHost
     private static long[] _slotLingeringUntilTimestamp;
     private static readonly object HomeMaintenanceLock = new object();
     private static HomeMaintenanceState _homeMaintenance;
-
-    // AOSharp.Clientless 1.0.16 keeps these private. Its PluginProxy uses the
-    // default .NET Remoting lease, so it expires during a normal city raid and
-    // prevents ClientDomain.Unload() from reaching AppDomain.Unload().
-    private static readonly FieldInfo ClientDomainPluginProxyField =
-        typeof(ClientDomain).GetField(
-            "_pluginProxy",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-    private static readonly FieldInfo ClientDomainAppDomainField =
-        typeof(ClientDomain).GetField(
-            "_appDomain",
-            BindingFlags.Instance | BindingFlags.NonPublic);
 
     private static Config _config;
     private static string _dataDir;
@@ -568,10 +554,10 @@ public class BuddiesHost
                 Dimension.RubiKa,
                 logger);
 
+            ClientDomainLifetime.Track(domain, character);
             domain.LoadPlugin(_pluginPath);
 
             domain.Start();
-            RenewClientDomainLease(domain, character);
 
             Console.WriteLine(
                 $"Buddy domain started; waiting for {character} to reach InPlay...");
@@ -1744,7 +1730,7 @@ public class BuddiesHost
 
             BuddyPositionSnapshot snapshot =
                 JsonConvert.DeserializeObject<BuddyPositionSnapshot>(
-                    File.ReadAllText(path));
+                    FileSnapshot.ReadText(path));
 
             if (snapshot == null)
             {
@@ -1980,13 +1966,7 @@ public class BuddiesHost
         try
         {
             string path = GetHomeDirectivePath(character);
-            string tempPath = path + ".tmp";
-            File.WriteAllText(tempPath, JsonConvert.SerializeObject(directive));
-
-            if (File.Exists(path))
-                File.Replace(tempPath, path, null);
-            else
-                File.Move(tempPath, path);
+            FileSnapshot.WriteText(path, JsonConvert.SerializeObject(directive));
         }
         catch (Exception ex)
         {
@@ -2199,99 +2179,12 @@ public class BuddiesHost
                string.Equals(state, "canceled", StringComparison.Ordinal);
     }
 
-    private static void RenewClientDomainLease(
-        ClientDomain domain,
-        string character)
-    {
-        try
-        {
-            if (ClientDomainPluginProxyField == null)
-                throw new MissingFieldException("ClientDomain._pluginProxy");
-
-            var proxy =
-                ClientDomainPluginProxyField.GetValue(domain) as MarshalByRefObject;
-
-            if (proxy == null)
-                throw new InvalidOperationException("ClientDomain plugin proxy is unavailable.");
-
-            var lease = proxy.GetLifetimeService() as ILease;
-            if (lease == null)
-            {
-                Console.WriteLine(
-                    $"Client-domain proxy for {character} already has an infinite lifetime.");
-                return;
-            }
-
-            lease.Renew(TimeSpan.FromMinutes(ClientDomainLeaseMinutes));
-            Console.WriteLine(
-                $"Renewed client-domain proxy for {character} for " +
-                $"{ClientDomainLeaseMinutes} minutes.");
-        }
-        catch (Exception ex)
-        {
-            // Login can continue because TryUnloadClientDomain has a direct
-            // AppDomain fallback that does not depend on the proxy lease.
-            Console.WriteLine(
-                $"Unable to renew client-domain proxy for {character}: {ex.Message}. " +
-                "Direct unload fallback remains available.");
-        }
-    }
-
     private static bool TryUnloadClientDomain(
         ClientDomain domain,
         string character,
         out string error)
     {
-        error = null;
-
-        if (domain == null)
-            return true;
-
-        Exception gracefulError;
-
-        try
-        {
-            domain.Unload();
-            return true;
-        }
-        catch (Exception ex)
-        {
-            gracefulError = ex;
-            Console.WriteLine(
-                $"Graceful unload proxy failed for {character}: {ex.Message}. " +
-                "Trying direct AppDomain unload.");
-        }
-
-        try
-        {
-            if (ClientDomainAppDomainField == null)
-                throw new MissingFieldException("ClientDomain._appDomain");
-
-            var childDomain =
-                ClientDomainAppDomainField.GetValue(domain) as AppDomain;
-
-            if (childDomain == null)
-                throw new InvalidOperationException("ClientDomain AppDomain is unavailable.");
-
-            AppDomain.Unload(childDomain);
-            Console.WriteLine(
-                $"Direct AppDomain unload succeeded for {character}.");
-            return true;
-        }
-        catch (AppDomainUnloadedException)
-        {
-            // The child domain is already gone, which is the desired state.
-            Console.WriteLine(
-                $"Client AppDomain for {character} was already unloaded.");
-            return true;
-        }
-        catch (Exception forcedError)
-        {
-            error =
-                $"Graceful unload failed: {gracefulError.Message}; " +
-                $"direct AppDomain unload failed: {forcedError.Message}";
-            return false;
-        }
+        return ClientDomainLifetime.TryUnload(domain, out error);
     }
 
     private static void ShutdownAll()

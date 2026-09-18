@@ -734,6 +734,7 @@ public class FlipperLoader
                 Dimension.RubiKa,
                 logger);
 
+            ClientDomainLifetime.Track(domain, _account.Character);
             domain.LoadPlugin(_pluginPath);
 
             if (_stopping)
@@ -826,12 +827,13 @@ public class FlipperLoader
 
                 try
                 {
-                    domain.Unload();
+                    ClientDomainLifetime.Unload(domain);
                     Console.WriteLine("Flipper client unloaded.");
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine($"Client unload failed: {ex}");
+                    run.Success = false;
                 }
             }
 

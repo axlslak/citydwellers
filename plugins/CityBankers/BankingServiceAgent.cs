@@ -825,8 +825,7 @@ namespace CityBankers
             if (!_donationActive || !Trade.IsTrading)
                 return;
 
-            DispatchQueueState existingQueue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            if (existingQueue != null && existingQueue.Batches != null && existingQueue.Batches.Count > 0)
+            if (HasQueuedDispatchWork())
             {
                 RejectDonation(
                     "Central's storage queue became busy while this donation was open. Please retry after the queue clears.",
@@ -2270,7 +2269,14 @@ namespace CityBankers
 
         private bool HasUnresolvedDispatchWork()
         {
-            return _stackOperation != null || _activeBatch != null || _donationCleanup != null || _receipt != null;
+            return _stackOperation != null || _activeBatch != null || _donationCleanup != null ||
+                _receipt != null || HasQueuedDispatchWork();
+        }
+
+        private bool HasQueuedDispatchWork()
+        {
+            var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            return queue?.Batches != null && queue.Batches.Count > 0;
         }
 
         private void AnnounceDonationChanges(List<TransferItemState> offered)

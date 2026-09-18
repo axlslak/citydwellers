@@ -103,7 +103,8 @@ namespace CityBankers
                 {
                     // Plugin Init runs before the network session exists. InPlay
                     // can throw then; fail closed so Defer still queues startup.
-                    if (ServicePolicy.IsBagAuditMode() || _invalidated || _directory == null || !Client.InPlay) return false;
+                    if (ServicePolicy.IsBagAuditMode() || !ClientlessSessionGuard.BankCacheTrusted ||
+                        _invalidated || _directory == null || !Client.InPlay) return false;
                     var cycle = Current();
                     return cycle?.Phase == "released" && Includes(cycle, MemberCharacter, _connection) &&
                         !Requested() && RuntimeStateStore.ReadTextStrict(MemberPath(MemberCharacter, ".ready")) == cycle.Id + "/" + _connection;
@@ -345,7 +346,8 @@ namespace CityBankers
             _poll.Restart();
             try
             {
-                if (!Client.InPlay || !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
+                if (!Client.InPlay || !ClientlessSessionGuard.BankCacheTrusted ||
+                    !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
                 if (_idleReconnectCycle != null && !TryResumeIdleConnection()) return;
                 if (_stagingFailureLayout != null)
                 {
@@ -586,9 +588,11 @@ namespace CityBankers
         {
             if (_stagingBag != null)
             {
-                bool inBank = Inventory.Bank.Items.Any(i => i != null && i.UniqueIdentity.ToString() == _stagingBag);
-                bool inInventory = Inventory.Items.Any(i => i != null && i.UniqueIdentity.ToString() == _stagingBag);
-                if (inBank && !inInventory && Inventory.NumFreeSlots > 0)
+                int bankCopies = Inventory.Bank.Items.Count(i => i != null && i.UniqueIdentity.ToString() == _stagingBag);
+                int inventoryCopies = Inventory.Items.Count(i => StorageBagPolicy.IsNormalInventory(i) && i.UniqueIdentity.ToString() == _stagingBag);
+                bool inBank = bankCopies != 0;
+                bool inInventory = inventoryCopies != 0;
+                if (bankCopies == 1 && inventoryCopies == 0 && Inventory.NumFreeSlots > 0)
                 {
                     Logger.Information("[CityBankers] Census staging slot verified; bag=" + _stagingBag);
                     _stagingBag = null;
@@ -598,7 +602,7 @@ namespace CityBankers
                 }
                 if (_stagingAge.ElapsedMilliseconds >= 15000)
                 {
-                    if (inInventory && !inBank && Inventory.NumFreeSlots > 0 &&
+                    if (inventoryCopies == 1 && bankCopies == 0 && Inventory.NumFreeSlots > 0 &&
                         InventoryLayout() == _stagingBeforeLayout)
                     {
                         // Extra receiving headroom is optional. The move did not
@@ -617,6 +621,9 @@ namespace CityBankers
                 }
                 return false;
             }
+            string layoutError;
+            if (!StorageBagPolicy.TryValidatePhysicalLayout(out layoutError))
+                return WaitForStagingChange(layoutError + " Fresh bank evidence is required before staging.");
             // Keep receiving capacity after the audit too: a full donation plus
             // one slot to stage its destination bag. Moving only one bag allowed
             // census to finish but left every multi-item prepare permanently busy.

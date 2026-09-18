@@ -71,6 +71,10 @@ try {
     if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
 }
 
+# Bound the malformed HQ array before allocation in the deployed copy only.
+. (Join-Path $PSScriptRoot 'Protect-ClientlessPacketArrays.ps1')
+Protect-ClientlessPlayfieldArrayAllocation $root
+
 # Mono probes the assembly identity, including filename case. Windows copies
 # may preserve an old destination's case, so use a two-step rename there too.
 foreach ($file in @(Get-ChildItem -LiteralPath $root -File | Where-Object { $_.Extension -ieq '.dll' })) {

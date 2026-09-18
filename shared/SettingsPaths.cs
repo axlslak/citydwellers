@@ -186,6 +186,7 @@ namespace CityDwellers.Shared
                 string name = Path.GetFileName(directory);
                 if (string.Equals(name, DataDirectoryName, StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(name, "GameData", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(name, "Buffers", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(name, "NavMeshes", StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
@@ -281,7 +282,11 @@ namespace CityDwellers.Shared
 
         private static bool IsBotDataDirectory(string name)
         {
-            return string.Equals(name, "NavigationTraces", StringComparison.OrdinalIgnoreCase) ||
+            return string.Equals(name, "buffers", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "transaction-traces", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "incident-dumps", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "colonist-backpack-repair-v1", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "NavigationTraces", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "diagnostic-dumps", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "ledger", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "logs", StringComparison.OrdinalIgnoreCase) ||
@@ -299,6 +304,9 @@ namespace CityDwellers.Shared
 
         private static bool IsBotDataFile(string name)
         {
+            string publishedName;
+            if (TryGetAtomicTargetName(name, out publishedName))
+                return IsBotDataFile(publishedName);
             string[] exactNames =
             {
                 "adminlist.json",
@@ -313,6 +321,10 @@ namespace CityDwellers.Shared
                 "citymanager-raid-state.json",
                 "citydwellers.log",
                 "citydwellers.log.previous",
+                "citydwellers-events.jsonl",
+                "items.json",
+                "items.json.index-v1.bin",
+                "items-pairs.json",
                 "citydwellers-manager-restart.request",
                 "citydwellers-manager-restart.request.tmp",
                 "cityflipper-cache.json",
@@ -379,11 +391,34 @@ namespace CityDwellers.Shared
             return name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool TryGetAtomicTargetName(string name, out string target)
+        {
+            target = null;
+            int marker = name.LastIndexOf(".tmp-", StringComparison.OrdinalIgnoreCase);
+            Guid token;
+            if (marker <= 0 || !Guid.TryParseExact(name.Substring(marker + 5), "N", out token)) return false;
+            target = name.Substring(0, marker);
+            return true;
+        }
+
         private static void InspectBotDataDirectory(
             string directory,
             string directoryName,
             List<string> warnings)
         {
+            if (string.Equals(directoryName, "buffers", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (string file in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+                {
+                    string relative = file.Substring(directory.Length).TrimStart(
+                        Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    string[] parts = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (parts.Length == 2 && (parts[1].Equals("UserRanks.json", StringComparison.OrdinalIgnoreCase) ||
+                        parts[1].Equals("BanList.json", StringComparison.OrdinalIgnoreCase))) continue;
+                    warnings.Add("Unrecognized buffer data file: '" + relative + "'.");
+                }
+                return;
+            }
             if (string.Equals(
                     directoryName,
                     "tell-queue",
@@ -490,6 +525,17 @@ namespace CityDwellers.Shared
                 {
                     string extension = Path.GetExtension(file);
                     if (extension == ".json" || extension == ".ready" || extension == ".blocked" || extension == ".observed") continue;
+                    string target;
+                    if (TryGetAtomicTargetName(Path.GetFileName(file), out target) &&
+                        (target.EndsWith(".json", StringComparison.OrdinalIgnoreCase) ||
+                         target.EndsWith(".ready", StringComparison.OrdinalIgnoreCase) ||
+                         target.EndsWith(".blocked", StringComparison.OrdinalIgnoreCase) ||
+                         target.EndsWith(".observed", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        warnings.Add("Retained atomic-write temporary in safety evidence directory: '" + file +
+                            "'. It is not a published result; retained for inspection.");
+                        continue;
+                    }
                     warnings.Add("Alien file in safety evidence directory: '" + file + "'.");
                 }
                 return;
@@ -501,6 +547,13 @@ namespace CityDwellers.Shared
                 expectedPatterns = new[] { "*.jsonl" };
             else if (string.Equals(directoryName, "diagnostic-dumps", StringComparison.OrdinalIgnoreCase))
                 expectedPatterns = new[] { "apcmanager-dump-*.log", "citybankers-bagaudit-*.log" };
+            else if (string.Equals(directoryName, "incident-dumps", StringComparison.OrdinalIgnoreCase))
+                expectedPatterns = new[] { "incident-*.log", "incident-*.log.signature" };
+            else if (string.Equals(directoryName, "transaction-traces", StringComparison.OrdinalIgnoreCase))
+                expectedPatterns = new[] { "*.jsonl", "*.problem", "*.state", "evidence-warning.txt" };
+            else if (string.Equals(directoryName, "colonist-backpack-repair-v1", StringComparison.OrdinalIgnoreCase))
+                // Historical migration evidence, deliberately retained after removal of the one-run helper.
+                expectedPatterns = new[] { "*.done.json", "*.progress.json" };
             else if (string.Equals(directoryName, "history", StringComparison.OrdinalIgnoreCase))
                 expectedPatterns = new[] { "history-*.jsonl", "census-*.json" };
             else if (string.Equals(directoryName, "logs", StringComparison.OrdinalIgnoreCase))
@@ -522,6 +575,11 @@ namespace CityDwellers.Shared
                     SearchOption.TopDirectoryOnly))
                 {
                     expected.Add(file);
+                }
+                foreach (string file in Directory.GetFiles(directory, expectedPattern + ".tmp-*", SearchOption.TopDirectoryOnly))
+                {
+                    string target;
+                    if (TryGetAtomicTargetName(Path.GetFileName(file), out target)) expected.Add(file);
                 }
             }
 

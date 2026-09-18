@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -86,13 +86,13 @@ public class ManagerHost
             return 1;
         }
 
+        int exitCode = 0;
         try
         {
             foreach (AccountInfo acc in config.Accounts)
                 CreateBot(acc, pluginPath);
 
             WaitForStop(stopSignal);
-            return 0;
         }
         finally
         {
@@ -100,16 +100,18 @@ public class ManagerHost
             {
                 try
                 {
-                    domain.Unload();
+                    ClientDomainLifetime.Unload(domain);
                 }
                 catch (Exception ex)
                 {
                     Console.WriteLine("Unable to unload a Manager client domain: " + ex);
+                    exitCode = 1;
                 }
             }
 
             BotDomains.Clear();
         }
+        return exitCode;
     }
 
     private static bool TryValidateConfig(Config config, out string error)
@@ -180,9 +182,9 @@ public class ManagerHost
                 .CreateLogger();
         ClientDomain instance = Client.CreateInstance(accInfo.Username, accInfo.Password, accInfo.Character, Dimension.RubiKa, logger);
 
-        instance.LoadPlugin(pluginPath);
-
         BotDomains.Add(instance);
+        ClientDomainLifetime.Track(instance, accInfo.Character);
+        instance.LoadPlugin(pluginPath);
         instance.Start();
     }
 

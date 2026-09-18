@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using SmokeLounge.AOtomation.Messaging.Messages;
+using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 
 namespace CityBankers
 {
@@ -20,6 +22,7 @@ namespace CityBankers
         private static readonly Stopwatch FaultLogAge = Stopwatch.StartNew();
         private static int _suppressed;
         private static bool _faultReported;
+        internal static bool BankCacheTrusted { get; private set; } = true;
 
         internal static void Install()
         {
@@ -74,7 +77,7 @@ namespace CityBankers
                         {
                             if (!_faultReported || FaultLogAge.ElapsedMilliseconds >= 30000)
                             {
-                                Logger.Error("[CityBankers] Client update exception contained; packet processing will retry next tick. Type=" +
+                                Logger.Error("[CityBankers] Client update exception contained; update loop will continue next tick. The interrupted callback is not replayed. Type=" +
                                     ex.GetType().FullName + "; suppressed=" + _suppressed + "; stack=" + ex.StackTrace);
                                 _faultReported = true;
                                 _suppressed = 0;
@@ -118,6 +121,24 @@ namespace CityBankers
 
         private static void MessageReceived(object sender, Message message)
         {
+            // Clientless invokes this event before its native Bank callback.
+            // BankMessage is a complete snapshot; 1.0.16 RegisterItems appends
+            // without clearing, including after reconnect in the same domain.
+            // Do not swallow a compatibility failure and let that append proceed.
+            if (message?.Body is BankMessage bank &&
+                DynelManager.LocalPlayer != null && bank.Identity == DynelManager.LocalPlayer.Identity)
+            {
+                var items = Inventory.Bank.Items as IList<Item>;
+                if (items == null || items.IsReadOnly)
+                {
+                    BankCacheTrusted = false;
+                    Inventory.Bank.IsOpen = false;
+                    StartupCensusGate.Block("Clientless bank snapshot replacement is unavailable; physical cache cannot be trusted.");
+                    throw new InvalidOperationException("Unsupported Clientless bank cache; bank snapshot rejected.");
+                }
+                Inventory.Bank.IsOpen = false;
+                items.Clear();
+            }
             try
             {
                 TryBind(); // First login packet arrives before normal InPlay updates.

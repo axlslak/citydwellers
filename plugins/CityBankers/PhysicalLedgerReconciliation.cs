@@ -76,6 +76,8 @@ namespace CityBankers
                     ObservedUtc = census.ObservedUtc
                 });
             };
+            var bagIdentities = new HashSet<string>(StringComparer.Ordinal);
+            var outerSlots = new HashSet<string>(StringComparer.Ordinal);
             foreach (var bag in census.Bags)
             {
                 if (bag == null || !bag.Opened || bag.Items == null ||
@@ -85,8 +87,20 @@ namespace CityBankers
                     throw new InvalidOperationException("Census contains an incomplete bag.");
                 int outer = bag.Source == "bank" ? bag.ReturnedOuterSlotInstance : bag.OuterSlotInstance;
                 if (outer < 0) throw new InvalidOperationException("Census bag has no final physical slot.");
+                // Contents may be empty or identical to another bag's. Neither
+                // permits counting the same physical container twice.
+                if (string.IsNullOrWhiteSpace(bag.UniqueIdentity) ||
+                    !bagIdentities.Add(bag.UniqueIdentity) ||
+                    !outerSlots.Add(bag.Source + "/" + (outer & 65535)))
+                    throw new InvalidOperationException("Census contains duplicate bag identities or locations.");
                 foreach (var item in bag.Items) add(item, bag.Source, outer & 65535, bag.UniqueIdentity);
             }
+            foreach (var item in census.LooseInventoryItems)
+                if (item != null && !outerSlots.Add("inventory/" + (item.SlotInstance & 65535)))
+                    throw new InvalidOperationException("Census inventory slot contains more than one outer item.");
+            foreach (var item in census.LooseBankItems)
+                if (item != null && !outerSlots.Add("bank/" + (item.SlotInstance & 65535)))
+                    throw new InvalidOperationException("Census bank slot contains more than one outer item.");
             foreach (var item in census.LooseInventoryItems) add(item, "inventory", null, null);
             foreach (var item in census.LooseBankItems) add(item, "bank", null, null);
             if (observed.GroupBy(Address).Any(group => group.Count() != 1))

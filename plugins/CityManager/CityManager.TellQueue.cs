@@ -88,13 +88,14 @@ namespace CityManager
             DateTime now = DateTime.UtcNow;
             if (now >= _tellQueueNextHeartbeatUtc)
             {
-                TellQueue.WriteHeartbeat(
+                _tellQueueNextHeartbeatUtc = now.AddSeconds(1);
+                TellQueue.WriteHeartbeatBestEffort(
                     _dataDir,
                     Client.CharacterName,
                     Client.InPlay,
                     false,
-                    _tellQueueLastSentUtc);
-                _tellQueueNextHeartbeatUtc = now.AddSeconds(1);
+                    _tellQueueLastSentUtc,
+                    message => Logger.Warning(message));
             }
 
             TrySendAssignedTell(now);

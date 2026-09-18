@@ -330,12 +330,12 @@ internal static class BagAuditRunner
             for (int i = runtimes.Count - 1; i >= 0; i--)
             {
                 AuditRuntime runtime = runtimes[i];
-                if (runtime.Started)
+                if (runtime.Domain != null)
                 {
                     Console.WriteLine($"Unloading {runtime.Role} ({runtime.Character})...");
                     try
                     {
-                        runtime.Domain?.Unload();
+                        ClientDomainLifetime.Unload(runtime.Domain);
                     }
                     catch (Exception ex)
                     {
@@ -469,7 +469,13 @@ internal static class BagAuditRunner
             role.Account.Character,
             Dimension.RubiKa,
             logger);
-        domain.LoadPlugin(pluginPath);
+        ClientDomainLifetime.Track(domain, role.Account.Character);
+        try { domain.LoadPlugin(pluginPath); }
+        catch
+        {
+            ClientDomainLifetime.Unload(domain);
+            throw;
+        }
 
         return new AuditRuntime
         {

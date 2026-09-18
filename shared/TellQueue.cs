@@ -23,6 +23,7 @@ namespace CityDwellers.Shared
         private const string SendersName = "senders";
         private const string FailedName = "failed";
         private const string AssignmentMutexName = "Local\\CityDwellersTellQueueAssignmentsV1";
+        private static bool _heartbeatUnavailable;
 
         public static string Enqueue(
             string dataDirectory,
@@ -94,6 +95,25 @@ namespace CityDwellers.Shared
         public static void DeleteHeartbeat(string dataDirectory, string character)
         {
             DeleteIfExists(HeartbeatPath(dataDirectory, character));
+        }
+
+        public static void WriteHeartbeatBestEffort(string dataDirectory, string character,
+            bool inPlay, bool busy, DateTime? lastSentUtc, Action<string> report)
+        {
+            // Availability metadata must not abort the caller's whole update
+            // callback. No assignment, send, or acknowledgement is retried here.
+            try
+            {
+                WriteHeartbeat(dataDirectory, character, inPlay, busy, lastSentUtc);
+                if (_heartbeatUnavailable) report("TELL QUEUE heartbeat publication recovered for " + character + ".");
+                _heartbeatUnavailable = false;
+            }
+            catch (Exception ex)
+            {
+                if (!_heartbeatUnavailable) report("TELL QUEUE heartbeat publication unavailable for " + character +
+                    "; it will retry at the next heartbeat. Type=" + ex.GetType().Name);
+                _heartbeatUnavailable = true;
+            }
         }
 
         public static List<TellQueueJob> ReadPending(string dataDirectory)
@@ -333,7 +353,7 @@ namespace CityDwellers.Shared
                 return default(T);
             try
             {
-                return JsonConvert.DeserializeObject<T>(File.ReadAllText(path));
+                return JsonConvert.DeserializeObject<T>(FileSnapshot.ReadText(path));
             }
             catch
             {
@@ -343,34 +363,7 @@ namespace CityDwellers.Shared
 
         private static void AtomicWrite(string path, object value)
         {
-            string temp = path + ".tmp-" + Guid.NewGuid().ToString("N");
-            File.WriteAllText(temp, JsonConvert.SerializeObject(value, Formatting.Indented));
-            try
-            {
-                if (File.Exists(path))
-                {
-                    try
-                    {
-                        File.Replace(temp, path, null);
-                    }
-                    catch (PlatformNotSupportedException)
-                    {
-                        File.Delete(path);
-                        File.Move(temp, path);
-                    }
-                    catch (IOException)
-                    {
-                        File.Delete(path);
-                        File.Move(temp, path);
-                    }
-                }
-                else
-                    File.Move(temp, path);
-            }
-            finally
-            {
-                DeleteIfExists(temp);
-            }
+            FileSnapshot.WriteText(path, JsonConvert.SerializeObject(value, Formatting.Indented));
         }
 
         private static long NextSequence(string dataDirectory)

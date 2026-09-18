@@ -406,7 +406,7 @@ public class BankerLoader
                     Dimension.RubiKa,
                     logger);
 
-                domain.LoadPlugin(pluginPath);
+                ClientDomainLifetime.Track(domain, role.Account.Character);
 
                 runtimes.Add(new BankerRuntime
                 {
@@ -416,6 +416,7 @@ public class BankerLoader
                     ResultPath = resultPath,
                     TempPath = tempPath
                 });
+                domain.LoadPlugin(pluginPath);
             }
 
             int timeoutMs = _config.DiagnosticTimeoutMs > 0
@@ -535,14 +536,14 @@ public class BankerLoader
             {
                 BankerRuntime runtime = runtimes[i];
 
-                if (runtime.Started)
+                if (runtime.Domain != null)
                 {
                     Console.WriteLine();
                     Console.WriteLine($"Unloading {runtime.Role} ({runtime.Character})...");
 
                     try
                     {
-                        runtime.Domain?.Unload();
+                        ClientDomainLifetime.Unload(runtime.Domain);
                         Console.WriteLine($"{runtime.Character} unloaded.");
                     }
                     catch (Exception ex)

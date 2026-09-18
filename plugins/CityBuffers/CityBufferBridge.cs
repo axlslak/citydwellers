@@ -88,6 +88,7 @@ namespace MalisBuffBots
                 if (_lastSent > now.AddSeconds(5)) _lastSent = null;
                 if (now >= _nextHeartbeat)
                 {
+                    _nextHeartbeat = now.AddSeconds(1);
                     bool inPlay = Client.InPlay && DynelManager.LocalPlayer != null;
                     _snapshot = JsonConvert.SerializeObject(new {
                         Character = Client.CharacterName, Kind = "froob", InPlay = inPlay,
@@ -96,8 +97,8 @@ namespace MalisBuffBots
                         NanoCount = inPlay ? DynelManager.LocalPlayer.SpellList.Count() : 0,
                         QueueLength = Main.QueueProcessor?.Queue.AllEntries.Length ?? 0
                     });
-                    TellQueue.WriteHeartbeat(_dataDir, Client.CharacterName, inPlay, false, _lastSent);
-                    _nextHeartbeat = now.AddSeconds(1);
+                    TellQueue.WriteHeartbeatBestEffort(_dataDir, Client.CharacterName, inPlay, false, _lastSent,
+                        message => Logger.Warning(message));
                 }
                 if (!Client.InPlay || (_lastSent.HasValue &&
                     _lastSent.Value > now.AddMilliseconds(-TellQueue.SenderIntervalMilliseconds))) return;

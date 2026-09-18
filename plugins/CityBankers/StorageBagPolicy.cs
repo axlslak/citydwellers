@@ -24,5 +24,24 @@ namespace CityBankers
              (Inventory.Bank.Items != null && Inventory.Bank.Items.Any(i => IsStorageBag(i) && i.UniqueIdentity == container.Identity)));
         public static bool IsSmallBackpack(Item item) => IsStorageBag(item) &&
             (item.Id == SmallBackpackId || item.HighId == SmallBackpackId);
+
+        public static bool TryValidatePhysicalLayout(out string error)
+        {
+            error = null;
+            var outer = Inventory.Bank.Items.Where(i => i != null)
+                .Select(i => new { Location = "bank", Item = i })
+                .Concat(Inventory.Items.Where(IsNormalInventory)
+                    .Select(i => new { Location = "inventory", Item = i })).ToList();
+            var repeatedSlot = outer.GroupBy(x => x.Location + "/" + (x.Item.Slot.Instance & 65535))
+                .FirstOrDefault(g => g.Count() != 1);
+            if (repeatedSlot != null)
+                error = "More than one outer item occupies " + repeatedSlot.Key + ".";
+            var repeatedBag = outer.Where(x => IsStorageBag(x.Item))
+                .GroupBy(x => x.Item.UniqueIdentity).FirstOrDefault(g => g.Key.Instance == 0 || g.Count() != 1);
+            if (repeatedBag != null)
+                error = "Ambiguous bag " + repeatedBag.Key + " at " +
+                    string.Join(", ", repeatedBag.Select(x => x.Location + "/" + (x.Item.Slot.Instance & 65535))) + ".";
+            return error == null;
+        }
     }
 }

@@ -378,7 +378,7 @@ namespace CityBuddies
 
                 BuddyHomeDirective directive =
                     JsonConvert.DeserializeObject<BuddyHomeDirective>(
-                        File.ReadAllText(_homeDirectivePath));
+                        FileSnapshot.ReadText(_homeDirectivePath));
 
                 if (!string.IsNullOrWhiteSpace(_lastDirectiveError))
                 {
@@ -1566,13 +1566,7 @@ namespace CityBuddies
 
         private void WriteSnapshotAtomically(BuddyPositionSnapshot snapshot)
         {
-            string tempPath = _snapshotPath + ".tmp";
-            File.WriteAllText(tempPath, JsonConvert.SerializeObject(snapshot));
-
-            if (File.Exists(_snapshotPath))
-                File.Replace(tempPath, _snapshotPath, null);
-            else
-                File.Move(tempPath, _snapshotPath);
+            FileSnapshot.WriteText(_snapshotPath, JsonConvert.SerializeObject(snapshot));
         }
 
         private void DeleteSnapshot()
@@ -1580,17 +1574,10 @@ namespace CityBuddies
             if (string.IsNullOrWhiteSpace(_snapshotPath))
                 return;
 
-            try
+            lock (_snapshotSync)
             {
-                if (File.Exists(_snapshotPath))
-                    File.Delete(_snapshotPath);
-
-                string tempPath = _snapshotPath + ".tmp";
-                if (File.Exists(tempPath))
-                    File.Delete(tempPath);
-            }
-            catch
-            {
+                try { File.Delete(_snapshotPath); }
+                catch { }
             }
         }
 

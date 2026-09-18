@@ -56,13 +56,14 @@ namespace CityBankers
 
             if (now >= _nextHeartbeatUtc)
             {
-                CityDwellers.Shared.TellQueue.WriteHeartbeat(
+                _nextHeartbeatUtc = now.AddSeconds(1);
+                CityDwellers.Shared.TellQueue.WriteHeartbeatBestEffort(
                     _dataDir,
                     Client.CharacterName,
                     Client.InPlay,
                     busy,
-                    _lastSentUtc);
-                _nextHeartbeatUtc = now.AddSeconds(1);
+                    _lastSentUtc,
+                    message => Logger.Warning(message));
             }
 
             if (busy)

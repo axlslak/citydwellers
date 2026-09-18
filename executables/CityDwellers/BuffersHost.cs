@@ -18,6 +18,7 @@ internal static class BuffersHost
     public static int Run(WaitHandle stop)
     {
         var domains = new List<ClientDomain>();
+        int exitCode = 0;
         using (var logger = new LoggerConfiguration()
             .WriteTo.Console(outputTemplate: CityDwellers.Shared.LoggingDefaults.ConsoleOutputTemplate)
             .MinimumLevel.Debug().CreateLogger())
@@ -34,24 +35,29 @@ internal static class BuffersHost
                     var domain = Client.CreateInstance(account.Username, account.Password,
                         account.Character, Dimension.RubiKa, logger);
                     domains.Add(domain); // Also unload domains whose plugin/start fails.
+                    ClientDomainLifetime.Track(domain, account.Character);
                     domain.LoadPlugin(plugin);
                     domain.Start(); // Clientless owns this domain's update loop.
                 }
                 stop.WaitOne();
-                return 0;
             }
             catch (Exception ex)
             {
                 // Never dump credentials or deserialized account configuration.
                 logger.Error("Buffers host stopped: {ErrorType}: {Message}", ex.GetType().Name, ex.Message);
-                return 1;
+                exitCode = 1;
             }
             finally
             {
                 for (int i = domains.Count - 1; i >= 0; i--)
-                    try { domains[i].Unload(); }
-                    catch (Exception ex) { logger.Warning("Buffer unload failed: {Message}", ex.Message); }
+                    try { ClientDomainLifetime.Unload(domains[i]); }
+                    catch (Exception ex)
+                    {
+                        logger.Warning("Buffer unload failed: {Message}", ex.Message);
+                        exitCode = 1;
+                    }
             }
         }
+        return exitCode;
     }
 }
