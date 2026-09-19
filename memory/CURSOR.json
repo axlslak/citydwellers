@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 179,
+  "current_session": 180,
   "last_completed_session": 179,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-179-character-name-audit",
+  "transaction": "session-180-pickups-command",
   "checkpoint_commit": "9ab825f69bdb615b3b35b9f1cbf4d60f28803973",
-  "task": "Character-name audit fixes published",
-  "resume_instruction": "Shared name rule covers alt/online/login/logout regexes, validators and buffer config. Fixed health-file readers stripping hyphens versus writer, readiness markers and diagnostic filename handling. Rebuild/restart unified runtime; owner test hyphenated alt/presence and Bobsan online import. No builds/tests here. Original zero-group runtime cause not proven; prior complete-group validation preserves presence/mappings on failure.",
-  "base_commit": "eb552e68f24d0f426293dc2b24066f79e8d1a113"
+  "task": "Add minimal latest25 pickups command with takers alias",
+  "resume_instruction": "Read-only DeliveredUtc withdrawal rows, newest25 item deliveries including CRU, stored canonical recipient and time/item link. Route and help both pickups/takers with donor membership policy. No build/tests.",
+  "base_commit": "2971cbd303cc14691a9a6fa7cac1c66411264cbc"
 }
