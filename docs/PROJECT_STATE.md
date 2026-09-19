@@ -1,3 +1,11 @@
+## Session 177 — reject empty parsed online imports
+
+- [OWNER BUG] A populated two-page Bobsan online reply logs parsed mains=0/online=0 and erases known org-channel presence. Owner clarifies second page contains people; the empty value describes parser output, not the actual page.
+- [VERIFIED SOURCE] TryHandleBobsanOnlineMessage clears _onlineCharacters after page receipt completion without checking whether any names were recognized. Parser assumes exact main-link and indented character markup. Actual offending formatted reply is not supplied, so the format mismatch remains unproven.
+- [FIXED GUARD] Reject completed zero-character imports unless explicitly single-page Online(0) with zero parsed mains. Preserve org presence, snapshot-received flag and startup lookup pending state; discard failed accumulator and log declared/parsed/page counts plus clear rejection. Existing positive parsing/mapping logic unchanged. Receipt completeness no longer implies a valid empty presence snapshot for this reported case.
+- [OPEN] Need original formatted Bobsan pages (blob/text links included, not just Manager summary) to repair name parsing. Guard prevents the reported wipe but does not import missed online names; partial nonzero parsing and presence events during pagination are not addressed by this focused change. No claim that the whole online importer is resolved.
+- Validation: source/diff review of zero parse, explicit empty snapshot and startup state paths; no builds/tests per owner boundary. No private replies committed.
+
 ## Session 176 — CRU resolved; temporary diagnostics retired
 
 - [RESOLVED / VERIFIED LIVE] Owner tested one-unit split and pickup:61 ->60+1, then AO Finished plus exact inventory delta confirmed delivery, leaving60. A second request split60 ->59+1, remained reserved until the three-minute expiry, then a matched action53 merged back to60. Donation of the collected unit completed at the server and matched action53 restored61. No loss, duplication, stuck reservation or failed operation appears in the supplied capture. Owner approved resolution for now.

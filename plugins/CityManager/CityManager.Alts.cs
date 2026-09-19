@@ -626,6 +626,21 @@ namespace CityManager
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Count();
 
+                // Receiving every page does not mean its contents were parsed.
+                // Preserve observed presence when a populated response yields no
+                // names; only an explicit single-page Online(0) can clear it.
+                if (complete && onlineCount == 0 &&
+                    (declaredCount != 0 || mainCount != 0 || pageCount != 1))
+                {
+                    _onlineSnapshotResponse = null;
+                    Logger.Warning($"ALTS ONLINE <- {_altsBotName} rejected: " +
+                        $"declared={declaredCount}, parsed mains={mainCount}, online=0, " +
+                        $"pages={receivedPages}/{pageCount}; org presence preserved; reply format not recognized.");
+                    DevTrace($"ALTS ONLINE <- {_altsBotName}: no online names parsed; " +
+                        "org presence preserved. Need original formatted reply to diagnose parser.");
+                    return true;
+                }
+
                 if (complete)
                 {
                     _orgOnlineSnapshotReceived = true;
