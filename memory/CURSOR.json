@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 176,
+  "current_session": 177,
   "last_completed_session": 176,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-176-cru-resolution-cleanup",
+  "transaction": "session-177-online-empty-import-guard",
   "checkpoint_commit": "2c870ad543dd934e312764d8d053df3b1fcf2347",
-  "task": "CRU resolved; diagnostic cleanup published",
-  "resume_instruction": "CRU pickup, expiry/remerge and donation/remerge live-confirmed with61 restored. Owner approved resolved. Temporary raw/action/split traces and standalone probe removed; concise CRU/count/operation/failure logs preserved. No runtime behavior change. Split local prediction remains known limitation, delivery confirmation unchanged. No tests/builds here; normal use next, reopen on concrete issue.",
-  "base_commit": "6dbacca045b56781362dbcfe69be2568f725c4a8"
+  "task": "Prevent unparsed Bobsan online pages wiping org presence",
+  "resume_instruction": "Complete page count currently clears org presence despite zero parsed names. Reject empty nonempty-declared snapshots and preserve startup pending state; actual Bobsan formatted reply needed to repair parser accurately. No builds/tests.",
+  "base_commit": "a03361c025cac92ac0d55cef15fb3f5171382e75"
 }
