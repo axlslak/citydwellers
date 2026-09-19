@@ -52,24 +52,16 @@ namespace CityBankers
             return records;
         }
 
-        // A container identity belongs to exactly one physical bag, so a second
-        // record for the same identity is a stale client entry, not another bag.
-        // The bot's own bag moves create them: when the client misses the removal
-        // at the source slot, the record it adds at the destination is an extra.
-        // Both records name the same container, but actions address their slots.
-        // Deduplication must not be mistaken for proof of which slot is live.
-        // A record that was sent a slot-addressed action and produced no change at
-        // all. Item.Use and the moves built on it carry the item's Slot, so an
-        // action aimed at a stale record is a no-op: silence is evidence that the
-        // server has nothing in that slot. Session-scoped, because a fresh login
-        // rebuilds the listing from the server and retires the whole question.
+        // These preferences are historical action candidates, not proof of which
+        // slot is physical. A timeout also does not prove an empty slot. Current
+        // layout validation rejects duplicates before an audit can choose one.
         private static readonly HashSet<string> UnresponsiveRecords =
             new HashSet<string>(StringComparer.Ordinal);
 
         public static void NoteUnresponsiveRecord(string location, int outerSlot, Identity identity)
         {
             if (UnresponsiveRecords.Add(identity + "@" + location + "/" + outerSlot))
-                Logger.Warning("[CityBankers] STALE BAG RECORD " + identity + " at " + location + "/" +
+                Logger.Warning("[CityBankers] UNRESPONSIVE BAG RECORD " + identity + " at " + location + "/" +
                     outerSlot + " did not answer a slot-addressed action; preferring its other record.");
         }
 
@@ -96,20 +88,11 @@ namespace CityBankers
                 .ToList();
         }
 
-        // Inventory.NumFreeSlots is 30 minus the number of RECORDS the client holds
-        // with an inventory slot type, so a stale duplicate subtracts a slot that
-        // is physically free. Add those back: a bag listed twice occupies one slot,
-        // not two, and the difference is the whole reason a banker can believe it
-        // is one slot short of room it already has.
-        public static int PhantomInventoryRecords()
-        {
-            var inventory = AllBagRecords().Where(r => r.Location == "inventory").ToList();
-            return inventory.Count - inventory.Select(r => r.Identity).Distinct().Count();
-        }
-
+        // Repeated identities do not establish that an occupied slot is free.
+        // Use the SDK's conservative slot count until incoming evidence resolves it.
         public static int FreeInventorySlots()
         {
-            return Inventory.NumFreeSlots + PhantomInventoryRecords();
+            return Inventory.NumFreeSlots;
         }
 
         public static List<Identity> DuplicatedIdentities()
@@ -165,9 +148,8 @@ namespace CityBankers
             if (groups.Count == 0) return null;
             return string.Join("; ", groups.Select(g =>
                 g.Key + " listed at " + string.Join(", ", g.Select(r => r.ToString())) +
-                ", keeping " + DistinctBags().First(r => r.Identity == g.Key))) +
-                ". A container identity belongs to exactly one bag, so the extra entries are stale " +
-                "client records. Storage bag entries=" + records.Count +
+                "; physical slot unresolved")) +
+                ". Storage bag entries=" + records.Count +
                 "; distinct identities=" + records.Select(r => r.Identity).Distinct().Count() + ".";
         }
 
@@ -178,10 +160,16 @@ namespace CityBankers
                 .Select(i => new { Location = "bank", Item = i })
                 .Concat((Inventory.Items ?? new List<Item>()).Where(IsNormalInventory)
                     .Select(i => new { Location = "inventory", Item = i })).ToList();
-            // Two different items in one slot is a contradiction the client cannot
-            // resolve. Two records of one uniquely identified item are not: that is
-            // the same physical thing listed twice. Items with no unique identity
-            // cannot be told apart, so a repeated slot among those still stops here.
+            var duplicates = DescribeDuplicates();
+            if (duplicates != null)
+            {
+                error = "Storage layout has repeated container identities. " + duplicates +
+                    " Incoming snapshot evidence is required; no slot will be selected by preference.";
+                return false;
+            }
+            // Repeated storage identities were rejected above. Also reject
+            // contradictory slots for other items; identity-less items cannot
+            // establish that repeated records describe the same physical item.
             var repeatedSlot = outer.GroupBy(x => x.Location + "/" + (x.Item.Slot.Instance & 65535))
                 .FirstOrDefault(g => g.Count() != 1 &&
                     (g.Select(x => x.Item.UniqueIdentity).Distinct().Count() != 1 ||

@@ -635,10 +635,8 @@ namespace CityBankers
             return false;
         }
 
-        // A bag listed at two outer slots is one physical bag whose removal at the
-        // source slot was missed. It no longer stops the census, but it is still
-        // recorded: the audit works from the client's view, and a view that is
-        // wrong about where a bag sits is worth keeping evidence of.
+        // Repeated identities are unresolved layout evidence, not proof of a
+        // missed removal. Preserve the report; validation holds the audit.
         private void ReportDuplicateBagRecords()
         {
             string duplicates = StorageBagPolicy.DescribeDuplicates();
@@ -646,7 +644,7 @@ namespace CityBankers
             if (_duplicateLoggedRun == _auditRun) return;
             _duplicateLoggedRun = _auditRun;
             Logger.Warning("[CityBankers] DUPLICATE BAG RECORD " + _character + ": " + duplicates +
-                " Auditing each bag once and continuing.");
+                " Audit staging is held until the physical layout is unambiguous.");
             AmbiguousBagReport.Write(_settings, _character, _role, duplicates);
         }
 

@@ -58,7 +58,6 @@ namespace CityBankers
 
         public override void Init(string pluginDir)
         {
-            StackableItems.Install();
             CityDwellers.Shared.BuildIdentity.Register();
             Logger.Information("BUILD " + CityDwellers.Shared.BuildIdentity.Label +
                 " | revision=" + CityDwellers.Shared.BuildIdentity.Revision);
@@ -68,6 +67,8 @@ namespace CityBankers
                 throw new InvalidOperationException(settingsError);
 
             _settingsDir = settingsDir;
+            BagOriginTrace.Install(settingsDir);
+            StackableItems.Install();
             try
             {
                 CityDwellers.Shared.ServiceEvents.Start(settingsDir, Client.CharacterName,
@@ -120,6 +121,7 @@ namespace CityBankers
 
         public override void Teardown()
         {
+            BagOriginTrace.Stop();
             ClientlessSessionGuard.Stop();
             CityDwellers.Shared.ServiceEvents.Stop();
             Client.MessageReceived -= MessageReceived;

@@ -62,9 +62,9 @@ namespace CityBankers
                     })
                     .ToList();
 
-                // The container view is the discriminator. A stale outer-item
-                // record has no live container of its own, so comparing the two
-                // listings shows which occurrence the client can still reach.
+                // SDK containers are keyed by identity, so this view cannot
+                // distinguish which outer slot is physical. Preserve it as
+                // context, not proof that a repeated identity is a phantom.
                 var containers = Inventory.Containers == null
                     ? new List<object>()
                     : Inventory.Containers.Where(c => c != null).Select(c => (object)new

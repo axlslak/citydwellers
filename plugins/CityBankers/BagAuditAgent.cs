@@ -216,14 +216,8 @@ namespace CityBankers
             string layoutError;
             if (!StorageBagPolicy.TryValidatePhysicalLayout(out layoutError))
                 throw new InvalidOperationException(layoutError + " Fresh bank evidence is required before an audit.");
-            string duplicates = StorageBagPolicy.DescribeDuplicates();
-            if (duplicates != null)
-                Logger.Warning("[CityBankers] BAG AUDIT sees a bag listed more than once for " +
-                    Client.CharacterName + "; auditing it once. " + duplicates);
-
-            // One entry per container identity. A repeated identity is the same
-            // physical bag, and both records resolve to the same container, so
-            // auditing it twice would only record its contents twice.
+            // Validation above requires unique container identities. Never choose
+            // an arbitrary record when two slots claim the same identity.
             var result = StorageBagPolicy.DistinctBags()
                 .Select(record => SnapshotTarget(record.Location, record.Bag))
                 .ToList();
