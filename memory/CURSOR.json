@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 164,
+  "current_session": 165,
   "last_completed_session": 164,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-164-empty-bag-reserve",
+  "transaction": "session-165-reserve-capacity-policy",
   "checkpoint_commit": "4c47c9a910812ef8a686ce546499ceb65359b23a",
-  "task": "Resolved: Central empty Small Backpack reserve and automatic lost-bag replacement",
-  "resume_instruction": "Reserve implementation published. Owner rebuilds and donates up to ten empty Small Backpacks from Kavem after ready service; bots bank them and replace census-confirmed losses automatically. Initial targets include completed shared-bag shell losses, avoiding theoretical spirit expansion. Observe EMPTY BAG RESERVE logs. No assistant builds or live claims. Prior admission-refresh fix and this reserve remain unverified in live deployment; original duplicate producer remains unknown. Do not request manual bag repairs or rerun resolved experiments.",
-  "base_commit": "0c9f896109dd187ec1252c47484ea49cc02d1798"
+  "task": "Exclude Spirit, allow Central bank filling and repair full-bank worker replacement",
+  "resume_instruction": "Owner live log verifies all nine bankers ready and full successful audits. Explicitly exclude Spirit from reserves, guard repeated Central donations against bank capacity, allow verified empty replacement in worker inventory when bank full. Review recovery lessons; Central spirit overflow is not a simple routing change. No assistant builds/live actions.",
+  "base_commit": "f5fca09c8baccfa32ac0576b286394746a3c6723"
 }
