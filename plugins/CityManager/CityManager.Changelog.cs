@@ -10,7 +10,8 @@ namespace CityManager
         private static readonly string[] ChangelogEntries =
         {
             "created changelog.",
-            "now we have items."
+            "now we have items.",
+            "added command #cru to dispose of one single cru."
         };
 
         private void ProcessChangelogCommand(string[] parts, ReplyTarget target)
