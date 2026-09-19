@@ -87,6 +87,20 @@ namespace CityBankers
         private static List<Address> inventory = new List<Address>(), bank = new List<Address>();
         private static int inventoryCount;
 
+        // Read-only evidence for normal reserve handling. A caller takes the
+        // boundary BEFORE a trade/move, so an automatic contents response is not
+        // discarded just because it arrived before that actor's next tick.
+        internal static long ContainerObservationSequence => sequence;
+        internal static bool TryObserveContainer(Identity identity, long after, out int handle, out int count)
+        {
+            handle = count = 0;
+            View view;
+            if (!installed || epoch == null || bankEpoch != epoch || identity.Type != IdentityType.Container ||
+                !views.TryGetValue(identity.Instance, out view) || view.Sequence <= after) return false;
+            handle = view.Handle; count = view.Items.Count;
+            return true;
+        }
+
         internal static void Install(string directory)
         {
             if (installed) return;

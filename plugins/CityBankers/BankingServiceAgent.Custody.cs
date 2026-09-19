@@ -135,6 +135,8 @@ namespace CityBankers
                 "custody-transactions", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_receiptDirectory);
             _receiptSequence = 0;
+            _reserveReceiptObservationAfter = SharedBagRecovery.ContainerObservationSequence;
+            if (kind == "dispatch-send") BindReserveProofToAttempt(expected, batch, transaction);
             _receipt = new ReceiptEvidence { Kind = kind, TransactionId = transaction,
                 BatchId = batch, Character = Client.CharacterName, Before = PhysicalInventory(), BeforeSlots = PhysicalSlots(),
                 LiveBeforeItems = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory).ToList(),

@@ -1002,6 +1002,7 @@ namespace CityBankers
                 : new List<TransferItemState>();
             string transactionId = _donationTransactionId;
             string donorName = _donationPartnerName;
+            RememberReserveArrival(received);
 
             // This method is entered only after the physical inventory gain is verified.
             // Persist accounting before disposition; logs are diagnostic, not the commit path.
@@ -1775,6 +1776,7 @@ namespace CityBankers
             if (_workerCommand == null)
                 return;
             DispatchCommand command = _workerCommand;
+            RememberReserveArrival(command.Items, command);
             _workerCommand = null;
             _workerAccepted = false;
             RuntimeStateStore.DeleteIfExists(
