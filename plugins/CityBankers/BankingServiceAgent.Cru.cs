@@ -16,6 +16,9 @@ namespace CityBankers
             public string RequestId;
             public Item Source;
             public Item Target;
+            public Item SplitResult;
+            public Identity SplitSlot;
+            public Identity SplitSourceSlot;
             public int Total;
             public int SourceCount;
             public int TargetCount;
@@ -27,7 +30,7 @@ namespace CityBankers
         private readonly Stopwatch _stackFailureAge = Stopwatch.StartNew();
         private bool _cruRecovered;
         private bool _automaticCruStackingEnabled;
-        // Only verified completion clears this latch. Actor readmission must not
+        // Only completed preparation clears this latch. Actor readmission must not
         // retry an uncertain split or merge against potentially stale quantities.
         private static bool _cruPreparationUnverified;
         private static readonly Stopwatch _cruMergeIdleAge = Stopwatch.StartNew();
@@ -160,13 +163,14 @@ namespace CityBankers
                     TellPlayer(next.RequestedBy, "No CRU is available right now."); return false;
                 }
                 if (Inventory.NumFreeSlots == 0) return false;
-                _stackOperation = new StackOperation { RequestId = next.Id, Source = stack,
+                _stackOperation = new StackOperation { RequestId = next.Id, Source = stack, SplitSourceSlot = stack.Slot,
                     SourceCount = StackableItems.Quantity(stack), Total = CruInventory().Sum(StackableItems.Quantity),
                     Before = CruInventory() };
                 Logger.Information("[CityBankers] STACK split one CRU request=" + next.Id + "; source=" + stack.Slot +
                     "; quantity=" + _stackOperation.SourceCount);
                 _cruPreparationUnverified = true;
-                StackableItems.Split(stack, 1);
+                _stackOperation.SplitResult = StackableItems.Split(stack, 1);
+                _stackOperation.SplitSlot = _stackOperation.SplitResult.Slot;
                 return true;
             }
             // Yield between successful merges so normal banking can start. Explicit
@@ -198,14 +202,21 @@ namespace CityBankers
             var current = CruInventory();
             bool known = current.All(i => StackableItems.Quantity(i) > 0);
             bool totalMatches = known && current.Sum(StackableItems.Quantity) == op.Total;
-            Item split = op.Target == null ? current.FirstOrDefault(i => !op.Before.Contains(i) && StackableItems.Quantity(i) == 1) : null;
+            Item split = op.SplitResult;
+            bool exactSplit = Client.InPlay && !Trade.IsTrading &&
+                op.Source.Slot == op.SplitSourceSlot && split != null && current.Contains(split) && !op.Before.Contains(split) &&
+                split.Slot == op.SplitSlot && current.Count(i => i.Slot == op.SplitSlot) == 1 &&
+                StackableItems.Quantity(split) == 1 && split.Id == op.Source.Id &&
+                split.HighId == op.Source.HighId && split.Ql == op.Source.Ql &&
+                current.Count == op.Before.Count + 1 && op.Before.All(current.Contains);
             bool done = op.Target == null
-                ? totalMatches && split != null && current.Contains(op.Source) && StackableItems.Quantity(op.Source) == op.SourceCount - 1
+                ? totalMatches && exactSplit && current.Contains(op.Source) && StackableItems.Quantity(op.Source) == op.SourceCount - 1
                 : totalMatches && current.Contains(op.Source) && !current.Contains(op.Target) &&
                     StackableItems.Quantity(op.Source) == op.SourceCount + op.TargetCount;
             if (done && op.Age.ElapsedMilliseconds >= 500)
             {
-                Logger.Information("[CityBankers] STACK " + (op.Target == null ? "split" : "merge") + " verified; CRU units=" + op.Total);
+                Logger.Information("[CityBankers] STACK " + (op.Target == null
+                    ? "split prepared locally (not server-acknowledged)" : "merge verified") + "; CRU units=" + op.Total);
                 if (split != null) ReadyCru(op.RequestId, split);
                 if (op.Target != null)
                 {
@@ -221,7 +232,7 @@ namespace CityBankers
                 .Select(i => i.Slot + "/" + StackableItems.Quantity(i)));
             _stackFailureAge.Restart();
             if (op.Target != null) StackableItems.CancelMerge(op.Source, op.Target);
-            Logger.Warning("[CityBankers] STACK operation not verified; no quantity inferred. Inventory=" + _lastStackFailure);
+            Logger.Warning("[CityBankers] STACK preparation incomplete; further operations paused. Inventory=" + _lastStackFailure);
             Logger.Warning("[CityBankers] CRU merging and new CRU preparation paused until restart; other banking remains available.");
             if (op.RequestId != null)
             {

@@ -13,9 +13,9 @@ using SmokeLounge.AOtomation.Messaging.GameData;
 
 namespace CityBankers
 {
-    // Clientless 1.0.16 drops InventorySlot.Count/AddTemplate.Count when constructing
-    // Item objects. Keep server quantities beside those objects, without replacing
-    // Clientless's inventory or inferring a successful operation from our request.
+    // Clientless drops inventory counts and native split bookkeeping. Keep counts
+    // beside its Item objects. Merges use matched replies; splits reproduce the
+    // observed native transition locally and are not server acknowledgements.
     internal static class StackableItems
     {
         private const CharacterActionType StackItemsAction = (CharacterActionType)53;
@@ -319,12 +319,34 @@ namespace CityBankers
                 ", N3MessageType=" + packet.N3MessageType + ", Unknown=" + packet.Unknown);
         }
 
-        public static void Split(Item source, int quantity)
+        public static Item Split(Item source, int quantity)
         {
-            if (!IsStack(source) || quantity <= 0 || Quantity(source) <= quantity ||
-                !Client.InPlay || source.Slot.Type != IdentityType.Inventory ||
-                !Inventory.Items.Contains(source) || Inventory.Items.Count(i => i.Slot == source.Slot) != 1)
-                throw new InvalidOperationException("Invalid stack split.");
+            Flush();
+            var items = Inventory.Items as ICollection<Item>;
+            int originalCount = Quantity(source);
+            if (!IsStack(source) || quantity != 1 || originalCount <= quantity ||
+                originalCount > ushort.MaxValue || !Client.InPlay || Client.LocalDynelId == 0 ||
+                Trade.IsTrading || pendingMerge != null || items == null || items.IsReadOnly ||
+                source.UniqueIdentity != Identity.None || source.Slot.Type != IdentityType.Inventory ||
+                !items.Contains(source) || items.Count(i => i.Slot == source.Slot) != 1)
+                throw new InvalidOperationException("Invalid one-unit CRU split.");
+            var before = items.ToList();
+            var slots = before.Select(i => i.Slot).ToList();
+            var beforeCounts = before.Where(IsStack).Select(Quantity).ToList();
+            if (beforeCounts.Any(count => count <= 0) ||
+                before.Where(i => i.Slot.Type == IdentityType.Inventory)
+                    .GroupBy(i => i.Slot).Any(group => group.Count() != 1))
+                throw new InvalidOperationException("Split requires known quantities and unique inventory slots.");
+            // Native-client probes, including fresh-login persistence, place the
+            // new unit in the lowest unused INTERNAL slot, not its visual grid cell.
+            int? free = Enumerable.Range(0x40, 30)
+                .Where(slot => !before.Any(i => i.Slot.Instance == slot))
+                .Select(slot => (int?)slot).FirstOrDefault();
+            if (!free.HasValue) throw new InvalidOperationException("No free inventory slot for split.");
+            var newSlot = new Identity(IdentityType.Inventory, free.Value);
+            // Construct before sending, so a local construction failure cannot
+            // issue an operation which the caller might otherwise retry.
+            var split = new Item(newSlot, Identity.None, source.Id, source.HighId, source.Ql);
             // Keep AOSharp's SplitItem/Target/Parameter2 request layout, but do not
             // inherit the N3 constructor's Unknown=1 header. Owner restart evidence
             // now proves BOTH values split physically; preserve the current sender.
@@ -340,7 +362,22 @@ namespace CityBankers
                 "; requested=" + quantity + "; inventory=" + CruSnapshot());
             try { Client.Send(packet); }
             catch { FinishSplitTrace("send threw"); throw; }
+            // Client.Send returning is not a server acknowledgement. Reproduce
+            // the observed native-client transition only while our frozen state
+            // still matches. On uncertainty the caller's runtime latch stays set.
+            if (!Client.InPlay || Client.LocalDynelId != packet.Identity.Instance || Trade.IsTrading ||
+                !ReferenceEquals(items, Inventory.Items) || items.Count != before.Count ||
+                before.Where((item, index) => !items.Contains(item) || item.Slot != slots[index]).Any() ||
+                !before.Where(IsStack).Select(Quantity).SequenceEqual(beforeCounts))
+                throw new InvalidOperationException("Inventory changed during split send; preparation paused.");
+            Set(split, quantity);
+            items.Add(split);
+            Set(source, originalCount - quantity);
             LogStackAction("SENT", packet);
+            Logger.Information("[CityBankers] STACK split applied locally; source=" + source.Slot +
+                "; remaining=" + Quantity(source) + "; new slot=" + split.Slot +
+                "; quantity=" + quantity + "; no server acknowledgement expected.");
+            return split;
         }
         private static void ObserveMerge(CharacterActionMessage action)
         {
