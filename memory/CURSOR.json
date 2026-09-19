@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 161,
-  "last_completed_session": 160,
-  "status": "in_progress",
+  "last_completed_session": 161,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-161-recovery-reconnect-churn",
-  "checkpoint_commit": "008e33e17e137875cc75f25c869b18c134a37235",
-  "task": "Correct unnecessary recovery reconnect and peer audit disruption",
-  "resume_instruction": "Owner live log shows initial deliberate reconnects supersede peer audits; later support staging uses further deliberate reconnects. Remove redundant initial confirmation when raw/native layouts agree; isolate planned pre-census disconnects; expose action/open progress. Do not claim evacuation complete or infer why Artillery has not progressed. No builds/live actions.",
+  "checkpoint_commit": "c7128fbec9d1c86bfb20b78b4ebb12984ef2e1cd",
+  "task": "Recovery reconnect churn corrections published; physical outcome unverified",
+  "resume_instruction": "Owner log shows deliberate initial/staging reconnects, healthy audit supersession, and one verified Support stage, but no completed evacuation. Published redundant initial confirmation removal, planned pre-census disconnect isolation and action/open progress. Outer moves still reconnect for evidence. Owner rebuilds normally; inspect subsequent recovery progress for Artillery wait and actual outcome. Do not claim server instability or physical repair. No assistant builds.",
   "base_commit": "59adf3a9e74b5b0902b446aa25aa4ffe32ccf21f"
 }
