@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 151,
+  "current_session": 152,
   "last_completed_session": 151,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-151-review-corrections",
+  "transaction": "session-152-isolated-census-readmission",
   "checkpoint_commit": "ab574f33ffbfd5245d8dd2de86b0f6ff4a164c91",
-  "task": "Four reviewed bag and org echo regressions corrected and published",
-  "resume_instruction": "Session 151 corrections published; owner builds/live-tests. Preserve Claude census/build/journal fixes. Remaining separate tasks: persisted duplicate stock/donor attribution, SDK duplicate creation, second-audit container freshness. No runtime data repaired. Next journal seq354.",
-  "base_commit": "0d64731466884eab1ce8fdedbe20fbc48629a378"
+  "task": "Stop failed banker retries from restarting healthy census members",
+  "resume_instruction": "New owner log: four workers each fail one bag open, all bank returns complete; five released members restart when a rejected worker rejoins after 60s. Implement reserved per-worker readmission using existing scoped local reconciliation, preserve current released cycle, and expose bag-open failure evidence. Do not infer exact open failure cause from aggregate console. No builds/live tests.",
+  "base_commit": "80545637d0c35223d45239a1e2ac42abe994fb58"
 }
