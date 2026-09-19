@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 174,
-  "last_completed_session": 173,
-  "status": "in_progress",
+  "last_completed_session": 174,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-174-probe-build-isolation",
-  "checkpoint_commit": "ce44641c6ac1ee6f65dc41e19cc142b65cef423c",
-  "task": "Isolate standalone probe from repository build imports",
-  "resume_instruction": "Add local Directory.Build.props/targets boundaries to stop inherited City Dwellers source/package/build-stamp imports. Owner reported duplicate assembly informational version. No compilation per owner boundary.",
+  "checkpoint_commit": "bbd15ad41fff072d94d062f129cc1d8ea91cf029",
+  "task": "Probe build isolation fixed",
+  "resume_instruction": "Owner pull master, Clean/Rebuild standalone CruSplitProbe with local Directory.Build.props and targets present and matching AOSharp DLLs. Then same two one-unit manual splits and relog snapshot. No builds/tests here; actual banker split recognition open.",
   "base_commit": "f2ccfecdc0625a73fbba3c6f8eeb903be5709c01"
 }
