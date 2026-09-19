@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 168,
+  "current_session": 169,
   "last_completed_session": 168,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-168-org-blob-setting",
+  "transaction": "session-169-cru-merge-response",
   "checkpoint_commit": "39a0168ca58d0a473125744aac46afbd195f5204",
-  "task": "Resolved: owner-controlled organization blob size restored",
-  "resume_instruction": "Session168 complete. OrgBlobPageSize=5200 is editable in Presentation; automatic calibration and persistence removed. Delivery health/transport fixes retained. No active implementation task; await owner direction. Owner builds/live-tests; no assistant compilation.",
-  "base_commit": "ac9cb10cca9119db2abf27fafda3a10daa0a32b0"
+  "task": "Apply proven CRU action53 response to live inventory and verify merge",
+  "resume_instruction": "Owner run sent/received matching action53 for1+52; stale cache timed out. Restart proves53+eight singles=61. Preserve proven send packet; inspect supplied source for response semantics, update exact operation-bound cache once and verify conservation. Keep default-off/one-attempt diagnostic policy until owner run. No builds/live actions. Org replies also owner-confirmed delivered at4873 bytes.",
+  "base_commit": "c313107c15b2c6eb696ac993c2480397d17eb07b"
 }
