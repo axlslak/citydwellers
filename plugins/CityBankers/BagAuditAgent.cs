@@ -329,7 +329,8 @@ namespace CityBankers
                     return;
                 }
 
-                Item bankItem = FindBankItem(_current.UniqueIdentity);
+                Item bankItem = FindBankItems(_current.UniqueIdentity).SingleOrDefault(item =>
+                    item.Slot.Instance == _current.OriginalOuterSlotInstance);
                 if (bankItem == null)
                 {
                     AbortCurrentBeforeOpen(
@@ -357,7 +358,8 @@ namespace CityBankers
                 return;
             }
 
-            Item inventoryItem = FindInventoryItem(_current.UniqueIdentity);
+            Item inventoryItem = FindInventoryItems(_current.UniqueIdentity).SingleOrDefault(item =>
+                item.Slot.Instance == _current.OriginalOuterSlotInstance);
             if (inventoryItem == null)
             {
                 AbortCurrentBeforeOpen(
@@ -453,7 +455,9 @@ namespace CityBankers
 
         private void BeginReturnToBank(BagAuditEntry entry)
         {
-            Item inventoryItem = FindInventoryItem(_current.UniqueIdentity);
+            // Return the slot actually opened, never another record of this identity.
+            Item inventoryItem = FindInventoryItems(_current.UniqueIdentity).SingleOrDefault(item =>
+                item.Slot.Instance == _currentStagedInventorySlotInstance);
             if (inventoryItem == null)
             {
                 entry.Error = AppendError(
@@ -688,8 +692,8 @@ namespace CityBankers
         {
             var before = bank ? _preMoveBankSlots : _preMoveInventorySlots;
             var candidates = (bank ? FindBankItems(identity) : FindInventoryItems(identity)).ToList();
-            return candidates.FirstOrDefault(item => !before.Contains(item.Slot.Instance)) ??
-                candidates.FirstOrDefault();
+            var arrivals = candidates.Where(item => !before.Contains(item.Slot.Instance)).ToList();
+            return arrivals.Count == 1 ? arrivals[0] : null;
         }
 
         private static IEnumerable<int> OccurrenceSlots(Identity identity, bool bank)
@@ -725,11 +729,6 @@ namespace CityBankers
         private static Item FindBankItem(Identity identity)
         {
             return FindBankItems(identity).FirstOrDefault();
-        }
-
-        private static Item FindInventoryItem(Identity identity)
-        {
-            return FindInventoryItems(identity).FirstOrDefault();
         }
 
         private static Container FindContainer(Identity identity)

@@ -39,10 +39,7 @@ namespace CityBankers
             public override string ToString() { return Location + "/" + OuterSlot; }
         }
 
-        // Every outer storage record the client currently lists, in the client's
-        // own order. That order carries information: a record the client adds for
-        // a move is appended, so within one identity the later record is the newer
-        // one. Callers that want a walk order sort afterwards.
+        // Every outer storage record. List order does not prove physical location.
         public static List<BagRecord> AllBagRecords()
         {
             var records = new List<BagRecord>();
@@ -59,8 +56,8 @@ namespace CityBankers
         // record for the same identity is a stale client entry, not another bag.
         // The bot's own bag moves create them: when the client misses the removal
         // at the source slot, the record it adds at the destination is an extra.
-        // Both records resolve to the same container, so working from either one
-        // reaches the same physical bag; enumerate once and keep the order stable.
+        // Both records name the same container, but actions address their slots.
+        // Deduplication must not be mistaken for proof of which slot is live.
         // A record that was sent a slot-addressed action and produced no change at
         // all. Item.Use and the moves built on it carry the item's Slot, so an
         // action aimed at a stale record is a no-op: silence is evidence that the
@@ -86,7 +83,7 @@ namespace CityBankers
             return AllBagRecords()
                 .GroupBy(r => r.Identity)
                 // Deterministic, so the choice cannot change between two audits of
-                // the same layout: a record proven unresponsive is never chosen,
+                // the same layout: a record marked unresponsive is deprioritized,
                 // then bank before inventory, then the lowest slot. Nothing in the
                 // client's listing distinguishes a live record from a stale one, so
                 // the only thing that earns a preference is having answered.
@@ -124,15 +121,17 @@ namespace CityBankers
                 .ToList();
         }
 
-        // Resolving a bag by identity must land on the record the deduplication
-        // kept. A plain FirstOrDefault over the client's listing returns whichever
-        // record happens to be first, and the client reorders as bags move, so the
-        // same lookup can answer differently one minute apart.
+        // Prefer a stable record within the requested location. Callers verifying
+        // a move must additionally compare against evidence captured before it.
         public static Item PreferredRecord(string identityText, string location)
         {
-            return DistinctBags()
+            // Scope before choosing: a bank ghost must not hide an inventory
+            // arrival (or vice versa). Preference alone is not move evidence.
+            return AllBagRecords()
                 .Where(r => r.Location == location &&
                     string.Equals(r.Identity.ToString(), identityText, StringComparison.Ordinal))
+                .OrderBy(r => IsUnresponsive(r) ? 1 : 0)
+                .ThenBy(r => r.OuterSlot)
                 .Select(r => r.Bag)
                 .FirstOrDefault();
         }

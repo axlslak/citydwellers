@@ -114,10 +114,14 @@ namespace CityManager
         private string _lastOrgChannelName;
         private DateTime? _lastOrgChannelObservedUtc;
         private bool _orgOutboundDegraded;
-        private string _pendingOrgEchoText;
-        private string _pendingOrgEchoRoute;
-        private long _pendingOrgEchoStamp;
-        private int _pendingOrgEchoLength;
+        private readonly List<PendingOrgEcho> _pendingOrgEchoes = new List<PendingOrgEcho>();
+        private sealed class PendingOrgEcho
+        {
+            public string Text, Route;
+            public long Stamp;
+            public int Length, ChannelId;
+            public uint SenderId;
+        }
         // The organization channel's real byte ceiling is not documented and is
         // not ours to guess. Echo confirmation already proves delivery, so the
         // bounds are learned: the largest length the chat server echoed back and
@@ -333,7 +337,7 @@ namespace CityManager
 
                 RememberOrganizationChannel(msg.ChannelId, msg.ChannelName);
                 // Our own reply coming back is the only proof it was delivered.
-                ObserveOrgEcho(msg.Message);
+                ObserveOrgEcho(msg);
                 ObserveAltPresenceAnnouncement(msg.SenderName, msg.Message);
                 string cityMessage;
                 bool nativeCityEvent = CityExtendedMessageParser.TryDecodeNative(msg, out cityMessage);
@@ -1709,8 +1713,7 @@ namespace CityManager
                 _lastOrgOutboundAttemptUtc = DateTime.UtcNow;
             }
 
-            // Retire a previous send that was never echoed back before starting
-            // another one.
+            // Expire old attempts without overwriting other pages still in flight.
             ObserveOrgEcho(null);
 
             // [CORRECTION] Organization chat is SENT on the game connection and
@@ -1746,14 +1749,16 @@ namespace CityManager
             string detail = statDetail + "; Client.OrgId=" + Client.OrgId +
                 "; observedChannel=" + (channelId == null ? "none" : channelId.ToString()) +
                 "; orgName=" + (Client.OrgName ?? "none") +
-                "; len=" + (text == null ? 0 : text.Length);
+                "; bytes=" + Encoding.UTF8.GetByteCount(text ?? string.Empty);
 
             if (clanStat > 0)
             {
+                PendingOrgEcho pending = null;
                 try
                 {
+                    // Register before writing: an immediate echo must find its attempt.
+                    pending = NoteOrgEchoPending("Client.SendOrgMessage", text, clanStat);
                     Client.SendOrgMessage(text, false);
-                    NoteOrgEchoPending("Client.SendOrgMessage", text);
                     SetOrgOutboundHealth(false, "Client.SendOrgMessage (" + detail + ")");
                     Logger.Information(
                         "Org reply submitted through AOSharp.Clientless.Client.SendOrgMessage; " +
@@ -1762,6 +1767,7 @@ namespace CityManager
                 }
                 catch (Exception ex)
                 {
+                    ForgetOrgEcho(pending);
                     detail += "; SendOrgMessage threw " + ex.Message;
                 }
             }
@@ -1777,18 +1783,16 @@ namespace CityManager
             string directDetail;
             if (TrySendDirectGroupMessage(channelId, text, out directDetail))
             {
-                NoteOrgEchoPending("raw game-connection GroupMsgMessage", text);
-                // Deliberately reported as degraded rather than delivered. The
-                // game connection neither acknowledges nor carries org chat, so
-                // this attempt is unverified until an echo proves otherwise.
+                // Both routes send on the game connection. Delivery remains
+                // unverified until the corresponding chat echo arrives.
                 SetOrgOutboundHealth(
                     true,
                     "unverified raw org-channel attempt via " +
                     (channelName ?? "remembered organization channel") +
                     " (" + directDetail + "; " + detail + ")");
                 Logger.Warning(
-                    "Organization reply attempted on the raw game-connection route, which " +
-                    "cannot be confirmed: " + directDetail + "; " + detail);
+                    "Organization reply submitted on the raw game-connection route; " +
+                    "awaiting echo: " + directDetail + "; " + detail);
                 DevTrace("ORG SEND UNVERIFIED: " + directDetail + "; " + detail);
                 return true;
             }
@@ -1800,15 +1804,23 @@ namespace CityManager
             return false;
         }
 
-        private void NoteOrgEchoPending(string route, string text)
+        private PendingOrgEcho NoteOrgEchoPending(string route, string text, int channelId)
         {
-            lock (_orgOutputSync)
+            var pending = new PendingOrgEcho
             {
-                _pendingOrgEchoText = text;
-                _pendingOrgEchoRoute = route;
-                _pendingOrgEchoStamp = Stopwatch.GetTimestamp();
-                _pendingOrgEchoLength = text == null ? 0 : text.Length;
-            }
+                Text = text ?? string.Empty, Route = route,
+                Stamp = Stopwatch.GetTimestamp(),
+                Length = Encoding.UTF8.GetByteCount(text ?? string.Empty),
+                ChannelId = channelId, SenderId = Client.Chat == null ? 0 : Client.Chat.CharId
+            };
+            lock (_orgOutputSync) _pendingOrgEchoes.Add(pending);
+            return pending;
+        }
+
+        private void ForgetOrgEcho(PendingOrgEcho pending)
+        {
+            if (pending == null) return;
+            lock (_orgOutputSync) _pendingOrgEchoes.Remove(pending);
         }
 
         // Probe midway between the largest confirmed delivery and the smallest
@@ -1859,7 +1871,8 @@ namespace CityManager
                 if (_orgCalibrationPath == null || !File.Exists(_orgCalibrationPath)) return;
                 var saved = JsonConvert.DeserializeObject<OrgSizeCalibration>(
                     File.ReadAllText(_orgCalibrationPath));
-                if (saved == null || saved.SafeLength <= 0 || saved.FailLength <= saved.SafeLength) return;
+                if (saved == null || saved.Version != 2 || saved.SafeLength <= 0 ||
+                    saved.FailLength <= saved.SafeLength) return;
                 lock (_orgOutputSync)
                 {
                     _orgSafeLength = saved.SafeLength;
@@ -1879,11 +1892,13 @@ namespace CityManager
             try
             {
                 if (_orgCalibrationPath == null) return;
-                int safe, fail;
-                lock (_orgOutputSync) { safe = _orgSafeLength; fail = _orgFailLength; }
-                File.WriteAllText(_orgCalibrationPath, JsonConvert.SerializeObject(
-                    new OrgSizeCalibration { SafeLength = safe, FailLength = fail, UpdatedUtc = DateTime.UtcNow },
-                    Formatting.Indented));
+                // Echoes and expiry can arrive on different callbacks. Serialize
+                // snapshots and atomically replace so an older save cannot win.
+                lock (_orgOutputSync)
+                    FileSnapshot.WriteText(_orgCalibrationPath, JsonConvert.SerializeObject(
+                        new OrgSizeCalibration { Version = 2, SafeLength = _orgSafeLength,
+                            FailLength = _orgFailLength, UpdatedUtc = DateTime.UtcNow },
+                        Formatting.Indented));
             }
             catch (Exception ex)
             {
@@ -1893,66 +1908,47 @@ namespace CityManager
 
         private sealed class OrgSizeCalibration
         {
+            public int Version;
             public int SafeLength;
             public int FailLength;
             public DateTime UpdatedUtc;
         }
 
-        // An organization reply is only proven delivered when the chat server
-        // sends it back. Pass the observed org text, or null to age out a
-        // pending send. This reports evidence; it never retries or blocks.
-        private void ObserveOrgEcho(string observedText)
+        // Match exactly one pending attempt by sender, channel and complete text.
+        // Shared markup prefixes cannot identify a page. Unmatched/decorated text
+        // is not delivery evidence and must never raise the learned safe bound.
+        private void ObserveOrgEcho(GroupMsg observed)
         {
-            string route;
-            bool confirmed = false;
-            bool expired = false;
-            int length;
-
+            PendingOrgEcho confirmed = null;
+            List<PendingOrgEcho> expired;
             lock (_orgOutputSync)
             {
-                if (_pendingOrgEchoText == null)
-                    return;
-
-                route = _pendingOrgEchoRoute;
-                length = _pendingOrgEchoLength;
-                string expected = _pendingOrgEchoText.Trim();
-                string observed = observedText == null ? null : observedText.Trim();
-
-                if (!string.IsNullOrEmpty(observed) && expected.Length != 0)
+                if (observed != null)
                 {
-                    int prefix = Math.Min(32, expected.Length);
-                    // A prefix comparison tolerates server-side decoration of
-                    // blob replies without matching an unrelated message.
-                    confirmed = string.Equals(observed, expected, StringComparison.Ordinal) ||
-                        observed.StartsWith(expected.Substring(0, prefix), StringComparison.Ordinal);
+                    confirmed = _pendingOrgEchoes.FirstOrDefault(p => p.SenderId != 0 &&
+                        p.SenderId == observed.SenderId && p.ChannelId == observed.ChannelId &&
+                        string.Equals(p.Text, observed.Message, StringComparison.Ordinal));
+                    if (confirmed != null) _pendingOrgEchoes.Remove(confirmed);
                 }
-
-                if (!confirmed)
-                    expired = Stopwatch.GetTimestamp() - _pendingOrgEchoStamp >
-                        Stopwatch.Frequency * 15;
-
-                if (confirmed || expired)
-                {
-                    _pendingOrgEchoText = null;
-                    _pendingOrgEchoRoute = null;
-                }
+                long now = Stopwatch.GetTimestamp();
+                expired = _pendingOrgEchoes.Where(p => now - p.Stamp > Stopwatch.Frequency * 15).ToList();
+                foreach (var pending in expired) _pendingOrgEchoes.Remove(pending);
             }
-
-            if (confirmed)
+            foreach (var pending in expired)
             {
-                SetOrgOutboundHealth(false, "delivery confirmed by observed echo via " + route);
-                Logger.Information("ORG DELIVERY CONFIRMED via " + route + "; len=" + length + ".");
-                DevTrace("ORG ECHO CONFIRMED via " + route + " len=" + length);
-                RecordOrgDelivery(length, true);
+                SetOrgOutboundHealth(true, "no observed echo within 15s via " + pending.Route);
+                Logger.Warning("ORG DELIVERY UNCONFIRMED: no echo observed within 15s via " +
+                    pending.Route + "; bytes=" + pending.Length + ".");
+                DevTrace("ORG ECHO MISSING via " + pending.Route + " bytes=" + pending.Length);
+                RecordOrgDelivery(pending.Length, false);
             }
-            else if (expired)
+            if (confirmed != null)
             {
-                SetOrgOutboundHealth(true, "no observed echo within 15s via " + route);
-                Logger.Warning(
-                    "ORG DELIVERY UNCONFIRMED: no echo observed within 15s via " + route +
-                    "; len=" + length + ".");
-                DevTrace("ORG ECHO MISSING via " + route + " len=" + length);
-                RecordOrgDelivery(length, false);
+                SetOrgOutboundHealth(false, "delivery confirmed by observed echo via " + confirmed.Route);
+                Logger.Information("ORG DELIVERY CONFIRMED via " + confirmed.Route +
+                    "; bytes=" + confirmed.Length + ".");
+                DevTrace("ORG ECHO CONFIRMED via " + confirmed.Route + " bytes=" + confirmed.Length);
+                RecordOrgDelivery(confirmed.Length, true);
             }
         }
 
@@ -1965,6 +1961,7 @@ namespace CityManager
             if (channelId == null)
                 return false;
 
+            PendingOrgEcho pending = null;
             try
             {
                 int observedChannelId = Convert.ToInt32(
@@ -1976,6 +1973,7 @@ namespace CityManager
                     return false;
                 }
 
+                pending = NoteOrgEchoPending("raw game-connection GroupMsgMessage", text, observedChannelId);
                 Client.Send(
                     new GroupMsgMessage
                     {
@@ -1991,6 +1989,7 @@ namespace CityManager
             }
             catch (Exception ex)
             {
+                ForgetOrgEcho(pending);
                 detail = "raw org-channel send failed: " + ex.Message;
                 return false;
             }
@@ -2640,6 +2639,7 @@ namespace CityManager
 
         private void Tick(object sender, double e)
         {
+            ObserveOrgEcho(null);
             TickTellQueue();
             TryInviteDeveloper();
             TickMembership();

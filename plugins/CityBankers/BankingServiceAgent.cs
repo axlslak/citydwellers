@@ -1836,6 +1836,7 @@ namespace CityBankers
                 : null;
             _storageJob.Bag = bag;
             _storageJob.BagLiveIdentity = null;
+            _storageJob.ReturnBankSlots = null;
             _storageJob.InnerSlot = -1;
             if (string.Equals(bag.Source, "bank", StringComparison.OrdinalIgnoreCase))
             {
@@ -1938,6 +1939,15 @@ namespace CityBankers
                         }
                         _storageJob.Phase = StoragePhase.ReturningBag;
                         SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
+                        // Snapshot primitive counts before sending. A cached bank
+                        // record at the expected slot is not proof of this return.
+                        _storageJob.ReturnBankSlots = StorageBagPolicy.AllRecordsFor(
+                            _storageJob.BagLiveIdentity, "bank")
+                            .GroupBy(b => b.Slot.Instance).ToDictionary(g => g.Key, g => g.Count());
+                        var beforeReturn = StorageBagPolicy.AllRecordsFor(_storageJob.BagLiveIdentity, "inventory");
+                        _storageJob.ReturnInventoryCount = beforeReturn.Count;
+                        _storageJob.ReturnSourceSlot = liveBag.Slot.Instance;
+                        _storageJob.ReturnSourceCount = beforeReturn.Count(b => b.Slot.Instance == liveBag.Slot.Instance);
                         liveBag.MoveToBank();
                         return;
                     }
@@ -1951,26 +1961,34 @@ namespace CityBankers
 
         private void ProcessStorageBagReturn()
         {
-            // Ask every record of this bag, not one of them. Comparing a single
-            // arbitrarily chosen record's slot stopped a banker on a bag that had
-            // in fact returned: the lookup answered with the bag's other record,
-            // at bank/92, while the job expected bank/1 and a record did sit there.
+            // Require exactly one new destination occurrence and the departure
+            // of the addressed inventory occurrence. Existing ghosts cannot
+            // satisfy either side of this operation's evidence.
             var bankRecords = StorageBagPolicy.AllRecordsFor(_storageJob.BagLiveIdentity, "bank");
-            if (bankRecords.Count != 0)
+            var inventoryRecords = StorageBagPolicy.AllRecordsFor(_storageJob.BagLiveIdentity, "inventory");
+            var before = _storageJob.ReturnBankSlots;
+            if (before == null)
             {
-                if (bankRecords.Any(item => item.Slot.Instance == _storageJob.Bag.OuterSlotInstance))
+                FailStorageJob("Bank return has no pre-move evidence; stopping for reconciliation.");
+                return;
+            }
+            var after = bankRecords.GroupBy(b => b.Slot.Instance).ToDictionary(g => g.Key, g => g.Count());
+            var arrivals = after.Where(p => p.Value == (before.ContainsKey(p.Key) ? before[p.Key] : 0) + 1).ToList();
+            bool unchangedOthers = before.Keys.Concat(after.Keys).Distinct().All(slot =>
+                arrivals.Any(a => a.Key == slot) ||
+                (before.ContainsKey(slot) ? before[slot] : 0) == (after.ContainsKey(slot) ? after[slot] : 0));
+            if (arrivals.Count == 1 && unchangedOthers &&
+                inventoryRecords.Count == _storageJob.ReturnInventoryCount - 1 &&
+                inventoryRecords.Count(b => b.Slot.Instance == _storageJob.ReturnSourceSlot) == _storageJob.ReturnSourceCount - 1)
+            {
+                if (arrivals[0].Key == _storageJob.Bag.OuterSlotInstance)
                 {
                     CommitStoredItem();
                     return;
                 }
                 FailStorageJob(
-                    "Bank bag returned to unexpected outer slot " + bankRecords[0].Slot.Instance +
+                    "Bank bag returned to unexpected outer slot " + arrivals[0].Key +
                     " instead of " + _storageJob.Bag.OuterSlotInstance +
-                    (bankRecords.Count == 1
-                        ? string.Empty
-                        : "; the client lists " + bankRecords.Count + " records for this bag at " +
-                          string.Join(", ", bankRecords.Select(item => item.Slot.Instance.ToString())) +
-                          " and none is the expected slot") +
                     "; stopping for reconciliation.");
                 return;
             }
@@ -2040,6 +2058,7 @@ namespace CityBankers
             _storageJob.Expected = null;
             _storageJob.Bag = null;
             _storageJob.BagLiveIdentity = null;
+            _storageJob.ReturnBankSlots = null;
             _storageJob.ActualItemIdentity = null;
             _storageJob.ObservedStoredItemIdentity = null;
             _storageJob.InnerSlot = -1;
@@ -2975,6 +2994,10 @@ namespace CityBankers
             public TransferItemState Expected;
             public StorageBagState Bag;
             public string BagLiveIdentity;
+            public Dictionary<int, int> ReturnBankSlots;
+            public int ReturnInventoryCount;
+            public int ReturnSourceSlot;
+            public int ReturnSourceCount;
             public string ActualItemIdentity;
             public string ObservedStoredItemIdentity;
             public int InnerSlot;
