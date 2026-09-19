@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 159,
-  "last_completed_session": 158,
-  "status": "in_progress",
+  "last_completed_session": 159,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-159-autonomous-shared-bag-recovery",
-  "checkpoint_commit": "0e180f1817fa0a88faa550227d9282944efe43cc",
-  "task": "Implement autonomous shared-bag evacuation and empty-shell recovery",
-  "resume_instruction": "Owner explicitly authorizes bot-operated evacuation, empty bag bank/social-back trials and last-resort empty-shell deletion; proven duplicate item disposal permitted, but no inference from template equality. Implement persistent recovery under quiesced census ownership, fresh response accounting, automatic reconnect observation, crash reconciliation and donor provenance. No builds/live AO per owner policy.",
+  "checkpoint_commit": "81bcaca68fceecd3fd97b9de0c3335167c36ab93",
+  "task": "Autonomous shared-bag recovery implemented and published; historical origin remains unproven",
+  "resume_instruction": "Implementation resolved and published. Owner rebuilds/deploys normally; recovery runs under census ownership and records its own outcomes. Do not ask for manual slot moves or unavailable old captures. Historical reference creation remains unproven; if owner reports an issue, inspect recovery journal and census evidence without treating a code change as live repair or loosening destructive preconditions.",
   "base_commit": "b436a88743b263aca7c6144739f9fb63aa508f17"
 }
