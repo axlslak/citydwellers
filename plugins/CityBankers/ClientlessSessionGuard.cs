@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
+using System.Linq;
+using AOSharp.Common.GameData;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using SmokeLounge.AOtomation.Messaging.Messages;
@@ -23,11 +25,13 @@ namespace CityBankers
         private static int _suppressed;
         private static bool _faultReported;
         internal static bool BankCacheTrusted { get; private set; } = true;
+        internal static bool CensusRefreshPending { get; private set; }
 
         internal static void Install()
         {
             if (_installed) return;
             _installed = true;
+            CensusRefreshPending = false;
             _setCharacterId = typeof(Client).GetProperty("LocalDynelId")?.GetSetMethod(true);
             Client.Disconnected += Disconnected;
             Client.MessageReceived += MessageReceived;
@@ -50,6 +54,28 @@ namespace CityBankers
         }
 
         private static void BindOnUpdate(object sender, double delta) => TryBind();
+
+        // Only the quiesced startup/readmission gate calls this, before issuing
+        // any audit command. Do not change paired custody protocols here.
+        internal static bool PrepareCensusConnection()
+        {
+            if (CensusRefreshPending) return false;
+            if (!Client.InPlay || Trade.IsTrading || !Inventory.Bank.IsOpen) return false;
+            var inventoryBags = Inventory.Items.Where(item => item != null &&
+                item.Slot.Type == IdentityType.Inventory && item.Id == StorageBagPolicy.SmallBackpackId)
+                .Select(item => item.UniqueIdentity).ToList();
+            int opened = Inventory.Containers.Count(container => container != null && container.IsOpen &&
+                inventoryBags.Contains(container.Identity));
+            if (opened == 0) return true;
+            // FullCharacter replaces the SDK container collection. A new audit
+            // can then receive its first contents reply without toggling old views.
+            Logger.Information("[CityBankers] CENSUS intentional pre-audit reconnect; previously opened inventory bags=" +
+                opened + ". Refresh once before collecting; no cached contents accepted as new evidence.");
+            CensusRefreshPending = true;
+            try { ReconnectForBagRecovery(); }
+            catch { CensusRefreshPending = false; throw; }
+            return false;
+        }
 
         internal static void ReconnectForBagRecovery()
         {
@@ -135,6 +161,7 @@ namespace CityBankers
 
         private static void MessageReceived(object sender, Message message)
         {
+            if (message?.Body is FullCharacterMessage) CensusRefreshPending = false;
             // Clientless invokes this event before its native Bank callback.
             // BankMessage is a complete snapshot; 1.0.16 RegisterItems appends
             // without clearing, including after reconnect in the same domain.

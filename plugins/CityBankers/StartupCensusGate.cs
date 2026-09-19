@@ -283,7 +283,8 @@ namespace CityBankers
         {
             // Recovery owns a quiesced banker and has not issued its census.
             // Its planned verification reconnect can withdraw just this member.
-            bool plannedPreCensus = SharedBagRecovery.PlannedReconnect && _quiesced && !_issued && !_finished;
+            bool plannedPreCensus = (SharedBagRecovery.PlannedReconnect || ClientlessSessionGuard.CensusRefreshPending) &&
+                _quiesced && !_issued && !_finished;
             try { RetireAdmission(); }
             catch (Exception ex) { Logger.Error("[CityBankers] Admission cleanup on disconnect: " + ex.Message); }
             _stagingBag = _stagingFailureLayout = _stagingBeforeLayout = null;
@@ -344,7 +345,7 @@ namespace CityBankers
                     Logger.Information("[CityBankers] " + MemberCharacter +
                         " unavailable; healthy census retained. " +
                         (_idleReconnectCycle != null ? "Idle reconnect will validate inventory without a bag audit." :
-                        plannedPreCensus ? "Planned bag verification; withdraw this banker without restarting peer audits." :
+                        plannedPreCensus ? "Planned recovery/census refresh; withdraw this banker without restarting peer audits." :
                             "Connection was outside the current census roster."));
             }
             catch (Exception ex)
@@ -474,6 +475,7 @@ namespace CityBankers
                     if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                     if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
                     if (SharedBagRecovery.Tick()) { _signature = null; _settled.Restart(); return; }
+                    if (!ClientlessSessionGuard.PrepareCensusConnection()) return;
                     ReportSmallBackpackCapacity();
                     ReportDuplicateBagRecords();
                     if (!PrepareAuditStagingSlot()) return;
@@ -850,6 +852,7 @@ namespace CityBankers
                 if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                 if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
                 if (SharedBagRecovery.Tick()) { _signature = null; _settled.Restart(); return; }
+                if (!ClientlessSessionGuard.PrepareCensusConnection()) return;
                 ReportSmallBackpackCapacity();
                 ReportDuplicateBagRecords();
                 if (!PrepareAuditStagingSlot()) return;
