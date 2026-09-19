@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 165,
-  "last_completed_session": 164,
-  "status": "in_progress",
+  "last_completed_session": 165,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-165-reserve-capacity-policy",
-  "checkpoint_commit": "4c47c9a910812ef8a686ce546499ceb65359b23a",
-  "task": "Exclude Spirit, allow Central bank filling and repair full-bank worker replacement",
-  "resume_instruction": "Owner live log verifies all nine bankers ready and full successful audits. Explicitly exclude Spirit from reserves, guard repeated Central donations against bank capacity, allow verified empty replacement in worker inventory when bank full. Review recovery lessons; Central spirit overflow is not a simple routing change. No assistant builds/live actions.",
+  "checkpoint_commit": "66801c676a7f189d49682b7e768428007bbe0567",
+  "task": "Resolved: full-bank worker replacement, Spirit exclusion and first-refresh cooldown",
+  "resume_instruction": "Owner run verifies complete audits and nine ready bankers after shared-bag recovery. Published explicit Spirit reserve exclusion, capacity-limited repeated Central bag donations and inventory placement for a worker with full bank. First read-refresh cooldown ends after consistent reconnect; repeated failures retain backoff. Owner rebuilds and donates empty bags; no assistant builds/live testing. Central spirit overflow is separate nontrivial routing/withdrawal work, not enabled. Original duplicate producer remains unknown.",
   "base_commit": "f5fca09c8baccfa32ac0576b286394746a3c6723"
 }
