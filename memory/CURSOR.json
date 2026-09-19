@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 165,
+  "current_session": 166,
   "last_completed_session": 165,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-165-reserve-capacity-policy",
+  "transaction": "session-166-reserve-read-proof",
   "checkpoint_commit": "66801c676a7f189d49682b7e768428007bbe0567",
-  "task": "Resolved: full-bank worker replacement, Spirit exclusion and first-refresh cooldown",
-  "resume_instruction": "Owner run verifies complete audits and nine ready bankers after shared-bag recovery. Published explicit Spirit reserve exclusion, capacity-limited repeated Central bag donations and inventory placement for a worker with full bank. First read-refresh cooldown ends after consistent reconnect; repeated failures retain backoff. Owner rebuilds and donates empty bags; no assistant builds/live testing. Central spirit overflow is separate nontrivial routing/withdrawal work, not enabled. Original duplicate producer remains unknown.",
-  "base_commit": "f5fca09c8baccfa32ac0576b286394746a3c6723"
+  "task": "Correct reserve contents observation and confine read retries",
+  "resume_instruction": "Owner keeps bots on and pauses donations. Latest one-bag log has Central and Support opening timeouts with global audits; Support ultimately110, Artillery119. Track wire contents from before receipt/move, preserve sender empty proof across exact-identity receipt, use bounded bag-only staging on read timeout. No broad audit on simple read failure. Owner tests one more bag for Artillery after publishing. No assistant builds/live actions.",
+  "base_commit": "eaeeffc5ce854292b089beb6a42c34502424b645"
 }
