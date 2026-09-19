@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 164,
-  "last_completed_session": 163,
-  "status": "in_progress",
+  "last_completed_session": 164,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-164-empty-bag-reserve",
-  "checkpoint_commit": "f0480d9be7a93e9666ad5c8293f3eb710c3ec0a9",
-  "task": "Kavem Small Backpack donations and automatic Central bank reserve replenishment",
-  "resume_instruction": "Implement empty-only Small Backpack reserve on Central, accepting Kavem donations and supplying missing worker bags through verified custody. No spirit overflow. Owner builds/live tests; no assistant compilation. Inspect dispatch/census restart integration before enabling movement.",
+  "checkpoint_commit": "4c47c9a910812ef8a686ce546499ceb65359b23a",
+  "task": "Resolved: Central empty Small Backpack reserve and automatic lost-bag replacement",
+  "resume_instruction": "Reserve implementation published. Owner rebuilds and donates up to ten empty Small Backpacks from Kavem after ready service; bots bank them and replace census-confirmed losses automatically. Initial targets include completed shared-bag shell losses, avoiding theoretical spirit expansion. Observe EMPTY BAG RESERVE logs. No assistant builds or live claims. Prior admission-refresh fix and this reserve remain unverified in live deployment; original duplicate producer remains unknown. Do not request manual bag repairs or rerun resolved experiments.",
   "base_commit": "0c9f896109dd187ec1252c47484ea49cc02d1798"
 }
