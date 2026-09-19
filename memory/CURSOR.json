@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 178,
+  "current_session": 179,
   "last_completed_session": 178,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-178-online-parser-format",
+  "transaction": "session-179-character-name-audit",
   "checkpoint_commit": "4a82d54ea113ecce2823b63c0335401b1a230105",
-  "task": "Online parser hardened; verify Bobsan import",
-  "resume_instruction": "Owner rebuild and invoke Bobsan !online then our online list. Supplied sample15 mains33 chars; accept hyphens/alternate breaks, require declared main count and nonempty groups before applying presence/mappings. Original zero-group cause not fully explained; inspect actual Manager-received formatting if still rejected. No builds/tests.",
-  "base_commit": "cf602f28188c22f518e4dbffb1e29c5c4453a4b9"
+  "task": "Audit and align character name parsing and file identity handling",
+  "resume_instruction": "Fix remaining alt/login/logout regex restrictions and banker filename readers stripping hyphens. Align character lexical rules with existing letters/digits/hyphens validation; review parse failures versus removal. No builds/tests.",
+  "base_commit": "eb552e68f24d0f426293dc2b24066f79e8d1a113"
 }
