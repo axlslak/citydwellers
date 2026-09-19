@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 172,
-  "last_completed_session": 171,
-  "status": "in_progress",
+  "last_completed_session": 172,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-172-cru-split-response-evidence",
-  "checkpoint_commit": "16349a46c0484e73ec92fbdd449a2fd1341ddeea",
-  "task": "Capture missing live split response without changing working request",
-  "resume_instruction": "Owner three-run log plus fresh logins proves both split Unknown1 and Unknown0 physically worked (59+1+1 then60+1, total61). Retract header diagnosis; keep current proven sender. No logged RECV52/34/add/count explains cache. Add bounded split-only incoming inventory-packet trace and post-native snapshots; no guessed split cache mutation or new experiment variants. Owner next normal #cru supplies response. No builds/live actions.",
+  "checkpoint_commit": "9d91972a10a8fa60e1eeffe0a184e4093d84b898",
+  "task": "Split response diagnosis open; bounded capture published",
+  "resume_instruction": "Three starts prove BOTH split headers physically work:59+1+1 then60+1, total61. Header hypothesis superseded; current sender retained. Existing runtime log lacks split response. Published12s split-only incoming inventory trace (32 packets,512-byte prefixes) with before/after-native CRU snapshots and decoded message-type totals. Owner rebuild/restart, let consolidation finish, one #cru, wait SPLIT TRACE END then provide log. No invented split cache mutations; actual response handling/pickup unresolved. Existing uncertainty pause retained. No assistant builds/live tests.",
   "base_commit": "d94f6c6ef4ee6ab4fa37245639880fb0b1834c32"
 }
