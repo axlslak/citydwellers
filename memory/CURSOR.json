@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 161,
+  "current_session": 162,
   "last_completed_session": 161,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-161-recovery-reconnect-churn",
+  "transaction": "session-162-shared-container-read-loop",
   "checkpoint_commit": "c7128fbec9d1c86bfb20b78b4ebb12984ef2e1cd",
-  "task": "Recovery reconnect churn corrections published; physical outcome unverified",
-  "resume_instruction": "Owner log shows deliberate initial/staging reconnects, healthy audit supersession, and one verified Support stage, but no completed evacuation. Published redundant initial confirmation removal, planned pre-census disconnect isolation and action/open progress. Outer moves still reconnect for evidence. Owner rebuilds normally; inspect subsequent recovery progress for Artillery wait and actual outcome. Do not claim server instability or physical repair. No assistant builds.",
-  "base_commit": "59adf3a9e74b5b0902b446aa25aa4ffe32ccf21f"
+  "task": "Fix per-alias contents-read loop without accepting pre-mutation contents",
+  "resume_instruction": "Latest owner log proves first reference responds (Artillery21 Support11), second repeats Use with no fresh contents. Read incoming contents by container identity with mutation sequence freshness, retain verified post-action snapshots, and replace indefinite Use replay with bounded persisted refresh backoff. Preserve exact outer addressing and quantity guards. No builds/live operations.",
+  "base_commit": "71bc8430229d5e848d72d408e4254912595c714d"
 }
