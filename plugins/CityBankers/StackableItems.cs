@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using AOSharp.Clientless;
@@ -23,6 +24,16 @@ namespace CityBankers
         private static readonly Dictionary<Identity, int> identities = new Dictionary<Identity, int>();
         private static readonly Queue<Action> afterNative = new Queue<Action>();
         private static bool installed;
+        private sealed class PendingMerge
+        {
+            public Item Survivor, Consumed;
+            public Identity SurvivorSlot, ConsumedSlot, Character;
+            public int SurvivorCount, ConsumedCount;
+            public List<Item> Before;
+            public List<int> BeforeCounts;
+            public readonly Stopwatch Age = Stopwatch.StartNew();
+        }
+        private static PendingMerge pendingMerge;
         public static bool IsStack(Item item) => item != null && CruPolicy.IsCru(item.Id);
         public static int Quantity(Item item)
         {
@@ -68,6 +79,14 @@ namespace CityBankers
             installed = true;
             Client.MessageReceived += Receive;
             Client.OnUpdate += Tick;
+            Client.Disconnected += ForgetPendingMerge;
+        }
+        private static void ForgetPendingMerge() => pendingMerge = null;
+
+        public static void CancelMerge(Item survivor, Item consumed)
+        {
+            if (pendingMerge != null && ReferenceEquals(pendingMerge.Survivor, survivor) &&
+                ReferenceEquals(pendingMerge.Consumed, consumed)) pendingMerge = null;
         }
         public static void Flush()
         {
@@ -110,6 +129,7 @@ namespace CityBankers
             var full = message.Body as FullCharacterMessage;
             if (full != null)
             {
+                pendingMerge = null;
                 counts = new ConditionalWeakTable<Item, CountValue>();
                 identities.Clear();
                 afterNative.Enqueue(() =>
@@ -181,7 +201,10 @@ namespace CityBankers
             if (action != null && (action.Action == CharacterActionType.SplitItem ||
                 action.Action == CharacterActionType.Split || action.Action == CharacterActionType.UseItemOnItem ||
                 action.Action == StackItemsAction))
+            {
                 LogStackAction("RECV", action);
+                if (action.Action == StackItemsAction) ObserveMerge(action);
+            }
             var template = message.Body as TemplateActionMessage;
             if (template != null)
             {
@@ -224,22 +247,86 @@ namespace CityBankers
             Client.Send(new CharacterActionMessage { Action = CharacterActionType.SplitItem,
                 Target = source.Slot, Parameter2 = quantity });
         }
-        public static void Merge(Item source, Item target)
+        private static void ObserveMerge(CharacterActionMessage action)
         {
-            if (source == null || target == null || ReferenceEquals(source, target) ||
-                source.Id != target.Id || source.HighId != target.HighId || source.Ql != target.Ql)
+            var pending = pendingMerge;
+            if (pending == null || action.Identity != pending.Character ||
+                action.Unknown != 0 || action.Unknown1 != 0 || action.Unknown2 != 0 ||
+                action.Target != pending.SurvivorSlot ||
+                action.Parameter1 != (int)pending.ConsumedSlot.Type ||
+                action.Parameter2 != pending.ConsumedSlot.Instance) return;
+
+            // Native Clientless ignores action 53. Apply only after native handling,
+            // and only to the exact still-pending objects/counts captured at send.
+            afterNative.Enqueue(() => ApplyMergeResponse(pending));
+        }
+
+        private static void ApplyMergeResponse(PendingMerge pending)
+        {
+            if (!ReferenceEquals(pendingMerge, pending)) return;
+            pendingMerge = null; // A repeated response cannot add the units twice.
+            var items = Inventory.Items as ICollection<Item>;
+            var current = (Inventory.Items ?? new List<Item>()).Where(i => IsStack(i) &&
+                i.Slot.Type == IdentityType.Inventory).ToList();
+            bool unchanged = current.Count == pending.Before.Count &&
+                pending.Before.Select((item, index) => current.Contains(item) &&
+                    Quantity(item) == pending.BeforeCounts[index]).All(value => value);
+            if (!Client.InPlay || Client.LocalDynelId != pending.Character.Instance ||
+                pending.Age.Elapsed.TotalSeconds >= 10 || items == null || items.IsReadOnly ||
+                pending.Survivor.Slot != pending.SurvivorSlot || pending.Consumed.Slot != pending.ConsumedSlot ||
+                Inventory.Items.Count(i => i.Slot == pending.SurvivorSlot) != 1 ||
+                Inventory.Items.Count(i => i.Slot == pending.ConsumedSlot) != 1 || !unchanged)
+            {
+                Logger.Warning("[CityBankers] STACK action53 matched but inventory/connection changed or response expired; cache not modified.");
+                return;
+            }
+
+            // Owner's matching response plus fresh login proved 1+52 -> 53 at
+            // packet.Target, with the parameter-addressed stack gone. This is a
+            // server-confirmed transition, never an optimistic send-side update.
+            int merged = checked(pending.SurvivorCount + pending.ConsumedCount);
+            if (!items.Remove(pending.Consumed)) return;
+            Set(pending.Consumed, 0);
+            Set(pending.Survivor, merged);
+            Logger.Information("[CityBankers] STACK action53 applied; survivor=" + pending.SurvivorSlot +
+                "; quantity=" + merged + "; consumed=" + pending.ConsumedSlot +
+                "; CRU units=" + pending.BeforeCounts.Sum());
+        }
+
+        public static void Merge(Item survivor, Item consumed)
+        {
+            if (!IsStack(survivor) || !IsStack(consumed) || ReferenceEquals(survivor, consumed) ||
+                survivor.Id != consumed.Id || survivor.HighId != consumed.HighId || survivor.Ql != consumed.Ql)
                 throw new InvalidOperationException("Stack templates differ.");
-            if (source.Slot.Type != IdentityType.Inventory || target.Slot.Type != IdentityType.Inventory ||
-                source.Slot == target.Slot)
+            if (survivor.Slot.Type != IdentityType.Inventory || consumed.Slot.Type != IdentityType.Inventory ||
+                survivor.Slot == consumed.Slot)
                 throw new InvalidOperationException("Stack merge requires two different inventory slots.");
+            if (pendingMerge != null) throw new InvalidOperationException("A stack merge is already pending.");
+            var before = (Inventory.Items ?? new List<Item>()).Where(i => IsStack(i) &&
+                i.Slot.Type == IdentityType.Inventory).ToList();
+            var beforeCounts = before.Select(Quantity).ToList();
+            int survivorCount = Quantity(survivor), consumedCount = Quantity(consumed);
+            if (!Client.InPlay || Client.LocalDynelId == 0 || !before.Contains(survivor) || !before.Contains(consumed) ||
+                beforeCounts.Any(count => count <= 0) ||
+                (long)survivorCount + consumedCount > ushort.MaxValue ||
+                Inventory.Items.Count(i => i.Slot == survivor.Slot) != 1 ||
+                Inventory.Items.Count(i => i.Slot == consumed.Slot) != 1 ||
+                (survivor.UniqueIdentity != Identity.None && survivor.UniqueIdentity == consumed.UniqueIdentity))
+                throw new InvalidOperationException("Stack merge requires known quantities and distinct live inventory records.");
             // ICE's CRU stacking routine sends action 53 (0x35), absent from the
-            // SDK enum. Target carries the source; parameters carry the destination.
+            // SDK enum. The proven wire request is unchanged. Live restart evidence
+            // establishes Target as the survivor, parameters as the consumed slot.
             var packet = new CharacterActionMessage { Action = StackItemsAction,
                 Unknown = 0, Unknown1 = 0, Unknown2 = 0,
                 Identity = new Identity(IdentityType.SimpleChar, Client.LocalDynelId),
-                Target = source.Slot, Parameter1 = (int)target.Slot.Type,
-                Parameter2 = target.Slot.Instance };
-            Client.Send(packet);
+                Target = survivor.Slot, Parameter1 = (int)consumed.Slot.Type,
+                Parameter2 = consumed.Slot.Instance };
+            pendingMerge = new PendingMerge { Survivor = survivor, Consumed = consumed,
+                SurvivorSlot = survivor.Slot, ConsumedSlot = consumed.Slot, Character = packet.Identity,
+                SurvivorCount = survivorCount, ConsumedCount = consumedCount,
+                Before = before, BeforeCounts = beforeCounts };
+            try { Client.Send(packet); }
+            catch { CancelMerge(survivor, consumed); throw; }
             LogStackAction("SENT", packet);
         }
     }

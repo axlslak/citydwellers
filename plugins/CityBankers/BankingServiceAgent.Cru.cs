@@ -27,7 +27,9 @@ namespace CityBankers
         private readonly Stopwatch _stackFailureAge = Stopwatch.StartNew();
         private bool _cruRecovered;
         private bool _automaticCruStackingEnabled;
-        private bool _cruMergeAttempted;
+        // Census readmission replaces the actor, but must not repeat a diagnostic
+        // merge on the same banker runtime.
+        private static bool _cruMergeAttempted;
 
         private List<Item> CruInventory() => (Inventory.Items ?? new List<Item>()).Where(i =>
             StackableItems.IsStack(i) && i.Slot.Type == IdentityType.Inventory && StackableItems.Quantity(i) != 0).ToList();
@@ -173,7 +175,7 @@ namespace CityBankers
             _stackOperation = new StackOperation { Source = source, Target = target,
                 SourceCount = StackableItems.Quantity(source), TargetCount = StackableItems.Quantity(target),
                 Total = CruInventory().Sum(StackableItems.Quantity), Before = CruInventory() };
-            Logger.Information("[CityBankers] STACK merge CRU via action53 source=" + source.Slot + "; target=" + target.Slot +
+            Logger.Information("[CityBankers] STACK merge CRU via action53 survivor=" + source.Slot + "; consumed=" + target.Slot +
                 "; quantities=" + _stackOperation.SourceCount + "+" + _stackOperation.TargetCount);
             // One diagnostic attempt per process: no background retry loop while
             // the action-53 response/cache semantics are being established.
@@ -192,12 +194,13 @@ namespace CityBankers
             Item split = op.Target == null ? current.FirstOrDefault(i => !op.Before.Contains(i) && StackableItems.Quantity(i) == 1) : null;
             bool done = op.Target == null
                 ? totalMatches && split != null && current.Contains(op.Source) && StackableItems.Quantity(op.Source) == op.SourceCount - 1
-                : totalMatches && !current.Contains(op.Source) && current.Contains(op.Target) &&
-                    StackableItems.Quantity(op.Target) == op.SourceCount + op.TargetCount;
+                : totalMatches && current.Contains(op.Source) && !current.Contains(op.Target) &&
+                    StackableItems.Quantity(op.Source) == op.SourceCount + op.TargetCount;
             if (done && op.Age.ElapsedMilliseconds >= 500)
             {
                 Logger.Information("[CityBankers] STACK " + (op.Target == null ? "split" : "merge") + " verified; CRU units=" + op.Total);
                 if (split != null) ReadyCru(op.RequestId, split);
+                if (op.Target != null) StackableItems.CancelMerge(op.Source, op.Target);
                 _stackOperation = null;
                 return true;
             }
@@ -205,6 +208,7 @@ namespace CityBankers
             _lastStackFailure = string.Join(";", current.Where(i => !_centralWithdrawalItems.Values.Contains(i))
                 .Select(i => i.Slot + "/" + StackableItems.Quantity(i)));
             _stackFailureAge.Restart();
+            if (op.Target != null) StackableItems.CancelMerge(op.Source, op.Target);
             Logger.Warning("[CityBankers] STACK operation not verified; no quantity inferred. Inventory=" + _lastStackFailure);
             if (op.RequestId != null)
             {

@@ -225,6 +225,8 @@ namespace CityBankers
 
         public override void Teardown()
         {
+            if (_stackOperation?.Target != null)
+                StackableItems.CancelMerge(_stackOperation.Source, _stackOperation.Target);
             StartupCensusGate.CancelDeferred(StartOperational);
             if (_resumeAfterCensus != null) StartupCensusGate.CancelDeferred(_resumeAfterCensus);
             _resumeAfterCensus = null;
