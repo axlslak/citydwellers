@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 160,
+  "current_session": 161,
   "last_completed_session": 160,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-160-recovery-build-fix",
+  "transaction": "session-161-recovery-reconnect-churn",
   "checkpoint_commit": "008e33e17e137875cc75f25c869b18c134a37235",
-  "task": "Shared-bag recovery compiler naming error corrected",
-  "resume_instruction": "Owner rebuilds latest master; automated recovery remains ready for first live run. Zoning did not change the shared pair. No successful build/live recovery claimed.",
-  "base_commit": "a51a6b96b5a962796009fe5214d5b3108dc7179f"
+  "task": "Correct unnecessary recovery reconnect and peer audit disruption",
+  "resume_instruction": "Owner live log shows initial deliberate reconnects supersede peer audits; later support staging uses further deliberate reconnects. Remove redundant initial confirmation when raw/native layouts agree; isolate planned pre-census disconnects; expose action/open progress. Do not claim evacuation complete or infer why Artillery has not progressed. No builds/live actions.",
+  "base_commit": "59adf3a9e74b5b0902b446aa25aa4ffe32ccf21f"
 }
