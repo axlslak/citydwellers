@@ -20,6 +20,7 @@ namespace CityBankers
             public string BagIdentity;
             public int? PreviousBag;
             public string PreviousLocation;
+            public string RecoveryLedgerId;
             public BagAuditAgent.BagInnerItem Item;
             public string DestinationRole;
             public DateTime ObservedUtc;
@@ -121,6 +122,16 @@ namespace CityBankers
                 remaining.GroupBy(item => item.Id).Any(group => group.Count() != 1))
                 throw new InvalidOperationException("Ambiguous census scope or ledger identity.");
             var plan = new Plan();
+
+            // Verified recovery receipts bind moved physical occurrences to their
+            // original ledger ID before template/location fallback matching.
+            foreach (var item in pending.Where(o => o.RecoveryLedgerId != null).ToList())
+            {
+                var matches = remaining.Where(e => e.Id == item.RecoveryLedgerId &&
+                    Same(e.Character, item.Character) && Compatible(e, item)).ToList();
+                if (matches.Count == 1 && allPhysical.Count(o => o.RecoveryLedgerId == item.RecoveryLedgerId) == 1)
+                    Match(plan, remaining, pending, matches[0], item, "shared-bag-evacuated");
+            }
 
             // Reserve every exact anchor first. Never let an earlier unmatched copy
             // steal the donor/transaction of a later copy still in its known slot.

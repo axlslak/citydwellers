@@ -84,6 +84,7 @@ namespace CityBankers
                     if (anchor == null || exact.Count != 1 || withdrawals.Count(r => r.CentralItemIdentity == request.CentralItemIdentity) != 1) continue;
                     anchor.Character = roles["central"]; anchor.Location = "inventory"; anchor.Bag = null; anchor.Slot = exact[0].Slot;
                 }
+                SharedBagRecovery.ApplyProvenance(settings, observations, anchors);
                 var plan = PhysicalLedgerReconciliation.Build(anchors, observations, scope);
                 // Unknown origin still needs a stable transaction for ordinary
                 // routing/accounting. This identifier makes no donor claim.
@@ -133,6 +134,7 @@ namespace CityBankers
             RuntimeStateStore.SaveDispatchQueue(settings, bundle.Queue);
             WithdrawalStore.ReconcileRequestsAfterCensus(settings, generation, bundle.ReservedWithdrawals);
             WithdrawalStore.ResetRecoveryAfterCensus(settings, Path.Combine(directory, "previous-recovery-reservations.json"));
+            SharedBagRecovery.MarkReconciled(settings, censuses.Select(c => c.Character));
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "applied.json"), new
             { Generation = generation, bundle.Runs, Count = bundle.Plan.Items.Count });
             CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(settings),

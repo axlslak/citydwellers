@@ -68,6 +68,7 @@ namespace CityBankers
 
             _settingsDir = settingsDir;
             BagOriginTrace.Install(settingsDir);
+            SharedBagRecovery.Install(settingsDir);
             StackableItems.Install();
             try
             {
@@ -122,6 +123,7 @@ namespace CityBankers
         public override void Teardown()
         {
             BagOriginTrace.Stop();
+            SharedBagRecovery.Stop();
             ClientlessSessionGuard.Stop();
             CityDwellers.Shared.ServiceEvents.Stop();
             Client.MessageReceived -= MessageReceived;

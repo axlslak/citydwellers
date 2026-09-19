@@ -51,6 +51,20 @@ namespace CityBankers
 
         private static void BindOnUpdate(object sender, double delta) => TryBind();
 
+        internal static void ReconnectForBagRecovery()
+        {
+            // Client.Disconnect tears down the entire runtime. Disconnect only
+            // the game session so the existing AutoReconnect scheduler survives.
+            if (!Client.Config.AutoReconnect)
+                throw new InvalidOperationException("Autonomous recovery requires AutoReconnect.");
+            var field = typeof(Client).GetField("_netSession", BindingFlags.Static | BindingFlags.NonPublic);
+            var session = field?.GetValue(null);
+            var disconnect = session?.GetType().GetMethod("Disconnect", BindingFlags.Instance | BindingFlags.Public,
+                null, Type.EmptyTypes, null);
+            if (disconnect == null) throw new InvalidOperationException("Clientless reconnect interface unavailable.");
+            disconnect.Invoke(session, null);
+        }
+
         private static void TryBind()
         {
             if (_loop != null) return;

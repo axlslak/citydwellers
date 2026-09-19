@@ -119,7 +119,7 @@ namespace CityBankers
                 {
                     // Plugin Init runs before the network session exists. InPlay
                     // can throw then; fail closed so Defer still queues startup.
-                    if (ServicePolicy.IsBagAuditMode() || !ClientlessSessionGuard.BankCacheTrusted ||
+                    if (ServicePolicy.IsBagAuditMode() || SharedBagRecovery.RequiresHold || !ClientlessSessionGuard.BankCacheTrusted ||
                         _invalidated || _directory == null || !Client.InPlay) return false;
                     var cycle = Current();
                     return cycle?.Phase == "released" && Includes(cycle, MemberCharacter, _connection) &&
@@ -365,6 +365,13 @@ namespace CityBankers
             _poll.Restart();
             try
             {
+                if (SharedBagRecovery.RequiresHold)
+                {
+                    _stagingFailureLayout = null;
+                    _presenceRetryAfter = 0;
+                    _idleReconnectCycle = null;
+                    if (!_invalidated) Block("Shared bag detected; autonomous evacuation requires census ownership.");
+                }
                 if (!Client.InPlay || !ClientlessSessionGuard.BankCacheTrusted ||
                     !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
                 if (_idleReconnectCycle != null && !TryResumeIdleConnection()) return;
@@ -460,6 +467,7 @@ namespace CityBankers
                     string signature = InventoryLayout();
                     if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                     if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
+                    if (SharedBagRecovery.Tick()) { _signature = null; _settled.Restart(); return; }
                     ReportSmallBackpackCapacity();
                     ReportDuplicateBagRecords();
                     if (!PrepareAuditStagingSlot()) return;
@@ -835,6 +843,7 @@ namespace CityBankers
                 string signature = InventoryLayout();
                 if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                 if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
+                if (SharedBagRecovery.Tick()) { _signature = null; _settled.Restart(); return; }
                 ReportSmallBackpackCapacity();
                 ReportDuplicateBagRecords();
                 if (!PrepareAuditStagingSlot()) return;

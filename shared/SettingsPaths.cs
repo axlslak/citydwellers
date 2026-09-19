@@ -286,6 +286,7 @@ namespace CityDwellers.Shared
                    string.Equals(name, "transaction-traces", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "incident-dumps", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "colonist-backpack-repair-v1", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "bag-recovery", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "NavigationTraces", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "diagnostic-dumps", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(name, "ledger", StringComparison.OrdinalIgnoreCase) ||
@@ -519,7 +520,8 @@ namespace CityDwellers.Shared
                 return;
             }
 
-            if (string.Equals(directoryName, "startup-census", StringComparison.OrdinalIgnoreCase) ||
+            if (string.Equals(directoryName, "bag-recovery", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(directoryName, "startup-census", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(directoryName, "custody-transactions", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(directoryName, "banker-returns", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(directoryName, "banker-extractions", StringComparison.OrdinalIgnoreCase))

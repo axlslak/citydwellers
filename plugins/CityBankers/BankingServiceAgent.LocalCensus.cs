@@ -321,6 +321,7 @@ namespace CityBankers
                     if (matches?.Count == 1 && census.Bags.Count(b => b.UniqueIdentity == observation.BagIdentity) == 1)
                     { observation.PreviousBag = matches[0].OuterSlotInstance & 65535; observation.PreviousLocation = matches[0].Source; }
                 }
+                SharedBagRecovery.ApplyProvenance(_settingsDir, observations, previous);
                 var plan = PhysicalLedgerReconciliation.Build(previous, observations, new[] { census.Character });
                 foreach (var item in plan.Items)
                     if (string.IsNullOrWhiteSpace(item.TransactionId)) item.TransactionId = "found-" + item.Id;
@@ -374,6 +375,7 @@ namespace CityBankers
             WithdrawalStore.ReconcileQueuedRequestsAfterLocalCensus(_settingsDir, census.RunId,
                 census.Character, bundle.QueuedRequests);
             CompleteStorageRecoveryCensus(bundle.StorageGrant);
+            SharedBagRecovery.MarkReconciled(_settingsDir, new[] { census.Character });
             CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
                 "recovery:history/census-local-" + census.RunId + ".json", census.Character, "recovery.applied",
                 new { census.RunId, RemainingClaims = bundle.Plan.Items.Count,
