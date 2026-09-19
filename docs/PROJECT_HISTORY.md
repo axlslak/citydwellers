@@ -1,3 +1,9 @@
+## Session 156 closure — available evidence boundary
+
+- [OWNER DIRECTION] Owner confirms the private reference was supplied to help understand the existing defect, and there are no additional historical captures beyond the supplied files. Do not request unavailable pre-duplication packets again. Owner explicitly authorizes writing and publishing the sanitized recovery record.
+- [EVIDENCE SCOPE] The session156 archive/log inspection used the September18 data.zip. A newer September19 data(1).zip and deployed DLLs are also available in the owner's supplied files; those must be used for any fresh current-runtime analysis. Do not mistake the older archive review for examination of all latest evidence. Prior sessions153-155 already recorded their incoming-snapshot findings.
+- [NEXT] The private-reference comparison is complete. Initial creation and safe remediation remain open, with no further owner question currently required. Continue from available current evidence and code; if the missing transition cannot be reconstructed, design bounded move diagnostics and safeguards with an explicit evidence limitation. Do not present the reference as proof of cause or ask for a recreation of the exploit. No runtime change or live operation was made by this review.
+
 ## Session 156 — shared-container reference review
 
 - [OWNER OBSERVATION] Two ordinary-client inventory icons toggle the same container window and show apparently matching contents. The owner logged out and stopped bots. Together with the independently parsed inbound references, this corroborates shared container addressing; it does not identify the creating operation or a disposable outer slot.

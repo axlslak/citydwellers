@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 156,
-  "last_completed_session": 155,
-  "status": "in_progress",
+  "last_completed_session": 156,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-156-shared-container-reference-review",
-  "checkpoint_commit": "f601a0c67186562341331db0d1affb7343bcff19",
-  "task": "Compare private reference sample with banker move addressing",
-  "resume_instruction": "Owner confirms two inventory icons toggle same container window and similar contents; bots and character logged out. Read private supplied sample only, compare addressing with current/historical sources. Never publish sample or run it; do not infer initial trigger from an amplifier requiring an existing pair.",
+  "checkpoint_commit": "4bd6701e38d9ac538e7b03cee06af84e125febe1",
+  "task": "Shared-container reference comparison complete; root cause and remediation remain open",
+  "resume_instruction": "Use available current evidence, including newer September19 archive and deployed DLLs, for further analysis. Do not request unavailable historical packets again. Missing creation transition remains an evidence limitation; compare completed, root cause/physical repair/ledger reconciliation unresolved.",
   "base_commit": "4f5b3f9cf716dd11e9a7525aedfa7f661e5f0edc"
 }
