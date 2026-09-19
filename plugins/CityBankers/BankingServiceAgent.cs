@@ -1851,7 +1851,7 @@ namespace CityBankers
                 _storageJob.BagLiveIdentity = liveBag.UniqueIdentity.ToString();
                 _storageJob.Phase = StoragePhase.MovingBagToInventory;
                 SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
-                liveBag.MoveToInventory();
+                BagOriginTrace.MoveToInventory(liveBag);
                 return;
             }
             Item inventoryBag = FindInventoryBagAtOuterSlot(bag.OuterSlotInstance);
@@ -1902,7 +1902,7 @@ namespace CityBankers
                 }
                 _storageJob.Phase = StoragePhase.MovingItemIntoBag;
                 SetStorageDeadline(ServicePolicy.ItemMoveTimeoutMs);
-                item.MoveToContainer(container);
+                BagOriginTrace.MoveToContainer(item, container);
                 return;
             }
             if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
@@ -1948,7 +1948,7 @@ namespace CityBankers
                         _storageJob.ReturnInventoryCount = beforeReturn.Count;
                         _storageJob.ReturnSourceSlot = liveBag.Slot.Instance;
                         _storageJob.ReturnSourceCount = beforeReturn.Count(b => b.Slot.Instance == liveBag.Slot.Instance);
-                        liveBag.MoveToBank();
+                        BagOriginTrace.MoveToBank(liveBag);
                         return;
                     }
                     CommitStoredItem();

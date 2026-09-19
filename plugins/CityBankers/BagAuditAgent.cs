@@ -340,7 +340,7 @@ namespace CityBankers
 
                 try
                 {
-                    bankItem.MoveToInventory();
+                    BagOriginTrace.MoveToInventory(bankItem);
                 }
                 catch (Exception ex)
                 {
@@ -485,7 +485,7 @@ namespace CityBankers
 
             try
             {
-                inventoryItem.MoveToBank();
+                BagOriginTrace.MoveToBank(inventoryItem);
             }
             catch (Exception ex)
             {

@@ -830,7 +830,7 @@ namespace CityBankers
                 // The live container identity is authoritative. If AO remapped the outer
                 // slot since the audit, return verification should use this live slot.
                 _workerBag.OuterSlotInstance = bag.Slot.Instance;
-                bag.MoveToInventory();
+                BagOriginTrace.MoveToInventory(bag);
                 _workerPhase = WorkerPhase.WaitBagToInventory;
                 SetWorkerDeadline(PhaseTimeoutSeconds);
                 return;
@@ -911,7 +911,7 @@ namespace CityBankers
             // AOSharp.Clientless bag retrieval uses ClientContainerAddItem from the
             // Backpack source identity to the local player. MoveToInventory() is the
             // AOSharp Core-style path and repeatedly failed on live Clientless AO.
-            matches[0].MoveToContainer(DynelManager.LocalPlayer.Identity);
+            BagOriginTrace.MoveToContainer(matches[0], DynelManager.LocalPlayer.Identity);
             _workerPhase = WorkerPhase.WaitItemToInventory;
             SetWorkerDeadline(PhaseTimeoutSeconds);
         }
@@ -931,7 +931,7 @@ namespace CityBankers
                         "Misplaced item was extracted, but staged bank bag is unavailable for return.");
                     return;
                 }
-                bag.MoveToBank();
+                BagOriginTrace.MoveToBank(bag);
                 _workerPhase = WorkerPhase.WaitBagReturn;
                 SetWorkerDeadline(PhaseTimeoutSeconds);
                 return;

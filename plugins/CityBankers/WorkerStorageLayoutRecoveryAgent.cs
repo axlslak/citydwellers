@@ -590,7 +590,7 @@ namespace CityBankers
             {
                 _job.Phase = RecoveryStoragePhase.MovingBagToInventory;
                 SetRecoveryDeadline(ServicePolicy.BagMoveTimeoutMs);
-                liveBag.MoveToInventory();
+                BagOriginTrace.MoveToInventory(liveBag);
                 return;
             }
 
@@ -639,7 +639,7 @@ namespace CityBankers
 
                 _job.Phase = RecoveryStoragePhase.MovingItemIntoBag;
                 SetRecoveryDeadline(ServicePolicy.ItemMoveTimeoutMs);
-                item.MoveToContainer(container);
+                BagOriginTrace.MoveToContainer(item, container);
                 return;
             }
 
@@ -684,7 +684,7 @@ namespace CityBankers
 
                         _job.Phase = RecoveryStoragePhase.ReturningBag;
                         SetRecoveryDeadline(ServicePolicy.BagMoveTimeoutMs);
-                        liveBag.MoveToBank();
+                        BagOriginTrace.MoveToBank(liveBag);
                         return;
                     }
 

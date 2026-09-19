@@ -771,7 +771,7 @@ namespace CityBankers
             Logger.Information("[CityBankers] Census preparing staging slot; moving inventory bag " + _stagingBag +
                 " at inventory/" + _stagingRecordSlot + " to bank; bankCopiesBefore=" + _stagingBankBefore +
                 "; inventoryCopiesBefore=" + _stagingInventoryBefore + ".");
-            try { bag.MoveToBank(); }
+            try { BagOriginTrace.MoveToBank(bag); }
             catch (Exception ex) { return WaitForStagingChange("Inventory bag move failed: " + ex.Message); }
             return false;
         }

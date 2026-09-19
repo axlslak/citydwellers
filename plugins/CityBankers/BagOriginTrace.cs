@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
@@ -13,7 +14,8 @@ using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 namespace CityBankers
 {
     // Observe before native cache mutation and finish at the next message/update.
-    // Never send packets, modify items, or infer which duplicated slot is physical.
+    // Observers do not modify inventory. Move wrappers record intent and invoke
+    // the original SDK operation once; they never infer which duplicate is physical.
     internal static class BagOriginTrace
     {
         private sealed class BagRow
@@ -29,12 +31,31 @@ namespace CityBankers
             public long Sequence;
             public DateTime ReceivedUtc;
             public string MessageType;
+            public long LastMoveSequence;
             public object Incoming;
             public string PacketBase64;
             public List<BagRow> Before;
             public List<BagRow> After;
         }
         private static readonly Queue<Observation> Recent = new Queue<Observation>();
+        private sealed class MoveRequest
+        {
+            public long Sequence;
+            public DateTime RequestedUtc;
+            public string Caller;
+            public string Operation;
+            public string Source;
+            public int SourceType;
+            public int SourceInstance;
+            public string ItemIdentity;
+            public string Target;
+            public int TargetType;
+            public int TargetInstance;
+            public int? InventoryDestinationSlot;
+            public string ErrorType;
+        }
+        private static readonly Queue<MoveRequest> Moves = new Queue<MoveRequest>();
+        private static long moveSequence;
         private static Observation pending;
         private static string directory;
         private static string token;
@@ -66,7 +87,84 @@ namespace CityBankers
             Client.OnUpdate -= Tick;
             pending = null;
             Recent.Clear();
+            Moves.Clear();
             installed = false;
+        }
+        // Record API intent, not a claim that bytes were sent or AO accepted a move.
+        // Keep the original SDK calls and their exceptions unchanged. In particular,
+        // never rebuild a source identity from only its numeric slot component.
+        public static void MoveToInventory(Item item,
+            [CallerMemberName] string caller = "", [CallerFilePath] string file = "")
+        {
+            MoveRequest request = RecordMove(item, Identity.None, 0x6F, "MoveToInventory", caller, file);
+            try { item.MoveToInventory(); }
+            catch (Exception ex) { RecordMoveFailure(request, ex); throw; }
+        }
+        public static void MoveToBank(Item item,
+            [CallerMemberName] string caller = "", [CallerFilePath] string file = "")
+        {
+            MoveRequest request = null;
+            try { request = RecordMove(item, new Identity(IdentityType.Bank, Client.LocalDynelId),
+                null, "MoveToBank", caller, file); }
+            catch (Exception ex) { ReportFailure(ex); }
+            try { item.MoveToBank(); }
+            catch (Exception ex) { RecordMoveFailure(request, ex); throw; }
+        }
+        public static void MoveToContainer(Item item, Container target,
+            [CallerMemberName] string caller = "", [CallerFilePath] string file = "")
+        {
+            MoveRequest request = null;
+            try { request = RecordMove(item, target.Identity, null, "MoveToContainer", caller, file); }
+            catch (Exception ex) { ReportFailure(ex); }
+            try { item.MoveToContainer(target); }
+            catch (Exception ex) { RecordMoveFailure(request, ex); throw; }
+        }
+        public static void MoveToContainer(Item item, Identity target,
+            [CallerMemberName] string caller = "", [CallerFilePath] string file = "")
+        {
+            MoveRequest request = RecordMove(item, target, null, "MoveToContainer", caller, file);
+            try { item.MoveToContainer(target); }
+            catch (Exception ex) { RecordMoveFailure(request, ex); throw; }
+        }
+        private static MoveRequest RecordMove(Item item, Identity target, int? slot,
+            string operation, string caller, string file)
+        {
+            try
+            {
+                if (!installed) return null;
+                var source = item.Slot;
+                var request = new MoveRequest { Sequence = ++moveSequence, RequestedUtc = DateTime.UtcNow,
+                    Caller = Path.GetFileName(file) + ":" + caller, Operation = operation,
+                    Source = source.ToString(), SourceType = (int)source.Type, SourceInstance = source.Instance,
+                    ItemIdentity = item.UniqueIdentity.ToString(), Target = target.ToString(),
+                    TargetType = (int)target.Type, TargetInstance = target.Instance,
+                    InventoryDestinationSlot = slot };
+                Moves.Enqueue(request);
+                while (Moves.Count > 32) Moves.Dequeue();
+                WriteMoves();
+                return request;
+            }
+            catch (Exception ex) { ReportFailure(ex); return null; }
+        }
+        private static void RecordMoveFailure(MoveRequest request, Exception error)
+        {
+            try
+            {
+                if (request == null) return;
+                request.ErrorType = error.GetType().Name;
+                WriteMoves();
+            }
+            catch (Exception ex) { ReportFailure(ex); }
+        }
+        private static void WriteMoves()
+        {
+            RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "bag-origin-" + token + "-moves.json"),
+                new { format = "citybankers-bag-moves-v1", character = Client.CharacterName,
+                    generation = connection, observedUtc = DateTime.UtcNow,
+                    clientless = typeof(Client).Assembly.ManifestModule.ModuleVersionId,
+                    plugin = typeof(BagOriginTrace).Assembly.ManifestModule.ModuleVersionId,
+                    boundary = "Last 32 instrumented SDK move requests, recorded before invocation. Not an outbound packet capture or server acknowledgement. A missing ErrorType does not prove success. InventoryDestinationSlot belongs to ClientMoveItemToInventory; Target is unused for that operation.",
+                    moves = Moves.ToArray() });
         }
         private static List<BagRow> Snapshot()
         {
@@ -105,6 +203,8 @@ namespace CityBankers
                     connection = Guid.NewGuid().ToString("N");
                     duplicateWritten = fullWritten = bankWritten = false;
                     Recent.Clear();
+                    Moves.Clear();
+                    moveSequence = 0;
                     incoming = Slots(full.InventorySlots);
                 }
                 else if (body is BankMessage bank && DynelManager.LocalPlayer != null &&
@@ -124,7 +224,8 @@ namespace CityBankers
                     incoming = new { lowId = add.LowId, highId = add.HighId, ql = add.Quality, count = add.Count };
                 else return;
                 pending = new Observation { Sequence = ++sequence, ReceivedUtc = DateTime.UtcNow,
-                    MessageType = body.GetType().Name, Incoming = incoming, Before = Snapshot() };
+                    MessageType = body.GetType().Name, LastMoveSequence = moveSequence,
+                    Incoming = incoming, Before = Snapshot() };
             }
             catch (Exception ex) { pending = null; ReportFailure(ex); }
         }
@@ -177,7 +278,7 @@ namespace CityBankers
         }
         private static void Write(string kind, Observation[] observations)
         {
-            // Three fixed paths per character: bounded disk usage. Generation ties
+            // Fixed paths per character: bounded disk usage. Generation ties
             // files together; mismatched generations must not be compared as one run.
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "bag-origin-" + token + "-" + kind + ".json"),
                 new { format = "citybankers-bag-origin-v1", character = Client.CharacterName,
@@ -185,13 +286,14 @@ namespace CityBankers
                     clientless = typeof(Client).Assembly.ManifestModule.ModuleVersionId,
                     plugin = typeof(BagOriginTrace).Assembly.ManifestModule.ModuleVersionId,
                     boundary = "Before is at MessageReceived; After is before the next message or on update. Includes native processing and synchronous event subscribers.",
-                    observations });
+                    moveRequests = Moves.ToArray(), observations });
         }
         private static void ReportFailure(Exception ex)
         {
             if (errorReported) return;
             errorReported = true;
-            Logger.Warning("[CityBankers] Bag origin evidence unavailable: " + ex.GetType().Name);
+            try { Logger.Warning("[CityBankers] Bag origin evidence unavailable: " + ex.GetType().Name); }
+            catch { /* Diagnostic failure must not change the original operation. */ }
         }
     }
 }

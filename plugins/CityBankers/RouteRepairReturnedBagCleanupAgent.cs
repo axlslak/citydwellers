@@ -163,7 +163,7 @@ namespace CityBankers
                 _returningItemId = itemId;
                 _returningBagIdentity = bagIdentity;
                 _deadlineUtc = DateTime.UtcNow.AddSeconds(ReturnTimeoutSeconds);
-                staged.MoveToBank();
+                BagOriginTrace.MoveToBank(staged);
                 Logger.Information(
                     $"[CityBankers] ROUTE REPAIR RETURNED BAG CLEANUP returning " +
                     $"character={Client.CharacterName} aoid={aoid} bag={bagIdentity} " +

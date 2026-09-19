@@ -273,7 +273,7 @@ namespace CityBankers
 
             if (string.Equals(bag.Source, "bank", StringComparison.OrdinalIgnoreCase))
             {
-                liveBag.MoveToInventory();
+                BagOriginTrace.MoveToInventory(liveBag);
                 _preflightPhase = PreflightPhase.MovingBagToInventory;
                 _preflightDeadlineUtc = DateTime.UtcNow.AddMilliseconds(
                     ServicePolicy.BagMoveTimeoutMs);
@@ -332,7 +332,7 @@ namespace CityBankers
                     return;
                 }
 
-                bag.MoveToBank();
+                BagOriginTrace.MoveToBank(bag);
                 _preflightPhase = _preflightCandidateFull
                     ? PreflightPhase.ReturningFullBag
                     : PreflightPhase.ReturningReadyBag;
@@ -1130,7 +1130,7 @@ namespace CityBankers
 
             if (string.Equals(bag.Source, "bank", StringComparison.OrdinalIgnoreCase))
             {
-                liveBag.MoveToInventory();
+                BagOriginTrace.MoveToInventory(liveBag);
                 _recovery.Phase = RecoveryPhase.MovingBagToInventory;
                 SetRecoveryDeadline(ServicePolicy.BagMoveTimeoutMs);
                 return;
@@ -1177,7 +1177,7 @@ namespace CityBankers
                     .Where(item => item != null)
                     .Select(item => item.Slot.Instance & 0xFFFF));
             _recovery.BagHandle = container.Handle;
-            loose.MoveToContainer(container);
+            BagOriginTrace.MoveToContainer(loose, container);
             _recovery.Phase = RecoveryPhase.MovingItemIntoBag;
             SetRecoveryDeadline(ServicePolicy.ItemMoveTimeoutMs);
         }
@@ -1214,7 +1214,7 @@ namespace CityBankers
                     return;
                 }
 
-                bag.MoveToBank();
+                BagOriginTrace.MoveToBank(bag);
                 _recovery.Phase = RecoveryPhase.ReturningBag;
                 SetRecoveryDeadline(ServicePolicy.BagMoveTimeoutMs);
                 return;

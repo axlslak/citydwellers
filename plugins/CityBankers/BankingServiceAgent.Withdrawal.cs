@@ -528,7 +528,7 @@ namespace CityBankers
                         _withdrawalBag = recoveryBag;
                         _withdrawalBagIdentity = staged.UniqueIdentity.ToString();
                         _withdrawalBankBag = true;
-                        staged.MoveToBank();
+                        BagOriginTrace.MoveToBank(staged);
                         _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitBagReturn;
                         SetWithdrawalDeadline();
                         return;
@@ -582,7 +582,7 @@ namespace CityBankers
             _withdrawalBagIdentity = bag.UniqueIdentity.ToString();
             if (_withdrawalBankBag)
             {
-                bag.MoveToInventory();
+                BagOriginTrace.MoveToInventory(bag);
                 _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitBagInventory;
             }
             else
@@ -626,7 +626,7 @@ namespace CityBankers
                 "attempt=1; requester=" + _withdrawal.RequestedBy + "; source=" + Client.CharacterName +
                 "; bag=" + _withdrawal.SourceBag + "; innerSlot=" + _withdrawal.SourceInnerSlot +
                 "; sending move to normal inventory", new[] { _withdrawal.Item });
-            item.MoveToContainer(DynelManager.LocalPlayer.Identity);
+            BagOriginTrace.MoveToContainer(item, DynelManager.LocalPlayer.Identity);
             _withdrawalItemMoveAttempts = 1;
             _withdrawalNextItemMoveRetryUtc = DateTime.UtcNow.AddSeconds(1);
             _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitItemInventory;
@@ -658,7 +658,7 @@ namespace CityBankers
                             _withdrawalItemMoveAttempts +
                             "; requester=" + _withdrawal.RequestedBy +
                             "; still awaiting inventory confirmation; source bag slot remains visible; reissuing move.");
-                        stillInBag.MoveToContainer(DynelManager.LocalPlayer.Identity);
+                        BagOriginTrace.MoveToContainer(stillInBag, DynelManager.LocalPlayer.Identity);
                     }
                 }
                 return;
@@ -682,7 +682,7 @@ namespace CityBankers
             {
                 Item bag = FindInventoryBagByIdentity(_withdrawalBagIdentity);
                 if (bag == null) return;
-                bag.MoveToBank();
+                BagOriginTrace.MoveToBank(bag);
                 _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitBagReturn;
             }
             else

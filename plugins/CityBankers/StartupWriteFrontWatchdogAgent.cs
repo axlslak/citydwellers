@@ -291,7 +291,7 @@ namespace CityBankers
                     "No symbiant is moved or queue state changed.";
                 Logger.Warning("[CityBankers] " + notice);
                 TellKavem(notice);
-                staged.MoveToBank();
+                BagOriginTrace.MoveToBank(staged);
                 return;
             }
 

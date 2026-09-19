@@ -317,7 +317,7 @@ namespace CityBankers
                     return;
                 }
 
-                staged.MoveToBank();
+                BagOriginTrace.MoveToBank(staged);
                 _job.Phase = RescuePhase.ReturningStagedBag;
                 _job.DeadlineUtc = DateTime.UtcNow.AddMilliseconds(ServicePolicy.BagMoveTimeoutMs);
                 return;

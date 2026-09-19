@@ -552,7 +552,7 @@ namespace CityDwellers.Shared
                 // The banker writes its own duplicate-bag evidence here; a clientless
                 // character cannot be inspected with the game client.
                 expectedPatterns = new[] { "apcmanager-dump-*.log", "citybankers-bagaudit-*.log",
-                    "ambiguous-bags-*.json" };
+                    "ambiguous-bags-*.json", "bag-origin-*.json" };
             else if (string.Equals(directoryName, "incident-dumps", StringComparison.OrdinalIgnoreCase))
                 expectedPatterns = new[] { "incident-*.log", "incident-*.log.signature" };
             else if (string.Equals(directoryName, "transaction-traces", StringComparison.OrdinalIgnoreCase))

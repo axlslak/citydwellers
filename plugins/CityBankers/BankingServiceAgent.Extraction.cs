@@ -176,7 +176,7 @@ namespace CityBankers
                 if (bag == null) return true;
                 _extraction.BagIdentity = bag.UniqueIdentity.ToString();
                 SaveExtraction("bag-prepared");
-                if (_extraction.Source == "bank") { bag.MoveToInventory(); ExtractionStep(ExtractionPhase.BagInventory); }
+                if (_extraction.Source == "bank") { BagOriginTrace.MoveToInventory(bag); ExtractionStep(ExtractionPhase.BagInventory); }
                 else { bag.Use(); ExtractionStep(ExtractionPhase.BagOpen); }
                 return true;
             }
@@ -218,8 +218,8 @@ namespace CityBankers
                         {
                             _extractionMoveAttempts++;
                             SaveExtraction("move-retry-" + _extractionMoveAttempts);
-                            if (_extraction.Bag.HasValue) stillThere.MoveToContainer(DynelManager.LocalPlayer.Identity);
-                            else stillThere.MoveToInventory();
+                            if (_extraction.Bag.HasValue) BagOriginTrace.MoveToContainer(stillThere, DynelManager.LocalPlayer.Identity);
+                            else BagOriginTrace.MoveToInventory(stillThere);
                             _extractionMoveWait.Restart();
                         }
                     }
@@ -236,7 +236,7 @@ namespace CityBankers
                 {
                     var bag = FindInventoryBagByIdentity(_extraction.BagIdentity);
                     if (bag == null) return true;
-                    bag.MoveToBank();
+                    BagOriginTrace.MoveToBank(bag);
                     ExtractionStep(ExtractionPhase.BagReturn);
                 }
                 else
@@ -281,8 +281,8 @@ namespace CityBankers
             }
             _extraction.BeforeInventory = ExtractionInventory();
             SaveExtraction("item-prepared");
-            if (_extraction.Bag.HasValue) item.MoveToContainer(DynelManager.LocalPlayer.Identity);
-            else item.MoveToInventory();
+            if (_extraction.Bag.HasValue) BagOriginTrace.MoveToContainer(item, DynelManager.LocalPlayer.Identity);
+            else BagOriginTrace.MoveToInventory(item);
             _extractionMoveAttempts = 1;
             _extractionMoveWait.Restart();
             ExtractionStep(ExtractionPhase.ItemInventory);
