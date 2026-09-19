@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 158,
+  "current_session": 159,
   "last_completed_session": 158,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-158-bag-address-transition-review",
+  "transaction": "session-159-autonomous-shared-bag-recovery",
   "checkpoint_commit": "0e180f1817fa0a88faa550227d9282944efe43cc",
-  "task": "Earlier reconnect corruption documented; persistent bag repair unresolved",
-  "resume_instruction": "Earliest saved affected repeats now06:48UTC Sep18 local-census evidence in older archive, preceded by normal-count05:38 audit and06:46 reconnect. Bank list doubled; current/deployed clear already fixes that cache failure. No proof of initial persistent-reference producer or safe disposable slot. Do not request nonexistent captures, add another bank clear, or repeat held runs. Root cause and safe physical/ledger repair remain open.",
-  "base_commit": "4bc67eb759f97435c874032d9062b86b07949ba3"
+  "task": "Implement autonomous shared-bag evacuation and empty-shell recovery",
+  "resume_instruction": "Owner explicitly authorizes bot-operated evacuation, empty bag bank/social-back trials and last-resort empty-shell deletion; proven duplicate item disposal permitted, but no inference from template equality. Implement persistent recovery under quiesced census ownership, fresh response accounting, automatic reconnect observation, crash reconciliation and donor provenance. No builds/live AO per owner policy.",
+  "base_commit": "b436a88743b263aca7c6144739f9fb63aa508f17"
 }
