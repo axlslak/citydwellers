@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 159,
+  "current_session": 160,
   "last_completed_session": 159,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-159-autonomous-shared-bag-recovery",
+  "transaction": "session-160-recovery-build-fix",
   "checkpoint_commit": "81bcaca68fceecd3fd97b9de0c3335167c36ab93",
-  "task": "Autonomous shared-bag recovery implemented and published; historical origin remains unproven",
-  "resume_instruction": "Implementation resolved and published. Owner rebuilds/deploys normally; recovery runs under census ownership and records its own outcomes. Do not ask for manual slot moves or unavailable old captures. Historical reference creation remains unproven; if owner reports an issue, inspect recovery journal and census evidence without treating a code change as live repair or loosening destructive preconditions.",
-  "base_commit": "b436a88743b263aca7c6144739f9fb63aa508f17"
+  "task": "Fix CS0136 in SharedBagRecovery.Resolve",
+  "resume_instruction": "Rename conflicting local variables from owner compiler log; preserve recovery behavior. Record owner zoning outcome: unchanged ten empty inventory slots and shared-window behavior. No assistant builds.",
+  "base_commit": "a51a6b96b5a962796009fe5214d5b3108dc7179f"
 }
