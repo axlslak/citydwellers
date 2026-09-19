@@ -1,0 +1,4 @@
+<Project>
+  <!-- Standalone full-client probe: stop upward Directory.Build discovery.
+       Do not inherit City Dwellers shared sources, packages or build stamping. -->
+</Project>

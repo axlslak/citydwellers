@@ -11,7 +11,11 @@ Open CruSplitProbe.csproj in Visual Studio. Supply your matching AOSharp.Core.dl
 and AOSharp.Common.dll in this directory's `lib` folder, or set the MSBuild
 property `AOSharpDir` to their directory. Build for .NET Framework 4.8/x86.
 Load the resulting CruSplitProbe.dll through your usual AOSharp plugin loader.
-This project is deliberately outside the City Dwellers solution.
+This project is deliberately outside the City Dwellers solution. Its local
+Directory.Build.props and Directory.Build.targets prevent inheriting the
+repository runtime dependencies, shared sources and build-identity generator.
+Keep both files beside the project when copying it. After updating from the
+initial probe version, Clean then Rebuild to remove stale generated output.
 
 ## Capture
 

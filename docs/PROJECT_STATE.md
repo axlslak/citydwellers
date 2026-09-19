@@ -1,3 +1,9 @@
+## Session 174 — isolate standalone probe build
+
+- [OWNER BUILD FAILURE] CruSplitProbe inherited root Directory.Build.props and targets, pulling in runtime sources/packages and the City Dwellers assembly informational-version generator alongside SDK assembly metadata (CS0579). Initial standalone-project isolation was incomplete.
+- [RESOLVED] Added local Directory.Build.props and Directory.Build.targets discovery boundaries inside tools/CruSplitProbe. The probe now uses its own SDK defaults and explicit matching AOSharp DLL references; no global build file changes. README requires keeping both files with the project and Clean/Rebuild after updating.
+- Validation: import-scope/source and whitespace review only, no compilation/tests. Owner rebuilds probe, then follows the same two manual splits and fresh-login snapshot procedure. Banker split recognition remains open; runtime unchanged.
+
 ## Session 173 — observe native split slot allocation
 
 - [VERIFIED EVIDENCE] Owner full-client capture contains two outgoing splits (51 and64) from the same inventory slot without a logged split response, followed by two acknowledged action53 merges from other slots, then acknowledged container moves. Prior Clientless trace reported zero decoded messages during its12s window. This supports silent split behavior but decoded logging cannot rule out an unknown raw packet. Neither absence nor a sent request is server confirmation.
