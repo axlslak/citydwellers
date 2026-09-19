@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 153,
+  "current_session": 154,
   "last_completed_session": 153,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-153-bag-origin-evidence",
+  "transaction": "session-154-wire-bag-identity-review",
   "checkpoint_commit": "850c59470788cdecabb1c65e3095550478b814a9",
-  "task": "Duplicate-layout containment and origin tracing published; root cause awaits incoming evidence",
-  "resume_instruction": "Session153 retracts one-container-proves-phantom inference. Deployed DLL clears bank before native append; full inventory replaces cache. New bag-origin login/bank/duplicate JSON captures incoming decoded/raw snapshot and cache boundary. Owner rebuild/start once and supply affected bankers files. Root cause and ledger attribution unresolved. No more guessed slot dedupe. No physical Colonist deletion. Next journal seq358.",
-  "base_commit": "af48b37085580b741a2ee94469434383e0d4189a"
+  "task": "Validate incoming bag records independently of runtime decoder",
+  "resume_instruction": "Incoming captures already contain repeated IDs. Independently verify header/count/32-byte record boundaries and compare normal rows. Preserve containment; no physical mutation, no speculative runtime fix. Record exact remaining question and smallest owner observation.",
+  "base_commit": "735eb56c18fcc05e73607bf1889d314681a9757b"
 }
