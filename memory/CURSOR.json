@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 173,
-  "last_completed_session": 172,
-  "status": "in_progress",
+  "last_completed_session": 173,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-173-native-split-slot-probe",
-  "checkpoint_commit": "9d91972a10a8fa60e1eeffe0a184e4093d84b898",
-  "task": "Observe real-client split slot allocation",
-  "resume_instruction": "Prepare read-only AOSharp split probe: manual before snapshot, outgoing split observation and after snapshots. Native implementation unavailable in uploaded managed wrapper. Do not guess banker split cache mutation. No builds/live tests.",
+  "checkpoint_commit": "ce44641c6ac1ee6f65dc41e19cc142b65cef423c",
+  "task": "Native split probe published; banker split recognition remains open",
+  "resume_instruction": "Owner builds tools/CruSplitProbe standalone for full AO client. Arm /splitprobe, manually split one unit, wait3s END; repeat once without moving results; relog and /splitprobe snap. Compare free slots/native quantities/server persistence. Existing real-client capture logs splits without replies but merge/move replies. Uploaded managed SDK delegates split to native Gamecode.dll; allocation still unproven. Do not infer banker quantities or trade readiness from send alone. No builds/tests performed.",
   "base_commit": "4505d811964210dc111362908bce62c5340fb106"
 }
