@@ -253,7 +253,7 @@ namespace CityBankers
         {
             if (row?.Item == null || string.IsNullOrWhiteSpace(row.SourceCharacter))
                 return null;
-            string token = string.Concat(row.SourceCharacter.Where(char.IsLetterOrDigit));
+            string token = CityDwellers.Shared.CharacterNames.FileToken(row.SourceCharacter);
             JObject heartbeat = RuntimeStateStore.ReadJson<JObject>(System.IO.Path.Combine(
                 RuntimeStateStore.GetDataDirectory(_settingsDir),
                 "citybankers-health-" + token + ".json"));

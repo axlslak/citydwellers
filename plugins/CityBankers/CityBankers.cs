@@ -872,14 +872,8 @@ namespace CityBankers
             File.Move(tempPath, path);
         }
 
-        private static string SafeFileToken(string value)
-        {
-            string token = string.IsNullOrWhiteSpace(value) ? "unknown" : value;
-            foreach (char invalid in Path.GetInvalidFileNameChars())
-                token = token.Replace(invalid, '_');
-
-            return token;
-        }
+        private static string SafeFileToken(string value) =>
+            CityDwellers.Shared.CharacterNames.FileToken(value);
 
         private static void DeleteIfExists(string path)
         {

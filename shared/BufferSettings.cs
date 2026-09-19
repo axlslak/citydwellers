@@ -32,7 +32,7 @@ namespace CityDwellers.Shared
             {
                 if (account == null || string.IsNullOrWhiteSpace(account.Username) ||
                     string.IsNullOrWhiteSpace(account.Password) ||
-                    !Regex.IsMatch(account.Character ?? "", @"\A[A-Za-z0-9-]{1,30}\z"))
+                    !Regex.IsMatch(account.Character ?? "", @"\A" + CharacterNames.RegexClass + @"{1,30}\z"))
                     throw new InvalidOperationException("Each enabled Buffers.Froobs entry needs Username, Password and a valid Character.");
                 if (!characters.Add(account.Character) || !accounts.Add(account.Username))
                     throw new InvalidOperationException("Buffers.Froobs must use distinct characters and accounts.");

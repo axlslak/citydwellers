@@ -72,7 +72,7 @@ namespace CityBankers
             if (installed) return;
             directory = Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDir), "diagnostic-dumps");
             token = new string((Client.CharacterName ?? "unknown").ToLowerInvariant()
-                .Select(c => char.IsLetterOrDigit(c) ? c : '_').ToArray());
+                .Select(c => CityDwellers.Shared.CharacterNames.IsCharacter(c) ? c : '_').ToArray());
             connection = Guid.NewGuid().ToString("N");
             Client.MessageReceived += Receive;
             Client.PacketReceived += Packet;

@@ -57,7 +57,7 @@ namespace CityManager
                         continue;
                     }
 
-                    string token = string.Concat(character.Where(char.IsLetterOrDigit));
+                    string token = CityDwellers.Shared.CharacterNames.FileToken(character);
                     JObject heartbeat = RuntimeStateStore.ReadJson<JObject>(Path.Combine(
                         _dataDir, "citybankers-health-" + token + ".json"));
                     bool sameProcess = ParseDonationInt(heartbeat?["ProcessId"]) == processId;
@@ -308,7 +308,7 @@ namespace CityManager
 
         private JObject ReadBankerHeartbeat(string character)
         {
-            string token = string.Concat((character ?? string.Empty).Where(char.IsLetterOrDigit));
+            string token = CityDwellers.Shared.CharacterNames.FileToken(character);
             return RuntimeStateStore.ReadJson<JObject>(Path.Combine(
                 _dataDir, "citybankers-health-" + token + ".json"));
         }

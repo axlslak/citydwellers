@@ -579,7 +579,7 @@ namespace CityBankers
 
         private static string GetReadyMarkerPath(string settingsDir, string character)
         {
-            string safe = string.Concat((character ?? "unknown").Where(char.IsLetterOrDigit));
+            string safe = CityDwellers.Shared.CharacterNames.FileToken(character);
             if (string.IsNullOrWhiteSpace(safe))
                 safe = "unknown";
             return Path.Combine(

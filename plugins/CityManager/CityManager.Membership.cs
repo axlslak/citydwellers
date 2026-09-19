@@ -1150,7 +1150,7 @@ namespace CityManager
 
             foreach (char character in normalized)
             {
-                if (!char.IsLetterOrDigit(character) && character != '-')
+                if (!CityDwellers.Shared.CharacterNames.IsCharacter(character))
                 {
                     error = "Member names may contain only letters, digits and hyphens.";
                     return false;

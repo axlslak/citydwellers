@@ -22,11 +22,11 @@ namespace CityManager
         private const int PassiveAltResponseTimeoutSeconds = 45;
 
         private static readonly Regex AltHeadingRegex = new Regex(
-            @"Alts\s+of\s+([A-Za-z0-9]+)\s*\((\d+)\)",
+            @"Alts\s+of\s+({name})\s*\((\d+)\)".Replace("{name}", CharacterNames.RegexToken),
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex AltCharacterRegex = new Regex(
-            @"<font\s+color=['""]#00BFFF['""]>([A-Za-z0-9]+)</font>",
+            @"<font\s+color=['""]#00BFFF['""]>({name})</font>".Replace("{name}", CharacterNames.RegexToken),
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex AltPageRegex = new Regex(
@@ -38,15 +38,15 @@ namespace CityManager
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex OnlineMainRegex = new Regex(
-            @"<a\s+href=['""]chatcmd:///tell\s+([A-Za-z0-9-]+)\s+alts\s+([A-Za-z0-9-]+)['""]>([A-Za-z0-9-]+)</a>",
+            @"<a\s+href=['""]chatcmd:///tell\s+({name})\s+alts\s+({name})['""]>({name})</a>".Replace("{name}", CharacterNames.RegexToken),
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex OnlineCharacterRegex = new Regex(
-            @"(?:^|<br\s*/?>|\r?\n|text://)[ \t]{2,}([A-Za-z0-9-]+)\s+\(",
+            @"(?:^|<br\s*/?>|\r?\n|text://)[ \t]{2,}({name})\s+\(".Replace("{name}", CharacterNames.RegexToken),
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex LoggedOffRegex = new Regex(
-            @"<font\s+color=['""]#00BFFF['""]>([A-Za-z0-9]+)</font>\s+has\s+logged\s+off",
+            @"<font\s+color=['""]#00BFFF['""]>({name})</font>\s+has\s+logged\s+off".Replace("{name}", CharacterNames.RegexToken),
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private readonly object _altsSync = new object();
@@ -514,6 +514,9 @@ namespace CityManager
                 return;
             }
 
+            if (message.IndexOf("has logged off", StringComparison.OrdinalIgnoreCase) >= 0)
+                Logger.Warning("ALTS presence logout format not recognized; presence retained.");
+
             if (message.IndexOf("has logged on", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 Match character = AltCharacterRegex.Match(message);
@@ -522,6 +525,7 @@ namespace CityManager
                     lock (_altsSync)
                         _onlineCharacters.Add(character.Groups[1].Value);
                 }
+                else Logger.Warning("ALTS presence login format not recognized; presence retained.");
             }
 
             string main;
@@ -2057,7 +2061,7 @@ namespace CityManager
 
             foreach (char character in value)
             {
-                if (!char.IsLetterOrDigit(character) && character != '-')
+                if (!CharacterNames.IsCharacter(character))
                 {
                     normalized = value;
                     error = "Character names may contain only letters, digits and hyphens.";
