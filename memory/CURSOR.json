@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 156,
+  "current_session": 157,
   "last_completed_session": 156,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-156-shared-container-reference-review",
+  "transaction": "session-157-current-bag-move-evidence",
   "checkpoint_commit": "4bd6701e38d9ac538e7b03cee06af84e125febe1",
-  "task": "Shared-container reference comparison complete; root cause and remediation remain open",
-  "resume_instruction": "Use available current evidence, including newer September19 archive and deployed DLLs, for further analysis. Do not request unavailable historical packets again. Missing creation transition remains an evidence limitation; compare completed, root cause/physical repair/ledger reconciliation unresolved.",
-  "base_commit": "4f5b3f9cf716dd11e9a7525aedfa7f661e5f0edc"
+  "task": "Review deployed bag moves and capture missing address evidence",
+  "resume_instruction": "Use latest owner archive and deployed DLLs to inspect move-address consistency. Preserve ambiguous-layout hold. No extra historical captures exist; do not request them or manipulate affected bags. Add only evidence-backed safeguards or bounded diagnostics; no builds/live tests.",
+  "base_commit": "7890b10e8f1f6ab05df97c3ba17cc36854b37437"
 }
