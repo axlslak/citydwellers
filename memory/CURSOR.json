@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 149,
+  "current_session": 150,
   "last_completed_session": 149,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-149-a-held-banker-must-come-back",
+  "transaction": "session-150-one-bag-one-lookup",
   "checkpoint_commit": "1e246a8be3bf0b82ed546d566d5c4a7bb2463526",
-  "task": "Hold retries and headroom fixed; duplicate-tolerance sweep next",
-  "resume_instruction": "Sessions 146-149 published. Next: session 150 takes the remaining confirmed findings from the 112-agent sweep - SingleOrDefault crash in Extraction, BuildCurrentStock and FindNextFreeBag double-counting, CensusApplication donor anchor, and bank free slots from distinct identities. Still needs evidence: second audit on one connection fails all inventory bags. Next journal seq350.",
-  "base_commit": "e966c49419c23661a80b148234c121376a0dc5d6"
+  "task": "A lookup by identity must resolve to one bag",
+  "resume_instruction": "Session 150 opened. Sessions 146-149 are VERIFIED-LIVE: nine bankers audited, Kbarty fixed. Remaining: FindBankBagByIdentity returns an arbitrary record so the storage return check compared bank/92 against an expected bank/1 and stopped Kbsupp; Extraction's SingleOrDefault throws on a duplicate. Next journal seq351.",
+  "base_commit": "144d31f750b3fe3018458337c8dad3e52a960212"
 }
