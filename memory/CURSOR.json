@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 152,
+  "current_session": 153,
   "last_completed_session": 152,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-152-isolated-census-readmission",
+  "transaction": "session-153-bag-origin-evidence",
   "checkpoint_commit": "aa5bb08f839f004b35f264a0c6743d97c5ba5571",
-  "task": "Isolated census readmission correction published; exact open failure diagnosis remains open",
-  "resume_instruction": "Session 152 keeps released peers ready while an excluded worker reserves/scans/reconciles locally; explicit recovery remains global. Bag-open wait 15s and per-bag error logging added. Owner builds/tests. Obtain failed per-bag results from data/startup-census/285576-639254071554746118 to diagnose four one-bag open failures; console lacks exact reason. Persisted duplicate stock/donor attribution and repeated-audit freshness remain open. Next journal seq356.",
-  "base_commit": "80545637d0c35223d45239a1e2ac42abe994fb58"
+  "task": "Trace duplicate bag records to incoming snapshots or local mutations",
+  "resume_instruction": "Inspect supplied deployed DLLs and snapshot; add narrowly scoped read-only incoming inventory evidence if existing records cannot prove origin. Do not claim one cached container proves a phantom: SDK itself keys containers by identity. No physical bag deletion, runtime data repair, builds or live tests.",
+  "base_commit": "af48b37085580b741a2ee94469434383e0d4189a"
 }
