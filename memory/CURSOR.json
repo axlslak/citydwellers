@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 176,
-  "last_completed_session": 175,
-  "status": "in_progress",
+  "last_completed_session": 176,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-176-cru-resolution-cleanup",
-  "checkpoint_commit": "4d3bd58ba7acee5ff4f3ac8eedcc35c50de59cc9",
-  "task": "Record CRU live resolution and remove verbose diagnostics and probe",
-  "resume_instruction": "Owner approved closure after pickup61->60, expiry remerge59+1->60 and donation remerge60+1->61. Remove temporary split packet tracing/full-field action dumps and tools/CruSplitProbe, preserve concise CRU operation/count/failure logs. No runtime behavior change or builds/tests.",
+  "checkpoint_commit": "2c870ad543dd934e312764d8d053df3b1fcf2347",
+  "task": "CRU resolved; diagnostic cleanup published",
+  "resume_instruction": "CRU pickup, expiry/remerge and donation/remerge live-confirmed with61 restored. Owner approved resolved. Temporary raw/action/split traces and standalone probe removed; concise CRU/count/operation/failure logs preserved. No runtime behavior change. Split local prediction remains known limitation, delivery confirmation unchanged. No tests/builds here; normal use next, reopen on concrete issue.",
   "base_commit": "6dbacca045b56781362dbcfe69be2568f725c4a8"
 }
