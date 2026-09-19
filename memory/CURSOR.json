@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 166,
+  "current_session": 167,
   "last_completed_session": 166,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-166-reserve-read-proof",
+  "transaction": "session-167-reserve-bank-capacity-loop",
   "checkpoint_commit": "f6e0a402041244359df611b239780fc35de8c118",
-  "task": "Resolved: reserve read proof and scoped missing-contents retries",
-  "resume_instruction": "Owner running bots without further donations until next build; then tests one bag for Artillery before larger batch. Last log verifies Support110 after two disruptive opening-timeout recovery cycles; Artillery119. Published wire-observation boundary before receipt/move, sender empty certificate carried across exact physical receipt, bag-only bank/inventory retry on missing reads. Spirit remains excluded; full-bank worker inventory placement retained. Movement ambiguity/nonempty contradictions still reconcile safely. No assistant builds/live actions; new path unverified. Do not request more historical data or disturb running bots.",
-  "base_commit": "eaeeffc5ce854292b089beb6a42c34502424b645"
+  "task": "Stop repeated worker reserve banking and correct reserve bank capacity",
+  "resume_instruction": "Latest run proves contents/receipt fix worked; Artillery now120 bags,102 bank18 inventory. SDK Bank.NumFreeSlots uses104 causing bank attempt at full102; worker restart banking repeats it after every audit. Leave worker replacements in inventory, remove post-census rebanking, use conservative102 reserve capacity for Central. Owner advised stop loop; no manual moves or new bag required. No assistant builds/live actions.",
+  "base_commit": "2d630951a9adce8cbc8d3c57c5b5545e32f608d9"
 }
