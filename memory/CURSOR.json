@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 163,
+  "current_session": 164,
   "last_completed_session": 163,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-163-post-recovery-census-refresh",
+  "transaction": "session-164-empty-bag-reserve",
   "checkpoint_commit": "f0480d9be7a93e9666ad5c8293f3eb710c3ec0a9",
-  "task": "Physical recovery log-verified; admission audit preflight refresh published",
-  "resume_instruction": "Both shared containers deleted, both aliases gone, evacuated21/11 items verified in destinations. Remaining capacity119/109; root producer unknown. Published pre-audit refresh for opened normal inventory storage bags in startup/readmission gate, retaining strict fresh-response checks and peer isolation. Owner rebuilds/starts normally; complete census and BANKER READY remain unverified. Do not rerun manual bag experiments or claim ledger reconciliation completed. No assistant builds.",
-  "base_commit": "106c9669db4856e48ba69c750a6daffc3ed961bf"
+  "task": "Kavem Small Backpack donations and automatic Central bank reserve replenishment",
+  "resume_instruction": "Implement empty-only Small Backpack reserve on Central, accepting Kavem donations and supplying missing worker bags through verified custody. No spirit overflow. Owner builds/live tests; no assistant compilation. Inspect dispatch/census restart integration before enabling movement.",
+  "base_commit": "0c9f896109dd187ec1252c47484ea49cc02d1798"
 }
