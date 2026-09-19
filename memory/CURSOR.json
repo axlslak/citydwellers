@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 170,
-  "last_completed_session": 169,
-  "status": "in_progress",
+  "last_completed_session": 170,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-170-cru-consolidation",
-  "checkpoint_commit": "bdc01d15d9ea5b0e7841922e315cdcc2d7846cf7",
-  "task": "Continue automatic CRU consolidation after verified merges",
-  "resume_instruction": "Owner log verifies action53 applied54 at0041 and merge verified total61 at18:47:12; all nine bankers ready. Allow next merge only after verification, pace idle merges, retain runtime latch on any unverified attempt and existing pickup/trade exclusions. Keep config opt-in and proven packet/response mapping. Owner builds/live-tests; split/pickup live result follows consolidation.",
+  "checkpoint_commit": "e1b2c976a9e77056cc80389ead243e3db0ecc93f",
+  "task": "Resolved: sequential verified CRU consolidation",
+  "resume_instruction": "Owner live-confirmed session169 response/cache verification:54+seven singles=61. Published repeated opt-in consolidation with two-second idle gaps, pickup priority and unreserved compatible pairs only. Verified success clears runtime latch; any unverified merge pauses further merging/new CRU preparation until runtime restart. Owner rebuilds with EnableAutomaticCruStacking=true; unchanged supply should reach one61 stack. Then #cru split/pickup is next live check, not yet proven. No assistant builds/live tests.",
   "base_commit": "2f87d8f5a9a8e1f8119fe03926c307653b6b0785"
 }
