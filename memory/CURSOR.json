@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 158,
-  "last_completed_session": 157,
-  "status": "in_progress",
+  "last_completed_session": 158,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-158-bag-address-transition-review",
-  "checkpoint_commit": "db1ddc4c62f4fb159c88ae2c7f449064de6311ce",
-  "task": "Trace deployed slot inference and historical bag transitions",
-  "resume_instruction": "Compare deployed cache move handlers against saved census transitions. Distinguish inferred local slot state from incoming server evidence; do not invent slot semantics or repair the existing pair. No additional owner captures exist; no builds/live tests.",
+  "checkpoint_commit": "0e180f1817fa0a88faa550227d9282944efe43cc",
+  "task": "Earlier reconnect corruption documented; persistent bag repair unresolved",
+  "resume_instruction": "Earliest saved affected repeats now06:48UTC Sep18 local-census evidence in older archive, preceded by normal-count05:38 audit and06:46 reconnect. Bank list doubled; current/deployed clear already fixes that cache failure. No proof of initial persistent-reference producer or safe disposable slot. Do not request nonexistent captures, add another bank clear, or repeat held runs. Root cause and safe physical/ledger repair remain open.",
   "base_commit": "4bc67eb759f97435c874032d9062b86b07949ba3"
 }
