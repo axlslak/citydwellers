@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 155,
-  "last_completed_session": 154,
-  "status": "in_progress",
+  "last_completed_session": 155,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-155-bag-baseline-comparison",
-  "checkpoint_commit": "28ae5edfdc48ff55774c64b7f878eaa29a5f055b",
-  "task": "Compare original bag identities and earlier per-slot observations",
-  "resume_instruction": "Owner normal-client screenshot confirms 19 inventory bags plus terminal and ten free slots, reports 102 bank bags and worn Colonist; left unchanged and logged out. Compare Sept11 baseline identity multisets and historical audits; do not infer disposable slot or modify physical state.",
+  "checkpoint_commit": "f601a0c67186562341331db0d1affb7343bcff19",
+  "task": "Original bag IDs accounted for; per-icon contents observation needed",
+  "resume_instruction": "Session155: owner screenshot confirms19 inventory bags, reports102 bank plus worn Colonist, left unchanged/loggedout. Sept11 identity comparison: original120 artillery/110 support IDs all present; each has one extra occurrence and zero new IDs. Sep18 artillery double-credit uses same21 item records/handle. No runtime/data changes. Next: normal-client read-only per-icon contents observation; do not map UI positions to protocol slots. Target full21 artillery bag contains EnduringRightArm190, EnduringWaist190, AwakenedBrain180. No moves/deletion. Root cause/ledger remain open. Next journal seq362.",
   "base_commit": "c665fd19d05ad3a57d3df9d918e228cb0e58e381"
 }
