@@ -122,14 +122,6 @@ namespace CityManager
             public int Length, ChannelId;
             public uint SenderId;
         }
-        // The organization channel's real byte ceiling is not documented and is
-        // not ours to guess. Echo confirmation already proves delivery, so the
-        // bounds are learned: the largest length the chat server echoed back and
-        // the smallest that vanished. Seeded from measured 2026-09-18 evidence
-        // (569 delivered, 2487 dropped) and then narrowed by live results.
-        private int _orgSafeLength = 569;
-        private int _orgFailLength = 2487;
-        private string _orgCalibrationPath;
         private string _orgOutboundDetail = "not tested since startup";
         private DateTime? _lastOrgOutboundAttemptUtc;
 
@@ -164,8 +156,6 @@ namespace CityManager
             _statePath = Path.Combine(_dataDir, "citymanager-cloak-state.json");
             _eventsPath = Path.Combine(_dataDir, "citymanager-cloak-events.jsonl");
             _diagnosticLogPath = Path.Combine(_dataDir, "citymanager-diagnostics.log");
-            _orgCalibrationPath = Path.Combine(_dataDir, "citymanager-org-size.json");
-            LoadOrgCalibration();
 
             Logger.Information($"CityManager settings: {_settingsDir}");
             Logger.Information($"CityManager data: {_dataDir}");
@@ -1823,100 +1813,9 @@ namespace CityManager
             lock (_orgOutputSync) _pendingOrgEchoes.Remove(pending);
         }
 
-        // Probe midway between the largest confirmed delivery and the smallest
-        // known failure, so the page size converges on the real ceiling instead
-        // of sitting at whatever constant someone last guessed.
-        private int OrgPageBudget()
-        {
-            lock (_orgOutputSync)
-            {
-                int low = Math.Max(256, _orgSafeLength);
-                if (_orgFailLength <= low + 48)
-                    return low;
-                return low + ((_orgFailLength - low) / 2);
-            }
-        }
-
-        private void RecordOrgDelivery(int length, bool delivered)
-        {
-            if (length <= 0) return;
-            bool changed = false;
-            int safe, fail;
-            lock (_orgOutputSync)
-            {
-                if (delivered)
-                {
-                    if (length > _orgSafeLength) { _orgSafeLength = length; changed = true; }
-                    // A confirmed delivery above a recorded failure means that
-                    // failure was not a size limit. Reopen the upper bound.
-                    if (_orgFailLength <= _orgSafeLength) { _orgFailLength = _orgSafeLength * 2; changed = true; }
-                }
-                else if (length < _orgFailLength)
-                {
-                    _orgFailLength = length; changed = true;
-                    if (_orgSafeLength >= _orgFailLength) _orgSafeLength = Math.Max(256, _orgFailLength / 2);
-                }
-                safe = _orgSafeLength; fail = _orgFailLength;
-            }
-            if (!changed) return;
-            Logger.Information("ORG SIZE CALIBRATION: confirmed<=" + safe + "; failed>=" + fail +
-                "; next page budget " + OrgPageBudget() + ".");
-            SaveOrgCalibration();
-        }
-
-        private void LoadOrgCalibration()
-        {
-            try
-            {
-                if (_orgCalibrationPath == null || !File.Exists(_orgCalibrationPath)) return;
-                var saved = JsonConvert.DeserializeObject<OrgSizeCalibration>(
-                    File.ReadAllText(_orgCalibrationPath));
-                if (saved == null || saved.Version != 2 || saved.SafeLength <= 0 ||
-                    saved.FailLength <= saved.SafeLength) return;
-                lock (_orgOutputSync)
-                {
-                    _orgSafeLength = saved.SafeLength;
-                    _orgFailLength = saved.FailLength;
-                }
-                Logger.Information("ORG SIZE CALIBRATION restored: confirmed<=" + saved.SafeLength +
-                    "; failed>=" + saved.FailLength + "; page budget " + OrgPageBudget() + ".");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning("Org size calibration could not be restored: " + ex.Message);
-            }
-        }
-
-        private void SaveOrgCalibration()
-        {
-            try
-            {
-                if (_orgCalibrationPath == null) return;
-                // Echoes and expiry can arrive on different callbacks. Serialize
-                // snapshots and atomically replace so an older save cannot win.
-                lock (_orgOutputSync)
-                    FileSnapshot.WriteText(_orgCalibrationPath, JsonConvert.SerializeObject(
-                        new OrgSizeCalibration { Version = 2, SafeLength = _orgSafeLength,
-                            FailLength = _orgFailLength, UpdatedUtc = DateTime.UtcNow },
-                        Formatting.Indented));
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning("Org size calibration could not be saved: " + ex.Message);
-            }
-        }
-
-        private sealed class OrgSizeCalibration
-        {
-            public int Version;
-            public int SafeLength;
-            public int FailLength;
-            public DateTime UpdatedUtc;
-        }
-
         // Match exactly one pending attempt by sender, channel and complete text.
         // Shared markup prefixes cannot identify a page. Unmatched/decorated text
-        // is not delivery evidence and must never raise the learned safe bound.
+        // is not delivery evidence.
         private void ObserveOrgEcho(GroupMsg observed)
         {
             PendingOrgEcho confirmed = null;
@@ -1940,7 +1839,6 @@ namespace CityManager
                 Logger.Warning("ORG DELIVERY UNCONFIRMED: no echo observed within 15s via " +
                     pending.Route + "; bytes=" + pending.Length + ".");
                 DevTrace("ORG ECHO MISSING via " + pending.Route + " bytes=" + pending.Length);
-                RecordOrgDelivery(pending.Length, false);
             }
             if (confirmed != null)
             {
@@ -1948,7 +1846,6 @@ namespace CityManager
                 Logger.Information("ORG DELIVERY CONFIRMED via " + confirmed.Route +
                     "; bytes=" + confirmed.Length + ".");
                 DevTrace("ORG ECHO CONFIRMED via " + confirmed.Route + " bytes=" + confirmed.Length);
-                RecordOrgDelivery(confirmed.Length, true);
             }
         }
 

@@ -13,9 +13,8 @@ namespace CityManager
 {
     public partial class CityManager
     {
-        // Organization page size is no longer a constant. It is learned from
-        // echo-confirmed deliveries; see OrgPageBudget in CityManager.cs.
-        // Guest and tell ride the chat connection and keep fixed sizes.
+        // Owner-adjustable organization blob budget in UTF-8 bytes.
+        private const int OrgBlobPageSize = 5200;
         private const int GuestBlobPageSize = 8000;
         private const int TellBlobPageSize = 7200;
 
@@ -1071,7 +1070,7 @@ namespace CityManager
         private int BlobPageSize(ReplyTarget target)
         {
             if (target.IsOrg)
-                return OrgPageBudget();
+                return OrgBlobPageSize;
             if (target.IsGuest)
                 return GuestBlobPageSize;
             return TellBlobPageSize;

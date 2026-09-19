@@ -1,3 +1,10 @@
+## Session 168 — restore owner-controlled organization blob size
+
+- [OWNER DIRECTION] Owner reports the login/logout flood originated in server behavior and the temporary organization blob restriction has lifted. Keep the organization size directly editable in Presentation and retire the automatic experiment.
+- [RESOLVED] Restored `OrgBlobPageSize = 5200` in `CityManager.Presentation.cs`. Organization pagination uses that constant; removed learned bounds, automatic budget selection, delivery-driven calibration, startup restoration and persistence of calibration state.
+- [PRESERVED] Exact sender/channel/text echo confirmation, delivery-health reporting, transport routing and UTF-8 pagination remain. Guest/tell budgets remain 8000/7200. Existing `citymanager-org-size.json` is ignored and no longer written; it remains recognized solely to avoid an alien-file warning on upgrades.
+- Validation: focused source/diff review, removed-symbol reference scan and Git whitespace checks. No compilation, test suite or live AO operations; owner owns builds/testing. No in-game changelog entry added. Recovered and completed the existing session168 transaction; no unrelated banker changes.
+
 ## Session 167 — replacement already received; false bank capacity caused replay
 
 - [VERIFIED-LIVE] Latest one-bag run proves session166's read/receipt correction: Central used an incoming contents snapshot, banked the bag and queued Artillery; Artillery used source empty proof plus exact receipt at17:41:46. The failure moved to phase banking at17:42:06. Subsequent complete audits twice establish Artillery120 bags,102 bank18 inventory; Central registered the replacement. Nevertheless worker restart recovery tried banking that same bag again at17:45:54 and17:48:44, causing repeated global census cycles. No second donation or manual movement is needed for Artillery.
