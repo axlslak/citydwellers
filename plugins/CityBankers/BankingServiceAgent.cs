@@ -202,7 +202,7 @@ namespace CityBankers
                 Receipt = actor._receipt, Batch = actor._activeBatch, Command = actor._workerCommand,
                 Reserved = actor._reservedDispatch, Storage = actor._storageJob,
                 Return = actor._returnOffer, Withdrawal = actor._withdrawal, Pickups = actor._pickupItems,
-                Extraction = actor._extraction, LocalCensus = actor._localCensus,
+                Extraction = actor._extraction, LocalCensus = actor._localCensus, Reserve = actor._reserveOperation,
                 DispatchCensus = actor._dispatchCensus, WithdrawalCensus = actor._withdrawalCensus,
                 Donation = actor._donationSnapshot, Cleanup = actor._donationCleanup,
                 DeliveryInferred = false
@@ -308,6 +308,7 @@ namespace CityBankers
                 if (TickStorageRecovery()) return;
                 TickInternalConfirmation();
                 if (TickPhysicalReceipt()) return;
+                if (TickReserveOperation()) return;
                 if (TickRecoveryExtraction()) return;
                 if (TickReturnTransfer()) return;
                 if (_isCentral)
@@ -322,6 +323,7 @@ namespace CityBankers
                         return;
                     TickDonation();
                     TickDonationCleanup();
+                    if (TickBagReserve()) return;
                     DetectLocalInventoryDifference();
                     if (_localCensus != null) return;
                     if (TryRecoverFailedDispatch()) return;
@@ -332,6 +334,7 @@ namespace CityBankers
                 else
                 {
                     if (_storageJob != null) { TickStorageJob(); return; }
+                    if (TickWorkerReserveRecovery()) return;
                     if (_reservedDispatch == null && _workerCommand == null && TickWithdrawalWorker())
                         return;
                     TickWorkerTrade();
@@ -542,8 +545,8 @@ namespace CityBankers
             {
                 string targetName = FindPlayerName(target);
                 TraceTrade("trade.opened", new { Partner = target.ToString(), Name = targetName });
-                if (_stackOperation != null)
-                { DeclineIncomingTrade(targetName, "Central is preparing CRU. Please reopen trade shortly."); return; }
+                if (_stackOperation != null || _reserveOperation != null)
+                { DeclineIncomingTrade(targetName, "This banker is preparing supplies. Please reopen trade shortly."); return; }
                 if (_withdrawalCensus != null || _withdrawalDispute ||
                     WithdrawalStore.GetWithdrawalCensusId(_settingsDir, Client.CharacterName) != null)
                 { DeclineIncomingTrade(targetName, "Central is reconciling withdrawal custody. Please retry after recovery completes."); return; }
@@ -925,6 +928,14 @@ namespace CityBankers
             error = null;
             foreach (TransferItemState item in offered)
             {
+                if (IsReserveBag(item))
+                {
+                    if (!TrustedOperators.IsTrustedAdmin(_donationPartnerName) || item.Quantity != 1 ||
+                        !IsUsableIdentity(item.UniqueIdentity) || !item.UniqueIdentity.StartsWith("(Container:", StringComparison.Ordinal) ||
+                        offered.Count(i => i.UniqueIdentity == item.UniqueIdentity) != 1)
+                    { error = "Only Kavem may donate Small Backpacks, each with a distinct container identity."; return false; }
+                    continue;
+                }
                 if (CruPolicy.IsCru(item.AoId))
                 {
                     if (item.Quantity < 1 || CruInventory().Any(i => StackableItems.Quantity(i) < 1)) { error = "CRU stack quantity has not arrived yet. Please reopen trade shortly."; return false; }
@@ -985,7 +996,7 @@ namespace CityBankers
             // This method is entered only after the physical inventory gain is verified.
             // Persist accounting before disposition; logs are diagnostic, not the commit path.
             ActiveLedgerStore.RecordDonation(_settingsDir, transactionId, donorName,
-                Client.CharacterName, DateTime.UtcNow, received.Where(i => !CruPolicy.IsCru(i.AoId)));
+                Client.CharacterName, DateTime.UtcNow, received.Where(i => !CruPolicy.IsCru(i.AoId) && !IsReserveBag(i)));
 
             AppendTradeLedger(
                 "player_trade_completed",
@@ -1001,7 +1012,7 @@ namespace CityBankers
             List<TransferItemState> deleteItems = new List<TransferItemState>();
             foreach (TransferItemState item in received)
             {
-                if (CruPolicy.IsCru(item.AoId)) continue; // Central inventory is its permanent storage.
+                if (CruPolicy.IsCru(item.AoId) || IsReserveBag(item)) continue; // Supplies use their own disposition.
                 string key = RetentionCountKey(item.AoId);
                 int count;
                 if (!projectedCounts.TryGetValue(key, out count))
@@ -1018,6 +1029,9 @@ namespace CityBankers
                 projectedCounts[key] = count;
             }
 
+            int reserveCount = received.Count(IsReserveBag);
+            if (reserveCount > 0)
+                TellDonationPartner("Received " + reserveCount + " Small Backpack(s) for replacement stock. Central will verify they are empty and bank them.");
             ResetDonation();
             _donationDispositionPartnerName = donorName;
 
@@ -1528,7 +1542,8 @@ namespace CityBankers
             if (_activeBatch == null)
                 return;
 
-            ActiveLedgerStore.MarkDispatched(_settingsDir, _activeBatch.TransactionId,
+            if (!IsReserveBatch(_activeBatch.Items))
+                ActiveLedgerStore.MarkDispatched(_settingsDir, _activeBatch.TransactionId,
                 _activeBatch.Character, _activeBatch.Items, Client.CharacterName, _receipt.LedgerIds);
 
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
@@ -1782,6 +1797,11 @@ namespace CityBankers
                 if (_storageJob.Command == null || _storageJob.Command.Items == null)
                 {
                     FailStorageJob("Storage command is empty.");
+                    return;
+                }
+                if (IsReserveBatch(_storageJob.Command.Items) && _storageJob.Index == 0)
+                {
+                    BeginReserveOperation(_storageJob.Command.Items[0].UniqueIdentity, "bank");
                     return;
                 }
                 if (_storageJob.Index >= _storageJob.Command.Items.Count)
@@ -2390,6 +2410,11 @@ namespace CityBankers
                 " - ";
             string itemDescription = BuildItemLink(item) + " (QL " +
                 CityBankersChatPalette.Cyan(item.Ql.ToString()) + ")";
+            if (IsReserveBag(item) && TrustedOperators.IsTrustedAdmin(_donationPartnerName))
+            {
+                TellDonationPartner(progress + itemDescription + " will be checked empty and banked as replacement stock.");
+                return;
+            }
             if (CruPolicy.IsCru(item.AoId))
             {
                 TellDonationPartner(progress + itemDescription + " stays on Central and will join the CRU stack.");
@@ -2590,6 +2615,9 @@ namespace CityBankers
             if (left == null || right == null)
                 return false;
             if (left.Quantity != right.Quantity) return false;
+            if (IsReserveBag(left) || IsReserveBag(right))
+                return IsReserveBag(left) && IsReserveBag(right) && IsUsableIdentity(left.UniqueIdentity) &&
+                    left.UniqueIdentity == right.UniqueIdentity;
             if (IsUsableIdentity(left.UniqueIdentity) &&
                 IsUsableIdentity(right.UniqueIdentity) &&
                 string.Equals(left.UniqueIdentity, right.UniqueIdentity, StringComparison.Ordinal))
@@ -2622,7 +2650,7 @@ namespace CityBankers
                         item.UniqueIdentity.ToString(),
                         expected.UniqueIdentity,
                         StringComparison.Ordinal)).ToList();
-                if (unique.Count > 0)
+                if (unique.Count > 0 || IsReserveBag(expected))
                     return unique;
             }
             return normal.Where(item =>
@@ -2653,7 +2681,7 @@ namespace CityBankers
                         expected.UniqueIdentity,
                         StringComparison.Ordinal));
                 }
-                if (index < 0 && expected != null)
+                if (index < 0 && expected != null && !IsReserveBag(expected))
                 {
                     index = available.FindIndex(item =>
                         item.Id == expected.AoId &&

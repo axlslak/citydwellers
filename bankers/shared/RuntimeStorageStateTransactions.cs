@@ -15,6 +15,28 @@ namespace CityBankers.Shared
         private const string RuntimeStateMutexName = "CityBankers.RuntimeState.v1";
         private const string IdentityNoneText = "(None:0000)";
 
+        // Outer empty containers are equipment for storage, never donor stock.
+        public static void UpdateReserveBag(string settingsDir, string character, string identity, StorageBagState replacement)
+        {
+            WithRuntimeStateMutex(delegate
+            {
+                var state = RuntimeStateStore.LoadStorageState(settingsDir);
+                var worker = state?.Workers?.SingleOrDefault(w => string.Equals(w.Character, character, StringComparison.OrdinalIgnoreCase));
+                if (worker?.Bags == null) throw new InvalidOperationException("Reserve storage owner is unavailable.");
+                var existing = worker.Bags.Where(b => b.LastUniqueIdentity == identity).ToList();
+                if (existing.Count > 1 || existing.Any(b => b.Items == null || b.Items.Count != 0))
+                    throw new InvalidOperationException("Reserve operation cannot replace occupied or ambiguous storage.");
+                if (replacement != null && worker.Bags.Any(b => b.LastUniqueIdentity != identity && b.Source == replacement.Source &&
+                    b.OuterSlotInstance == replacement.OuterSlotInstance))
+                    throw new InvalidOperationException("Reserve destination conflicts with another bag.");
+                worker.Bags.RemoveAll(b => b.LastUniqueIdentity == identity);
+                if (replacement != null) worker.Bags.Add(replacement);
+                state.UpdatedUtc = DateTime.UtcNow;
+                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetStorageStatePath(settingsDir), state);
+                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetCurrentStockPath(settingsDir), RuntimeStateStore.BuildCurrentStock(settingsDir, state));
+            });
+        }
+
         public static void ReplaceCensusedWorker(string settingsDir, StorageWorkerState replacement)
         {
             WithRuntimeStateMutex(delegate

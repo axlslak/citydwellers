@@ -58,6 +58,11 @@ namespace CityBankers
 
         private void RequestStorageRecovery(StorageJob job)
         {
+            if (IsReserveBatch(job.Command?.Items))
+            {
+                StartupCensusGate.Block("Empty replacement bag placement requires physical census reconciliation.");
+                return;
+            }
             ReceiptEvidence received;
             if (job.Command?.AttemptId == null ||
                 !_appliedDispatchReceipts.TryGetValue(job.Command.AttemptId, out received)) return;

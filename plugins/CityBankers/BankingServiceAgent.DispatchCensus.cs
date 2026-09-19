@@ -102,7 +102,7 @@ namespace CityBankers
             return Client.InPlay && !Trade.IsTrading && Inventory.Bank.IsOpen &&
                 (StartupCensusGate.IsOpen || (_dispatchDispute?.AttemptId == attempt &&
                     StartupCensusGate.OwnsLocalPause(_dispatchDisputePause))) &&
-                _localCensus == null && _returnOffer == null && _extraction == null && _withdrawal == null &&
+                _reserveOperation == null && _localCensus == null && _returnOffer == null && _extraction == null && _withdrawal == null &&
                 !_donationActive && _donationCleanup == null && _dispatchPreparation == null &&
                 (_receipt == null || _receipt.AttemptId == attempt) &&
                 (_activeBatch == null || _activeBatch.AttemptId == attempt) &&

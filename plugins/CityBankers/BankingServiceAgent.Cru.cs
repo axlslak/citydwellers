@@ -36,7 +36,7 @@ namespace CityBankers
         {
             if (proposal.Kind != "cru") return false;
             if (!_isCentral || !StartupCensusGate.IsOpen || !Client.InPlay || Trade.IsTrading ||
-                _stackOperation != null || _receipt != null || _donationActive || _activeBatch != null ||
+                _reserveOperation != null || _stackOperation != null || _receipt != null || _donationActive || _activeBatch != null ||
                 _extraction != null || _returnOffer != null)
             { proposal.Reply.TrySetResult("Central is busy. Please try #cru again shortly."); return true; }
             StackableItems.Flush();

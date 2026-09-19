@@ -253,7 +253,9 @@ namespace CityBankers
                 {
                     string role;
                     return item != null &&
-                        (CruPolicy.IsCru(item.Id) ? StackableItems.Quantity(item) > 0 :
+                        ((item.Id == StorageBagPolicy.SmallBackpackId || item.HighId == StorageBagPolicy.SmallBackpackId)
+                            ? TrustedOperators.IsTrustedAdmin(_partnerName) && item.UniqueIdentity.Type == IdentityType.Container
+                            : CruPolicy.IsCru(item.Id) ? StackableItems.Quantity(item) > 0 :
                          SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.Id, out role));
                 });
                 if (!allManaged)

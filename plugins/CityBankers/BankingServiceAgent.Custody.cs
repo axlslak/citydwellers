@@ -100,7 +100,8 @@ namespace CityBankers
 
         private static string CustodyKey(TransferItemState item)
         {
-            return item.AoId + "/" + item.HighId + "/" + item.Ql;
+            return item.AoId + "/" + item.HighId + "/" + item.Ql +
+                (IsReserveBag(item) ? "/" + item.UniqueIdentity : "");
         }
 
         private object PhysicalSlots()
@@ -114,6 +115,7 @@ namespace CityBankers
         {
             if (_receipt == null) throw new InvalidOperationException("Donation has no durable preparation.");
             _receipt.Expected = new List<TransferItemState>(_donationSnapshot);
+            EnrollReserveOffer();
             PersistReceipt("offer-validated");
         }
 
@@ -142,7 +144,7 @@ namespace CityBankers
                     kind == "dispatch-receive" ? _workerCommand?.AttemptId :
                     kind == "withdrawal-transfer" ? _withdrawal?.TransferAttemptId :
                     kind == "recovery-return-send" || kind == "recovery-return-receive" ? _returnOffer?.Id : null };
-            if (kind == "dispatch-send")
+            if (kind == "dispatch-send" && !IsReserveBatch(expected))
             {
                 var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
                 _receipt.LedgerIds = new List<string>();

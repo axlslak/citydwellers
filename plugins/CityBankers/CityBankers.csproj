@@ -34,6 +34,7 @@
     <Compile Include="StackableItems.cs" />
     <Compile Include="ClientlessSessionGuard.cs" />
     <Compile Include="BankingServiceAgent.Cru.cs" />
+    <Compile Include="BankingServiceAgent.BagReserve.cs" />
     <Compile Include="ActiveLedgerCoordinator.cs" />
     <Compile Include="PhysicalLedgerReconciliation.cs" />
     <Compile Include="CensusApplication.cs" />

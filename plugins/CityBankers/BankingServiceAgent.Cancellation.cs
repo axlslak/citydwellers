@@ -222,6 +222,9 @@ namespace CityBankers
 
         private bool CancelledSourceStillAvailable(ReceiptEvidence source)
         {
+            if (IsReserveBatch(source.PreparedItems))
+                return source.PreparedItems.All(i => FindInventoryItems(i).Count == 1) &&
+                    ReadReserve().Bags.Any(b => b.Identity == source.PreparedItems[0].UniqueIdentity && !b.Delivered && !b.Quarantined);
             if (source.LedgerIds == null || source.LedgerIds.Count != source.PreparedItems.Count ||
                 source.LedgerIds.Any(string.IsNullOrWhiteSpace) || source.LedgerIds.Distinct().Count() != source.LedgerIds.Count)
                 return false;

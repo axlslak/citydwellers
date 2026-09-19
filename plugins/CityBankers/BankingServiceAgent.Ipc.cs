@@ -54,7 +54,7 @@ namespace CityBankers
         internal static DispatchCommand CurrentInboundDispatch =>
             _ipcOwner?._workerCommand ?? _ipcOwner?._reservedDispatch;
         internal static bool CentralTransferBusy => _ipcOwner != null &&
-            (_ipcOwner._stackOperation != null || _ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null || _ipcOwner._extraction != null ||
+            (_ipcOwner._reserveOperation != null || _ipcOwner._stackOperation != null || _ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null || _ipcOwner._extraction != null ||
              (_ipcOwner._receipt != null && !_ipcOwner._donationActive));
 
         private static string BankerPipe(string character)
@@ -132,7 +132,7 @@ namespace CityBankers
                 try
                 {
                     if (HandleCruProposal(proposal)) continue;
-                    if (_stackOperation != null) { proposal.Reply.TrySetResult("busy"); continue; }
+                    if (_stackOperation != null || _reserveOperation != null) { proposal.Reply.TrySetResult("busy"); continue; }
                     if (HandleDispatchCensusProposal(proposal)) continue;
                     if (HandleWithdrawalPreparation(proposal)) continue;
                     if (HandleTradeStageProposal(proposal)) continue;
@@ -191,7 +191,8 @@ namespace CityBankers
                     var worker = storage?.Workers?.SingleOrDefault(w =>
                         string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                         string.Equals(w.Role, _role, StringComparison.OrdinalIgnoreCase));
-                    ready = worker?.Bags != null && worker.Bags.Sum(b => b == null ? 0 :
+                    ready = IsReserveBatch(command.Items) ? ReserveWorkerReady(command) :
+                        worker?.Bags != null && worker.Bags.Sum(b => b == null ? 0 :
                         Math.Max(0, b.Capacity - (b.Items?.Count ?? b.Capacity))) >= command.Items.Count;
                 }
                 string spaceReason = null;
