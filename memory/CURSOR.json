@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 169,
+  "current_session": 170,
   "last_completed_session": 169,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-169-cru-merge-response",
+  "transaction": "session-170-cru-consolidation",
   "checkpoint_commit": "bdc01d15d9ea5b0e7841922e315cdcc2d7846cf7",
-  "task": "Resolved: CRU merge response cache and survivor verification",
-  "resume_instruction": "Owner proved action53/Unknown0 merges physically:61 total before/after,53 at packet.Target after login. Published exact-response one-shot cache update and survivor/conservation verification. Default stacking false; true remains one diagnostic attempt per banker runtime, including census actor replacement. Next owner run should show54+seven singles=61 immediately with action53 applied/merge verified. No assistant builds/live tests. Repeated automatic consolidation and split/pickup remain separate next steps. Org4873-byte reply live-confirmed.",
-  "base_commit": "c313107c15b2c6eb696ac993c2480397d17eb07b"
+  "task": "Continue automatic CRU consolidation after verified merges",
+  "resume_instruction": "Owner log verifies action53 applied54 at0041 and merge verified total61 at18:47:12; all nine bankers ready. Allow next merge only after verification, pace idle merges, retain runtime latch on any unverified attempt and existing pickup/trade exclusions. Keep config opt-in and proven packet/response mapping. Owner builds/live-tests; split/pickup live result follows consolidation.",
+  "base_commit": "2f87d8f5a9a8e1f8119fe03926c307653b6b0785"
 }
