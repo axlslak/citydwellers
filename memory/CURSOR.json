@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 174,
+  "current_session": 175,
   "last_completed_session": 174,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-174-probe-build-isolation",
+  "transaction": "session-175-local-split-bookkeeping",
   "checkpoint_commit": "bbd15ad41fff072d94d062f129cc1d8ea91cf029",
-  "task": "Probe build isolation fixed",
-  "resume_instruction": "Owner pull master, Clean/Rebuild standalone CruSplitProbe with local Directory.Build.props and targets present and matching AOSharp DLLs. Then same two one-unit manual splits and relog snapshot. No builds/tests here; actual banker split recognition open.",
-  "base_commit": "f2ccfecdc0625a73fbba3c6f8eeb903be5709c01"
+  "task": "Apply observed native split bookkeeping to CRU preparation",
+  "resume_instruction": "Owner probes and relog prove source decrement plus first-free internal-slot allocation, no decoded acknowledgement. Implement guarded one-unit local split, exact returned object reservation, distinguish local preparation from server-confirmed merge/delivery. Preserve existing trade receipt confirmation. No builds/tests.",
+  "base_commit": "1134e6458b143760bd43f02f8b97222083138f98"
 }
