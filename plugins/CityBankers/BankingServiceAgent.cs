@@ -334,7 +334,6 @@ namespace CityBankers
                 else
                 {
                     if (_storageJob != null) { TickStorageJob(); return; }
-                    if (TickWorkerReserveRecovery()) return;
                     if (_reservedDispatch == null && _workerCommand == null && TickWithdrawalWorker())
                         return;
                     TickWorkerTrade();
@@ -932,7 +931,7 @@ namespace CityBankers
                 var reserve = ReadReserve();
                 int awaitingBank = StorageBagPolicy.AllBagRecords().Count(r => r.Location == "inventory" &&
                     reserve.Bags.Any(b => b.Identity == r.Identity.ToString() && !b.Delivered && !b.Quarantined && b.Destination == null));
-                int available = Inventory.Bank.IsOpen ? Math.Max(0, Inventory.Bank.NumFreeSlots - awaitingBank) : 0;
+                int available = Math.Max(0, ReserveBankFreeSlots - awaitingBank);
                 if (reserveBags > available)
                 { error = "Central has bank room for " + available + " more Small Backpack(s). Please reduce this offer."; return false; }
             }

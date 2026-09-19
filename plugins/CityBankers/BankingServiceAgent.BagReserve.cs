@@ -44,6 +44,10 @@ namespace CityBankers
         private string ReservePath => Path.Combine(RuntimeStateStore.GetDataDirectory(_settingsDir), "bag-recovery", "central-reserve.json");
         private string ReserveMovePath => Path.Combine(RuntimeStateStore.GetDataDirectory(_settingsDir),
             "bag-recovery", Client.CharacterName.ToLowerInvariant(), "reserve-move.json");
+        // The supplied SDK assumes 104 slots; the deployed AO bank fills at
+        // 102. Never let those two fictitious slots authorize reserve movement.
+        private static int ReserveBankFreeSlots => !Inventory.Bank.IsOpen || Inventory.Bank.Items == null ? 0 :
+            Math.Max(0, Math.Min(Inventory.Bank.NumFreeSlots, 102 - Inventory.Bank.Items.Count));
         private BagReserve ReadReserve() => CensusApplication.ReadExisting<BagReserve>(ReservePath) ?? new BagReserve();
         private void SaveReserve(BagReserve state) => RuntimeStateStore.WriteJsonAtomic(ReservePath, state);
         private static bool IsReserveBag(TransferItemState item) => item != null &&
@@ -85,24 +89,6 @@ namespace CityBankers
                 { state.Targets[worker.Character] = actual; changed = true; }
             }
             if (changed) SaveReserve(state);
-        }
-
-        private bool TickWorkerReserveRecovery()
-        {
-            if (_isCentral || string.Equals(_role, "spirit", StringComparison.OrdinalIgnoreCase) || !CanStartLocalCensus() || CensusReservedHere() || _reservePoll.ElapsedMilliseconds < 1500) return false;
-            _reservePoll.Restart();
-            var reserve = ReadReserve();
-            var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
-            var known = storage?.Workers?.SingleOrDefault(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
-            var candidate = StorageBagPolicy.AllBagRecords().FirstOrDefault(r => r.Location == "inventory" &&
-                known?.Bags?.Any(b => b.LastUniqueIdentity == r.Identity.ToString() && b.Items?.Count == 0) == true &&
-                reserve.Bags.Any(b => !b.Quarantined && b.Identity == r.Identity.ToString() &&
-                    string.Equals(b.Destination, Client.CharacterName, StringComparison.OrdinalIgnoreCase)));
-            if (candidate == null || Inventory.Bank.NumFreeSlots < 1) return false;
-            // Restart census already established custody; complete the interrupted
-            // outer placement, without requesting or receiving another bag.
-            BeginReserveOperation(candidate.Identity.ToString(), "bank");
-            return true;
         }
 
         private void EnrollReserveOffer()
@@ -182,7 +168,7 @@ namespace CityBankers
                         TellKavem("Reserve bag " + bag.Identity + " contains items and is excluded from replacement stock.");
                         continue;
                     }
-                    if (Inventory.Bank.NumFreeSlots < 1) continue;
+                    if (ReserveBankFreeSlots < 1) continue;
                     BeginReserveOperation(bag.Identity, "bank"); return true;
                 }
             }
@@ -301,7 +287,7 @@ namespace CityBankers
                 if (SharedBagRecovery.TryObserveContainer(record.Identity, op.ObservationAfter, out lateHandle, out lateCount))
                 { ReservePhase("opening", record.Bag); return true; }
                 if ((DateTime.UtcNow - op.StartedUtc).TotalSeconds < Math.Min(960, 5 * (1 << op.ReadRetries))) return true;
-                if (Inventory.Bank.NumFreeSlots < 1) return true;
+                if (ReserveBankFreeSlots < 1) return true;
                 // Re-stage only this container to obtain another server read.
                 // Contents remain untouched, even when emptiness is still unknown.
                 op.ObservationAfter = SharedBagRecovery.ContainerObservationSequence;
@@ -383,14 +369,14 @@ namespace CityBankers
                     Logger.Information("[CityBankers] EMPTY BAG RESERVE queued " + op.Identity + " -> " + bag.Destination);
                     return true;
                 }
-                // A missing inventory bag can belong to a worker with all 102
-                // bank slots occupied. Its verified replacement stays in inventory.
-                if (!_isCentral && Inventory.Bank.NumFreeSlots < 1)
+                // Replacement delivery is complete in normal inventory. Workers
+                // never need an extra bank move; only Central banks reserve stock.
+                if (!_isCentral)
                 {
                     RegisterReservePlacement(op, record, "inventory", incoming ? observedHandle : (container?.Handle ?? 0));
                     return true;
                 }
-                if (Inventory.Bank.NumFreeSlots < 1) return true;
+                if (ReserveBankFreeSlots < 1) return true;
                 ReservePhase("banking", record.Bag); record.Bag.MoveToBank(); return true;
             }
             if (op.Phase == "banking" && record.Location == "bank")
