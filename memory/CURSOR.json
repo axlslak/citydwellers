@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 166,
-  "last_completed_session": 165,
-  "status": "in_progress",
+  "last_completed_session": 166,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-166-reserve-read-proof",
-  "checkpoint_commit": "66801c676a7f189d49682b7e768428007bbe0567",
-  "task": "Correct reserve contents observation and confine read retries",
-  "resume_instruction": "Owner keeps bots on and pauses donations. Latest one-bag log has Central and Support opening timeouts with global audits; Support ultimately110, Artillery119. Track wire contents from before receipt/move, preserve sender empty proof across exact-identity receipt, use bounded bag-only staging on read timeout. No broad audit on simple read failure. Owner tests one more bag for Artillery after publishing. No assistant builds/live actions.",
+  "checkpoint_commit": "f6e0a402041244359df611b239780fc35de8c118",
+  "task": "Resolved: reserve read proof and scoped missing-contents retries",
+  "resume_instruction": "Owner running bots without further donations until next build; then tests one bag for Artillery before larger batch. Last log verifies Support110 after two disruptive opening-timeout recovery cycles; Artillery119. Published wire-observation boundary before receipt/move, sender empty certificate carried across exact physical receipt, bag-only bank/inventory retry on missing reads. Spirit remains excluded; full-bank worker inventory placement retained. Movement ambiguity/nonempty contradictions still reconcile safely. No assistant builds/live actions; new path unverified. Do not request more historical data or disturb running bots.",
   "base_commit": "eaeeffc5ce854292b089beb6a42c34502424b645"
 }
