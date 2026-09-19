@@ -66,6 +66,7 @@ namespace CityBankers
             public List<Content> Baseline;
             public Dictionary<int, List<Content>> TargetBaselines = new Dictionary<int, List<Content>>();
             public List<string> Events = new List<string>();
+            public Dictionary<int, int> ReadFailures = new Dictionary<int, int>();
             public Pending Pending;
             public DateTime UpdatedUtc, RetryAfterUtc, ReconciledUtc;
             public int UnappliedAttempts;
@@ -76,7 +77,7 @@ namespace CityBankers
         private static bool installed, retained;
         internal static bool PlannedReconnect { get; private set; }
         private static readonly Stopwatch statusAge = Stopwatch.StartNew();
-        private static long sequence, openAfter;
+        private static long sequence, observationBoundary;
         private static readonly Stopwatch openAge = new Stopwatch();
         private static readonly Stopwatch pendingAge = new Stopwatch();
         private static readonly Stopwatch retryAge = Stopwatch.StartNew();
@@ -150,6 +151,7 @@ namespace CityBankers
                 if (message?.Body is FullCharacterMessage full)
                 {
                     epoch = Guid.NewGuid().ToString("N"); bankEpoch = null; PlannedReconnect = false;
+                    observationBoundary = sequence;
                     views.Clear(); opened.Clear(); requestedOpen = null; reconnectRequested = null;
                     inventory = ReadOuter(full.InventorySlots, false);
                     inventoryCount = full.InventorySlots.Count(s => s.Placement >= Inventory.INVENTORY_START &&
@@ -181,7 +183,7 @@ namespace CityBankers
             if (s != null && (s.Format != "citybankers-shared-bag-recovery-v1" ||
                 s.Character != Client.CharacterName || s.Transfers == null || s.Destinations == null ||
                 s.Events == null || s.FullTargets == null || s.Disposals == null || s.TargetBaselines == null ||
-                s.Original == null || string.IsNullOrEmpty(s.Run) ||
+                s.Original == null || s.ReadFailures == null || string.IsNullOrEmpty(s.Run) ||
                 (s.Phase != "confirm" && s.Phase != "evacuate" && s.Phase != "complete")))
                 throw new InvalidOperationException("Invalid shared-bag recovery journal.");
             return s;
@@ -291,21 +293,16 @@ namespace CityBankers
                 if (s.Baseline == null)
                 {
                     if (aliases.Count == 0) throw new InvalidOperationException("Missing source baseline.");
-                    var initial = new List<View>();
-                    foreach (var alias in aliases)
-                    {
-                        var view = Open(alias); if (view == null) return true;
-                        initial.Add(view);
-                    }
-                    if (initial.Any(v => !Exact(initial[0].Items, v.Items)))
-                        throw new InvalidOperationException("Shared references expose different initial contents; retaining all items.");
-                    s.Baseline = initial[0].Items;
-                    Event(s, "Every alias freshly reports the same initial per-slot contents; recorded one-container quantity budget.");
+                    // InventoryUpdate identifies the shared container, not the
+                    // outer icon used. A second icon does not promise another reply.
+                    var initial = Open(s, aliases[0]); if (initial == null) return true;
+                    s.Baseline = initial.Items;
+                    Event(s, "Recorded one fresh shared-container contents budget; aliases are outer references, not independent inventories.");
                     Save(s); return true;
                 }
                 foreach (var alias in aliases)
                 {
-                    View source = Open(alias);
+                    View source = Open(s, alias);
                     if (source == null) return true;
                     if (source.Items.Count == 0) continue;
                     if (s.Phase != "evacuate")
@@ -314,8 +311,8 @@ namespace CityBankers
                 }
                 if (!Equal(s.Baseline, s.Transfers.Select(t => t.Item)))
                     throw new InvalidOperationException("Source is empty but the initial contents are not fully accounted for in destinations.");
-                // All currently present aliases have fresh empty responses, after
-                // the last action/reconnect. A shared cached Container is insufficient.
+                // The shared identity has an incoming empty snapshot newer than the
+                // last mutation. Native cached contents alone are insufficient.
                 foreach (int id in s.TargetBaselines.Keys)
                 {
                     var target = Aliases(id).SingleOrDefault();
@@ -323,7 +320,7 @@ namespace CityBankers
                     // Bank destinations were verified before their journaled return;
                     // they will be independently read again by the following census.
                     if (!Normal(target)) continue;
-                    var view = Open(target); if (view == null) return true;
+                    var view = Open(s, target); if (view == null) return true;
                     if (!TargetConserved(s, id, view.Items))
                         throw new InvalidOperationException("Evacuated stock no longer matches its verified receipts.");
                 }
@@ -368,34 +365,46 @@ namespace CityBankers
             // The following census records its new location and preserves anchors.
             IssueOuter(s, "park", clean, 0); return false;
         }
-        private static View Open(Address a)
+        private static View Open(State s, Address address)
         {
-            View cached;
-            if (opened.TryGetValue(a.Key, out cached)) return cached;
-            if (requestedOpen == a.Key)
+            View fresh;
+            // Only wire snapshots, never Inventory.Containers' inferred contents.
+            // All outer references to this identity share this observation.
+            if (views.TryGetValue(address.Bag, out fresh) && fresh.Sequence > observationBoundary)
             {
-                View fresh;
-                if (views.TryGetValue(a.Bag, out fresh) && fresh.Sequence > openAfter)
-                {
-                    // Consume a response produced AFTER this exact slot's Use.
-                    opened[a.Key] = fresh; requestedOpen = null;
-                    Logger.Information("[CityBankers] BAG RECOVERY observed " + a.Key + "; records=" + fresh.Items.Count);
-                    return fresh;
-                }
+                if (!opened.Values.Any(v => v.Sequence == fresh.Sequence))
+                    Logger.Information("[CityBankers] BAG RECOVERY observed shared container " + address.Bag +
+                        "; records=" + fresh.Items.Count + "; incoming sequence=" + fresh.Sequence);
+                opened[address.Key] = fresh;
+                if (requestedOpen == address.Key) requestedOpen = null;
+                if (s.ReadFailures.Remove(address.Bag)) Save(s);
+                return fresh;
+            }
+            if (DateTime.UtcNow < s.RetryAfterUtc) return null;
+            if (requestedOpen == address.Key)
+            {
                 if (openAge.ElapsedMilliseconds < 15000) return null;
-                Logger.Warning("[CityBankers] BAG RECOVERY no fresh contents for " + a.Key +
-                    " after 15s; retrying read-only Use (shared window may have closed).");
-                requestedOpen = null;
+                int failures; s.ReadFailures.TryGetValue(address.Bag, out failures);
+                failures = Math.Min(6, failures + 1); s.ReadFailures[address.Bag] = failures;
+                s.RetryAfterUtc = DateTime.UtcNow.AddSeconds(Math.Min(960, 15 * (1 << failures)));
+                Event(s, "No fresh shared-container snapshot for " + address.Key +
+                    "; stop Use replay and refresh connection; retry after " + s.RetryAfterUtc.ToString("O"));
+                Save(s);
+                Reconnect("Contents unavailable after one Use at " + address.Key);
+                return null;
             }
             if (requestedOpen != null) throw new InvalidOperationException("Another container observation is pending.");
-            openAfter = sequence; requestedOpen = a.Key; openAge.Restart();
-            Logger.Information("[CityBankers] BAG RECOVERY opening " + a.Key);
-            Live(a).Use();
+            requestedOpen = address.Key; openAge.Restart();
+            Logger.Information("[CityBankers] BAG RECOVERY opening shared container " + address.Bag + " through " + address.Key);
+            Live(address).Use();
             return null;
         }
-        private static void InvalidateViews()
+        private static void InvalidateViews(bool mutation = true)
         {
             opened.Clear(); requestedOpen = null;
+            // Retiring a verified intent is not an inventory mutation: preserve
+            // its actual after-snapshots until the next action is about to be sent.
+            if (mutation) observationBoundary = sequence;
         }
         private static Dictionary<string, int> Quantities(IEnumerable<Content> items) => items
             .GroupBy(i => i.Key).ToDictionary(g => g.Key, g => g.Sum(i => i.Quantity));
@@ -439,7 +448,7 @@ namespace CityBankers
                 if (!s.Destinations.Contains(target.Bag)) s.Destinations.Add(target.Bag);
                 IssueOuter(s, "stage-target", target, 0); return;
             }
-            View destination = Open(target);
+            View destination = Open(s, target);
             if (destination == null) return;
             if (destination.Items.Count >= 21)
             {
@@ -473,7 +482,7 @@ namespace CityBankers
         }
         private static void DisposeExcess(State s, Address source, View content, Content item, int budget, int secured)
         {
-            // Extra means the SAME initially identical shared-container record
+            // Extra means the SAME initially observed shared-container record
             // reappeared after its entire one-container budget was safely secured.
             // Neither template equality nor an old ledger count authorizes deletion.
             if (budget <= 0 || secured != budget || !s.Baseline.Any(i =>
@@ -492,12 +501,12 @@ namespace CityBankers
                     if (!s.Destinations.Contains(id)) s.Destinations.Add(id);
                     IssueOuter(s, "stage-target", address, 0); return;
                 }
-                var fresh = Open(address); if (fresh == null) return;
+                var fresh = Open(s, address); if (fresh == null) return;
                 if (!TargetConserved(s, id, fresh.Items))
                     throw new InvalidOperationException("Secured originals changed; excess disposal prohibited.");
             }
             var target = Aliases(receipt.TargetBag).Single();
-            var targetView = Open(target); if (targetView == null) return;
+            var targetView = Open(s, target); if (targetView == null) return;
             var live = Inventory.Containers.SingleOrDefault(c => c.Identity.Instance == source.Bag);
             var extra = live?.Items.SingleOrDefault(i => (i.Slot.Instance & 65535) == item.Slot &&
                 i.Id == item.Low && i.HighId == item.High && i.Ql == item.Ql);
@@ -515,7 +524,7 @@ namespace CityBankers
             if (kind == "delete" || kind == "bank-test" || kind == "social-test")
             {
                 if (Aliases(s.Bag).Any(a => !opened.ContainsKey(a.Key) || opened[a.Key].Items.Count != 0))
-                    throw new InvalidOperationException("Every source alias must freshly report empty before an experiment.");
+                    throw new InvalidOperationException("The shared identity needs a post-mutation empty snapshot before an experiment.");
             }
             s.Pending = new Pending { Id = Guid.NewGuid().ToString("N"), Kind = kind,
                 Epoch = epoch, Source = source, TargetBag = target, Before = Outer() };
@@ -542,8 +551,8 @@ namespace CityBankers
                 var target = Aliases(p.TargetBag).SingleOrDefault();
                 if (source == null || target == null || !Normal(target))
                     throw new InvalidOperationException("Pending transfer endpoints are not observable in inventory.");
-                View sourceView = Open(source); if (sourceView == null) return;
-                View targetView = Open(target); if (targetView == null) return;
+                View sourceView = Open(s, source); if (sourceView == null) return;
+                View targetView = Open(s, target); if (targetView == null) return;
                 if (Delta(p.SourceBefore, sourceView.Items, p.Transfer.Item, -1) &&
                     (p.Kind == "dispose" ? Exact(p.TargetBefore, targetView.Items) : Delta(p.TargetBefore, targetView.Items, p.Transfer.Item, 1)))
                 {
@@ -555,7 +564,7 @@ namespace CityBankers
                     Event(s, p.Kind == "dispose" ? "Removed proven excess; secured original destination unchanged." :
                         "Evacuated one observed record with exact source/destination quantity deltas.");
                     s.Pending = null; s.UnappliedAttempts = 0; s.RetryAfterUtc = default(DateTime);
-                    Save(s); InvalidateViews(); return;
+                    Save(s); InvalidateViews(false); return;
                 }
                 if (p.Epoch == epoch)
                 {
@@ -567,7 +576,7 @@ namespace CityBankers
                     // A new connection confirms that neither endpoint changed.
                     // Retire the old intent; next tick selects a fresh live record.
                     Event(s, "Unapplied item intent reconciled after reconnect; retry from fresh contents.");
-                    s.Pending = null; Backoff(s); Save(s); InvalidateViews(); return;
+                    s.Pending = null; Backoff(s); Save(s); InvalidateViews(false); return;
                 }
                 InvalidateViews();
                 throw new InvalidOperationException("Evacuation delta is uncertain; retaining both endpoints and retrying observations.");
@@ -613,7 +622,7 @@ namespace CityBankers
             Event(s, p.Kind + " observed after reconnect: before=" +
                 string.Join(",", beforeSource.Select(a => a.Key)) + "; after=" +
                 string.Join(",", remaining.Select(a => a.Key)) + (same ? "; no outer change" : "; outer layout changed"));
-            s.Pending = null; Save(s); InvalidateViews();
+            s.Pending = null; Save(s); InvalidateViews(false);
         }
         private static void Backoff(State s)
         {
