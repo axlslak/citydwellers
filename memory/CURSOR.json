@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 153,
-  "last_completed_session": 152,
-  "status": "in_progress",
+  "last_completed_session": 153,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-153-bag-origin-evidence",
-  "checkpoint_commit": "aa5bb08f839f004b35f264a0c6743d97c5ba5571",
-  "task": "Trace duplicate bag records to incoming snapshots or local mutations",
-  "resume_instruction": "Inspect supplied deployed DLLs and snapshot; add narrowly scoped read-only incoming inventory evidence if existing records cannot prove origin. Do not claim one cached container proves a phantom: SDK itself keys containers by identity. No physical bag deletion, runtime data repair, builds or live tests.",
+  "checkpoint_commit": "850c59470788cdecabb1c65e3095550478b814a9",
+  "task": "Duplicate-layout containment and origin tracing published; root cause awaits incoming evidence",
+  "resume_instruction": "Session153 retracts one-container-proves-phantom inference. Deployed DLL clears bank before native append; full inventory replaces cache. New bag-origin login/bank/duplicate JSON captures incoming decoded/raw snapshot and cache boundary. Owner rebuild/start once and supply affected bankers files. Root cause and ledger attribution unresolved. No more guessed slot dedupe. No physical Colonist deletion. Next journal seq358.",
   "base_commit": "af48b37085580b741a2ee94469434383e0d4189a"
 }
