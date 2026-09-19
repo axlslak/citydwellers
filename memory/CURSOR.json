@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 167,
+  "current_session": 168,
   "last_completed_session": 167,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-167-reserve-bank-capacity-loop",
+  "transaction": "session-168-org-blob-setting",
   "checkpoint_commit": "086db9e9dbf2eb83850bf0e3bfb39c29cc2b4a38",
-  "task": "Resolved: worker replacement rebanking loop and reserve capacity mismatch",
-  "resume_instruction": "Latest owner run proves contents and exact receipt now work. Artillery already120 (102 bank18 inventory), Support110. Supplied SDK source and DLL IL use104 bank capacity; reserve falsely tried full bank, restart rebanking repeated. Published always-inventory worker replacement, removed worker post-census rebanking,102 capacity cap for Central reserve. Owner advised stop bots/rebuild/start normally; no additional bag or manual move for Artillery. New fix statically reviewed, not live-tested; no assistant builds. Keep Spirit excluded and reserve empty.",
-  "base_commit": "2d630951a9adce8cbc8d3c57c5b5545e32f608d9"
+  "task": "Restore editable org blob size and remove automatic size experiment",
+  "resume_instruction": "Restore OrgBlobPageSize=5200 in Presentation; remove calibration fields, persistence and feedback. Retain delivery health and transport fixes. Owner builds/tests.",
+  "base_commit": "ac9cb10cca9119db2abf27fafda3a10daa0a32b0"
 }
