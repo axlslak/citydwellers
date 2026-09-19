@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 177,
-  "last_completed_session": 176,
-  "status": "in_progress",
+  "last_completed_session": 177,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-177-online-empty-import-guard",
-  "checkpoint_commit": "2c870ad543dd934e312764d8d053df3b1fcf2347",
-  "task": "Prevent unparsed Bobsan online pages wiping org presence",
-  "resume_instruction": "Complete page count currently clears org presence despite zero parsed names. Reject empty nonempty-declared snapshots and preserve startup pending state; actual Bobsan formatted reply needed to repair parser accurately. No builds/tests.",
+  "checkpoint_commit": "4fab39b201e4dadf275772cad4c3960fd015ef86",
+  "task": "Org presence wipe guarded; Bobsan parser format unresolved",
+  "resume_instruction": "Owner will provide original two-page Bobsan online reply including text:// markup. Pages populated but parser returns mains0/online0. Guard published preserves org presence and startup pending state on invalid empty parsed result; explicit single-page Online(0) remains accepted. Fix actual parser using sample next. No builds/tests.",
   "base_commit": "a03361c025cac92ac0d55cef15fb3f5171382e75"
 }
