@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 180,
-  "last_completed_session": 179,
-  "status": "in_progress",
+  "last_completed_session": 180,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-180-pickups-command",
-  "checkpoint_commit": "9ab825f69bdb615b3b35b9f1cbf4d60f28803973",
-  "task": "Add minimal latest25 pickups command with takers alias",
-  "resume_instruction": "Read-only DeliveredUtc withdrawal rows, newest25 item deliveries including CRU, stored canonical recipient and time/item link. Route and help both pickups/takers with donor membership policy. No build/tests.",
+  "checkpoint_commit": "d0c06e2516580d3180629293e5d500fe58856210",
+  "task": "Recent pickups command published",
+  "resume_instruction": "Owner rebuild/restart; #pickups and alias #takers list25 newest DeliveredUtc item records (UTC, canonical recipient, item link), including CRU, existing records immediately visible. Same membership gate as donor. Source reviewed and published files verified; no builds/tests. Prior Bobsan zero-group runtime issue still awaits owner result.",
   "base_commit": "2971cbd303cc14691a9a6fa7cac1c66411264cbc"
 }
