@@ -23,7 +23,7 @@ namespace CityBankers
             if (_owner._startupCommandPath != null) DeleteIfExists(_owner._startupCommandPath);
         }
 
-        private const int DefaultBagOpenTimeoutMs = 3000;
+        private const int DefaultBagOpenTimeoutMs = 15000;
         private const int DefaultBagMoveTimeoutMs = 3000;
         private const int ProgressInterval = 25;
 
@@ -442,6 +442,16 @@ namespace CityBankers
 
         private void FinishOpen(Container container, string error)
         {
+            if (error != null)
+                Logger.Warning("[CityBankers] BAG AUDIT OPEN FAILED character=" + Client.CharacterName +
+                    "; run=" + _command.RunId + "; bag=" + _current.UniqueIdentityText +
+                    "; source=" + _current.Source + "/" + _current.OriginalOuterSlotInstance +
+                    "; attemptedSlot=" + _currentStagedInventorySlot +
+                    "; elapsedMs=" + _openAge.ElapsedMilliseconds +
+                    "; beforeHandle=" + _currentPreOpenHandle +
+                    "; currentHandle=" + (container == null ? 0 : container.Handle) +
+                    "; freshObject=" + (container != null && !ReferenceEquals(container, _preOpenContainer)) +
+                    "; error=" + error);
             BagAuditEntry entry = SnapshotCurrentEntry(container, error);
 
             if (!string.Equals(_current.Source, "bank", StringComparison.Ordinal))

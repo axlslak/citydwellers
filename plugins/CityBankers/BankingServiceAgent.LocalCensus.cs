@@ -62,6 +62,30 @@ namespace CityBankers
         internal static bool ReconcileIdleReconnect() => _ipcOwner != null &&
             _ipcOwner.StartLocalCensus("Idle reconnect inventory differs from the last settled snapshot; reconcile only this banker.");
 
+        // Called only by Central's census coordinator on its update thread.
+        // Reserve before granting an excluded worker permission to scan: a local
+        // census cannot resolve an outstanding transfer involving another peer.
+        internal static bool ReserveStartupAdmission(string run, string character)
+        {
+            var actor = _ipcOwner;
+            return actor != null && actor._enabled && actor._isCentral && StartupCensusGate.IsOpen &&
+                !string.Equals(character, actor._centralCharacter, StringComparison.OrdinalIgnoreCase) &&
+                !actor.HasPendingPeerWork(character, run) &&
+                WithdrawalStore.TryReserveCensus(actor._settingsDir, run, character);
+        }
+
+        internal static bool ApplyStartupAdmission(BagAuditAgent.BagAuditResult census)
+        {
+            var actor = _ipcOwner;
+            if (actor == null || !actor._enabled || !actor._isCentral || !StartupCensusGate.IsOpen)
+                return false;
+            // Use the same immutable application bundle, reservation checks and
+            // character-scoped ledger/storage merge as operational local censuses.
+            var proposal = new DispatchProposal { Kind = "local-census", Census = census };
+            actor.HandleLocalCensusProposal(proposal);
+            return proposal.Reply.Task.IsCompleted && proposal.Reply.Task.Result == "complete:" + census.RunId;
+        }
+
         // A local move needs no peer. Failed dispatch storage additionally
         // requires a grant backed by both peers' applied physical receipts.
         private bool CanStartLocalCensus() => StartupCensusGate.IsOpen &&
