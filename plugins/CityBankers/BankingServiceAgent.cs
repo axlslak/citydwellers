@@ -926,6 +926,16 @@ namespace CityBankers
         private bool ValidateDonationItems(List<TransferItemState> offered, out string error)
         {
             error = null;
+            int reserveBags = offered.Count(IsReserveBag);
+            if (reserveBags > 0)
+            {
+                var reserve = ReadReserve();
+                int awaitingBank = StorageBagPolicy.AllBagRecords().Count(r => r.Location == "inventory" &&
+                    reserve.Bags.Any(b => b.Identity == r.Identity.ToString() && !b.Delivered && !b.Quarantined && b.Destination == null));
+                int available = Inventory.Bank.IsOpen ? Math.Max(0, Inventory.Bank.NumFreeSlots - awaitingBank) : 0;
+                if (reserveBags > available)
+                { error = "Central has bank room for " + available + " more Small Backpack(s). Please reduce this offer."; return false; }
+            }
             foreach (TransferItemState item in offered)
             {
                 if (IsReserveBag(item))

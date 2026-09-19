@@ -57,6 +57,7 @@ namespace CityBankers
         {
             public string Format = "citybankers-shared-bag-recovery-v1";
             public string Run, Character, Phase, Epoch;
+            public string FirstReadRefreshEpoch;
             public int Bag, Experiment;
             public List<Address> Original;
             public List<int> Destinations = new List<int>();
@@ -247,6 +248,16 @@ namespace CityBankers
                     Event(s, "Detected repeated bag identity " + s.Bag + "; incoming login/bank snapshots agree with current addresses; beginning evacuation without reconnect.");
                     Save(s); return true;
                 }
+                // The first failed refresh often just means this connection has
+                // already supplied that container once. A new login + bank snapshot
+                // completes that refresh; do not also idle until the old timer ends.
+                // Repeated failures still retain their escalating backoff.
+                if (s.FirstReadRefreshEpoch != null && s.FirstReadRefreshEpoch != epoch && SnapshotLayoutMatches())
+                {
+                    s.FirstReadRefreshEpoch = null; s.RetryAfterUtc = default(DateTime);
+                    Event(s, "First contents refresh reconnected with consistent outer snapshots; retry fresh contents now.");
+                    Save(s);
+                }
                 if (s.Phase == "complete")
                 {
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(history, s.Run + ".json"), s);
@@ -377,7 +388,7 @@ namespace CityBankers
                         "; records=" + fresh.Items.Count + "; incoming sequence=" + fresh.Sequence);
                 opened[address.Key] = fresh;
                 if (requestedOpen == address.Key) requestedOpen = null;
-                if (s.ReadFailures.Remove(address.Bag)) Save(s);
+                if (s.ReadFailures.Remove(address.Bag)) { s.FirstReadRefreshEpoch = null; Save(s); }
                 return fresh;
             }
             if (DateTime.UtcNow < s.RetryAfterUtc) return null;
@@ -386,6 +397,7 @@ namespace CityBankers
                 if (openAge.ElapsedMilliseconds < 15000) return null;
                 int failures; s.ReadFailures.TryGetValue(address.Bag, out failures);
                 failures = Math.Min(6, failures + 1); s.ReadFailures[address.Bag] = failures;
+                s.FirstReadRefreshEpoch = failures == 1 ? epoch : null;
                 s.RetryAfterUtc = DateTime.UtcNow.AddSeconds(Math.Min(960, 15 * (1 << failures)));
                 Event(s, "No fresh shared-container snapshot for " + address.Key +
                     "; stop Use replay and refresh connection; retry after " + s.RetryAfterUtc.ToString("O"));
@@ -626,6 +638,7 @@ namespace CityBankers
         }
         private static void Backoff(State s)
         {
+            s.FirstReadRefreshEpoch = null; // Never waive a mutation's no-effect backoff.
             s.UnappliedAttempts = Math.Min(6, s.UnappliedAttempts + 1);
             s.RetryAfterUtc = DateTime.UtcNow.AddSeconds(Math.Min(960, 15 * (1 << s.UnappliedAttempts)));
         }

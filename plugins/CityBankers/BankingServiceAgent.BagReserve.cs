@@ -82,7 +82,7 @@ namespace CityBankers
 
         private bool TickWorkerReserveRecovery()
         {
-            if (_isCentral || !CanStartLocalCensus() || CensusReservedHere() || _reservePoll.ElapsedMilliseconds < 1500) return false;
+            if (_isCentral || string.Equals(_role, "spirit", StringComparison.OrdinalIgnoreCase) || !CanStartLocalCensus() || CensusReservedHere() || _reservePoll.ElapsedMilliseconds < 1500) return false;
             _reservePoll.Restart();
             var reserve = ReadReserve();
             var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
@@ -117,7 +117,7 @@ namespace CityBankers
 
         private bool ReserveWorkerReady(DispatchCommand command)
         {
-            if (!IsReserveBatch(command.Items) || Inventory.Bank.NumFreeSlots < 1 ||
+            if (string.Equals(_role, "spirit", StringComparison.OrdinalIgnoreCase) || !IsReserveBatch(command.Items) ||
                 StorageBagPolicy.DuplicatedIdentities().Count != 0 ||
                 StorageBagPolicy.DistinctBags().Count >= ReserveTarget(ReadReserve(), Client.CharacterName)) return false;
             var item = command.Items[0];
@@ -186,6 +186,7 @@ namespace CityBankers
                     .SelectMany(w => w.Bags).Any(s => s.LastUniqueIdentity == b.Identity && s.Source == "bank" && s.Items?.Count == 0));
             if (candidate == null || Inventory.NumFreeSlots < 2) return false;
             var target = storage.Workers.Where(w => !string.Equals(w.Role, "central", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(w.Role, "spirit", StringComparison.OrdinalIgnoreCase) &&
                     _config.Roles.Any(p => p.Key == w.Role && string.Equals(p.Value.Character, w.Character, StringComparison.OrdinalIgnoreCase)) &&
                     ready.Contains(w.Character) &&
                     !censusing.Contains(w.Character) && !queue.Batches.Any(b => string.Equals(b.Character, w.Character, StringComparison.OrdinalIgnoreCase)) &&
@@ -211,6 +212,19 @@ namespace CityBankers
             _reserveOperation.Phase = phase; _reserveOperation.SourceSlot = source.Slot.Instance;
             _reserveOperation.StartedUtc = DateTime.UtcNow; SaveReserveOperation();
         }
+        private void RegisterReservePlacement(ReserveOperation op, StorageBagPolicy.BagRecord record, string location, int handle)
+        {
+            RuntimeStorageStateTransactions.UpdateReserveBag(_settingsDir, Client.CharacterName, op.Identity,
+                new StorageBagState { Source = location, OuterSlotType = record.Bag.Slot.Type.ToString(),
+                    OuterSlotInstance = record.Bag.Slot.Instance & 65535, LastUniqueIdentity = op.Identity,
+                    LastHandle = handle, Capacity = 21, Items = new List<StoredItemState>() });
+            op.Phase = "completed"; SaveReserveOperation(); _reserveOperation = null;
+            if (!_isCentral && _storageJob != null && IsReserveBatch(_storageJob.Command.Items))
+            { _storageJob.StoredCount = 1; _storageJob.Index = 1; CompleteStorageJob(); }
+            Logger.Information("[CityBankers] EMPTY BAG RESERVE registered " + op.Identity + " on " +
+                Client.CharacterName + "; location=" + location + ".");
+        }
+
         private bool TickReserveOperation()
         {
             var op = _reserveOperation;
@@ -283,19 +297,19 @@ namespace CityBankers
                     Logger.Information("[CityBankers] EMPTY BAG RESERVE queued " + op.Identity + " -> " + bag.Destination);
                     return true;
                 }
+                // A missing inventory bag can belong to a worker with all 102
+                // bank slots occupied. Its verified replacement stays in inventory.
+                if (!_isCentral && Inventory.Bank.NumFreeSlots < 1)
+                {
+                    RegisterReservePlacement(op, record, "inventory", container.Handle);
+                    return true;
+                }
                 if (Inventory.Bank.NumFreeSlots < 1) return true;
                 ReservePhase("banking", record.Bag); record.Bag.MoveToBank(); return true;
             }
             if (op.Phase == "banking" && record.Location == "bank")
             {
-                RuntimeStorageStateTransactions.UpdateReserveBag(_settingsDir, Client.CharacterName, op.Identity,
-                    new StorageBagState { Source = "bank", OuterSlotType = record.Bag.Slot.Type.ToString(),
-                        OuterSlotInstance = record.Bag.Slot.Instance & 65535, LastUniqueIdentity = op.Identity,
-                        Capacity = 21, Items = new List<StoredItemState>() });
-                op.Phase = "completed"; SaveReserveOperation(); _reserveOperation = null;
-                if (!_isCentral && _storageJob != null && IsReserveBatch(_storageJob.Command.Items))
-                { _storageJob.StoredCount = 1; _storageJob.Index = 1; CompleteStorageJob(); }
-                Logger.Information("[CityBankers] EMPTY BAG RESERVE banked " + op.Identity + " on " + Client.CharacterName);
+                RegisterReservePlacement(op, record, "bank", 0);
                 return true;
             }
             return true;
