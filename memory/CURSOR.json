@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 163,
-  "last_completed_session": 162,
-  "status": "in_progress",
+  "last_completed_session": 163,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-163-post-recovery-census-refresh",
-  "checkpoint_commit": "c7799e041a878a6076e1cadf794dc8cacb2d7df3",
-  "task": "Refresh previously opened inventory containers before admission census",
-  "resume_instruction": "Owner reports bots stopped after both physical recoveries completed; logs verify preserved21/11 contents and deletion removing both references. Normal admission audits now fail previously opened inventory bags repeatedly. Before issuing a coordinated/admission census under quiescence, refresh connection if normal storage containers already have handles; preserve strict audit proof and planned disconnect isolation. No builds/live actions.",
+  "checkpoint_commit": "f0480d9be7a93e9666ad5c8293f3eb710c3ec0a9",
+  "task": "Physical recovery log-verified; admission audit preflight refresh published",
+  "resume_instruction": "Both shared containers deleted, both aliases gone, evacuated21/11 items verified in destinations. Remaining capacity119/109; root producer unknown. Published pre-audit refresh for opened normal inventory storage bags in startup/readmission gate, retaining strict fresh-response checks and peer isolation. Owner rebuilds/starts normally; complete census and BANKER READY remain unverified. Do not rerun manual bag experiments or claim ledger reconciliation completed. No assistant builds.",
   "base_commit": "106c9669db4856e48ba69c750a6daffc3ed961bf"
 }
