@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 167,
-  "last_completed_session": 166,
-  "status": "in_progress",
+  "last_completed_session": 167,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-167-reserve-bank-capacity-loop",
-  "checkpoint_commit": "f6e0a402041244359df611b239780fc35de8c118",
-  "task": "Stop repeated worker reserve banking and correct reserve bank capacity",
-  "resume_instruction": "Latest run proves contents/receipt fix worked; Artillery now120 bags,102 bank18 inventory. SDK Bank.NumFreeSlots uses104 causing bank attempt at full102; worker restart banking repeats it after every audit. Leave worker replacements in inventory, remove post-census rebanking, use conservative102 reserve capacity for Central. Owner advised stop loop; no manual moves or new bag required. No assistant builds/live actions.",
+  "checkpoint_commit": "086db9e9dbf2eb83850bf0e3bfb39c29cc2b4a38",
+  "task": "Resolved: worker replacement rebanking loop and reserve capacity mismatch",
+  "resume_instruction": "Latest owner run proves contents and exact receipt now work. Artillery already120 (102 bank18 inventory), Support110. Supplied SDK source and DLL IL use104 bank capacity; reserve falsely tried full bank, restart rebanking repeated. Published always-inventory worker replacement, removed worker post-census rebanking,102 capacity cap for Central reserve. Owner advised stop bots/rebuild/start normally; no additional bag or manual move for Artillery. New fix statically reviewed, not live-tested; no assistant builds. Keep Spirit excluded and reserve empty.",
   "base_commit": "2d630951a9adce8cbc8d3c57c5b5545e32f608d9"
 }
