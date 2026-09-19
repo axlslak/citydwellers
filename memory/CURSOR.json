@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 157,
-  "last_completed_session": 156,
-  "status": "in_progress",
+  "last_completed_session": 157,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-157-current-bag-move-evidence",
-  "checkpoint_commit": "4bd6701e38d9ac538e7b03cee06af84e125febe1",
-  "task": "Review deployed bag moves and capture missing address evidence",
-  "resume_instruction": "Use latest owner archive and deployed DLLs to inspect move-address consistency. Preserve ambiguous-layout hold. No extra historical captures exist; do not request them or manipulate affected bags. Add only evidence-backed safeguards or bounded diagnostics; no builds/live tests.",
+  "checkpoint_commit": "db1ddc4c62f4fb159c88ae2c7f449064de6311ce",
+  "task": "Bounded move diagnostics implemented; root cause and safe remediation remain open",
+  "resume_instruction": "Published typed SDK move-intent records with generation/sequence correlation to incoming evidence. Owner builds when appropriate; no affected-bag run requested just to repeat known snapshots. Creation transition cannot be reconstructed from available evidence; no extra historical captures exist. Keep ambiguity hold; no inferred deletion or ledger repair.",
   "base_commit": "7890b10e8f1f6ab05df97c3ba17cc36854b37437"
 }
