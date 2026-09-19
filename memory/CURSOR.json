@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 150,
-  "last_completed_session": 149,
-  "status": "in_progress",
+  "last_completed_session": 150,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-150-one-bag-one-lookup",
-  "checkpoint_commit": "1e246a8be3bf0b82ed546d566d5c4a7bb2463526",
-  "task": "A lookup by identity must resolve to one bag",
-  "resume_instruction": "Session 150 opened. Sessions 146-149 are VERIFIED-LIVE: nine bankers audited, Kbarty fixed. Remaining: FindBankBagByIdentity returns an arbitrary record so the storage return check compared bank/92 against an expected bank/1 and stopped Kbsupp; Extraction's SingleOrDefault throws on a duplicate. Next journal seq351.",
+  "checkpoint_commit": "d4a8ca4f34b2ef366a1452b083d230e20abb0915",
+  "task": "Lookup fix published; persisted-state duplicate handling next",
+  "resume_instruction": "Sessions 146-150 published; 146-149 are VERIFIED-LIVE with nine of nine bankers audited. Next: session 151 for persisted-state duplicates (BuildCurrentStock and FindNextFreeBag double-count, #stock shows 42 where 21 exist; CensusApplication drops the donor anchor). Also open: SDK Bank.RegisterItems appends without clearing, which manufactures the duplicates; and a second audit on one connection fails all inventory bags. Next journal seq352.",
   "base_commit": "144d31f750b3fe3018458337c8dad3e52a960212"
 }
