@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 168,
-  "last_completed_session": 167,
-  "status": "in_progress",
+  "last_completed_session": 168,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-168-org-blob-setting",
-  "checkpoint_commit": "086db9e9dbf2eb83850bf0e3bfb39c29cc2b4a38",
-  "task": "Restore editable org blob size and remove automatic size experiment",
-  "resume_instruction": "Restore OrgBlobPageSize=5200 in Presentation; remove calibration fields, persistence and feedback. Retain delivery health and transport fixes. Owner builds/tests.",
+  "checkpoint_commit": "39a0168ca58d0a473125744aac46afbd195f5204",
+  "task": "Resolved: owner-controlled organization blob size restored",
+  "resume_instruction": "Session168 complete. OrgBlobPageSize=5200 is editable in Presentation; automatic calibration and persistence removed. Delivery health/transport fixes retained. No active implementation task; await owner direction. Owner builds/live-tests; no assistant compilation.",
   "base_commit": "ac9cb10cca9119db2abf27fafda3a10daa0a32b0"
 }
