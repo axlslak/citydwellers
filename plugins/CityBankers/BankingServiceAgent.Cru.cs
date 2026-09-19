@@ -27,9 +27,10 @@ namespace CityBankers
         private readonly Stopwatch _stackFailureAge = Stopwatch.StartNew();
         private bool _cruRecovered;
         private bool _automaticCruStackingEnabled;
-        // Census readmission replaces the actor, but must not repeat a diagnostic
-        // merge on the same banker runtime.
-        private static bool _cruMergeAttempted;
+        // Only verified completion clears this latch. Actor readmission must not
+        // retry an uncertain merge against potentially stale quantities.
+        private static bool _cruMergeUnverified;
+        private static readonly Stopwatch _cruMergeIdleAge = Stopwatch.StartNew();
 
         private List<Item> CruInventory() => (Inventory.Items ?? new List<Item>()).Where(i =>
             StackableItems.IsStack(i) && i.Slot.Type == IdentityType.Inventory && StackableItems.Quantity(i) != 0).ToList();
@@ -41,6 +42,8 @@ namespace CityBankers
                 _reserveOperation != null || _stackOperation != null || _receipt != null || _donationActive || _activeBatch != null ||
                 _extraction != null || _returnOffer != null)
             { proposal.Reply.TrySetResult("Central is busy. Please try #cru again shortly."); return true; }
+            if (_cruMergeUnverified)
+            { proposal.Reply.TrySetResult("CRU preparation is paused after an unverified stack merge. Please contact the bot owner."); return true; }
             StackableItems.Flush();
             var inventory = CruInventory();
             if (inventory.Any(i => StackableItems.Quantity(i) < 1))
@@ -145,6 +148,7 @@ namespace CityBankers
             string signature = string.Join(";", available.Select(i => i.Slot + "/" + StackableItems.Quantity(i)));
             if (_lastStackFailure == signature && _stackFailureAge.Elapsed.TotalSeconds < 60) return false;
             var next = active.FirstOrDefault(r => r.Status == "requested");
+            if (_cruMergeUnverified) return false;
             if (next != null)
             {
                 Item single = available.FirstOrDefault(i => StackableItems.Quantity(i) == 1);
@@ -164,23 +168,25 @@ namespace CityBankers
                 StackableItems.Split(stack, 1);
                 return true;
             }
-            // Unverified background merges must not repeatedly acquire the shared
-            // operation guard and interrupt otherwise unrelated banking work.
-            // Explicit requests above still use singles or perform a requested split.
-            if (!_automaticCruStackingEnabled || _cruMergeAttempted || available.Count < 2) return false;
-            Item target = available.OrderByDescending(StackableItems.Quantity).First();
-            Item source = available.FirstOrDefault(i => !ReferenceEquals(i, target) && i.Id == target.Id &&
-                i.HighId == target.HighId && i.Ql == target.Ql);
+            // Yield between successful merges so normal banking can start. Explicit
+            // pickups above have priority and their reserved units remain separate.
+            if (!_automaticCruStackingEnabled || _cruMergeIdleAge.Elapsed.TotalSeconds < 2 || available.Count < 2) return false;
+            Func<Item, Item, bool> canMerge = (a, b) => !ReferenceEquals(a, b) &&
+                a.Id == b.Id && a.HighId == b.HighId && a.Ql == b.Ql &&
+                (long)StackableItems.Quantity(a) + StackableItems.Quantity(b) <= ushort.MaxValue;
+            Item target = available.OrderByDescending(StackableItems.Quantity)
+                .FirstOrDefault(candidate => available.Any(other => canMerge(candidate, other)));
+            if (target == null) return false;
+            Item source = available.FirstOrDefault(i => canMerge(i, target));
             if (source == null) return false;
             _stackOperation = new StackOperation { Source = source, Target = target,
                 SourceCount = StackableItems.Quantity(source), TargetCount = StackableItems.Quantity(target),
                 Total = CruInventory().Sum(StackableItems.Quantity), Before = CruInventory() };
             Logger.Information("[CityBankers] STACK merge CRU via action53 survivor=" + source.Slot + "; consumed=" + target.Slot +
                 "; quantities=" + _stackOperation.SourceCount + "+" + _stackOperation.TargetCount);
-            // One diagnostic attempt per process: no background retry loop while
-            // the action-53 response/cache semantics are being established.
-            _cruMergeAttempted = true;
-            Logger.Information("[CityBankers] STACK diagnostic merge attempt; no further automatic merges until restart.");
+            // Sending alone never authorizes another merge. A timeout, exception
+            // or actor teardown leaves preparation paused until a runtime restart.
+            _cruMergeUnverified = true;
             StackableItems.Merge(source, target);
             return true;
         }
@@ -200,7 +206,12 @@ namespace CityBankers
             {
                 Logger.Information("[CityBankers] STACK " + (op.Target == null ? "split" : "merge") + " verified; CRU units=" + op.Total);
                 if (split != null) ReadyCru(op.RequestId, split);
-                if (op.Target != null) StackableItems.CancelMerge(op.Source, op.Target);
+                if (op.Target != null)
+                {
+                    StackableItems.CancelMerge(op.Source, op.Target);
+                    _cruMergeIdleAge.Restart();
+                    _cruMergeUnverified = false;
+                }
                 _stackOperation = null;
                 return true;
             }
@@ -210,6 +221,8 @@ namespace CityBankers
             _stackFailureAge.Restart();
             if (op.Target != null) StackableItems.CancelMerge(op.Source, op.Target);
             Logger.Warning("[CityBankers] STACK operation not verified; no quantity inferred. Inventory=" + _lastStackFailure);
+            if (op.Target != null)
+                Logger.Warning("[CityBankers] CRU merging and new CRU preparation paused until restart; other banking remains available.");
             if (op.RequestId != null)
             {
                 WithdrawalStore.Update(_settingsDir, rows =>
