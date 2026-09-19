@@ -28,8 +28,8 @@ namespace CityBankers
         private bool _cruRecovered;
         private bool _automaticCruStackingEnabled;
         // Only verified completion clears this latch. Actor readmission must not
-        // retry an uncertain merge against potentially stale quantities.
-        private static bool _cruMergeUnverified;
+        // retry an uncertain split or merge against potentially stale quantities.
+        private static bool _cruPreparationUnverified;
         private static readonly Stopwatch _cruMergeIdleAge = Stopwatch.StartNew();
 
         private List<Item> CruInventory() => (Inventory.Items ?? new List<Item>()).Where(i =>
@@ -42,8 +42,8 @@ namespace CityBankers
                 _reserveOperation != null || _stackOperation != null || _receipt != null || _donationActive || _activeBatch != null ||
                 _extraction != null || _returnOffer != null)
             { proposal.Reply.TrySetResult("Central is busy. Please try #cru again shortly."); return true; }
-            if (_cruMergeUnverified)
-            { proposal.Reply.TrySetResult("CRU preparation is paused after an unverified stack merge. Please contact the bot owner."); return true; }
+            if (_cruPreparationUnverified)
+            { proposal.Reply.TrySetResult("CRU preparation is paused after an unverified stack operation. Please contact the bot owner."); return true; }
             StackableItems.Flush();
             var inventory = CruInventory();
             if (inventory.Any(i => StackableItems.Quantity(i) < 1))
@@ -148,7 +148,7 @@ namespace CityBankers
             string signature = string.Join(";", available.Select(i => i.Slot + "/" + StackableItems.Quantity(i)));
             if (_lastStackFailure == signature && _stackFailureAge.Elapsed.TotalSeconds < 60) return false;
             var next = active.FirstOrDefault(r => r.Status == "requested");
-            if (_cruMergeUnverified) return false;
+            if (_cruPreparationUnverified) return false;
             if (next != null)
             {
                 Item single = available.FirstOrDefault(i => StackableItems.Quantity(i) == 1);
@@ -165,6 +165,7 @@ namespace CityBankers
                     Before = CruInventory() };
                 Logger.Information("[CityBankers] STACK split one CRU request=" + next.Id + "; source=" + stack.Slot +
                     "; quantity=" + _stackOperation.SourceCount);
+                _cruPreparationUnverified = true;
                 StackableItems.Split(stack, 1);
                 return true;
             }
@@ -186,7 +187,7 @@ namespace CityBankers
                 "; quantities=" + _stackOperation.SourceCount + "+" + _stackOperation.TargetCount);
             // Sending alone never authorizes another merge. A timeout, exception
             // or actor teardown leaves preparation paused until a runtime restart.
-            _cruMergeUnverified = true;
+            _cruPreparationUnverified = true;
             StackableItems.Merge(source, target);
             return true;
         }
@@ -210,8 +211,8 @@ namespace CityBankers
                 {
                     StackableItems.CancelMerge(op.Source, op.Target);
                     _cruMergeIdleAge.Restart();
-                    _cruMergeUnverified = false;
                 }
+                _cruPreparationUnverified = false;
                 _stackOperation = null;
                 return true;
             }
@@ -221,8 +222,7 @@ namespace CityBankers
             _stackFailureAge.Restart();
             if (op.Target != null) StackableItems.CancelMerge(op.Source, op.Target);
             Logger.Warning("[CityBankers] STACK operation not verified; no quantity inferred. Inventory=" + _lastStackFailure);
-            if (op.Target != null)
-                Logger.Warning("[CityBankers] CRU merging and new CRU preparation paused until restart; other banking remains available.");
+            Logger.Warning("[CityBankers] CRU merging and new CRU preparation paused until restart; other banking remains available.");
             if (op.RequestId != null)
             {
                 WithdrawalStore.Update(_settingsDir, rows =>
@@ -231,7 +231,7 @@ namespace CityBankers
                     row.Status = "expired"; row.Error = "CRU split was not verified."; WithdrawalStore.Touch(row); return true;
                 });
                 var expiredRequest = WithdrawalStore.LoadAll(_settingsDir).Single(r => r.Id == op.RequestId);
-                TellPlayer(expiredRequest.RequestedBy, "Central could not finish splitting your CRU. Please try #cru again shortly.");
+                TellPlayer(expiredRequest.RequestedBy, "Central could not verify the CRU split. CRU preparation is paused; please contact the bot owner.");
             }
             _stackOperation = null;
             return true;

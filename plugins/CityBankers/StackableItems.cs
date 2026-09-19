@@ -243,9 +243,19 @@ namespace CityBankers
 
         public static void Split(Item source, int quantity)
         {
-            if (quantity <= 0 || Quantity(source) <= quantity) throw new InvalidOperationException("Invalid stack split.");
-            Client.Send(new CharacterActionMessage { Action = CharacterActionType.SplitItem,
-                Target = source.Slot, Parameter2 = quantity });
+            if (!IsStack(source) || quantity <= 0 || Quantity(source) <= quantity ||
+                !Client.InPlay || source.Slot.Type != IdentityType.Inventory ||
+                !Inventory.Items.Contains(source) || Inventory.Items.Count(i => i.Slot == source.Slot) != 1)
+                throw new InvalidOperationException("Invalid stack split.");
+            // Keep AOSharp's SplitItem/Target/Parameter2 request layout, but do not
+            // inherit the N3 constructor's Unknown=1 header. Use the zero header
+            // proven for merging; split delivery still needs live confirmation.
+            var packet = new CharacterActionMessage { Action = CharacterActionType.SplitItem,
+                Unknown = 0, Unknown1 = 0, Unknown2 = 0,
+                Identity = new Identity(IdentityType.SimpleChar, Client.LocalDynelId),
+                Target = source.Slot, Parameter1 = 0, Parameter2 = quantity };
+            Client.Send(packet);
+            LogStackAction("SENT", packet);
         }
         private static void ObserveMerge(CharacterActionMessage action)
         {
