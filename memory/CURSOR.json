@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 171,
+  "current_session": 172,
   "last_completed_session": 171,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-171-cru-split-header",
+  "transaction": "session-172-cru-split-response-evidence",
   "checkpoint_commit": "16349a46c0484e73ec92fbdd449a2fd1341ddeea",
-  "task": "Published: split header correction and uncertain-operation pause; split outcome unproven",
-  "resume_instruction": "All seven merges through61 live-confirmed. Two prior split attempts timed out with no logged split response and stale61. Published explicit Unknown0/local-identity SplitItem52 packet plus full SENT logging; zero-header effect on splitting not yet proven. Shared uncertainty latch now pauses new CRU preparation/merging after any unverified split or merge until runtime restart. Owner rebuild/restart and one #cru request; inspect fresh login and SENT/RECV/add-template/count events. Split response/cache handling and pickup remain unresolved, no invented mutations. No assistant builds/live tests.",
-  "base_commit": "ab7ff5565e1d5cc2744627ab48f111d195933fb3"
+  "task": "Capture missing live split response without changing working request",
+  "resume_instruction": "Owner three-run log plus fresh logins proves both split Unknown1 and Unknown0 physically worked (59+1+1 then60+1, total61). Retract header diagnosis; keep current proven sender. No logged RECV52/34/add/count explains cache. Add bounded split-only incoming inventory-packet trace and post-native snapshots; no guessed split cache mutation or new experiment variants. Owner next normal #cru supplies response. No builds/live actions.",
+  "base_commit": "d94f6c6ef4ee6ab4fa37245639880fb0b1834c32"
 }
