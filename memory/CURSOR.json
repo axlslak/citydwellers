@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 170,
+  "current_session": 171,
   "last_completed_session": 170,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-170-cru-consolidation",
+  "transaction": "session-171-cru-split-header",
   "checkpoint_commit": "e1b2c976a9e77056cc80389ead243e3db0ecc93f",
-  "task": "Resolved: sequential verified CRU consolidation",
-  "resume_instruction": "Owner live-confirmed session169 response/cache verification:54+seven singles=61. Published repeated opt-in consolidation with two-second idle gaps, pickup priority and unreserved compatible pairs only. Verified success clears runtime latch; any unverified merge pauses further merging/new CRU preparation until runtime restart. Owner rebuilds with EnableAutomaticCruStacking=true; unchanged supply should reach one61 stack. Then #cru split/pickup is next live check, not yet proven. No assistant builds/live tests.",
-  "base_commit": "2f87d8f5a9a8e1f8119fe03926c307653b6b0785"
+  "task": "Correct split header inconsistency and pause uncertain CRU operations",
+  "resume_instruction": "Owner log proves seven merges through61; two splits from61 time out without logged split response/add-template. Split still inherits N3 Unknown1 default unlike working merge Unknown0. Make explicit zero header/local identity and SENT logging; preserve AOSharp SplitItem action52/Target/Parameter2=1. No speculative split cache mutation. Extend runtime uncertainty latch to split timeouts and retire misleading retry invitation; owner next live log needed. No builds/live actions.",
+  "base_commit": "ab7ff5565e1d5cc2744627ab48f111d195933fb3"
 }
