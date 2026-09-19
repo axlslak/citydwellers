@@ -187,6 +187,15 @@ namespace CityManager
                         "Athen Paladins member", "Read-only bookkeeping; these commands do not change stock.");
                     return true;
 
+                case "pickups":
+                case "takers":
+                    title = "Latest Pickups";
+                    body = CommandHelp(target, "pickups",
+                        "Show the latest 25 confirmed item pickups.",
+                        "Newest first, with UTC time, recipient and item link. Includes CRU.",
+                        "Athen Paladins member", "Alias: takers. Pending, cancelled and expired requests are excluded.");
+                    return true;
+
                 case "donor":
                 case "donors":
                     title = "Donation Records";
@@ -208,6 +217,7 @@ namespace CityManager
                         HelpMenuLine(target, "help get", "Pickup help", "Up to three items per order; three-minute pickup window.") +
                         HelpMenuLine(target, "cru", "CRU", "Collect one CRU from Central.") +
                         HelpMenuLine(target, "donor", "Donors", "Donation totals and history.") +
+                        HelpMenuLine(target, "pickups", "Pickups", "Latest 25 confirmed item pickups. Alias: takers.") +
                         HelpMenuLine(target, "status", "Live status", "Banker readiness, occupancy, storage work, withdrawals, recovery and tell queue.") +
                         "\nTrade with Kbcentral to donate up to 10 accepted items. Item notices identify what will be stored or deleted as excess. Accept when finished editing, then confirm the dialog normally.\n" +
                         "Removing an acceptance entry does not itself delete stored items. Lowering a positive limit leaves existing stock alone; future excess donations are deleted after verified receipt.\n";
@@ -402,6 +412,7 @@ namespace CityManager
                 target,
                 "get [AO item ID]",
                 "Reserve an item and collect it from Kbcentral within three minutes. Alias: withdraw."));
+            body.Append(HelpSyntaxLine(target, "pickups", "Latest 25 confirmed item pickups. Alias: takers."));
             body.Append(HelpSyntaxLine(target, "cru", "Collect one CRU from Kbcentral within three minutes."));
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
             body.Append(HelpSyntaxLine(target, "raid status", "View current raid information."));

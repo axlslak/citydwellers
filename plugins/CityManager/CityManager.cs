@@ -58,6 +58,8 @@ namespace CityManager
                 "phat",
                 "phatz",
                 "donor",
+                "pickups",
+                "takers",
                 "lost",
                 "found",
                 "withdraw",
@@ -473,6 +475,8 @@ namespace CityManager
             string command = parts[0].ToLowerInvariant();
             bool hasCommandShape =
                 ((command == "cru" ||
+                  command == "pickups" ||
+                  command == "takers" ||
                   command == "changelog" ||
                   command == "online" ||
                   command == "cloak" ||
@@ -589,6 +593,8 @@ namespace CityManager
                  string.Equals(command, "phat", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "phatz", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "donor", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "pickups", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "takers", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "lost", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "found", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "withdraw", StringComparison.OrdinalIgnoreCase) ||
@@ -696,6 +702,11 @@ namespace CityManager
                 case "lost":
                 case "found":
                     ProcessLostFoundCommand(parts, replyTarget);
+                    break;
+
+                case "pickups":
+                case "takers":
+                    ProcessBankerPickupsCommand(parts, replyTarget);
                     break;
 
                 case "donor":

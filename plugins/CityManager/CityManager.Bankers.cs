@@ -928,6 +928,53 @@ namespace CityManager
                 stock.Items.Remove(reserved);
         }
 
+        private void ProcessBankerPickupsCommand(string[] parts, ReplyTarget target)
+        {
+            if (parts == null || parts.Length != 1)
+            {
+                Reply(target, Usage(target, "pickups"));
+                return;
+            }
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    // DeliveredUtc is persisted only after verified physical
+                    // delivery. Include accounting retries, never mere requests.
+                    var pickups = WithdrawalStore.LoadAll(_settingsDir)
+                        .Where(row => row != null && row.DeliveredUtc.HasValue && row.Item != null)
+                        .OrderByDescending(row => row.DeliveredUtc.Value)
+                        .ThenBy(row => row.Id, StringComparer.Ordinal)
+                        .Take(25).ToList();
+                    var body = new StringBuilder();
+                    body.Append("Latest ").Append(pickups.Count)
+                        .Append(" confirmed item pickups (including CRU). Times are UTC.\n\n");
+                    if (pickups.Count == 0)
+                        body.Append("No confirmed pickups recorded yet.\n");
+
+                    foreach (var row in pickups)
+                    {
+                        string recipient = !string.IsNullOrWhiteSpace(row.RecipientMain)
+                            ? row.RecipientMain : row.RequestedBy;
+                        body.Append(FormatDonationUtc(row.DeliveredUtc.Value))
+                            .Append("  ").Append(EscapeBlobText(recipient ?? "Unknown member"))
+                            .Append("\n    ")
+                            .Append(CityBankersChatPalette.ItemLabel(
+                                row.Item.AoId, row.Item.HighId, row.Item.Ql, row.Item.Name, true))
+                            .Append("\n");
+                    }
+
+                    Reply(target, BuildBlobLinks(target, "Latest Pickups", "Latest 25 pickups", body.ToString()));
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("PICKUPS command failed: " + ex);
+                    Reply(target, "Pickup history is temporarily unavailable.");
+                }
+            });
+        }
+
         private void ProcessBankerDonorCommand(string[] parts, ReplyTarget target)
         {
             if (parts == null || parts.Length > 2)

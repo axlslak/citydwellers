@@ -1,3 +1,11 @@
+## Session 180 — recent pickups command
+
+- [RESOLVED] Added #pickups with #takers alias: newest25 confirmed delivered item records, UTC timestamp, recorded recipient main (requester fallback) and item link. One row per delivered item, including CRU; multi-item trades can occupy multiple rows.
+- Source is existing WithdrawalStore records with DeliveredUtc and item data. DeliveredUtc is written after verified physical pickup; accounting-pending confirmed deliveries are included. Pending/expired/cancelled requests without delivery evidence are excluded. No new ledger writes, changes to donor/stock history or invented collector-character information.
+- Both commands use the same member/admin access policy as donor and work through existing org/guest/tell routing. Added topic help, banker menu and general help; empty history and read failures have explicit replies. Existing blob pagination applies.
+- Validation: source/API review of delivery persistence, selection/order/limit, command discovery/tell shape/access/dispatch/help and output escaping. No compilation/test suites/live operations per owner boundary. Local shell runtime unavailable this turn; edits published through GitHub connector. No in-game changelog entry added.
+- Owner next rebuild/restart and invoke #pickups or #takers. Existing confirmed pickups appear immediately; no migration or new pickup required.
+
 ## Session 179 — character-name audit across bot source
 
 - [OWNER DIRECTION] Fix name restrictions across paths rather than only membership/online. Existing game characters with hyphens must not disappear because a parser assumes letters/digits only.
