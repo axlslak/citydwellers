@@ -1951,18 +1951,27 @@ namespace CityBankers
 
         private void ProcessStorageBagReturn()
         {
-            Item bankBag = FindBankBagByIdentity(_storageJob.BagLiveIdentity);
-            if (bankBag != null)
+            // Ask every record of this bag, not one of them. Comparing a single
+            // arbitrarily chosen record's slot stopped a banker on a bag that had
+            // in fact returned: the lookup answered with the bag's other record,
+            // at bank/92, while the job expected bank/1 and a record did sit there.
+            var bankRecords = StorageBagPolicy.AllRecordsFor(_storageJob.BagLiveIdentity, "bank");
+            if (bankRecords.Count != 0)
             {
-                if (bankBag.Slot.Instance != _storageJob.Bag.OuterSlotInstance)
+                if (bankRecords.Any(item => item.Slot.Instance == _storageJob.Bag.OuterSlotInstance))
                 {
-                    FailStorageJob(
-                        "Bank bag returned to unexpected outer slot " + bankBag.Slot.Instance +
-                        " instead of " + _storageJob.Bag.OuterSlotInstance +
-                        "; stopping for reconciliation.");
+                    CommitStoredItem();
                     return;
                 }
-                CommitStoredItem();
+                FailStorageJob(
+                    "Bank bag returned to unexpected outer slot " + bankRecords[0].Slot.Instance +
+                    " instead of " + _storageJob.Bag.OuterSlotInstance +
+                    (bankRecords.Count == 1
+                        ? string.Empty
+                        : "; the client lists " + bankRecords.Count + " records for this bag at " +
+                          string.Join(", ", bankRecords.Select(item => item.Slot.Instance.ToString())) +
+                          " and none is the expected slot") +
+                    "; stopping for reconciliation.");
                 return;
             }
             if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
@@ -2672,21 +2681,17 @@ namespace CityBankers
                 item.Slot.Instance == slot);
         }
 
+        // Resolve to the record the deduplication kept, not to whichever record the
+        // client lists first. Moves and uses carry the item's slot, so acting on the
+        // stale record of a bag listed twice is a no-op.
         private static Item FindInventoryBagByIdentity(string identity)
         {
-            return Inventory.Items?.FirstOrDefault(item =>
-                item != null &&
-                item.Slot.Type == IdentityType.Inventory &&
-                StorageBagPolicy.IsStorageBag(item) &&
-                string.Equals(item.UniqueIdentity.ToString(), identity, StringComparison.Ordinal));
+            return StorageBagPolicy.PreferredRecord(identity, "inventory");
         }
 
         private static Item FindBankBagByIdentity(string identity)
         {
-            return Inventory.Bank.Items?.FirstOrDefault(item =>
-                item != null &&
-                StorageBagPolicy.IsStorageBag(item) &&
-                string.Equals(item.UniqueIdentity.ToString(), identity, StringComparison.Ordinal));
+            return StorageBagPolicy.PreferredRecord(identity, "bank");
         }
 
         private static Container FindContainerByIdentity(string identity)

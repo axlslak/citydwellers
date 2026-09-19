@@ -168,9 +168,11 @@ namespace CityBankers
                 var bagState = storage?.Workers?.SingleOrDefault(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase))
                     ?.Bags?.SingleOrDefault(b => b.Source == _extraction.Source && (b.OuterSlotInstance & 65535) == _extraction.Bag);
                 if (bagState == null) throw new InvalidOperationException("Extraction bag is absent from physical storage state.");
-                var bags = _extraction.Source == "bank" ? Inventory.Bank.Items : Inventory.Items;
-                var bag = bags.SingleOrDefault(i => i != null && StorageBagPolicy.IsStorageBag(i) &&
-                    i.UniqueIdentity.ToString() == bagState.LastUniqueIdentity);
+                // SingleOrDefault threw on a bag the client lists twice, and the tick
+                // catch-all turns any unknown exception into a roster-wide recovery.
+                // Two records of one container identity are one bag.
+                var bag = StorageBagPolicy.PreferredRecord(bagState.LastUniqueIdentity,
+                    _extraction.Source == "bank" ? "bank" : "inventory");
                 if (bag == null) return true;
                 _extraction.BagIdentity = bag.UniqueIdentity.ToString();
                 SaveExtraction("bag-prepared");

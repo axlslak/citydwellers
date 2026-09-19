@@ -2374,3 +2374,11 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - `Inventory.NumFreeSlots` is `30 - record count` (SDK IL), so a bag listed twice subtracts two slots for one. Kbarty saw 10 against a requirement of 11 while physically holding 11 — the phantom was the only reason the staging step ran. `StorageBagPolicy.FreeInventorySlots()` adds the duplicates back and is used by every free-slot test in the staging path.
 - Both findings were confirmed independently by multiple verifiers in a 112-agent sweep; the `NumFreeSlots` root cause was reached by four separate lenses.
 - Static review only: no .NET toolchain in this container, so no compilation and no live run.
+
+## Session 150 — one bag, one lookup
+
+- `[VERIFIED-LIVE]` Nine of nine bankers audited and ready. Kbarty needed no staging move and stored a donation end to end. The alien-file notice is gone and the dedupe choice is stable across reorderings.
+- Kbsupp's `unexpected outer slot 92 instead of 1` was a lookup fault: `FindBankBagByIdentity` was a `FirstOrDefault` over the bank listing and answered with the bag's other record. A record was at the expected slot, so the bag had returned.
+- `StorageBagPolicy.PreferredRecord` / `AllRecordsFor` added. Live lookups resolve to the deduplicated record; the storage return check asks every record and accepts a match at the expected slot, naming all of them when none matches.
+- `Extraction`'s `SingleOrDefault` over the live bag list threw on a duplicated identity and would have restarted the roster the moment such a banker went operational. Replaced.
+- Static review only: no .NET toolchain in this container, so no compilation and no live run.

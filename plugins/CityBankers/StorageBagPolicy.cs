@@ -124,6 +124,31 @@ namespace CityBankers
                 .ToList();
         }
 
+        // Resolving a bag by identity must land on the record the deduplication
+        // kept. A plain FirstOrDefault over the client's listing returns whichever
+        // record happens to be first, and the client reorders as bags move, so the
+        // same lookup can answer differently one minute apart.
+        public static Item PreferredRecord(string identityText, string location)
+        {
+            return DistinctBags()
+                .Where(r => r.Location == location &&
+                    string.Equals(r.Identity.ToString(), identityText, StringComparison.Ordinal))
+                .Select(r => r.Bag)
+                .FirstOrDefault();
+        }
+
+        // Every record of one identity in one listing. A caller that is checking
+        // where a bag ended up needs all of them: one physical bag can be listed
+        // at two slots, and only one of those is the slot it actually occupies.
+        public static List<Item> AllRecordsFor(string identityText, string location)
+        {
+            return AllBagRecords()
+                .Where(r => r.Location == location &&
+                    string.Equals(r.Identity.ToString(), identityText, StringComparison.Ordinal))
+                .Select(r => r.Bag)
+                .ToList();
+        }
+
         // The records of one identity other than the one currently preferred.
         public static List<BagRecord> AlternateRecords(Identity identity)
         {
