@@ -74,6 +74,8 @@ namespace CityBankers
         private static string settings, path, history, epoch, bankEpoch, lastError, requestedOpen;
         private static string pendingId, reconnectRequested;
         private static bool installed, retained;
+        internal static bool PlannedReconnect { get; private set; }
+        private static readonly Stopwatch statusAge = Stopwatch.StartNew();
         private static long sequence, openAfter;
         private static readonly Stopwatch openAge = new Stopwatch();
         private static readonly Stopwatch pendingAge = new Stopwatch();
@@ -95,6 +97,7 @@ namespace CityBankers
             retained = File.Exists(path);
             epoch = bankEpoch = requestedOpen = reconnectRequested = pendingId = lastError = null;
             inventory.Clear(); bank.Clear(); views.Clear(); opened.Clear();
+            PlannedReconnect = false;
             Client.MessageReceived += Receive;
             installed = true;
         }
@@ -146,7 +149,7 @@ namespace CityBankers
             {
                 if (message?.Body is FullCharacterMessage full)
                 {
-                    epoch = Guid.NewGuid().ToString("N"); bankEpoch = null;
+                    epoch = Guid.NewGuid().ToString("N"); bankEpoch = null; PlannedReconnect = false;
                     views.Clear(); opened.Clear(); requestedOpen = null; reconnectRequested = null;
                     inventory = ReadOuter(full.InventorySlots, false);
                     inventoryCount = full.InventorySlots.Count(s => s.Placement >= Inventory.INVENTORY_START &&
@@ -201,11 +204,24 @@ namespace CityBankers
             lastError = text;
             Logger.Warning("[CityBankers] BAG RECOVERY waiting: " + text);
         }
-        private static void Reconnect()
+        private static void Reconnect(string reason)
         {
             if (reconnectRequested == epoch) return;
-            ClientlessSessionGuard.ReconnectForBagRecovery();
-            reconnectRequested = epoch;
+            Logger.Warning("[CityBankers] BAG RECOVERY intentional verification reconnect: " + reason);
+            PlannedReconnect = true; // Must precede the synchronous Disconnected event.
+            try
+            {
+                ClientlessSessionGuard.ReconnectForBagRecovery();
+                reconnectRequested = epoch;
+            }
+            catch { PlannedReconnect = false; throw; }
+        }
+        private static bool SnapshotLayoutMatches()
+        {
+            var native = Inventory.Items.Concat(Inventory.Bank.Items).Where(i => i != null &&
+                i.Id == StorageBagPolicy.SmallBackpackId && i.UniqueIdentity.Type == IdentityType.Container)
+                .Select(i => (int)i.Slot.Type + "/" + i.Slot.Instance + "/" + i.UniqueIdentity.Instance).OrderBy(k => k);
+            return Outer().Select(a => a.Key).OrderBy(k => k).SequenceEqual(native);
         }
         // True means this banker remains held. Called only with census ownership.
         internal static bool Tick()
@@ -216,17 +232,18 @@ namespace CityBankers
             if (retryAge.IsRunning && retryAge.ElapsedMilliseconds < 3000) return true;
             try
             {
-                if (bankEpoch != epoch) { Reconnect(); return true; }
+                if (bankEpoch != epoch) { Reconnect("Current bank snapshot unavailable."); return true; }
                 State s = Load(); // Every tick resumes durable truth, including failed writes.
                 if (s == null)
                 {
                     if (retained) throw new InvalidOperationException("Active recovery journal is missing; preserving the hold.");
                     var duplicate = Outer().GroupBy(a => a.Bag).FirstOrDefault(g => g.Count() > 1);
-                    if (duplicate == null) { Reconnect(); return true; }
+                    if (duplicate == null || !SnapshotLayoutMatches())
+                    { Reconnect("Incoming outer snapshots disagree with the current SDK layout."); return true; }
                     s = new State { Run = Guid.NewGuid().ToString("N"), Character = Client.CharacterName,
-                        Bag = duplicate.Key, Original = duplicate.ToList(), Phase = "confirm", Epoch = epoch };
-                    Event(s, "Detected repeated bag identity " + s.Bag + "; confirming through automatic reconnect.");
-                    Save(s); Reconnect(); return true;
+                        Bag = duplicate.Key, Original = duplicate.ToList(), Phase = "evacuate", Epoch = epoch };
+                    Event(s, "Detected repeated bag identity " + s.Bag + "; incoming login/bank snapshots agree with current addresses; beginning evacuation without reconnect.");
+                    Save(s); return true;
                 }
                 if (s.Phase == "complete")
                 {
@@ -237,9 +254,16 @@ namespace CityBankers
                     throw new InvalidOperationException("Server snapshot repeats an outer slot; no unique action address.");
                 if (s.Phase == "confirm")
                 {
-                    if (s.Epoch == epoch) { Reconnect(); return true; }
+                    if (!SnapshotLayoutMatches()) { Reconnect("Resume confirmation requires consistent outer snapshots."); return true; }
                     if (Aliases(s.Bag).Count <= 1) { Finish(s, "Repeated reference cleared on reconnect."); return true; }
                     s.Phase = "evacuate"; Save(s); return true;
+                }
+                if (statusAge.ElapsedMilliseconds >= 30000)
+                {
+                    Logger.Information("[CityBankers] BAG RECOVERY progress phase=" + s.Phase +
+                        "; pending=" + (s.Pending?.Kind ?? "none") + "; open=" + (requestedOpen ?? "none") +
+                        "; verified records=" + s.Transfers.Count + "; aliases=" + Aliases(s.Bag).Count);
+                    statusAge.Restart();
                 }
                 if (s.Pending != null) { Resolve(s); return true; }
                 if (DateTime.UtcNow < s.RetryAfterUtc) return true;
@@ -354,13 +378,18 @@ namespace CityBankers
                 if (views.TryGetValue(a.Bag, out fresh) && fresh.Sequence > openAfter)
                 {
                     // Consume a response produced AFTER this exact slot's Use.
-                    opened[a.Key] = fresh; requestedOpen = null; return fresh;
+                    opened[a.Key] = fresh; requestedOpen = null;
+                    Logger.Information("[CityBankers] BAG RECOVERY observed " + a.Key + "; records=" + fresh.Items.Count);
+                    return fresh;
                 }
                 if (openAge.ElapsedMilliseconds < 15000) return null;
-                requestedOpen = null; // Read-only toggle may close an already open window.
+                Logger.Warning("[CityBankers] BAG RECOVERY no fresh contents for " + a.Key +
+                    " after 15s; retrying read-only Use (shared window may have closed).");
+                requestedOpen = null;
             }
             if (requestedOpen != null) throw new InvalidOperationException("Another container observation is pending.");
             openAfter = sequence; requestedOpen = a.Key; openAge.Restart();
+            Logger.Information("[CityBankers] BAG RECOVERY opening " + a.Key);
             Live(a).Use();
             return null;
         }
@@ -490,6 +519,7 @@ namespace CityBankers
             }
             s.Pending = new Pending { Id = Guid.NewGuid().ToString("N"), Kind = kind,
                 Epoch = epoch, Source = source, TargetBag = target, Before = Outer() };
+            Event(s, "Issuing " + kind + " at " + source.Key + "; outer result requires verification.");
             Save(s); InvalidateViews();
             switch (kind)
             {
@@ -529,7 +559,7 @@ namespace CityBankers
                 }
                 if (p.Epoch == epoch)
                 {
-                    if (pendingAge.ElapsedMilliseconds >= 3000) Reconnect();
+                    if (pendingAge.ElapsedMilliseconds >= 3000) Reconnect("Uncertain " + p.Kind + " outcome at " + p.Source.Key);
                     return;
                 }
                 if (Exact(p.SourceBefore, sourceView.Items) && Exact(p.TargetBefore, targetView.Items))
@@ -544,7 +574,7 @@ namespace CityBankers
             }
             if (p.Epoch == epoch)
             {
-                if (pendingAge.ElapsedMilliseconds >= 3000) Reconnect();
+                if (pendingAge.ElapsedMilliseconds >= 3000) Reconnect("Verify " + p.Kind + " outer addresses after action at " + p.Source.Key);
                 return;
             }
             var beforeOther = p.Before.Where(a => a.Bag != p.Source.Bag).Select(a => a.Bag).OrderBy(i => i);

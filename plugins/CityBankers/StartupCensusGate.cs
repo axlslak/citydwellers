@@ -281,6 +281,9 @@ namespace CityBankers
         private void RejectBeforeCensus(Identity target) { if (!IsOpen) Trade.Decline(); }
         private void OnDisconnected()
         {
+            // Recovery owns a quiesced banker and has not issued its census.
+            // Its planned verification reconnect can withdraw just this member.
+            bool plannedPreCensus = SharedBagRecovery.PlannedReconnect && _quiesced && !_issued && !_finished;
             try { RetireAdmission(); }
             catch (Exception ex) { Logger.Error("[CityBankers] Admission cleanup on disconnect: " + ex.Message); }
             _stagingBag = _stagingFailureLayout = _stagingBeforeLayout = null;
@@ -320,7 +323,9 @@ namespace CityBankers
                     // Compare the retired epoch, not the newly allocated one.
                     // Coordinate uses this same mutex: it either already excluded
                     // us or must reconcile the participant it still depends on.
-                    if (!idle && Includes(cycle, _character, retiredConnection))
+                    bool scopedRecovery = plannedPreCensus && cycle?.Phase == "collecting" &&
+                        !string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase);
+                    if (!idle && !scopedRecovery && Includes(cycle, _character, retiredConnection))
                     {
                         _recoveryRequest = _recoveryRequest ?? Guid.NewGuid().ToString("N");
                         _requestPublished = false;
@@ -339,7 +344,8 @@ namespace CityBankers
                     Logger.Information("[CityBankers] " + MemberCharacter +
                         " unavailable; healthy census retained. " +
                         (_idleReconnectCycle != null ? "Idle reconnect will validate inventory without a bag audit." :
-                        "Connection was outside the current census roster."));
+                        plannedPreCensus ? "Planned bag verification; withdraw this banker without restarting peer audits." :
+                            "Connection was outside the current census roster."));
             }
             catch (Exception ex)
             {
