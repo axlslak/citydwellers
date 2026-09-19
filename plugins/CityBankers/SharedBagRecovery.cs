@@ -508,16 +508,16 @@ namespace CityBankers
             {
                 // Reopen BOTH ends; local OnContainerAction's slot inference is
                 // not completion evidence. Reconnect automatically on uncertainty.
-                var source = Aliases(p.Source.Bag).SingleOrDefault(a => a.Key == p.Source.Key);
+                var source = Aliases(p.Source.Bag).SingleOrDefault(address => address.Key == p.Source.Key);
                 var target = Aliases(p.TargetBag).SingleOrDefault();
                 if (source == null || target == null || !Normal(target))
                     throw new InvalidOperationException("Pending transfer endpoints are not observable in inventory.");
-                View a = Open(source); if (a == null) return;
-                View b = Open(target); if (b == null) return;
-                if (Delta(p.SourceBefore, a.Items, p.Transfer.Item, -1) &&
-                    (p.Kind == "dispose" ? Exact(p.TargetBefore, b.Items) : Delta(p.TargetBefore, b.Items, p.Transfer.Item, 1)))
+                View sourceView = Open(source); if (sourceView == null) return;
+                View targetView = Open(target); if (targetView == null) return;
+                if (Delta(p.SourceBefore, sourceView.Items, p.Transfer.Item, -1) &&
+                    (p.Kind == "dispose" ? Exact(p.TargetBefore, targetView.Items) : Delta(p.TargetBefore, targetView.Items, p.Transfer.Item, 1)))
                 {
-                    var arrivals = b.Items.Where(i => i.Key == p.Transfer.Item.Key &&
+                    var arrivals = targetView.Items.Where(i => i.Key == p.Transfer.Item.Key &&
                         !p.TargetBefore.Any(old => old.Slot == i.Slot)).ToList();
                     if (arrivals.Count == 1) p.Transfer.TargetSlot = arrivals[0].Slot;
                     p.Transfer.VerifiedUtc = DateTime.UtcNow;
@@ -532,7 +532,7 @@ namespace CityBankers
                     if (pendingAge.ElapsedMilliseconds >= 3000) Reconnect();
                     return;
                 }
-                if (Exact(p.SourceBefore, a.Items) && Exact(p.TargetBefore, b.Items))
+                if (Exact(p.SourceBefore, sourceView.Items) && Exact(p.TargetBefore, targetView.Items))
                 {
                     // A new connection confirms that neither endpoint changed.
                     // Retire the old intent; next tick selects a fresh live record.
