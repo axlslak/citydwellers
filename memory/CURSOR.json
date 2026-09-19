@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 179,
-  "last_completed_session": 178,
-  "status": "in_progress",
+  "last_completed_session": 179,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-179-character-name-audit",
-  "checkpoint_commit": "4a82d54ea113ecce2823b63c0335401b1a230105",
-  "task": "Audit and align character name parsing and file identity handling",
-  "resume_instruction": "Fix remaining alt/login/logout regex restrictions and banker filename readers stripping hyphens. Align character lexical rules with existing letters/digits/hyphens validation; review parse failures versus removal. No builds/tests.",
+  "checkpoint_commit": "9ab825f69bdb615b3b35b9f1cbf4d60f28803973",
+  "task": "Character-name audit fixes published",
+  "resume_instruction": "Shared name rule covers alt/online/login/logout regexes, validators and buffer config. Fixed health-file readers stripping hyphens versus writer, readiness markers and diagnostic filename handling. Rebuild/restart unified runtime; owner test hyphenated alt/presence and Bobsan online import. No builds/tests here. Original zero-group runtime cause not proven; prior complete-group validation preserves presence/mappings on failure.",
   "base_commit": "eb552e68f24d0f426293dc2b24066f79e8d1a113"
 }
