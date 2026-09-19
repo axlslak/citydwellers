@@ -34,6 +34,10 @@ namespace CityBankers
             public readonly Stopwatch Age = Stopwatch.StartNew();
         }
         private static PendingMerge pendingMerge;
+        private static Stopwatch splitTraceAge;
+        private static int splitTracePackets;
+        private static string splitTracePacketType;
+        private static readonly Dictionary<string, int> splitTraceTypes = new Dictionary<string, int>();
         public static bool IsStack(Item item) => item != null && CruPolicy.IsCru(item.Id);
         public static int Quantity(Item item)
         {
@@ -78,10 +82,15 @@ namespace CityBankers
             if (installed) return;
             installed = true;
             Client.MessageReceived += Receive;
+            Client.PacketReceived += TraceSplitPacket;
             Client.OnUpdate += Tick;
             Client.Disconnected += ForgetPendingMerge;
         }
-        private static void ForgetPendingMerge() => pendingMerge = null;
+        private static void ForgetPendingMerge()
+        {
+            pendingMerge = null;
+            FinishSplitTrace("disconnected");
+        }
 
         public static void CancelMerge(Item survivor, Item consumed)
         {
@@ -96,7 +105,69 @@ namespace CityBankers
                 catch (Exception ex) { Logger.Warning("[CityBankers] STACK quantity binding: " + ex.Message); }
             }
         }
-        private static void Tick(object sender, double delta) => Flush();
+        private static void Tick(object sender, double delta)
+        {
+            Flush();
+            if (splitTraceAge != null && splitTraceAge.Elapsed.TotalSeconds >= 12)
+                FinishSplitTrace("12s window ended");
+        }
+        private static string CruSnapshot() => string.Join(";", (Inventory.Items ?? new List<Item>())
+            .Where(i => IsStack(i) && i.Slot.Type == IdentityType.Inventory)
+            .Select(i => i.Slot + "/" + Quantity(i) + "/identity=" + i.UniqueIdentity));
+
+        private static void FinishSplitTrace(string reason)
+        {
+            if (splitTraceAge == null) return;
+            splitTraceAge = null;
+            splitTracePacketType = null;
+            Logger.Information("[CityBankers] SPLIT TRACE END " + reason + "; message types=" +
+                string.Join(";", splitTraceTypes.Select(pair => pair.Key + "=" + pair.Value)) +
+                "; inventory=" + CruSnapshot());
+        }
+
+        private static void TraceSplitMessage(Message message)
+        {
+            splitTracePacketType = null;
+            if (splitTraceAge == null) return;
+            if (splitTraceAge.Elapsed.TotalSeconds >= 12) { FinishSplitTrace("12s window ended"); return; }
+            string type = message?.Body?.GetType().Name ?? "null";
+            int seen;
+            splitTraceTypes.TryGetValue(type, out seen);
+            splitTraceTypes[type] = seen + 1;
+            var n3 = message?.Body as N3Message;
+            if (n3 == null || splitTracePackets >= 32) return;
+            // Content capture is restricted to inventory-related N3 messages.
+            // Other traffic contributes type counts only, never chat/auth contents.
+            string kind = n3.N3MessageType.ToString();
+            switch (kind)
+            {
+                case "CharacterAction": case "TemplateAction": case "GenericCmd":
+                case "InventoryUpdate": case "InventoryUpdated": case "ContainerAddItem":
+                case "ClientMoveItemToInventory": case "AddTemplate": case "ItemReplaced":
+                case "DropTemplate": case "SimpleItemFullUpdate": case "Stat":
+                    splitTracePackets++;
+                    splitTracePacketType = kind;
+                    Logger.Information("[CityBankers] SPLIT TRACE BEFORE " + kind +
+                        "; identity=" + n3.Identity + "; inventory=" + CruSnapshot());
+                    afterNative.Enqueue(() => Logger.Information("[CityBankers] SPLIT TRACE AFTER " + kind +
+                        "; inventory=" + CruSnapshot()));
+                    break;
+            }
+        }
+
+        private static void TraceSplitPacket(object sender, byte[] packet)
+        {
+            string type = splitTracePacketType;
+            splitTracePacketType = null;
+            if (type == null || splitTraceAge == null || packet == null) return;
+            try
+            {
+                Logger.Information("[CityBankers] SPLIT TRACE WIRE " + type + "; bytes=" + packet.Length +
+                    "; hex=" + BitConverter.ToString(packet, 0, Math.Min(packet.Length, 512)).Replace("-", "") +
+                    (packet.Length > 512 ? "; truncated at512 bytes" : ""));
+            }
+            catch (Exception ex) { Logger.Warning("[CityBankers] SPLIT TRACE packet unavailable: " + ex.Message); }
+        }
         private static IEnumerable<Item> AllItems() => (Inventory.Items ?? new List<Item>())
             .Concat(Trade.PlayerWindowCache?.Items ?? new List<Item>())
             .Concat(Trade.TargetWindowCache?.Items ?? new List<Item>());
@@ -125,11 +196,18 @@ namespace CityBankers
             // This hook precedes native handling. Drain the previous message's work
             // before inspecting the next one; OnUpdate drains the final message.
             Flush();
+            try { TraceSplitMessage(message); }
+            catch (Exception ex)
+            {
+                splitTracePacketType = null;
+                Logger.Warning("[CityBankers] SPLIT TRACE observation unavailable: " + ex.Message);
+            }
             if (message?.Body == null) return;
             var full = message.Body as FullCharacterMessage;
             if (full != null)
             {
                 pendingMerge = null;
+                FinishSplitTrace("fresh login");
                 counts = new ConditionalWeakTable<Item, CountValue>();
                 identities.Clear();
                 afterNative.Enqueue(() =>
@@ -248,13 +326,20 @@ namespace CityBankers
                 !Inventory.Items.Contains(source) || Inventory.Items.Count(i => i.Slot == source.Slot) != 1)
                 throw new InvalidOperationException("Invalid stack split.");
             // Keep AOSharp's SplitItem/Target/Parameter2 request layout, but do not
-            // inherit the N3 constructor's Unknown=1 header. Use the zero header
-            // proven for merging; split delivery still needs live confirmation.
+            // inherit the N3 constructor's Unknown=1 header. Owner restart evidence
+            // now proves BOTH values split physically; preserve the current sender.
             var packet = new CharacterActionMessage { Action = CharacterActionType.SplitItem,
                 Unknown = 0, Unknown1 = 0, Unknown2 = 0,
                 Identity = new Identity(IdentityType.SimpleChar, Client.LocalDynelId),
                 Target = source.Slot, Parameter1 = 0, Parameter2 = quantity };
-            Client.Send(packet);
+            FinishSplitTrace("new split");
+            splitTraceTypes.Clear();
+            splitTracePackets = 0;
+            splitTraceAge = Stopwatch.StartNew();
+            Logger.Information("[CityBankers] SPLIT TRACE BEGIN source=" + source.Slot +
+                "; requested=" + quantity + "; inventory=" + CruSnapshot());
+            try { Client.Send(packet); }
+            catch { FinishSplitTrace("send threw"); throw; }
             LogStackAction("SENT", packet);
         }
         private static void ObserveMerge(CharacterActionMessage action)
