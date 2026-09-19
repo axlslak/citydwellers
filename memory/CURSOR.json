@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 172,
+  "current_session": 173,
   "last_completed_session": 172,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-172-cru-split-response-evidence",
+  "transaction": "session-173-native-split-slot-probe",
   "checkpoint_commit": "9d91972a10a8fa60e1eeffe0a184e4093d84b898",
-  "task": "Split response diagnosis open; bounded capture published",
-  "resume_instruction": "Three starts prove BOTH split headers physically work:59+1+1 then60+1, total61. Header hypothesis superseded; current sender retained. Existing runtime log lacks split response. Published12s split-only incoming inventory trace (32 packets,512-byte prefixes) with before/after-native CRU snapshots and decoded message-type totals. Owner rebuild/restart, let consolidation finish, one #cru, wait SPLIT TRACE END then provide log. No invented split cache mutations; actual response handling/pickup unresolved. Existing uncertainty pause retained. No assistant builds/live tests.",
-  "base_commit": "d94f6c6ef4ee6ab4fa37245639880fb0b1834c32"
+  "task": "Observe real-client split slot allocation",
+  "resume_instruction": "Prepare read-only AOSharp split probe: manual before snapshot, outgoing split observation and after snapshots. Native implementation unavailable in uploaded managed wrapper. Do not guess banker split cache mutation. No builds/live tests.",
+  "base_commit": "4505d811964210dc111362908bce62c5340fb106"
 }
