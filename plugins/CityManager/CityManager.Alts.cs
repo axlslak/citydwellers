@@ -38,11 +38,11 @@ namespace CityManager
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex OnlineMainRegex = new Regex(
-            @"<a\s+href=['""]chatcmd:///tell\s+([A-Za-z0-9]+)\s+alts\s+([A-Za-z0-9]+)['""]>([A-Za-z0-9]+)</a><br>",
+            @"<a\s+href=['""]chatcmd:///tell\s+([A-Za-z0-9-]+)\s+alts\s+([A-Za-z0-9-]+)['""]>([A-Za-z0-9-]+)</a>",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex OnlineCharacterRegex = new Regex(
-            @"(?:^|<br>|text://)\s{2}([A-Za-z0-9]+)\s+\(",
+            @"(?:^|<br\s*/?>|\r?\n|text://)[ \t]{2,}([A-Za-z0-9-]+)\s+\(",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static readonly Regex LoggedOffRegex = new Regex(
@@ -609,15 +609,6 @@ namespace CityManager
                 _onlineSnapshotResponse.Pages.Add(pageNumber);
                 _onlineSnapshotResponse.UpdatedUtc = DateTime.UtcNow;
 
-                foreach (KeyValuePair<string, HashSet<string>> group in
-                    _onlineSnapshotResponse.Groups)
-                {
-                    MergeAltGroupObservationLocked(group.Key, group.Value);
-                }
-
-                TrySaveAltsLocked();
-                PruneAndCanonicalizeAltQueueLocked();
-
                 receivedPages = _onlineSnapshotResponse.Pages.Count;
                 complete = !isPaged || receivedPages >= pageCount;
                 mainCount = _onlineSnapshotResponse.Groups.Count;
@@ -626,23 +617,32 @@ namespace CityManager
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Count();
 
-                // Receiving every page does not mean its contents were parsed.
-                // Preserve observed presence when a populated response yields no
-                // names; only an explicit single-page Online(0) can clear it.
-                if (complete && onlineCount == 0 &&
-                    (declaredCount != 0 || mainCount != 0 || pageCount != 1))
+                // Online(N) counts main groups, not character rows. Page receipt
+                // alone cannot authorize replacing presence or caching mappings.
+                bool validSnapshot = mainCount == declaredCount &&
+                    _onlineSnapshotResponse.Groups.Values.All(names => names.Count > 0) &&
+                    (declaredCount != 0 || pageCount == 1);
+                if (complete && !validSnapshot)
                 {
                     _onlineSnapshotResponse = null;
                     Logger.Warning($"ALTS ONLINE <- {_altsBotName} rejected: " +
-                        $"declared={declaredCount}, parsed mains={mainCount}, online=0, " +
-                        $"pages={receivedPages}/{pageCount}; org presence preserved; reply format not recognized.");
-                    DevTrace($"ALTS ONLINE <- {_altsBotName}: no online names parsed; " +
-                        "org presence preserved. Need original formatted reply to diagnose parser.");
+                        $"declared mains={declaredCount}, parsed mains={mainCount}, online={onlineCount}, " +
+                        $"pages={receivedPages}/{pageCount}; org presence and mappings preserved.");
+                    DevTrace($"ALTS ONLINE <- {_altsBotName}: incomplete parsed groups " +
+                        $"({mainCount}/{declaredCount}); org presence and mappings preserved.");
                     return true;
                 }
 
                 if (complete)
                 {
+                    foreach (KeyValuePair<string, HashSet<string>> group in
+                        _onlineSnapshotResponse.Groups)
+                    {
+                        MergeAltGroupObservationLocked(group.Key, group.Value);
+                    }
+
+                    TrySaveAltsLocked();
+                    PruneAndCanonicalizeAltQueueLocked();
                     _orgOnlineSnapshotReceived = true;
                     _onlineCharacters.Clear();
                     foreach (string name in _onlineSnapshotResponse.Groups.Values

@@ -1,3 +1,11 @@
+## Session 178 — Bobsan online format and snapshot validation
+
+- [OWNER SAMPLE] Populated two-page Online(15) contains15 main groups and33 online character rows (15 on first page,18 on second), including a hyphenated main/character. Declared count describes groups, not online-character count. User's visual formatting is AO text:// markup.
+- [FIXED] Online main and character expressions accept hyphenated names already supported by normalization. Main recognition no longer requires an immediately adjacent literal br tag; character rows allow br/br-slash and literal line breaks with indentation. Existing sender and linked-bot/main-label validation remains.
+- [FIXED] Completed snapshots replace presence and merge alt observations only when parsed main count equals declared groups and every group has characters. Explicit zero remains single-page only. Failed parses preserve presence, alt mappings, startup pending and snapshot state flags, with declared/parsed diagnostics. Partial pages accumulate without mutating mapping cache. This strengthens session177's empty-result guard.
+- [LIMIT] Supplied sample's nonhyphen main headings appear compatible with old regex; the earlier zero-group result is not fully explained by the hyphen bug. Do not claim its root cause proven. Owner next rebuild then Bobsan !online; this exact sample should give mains15/online33/pages2. If parsing still rejects, capture Manager-received formatting next. No full raw reply or names copied into public history.
+- Validation: static token/group walkthrough of supplied pages, regex/source and rejection-before-mapping review, whitespace check only. No builds/tests per owner boundary. No in-game changelog wording invented.
+
 ## Session 177 — reject empty parsed online imports
 
 - [OWNER BUG] A populated two-page Bobsan online reply logs parsed mains=0/online=0 and erases known org-channel presence. Owner clarifies second page contains people; the empty value describes parser output, not the actual page.
