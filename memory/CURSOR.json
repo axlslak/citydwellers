@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 150,
+  "current_session": 151,
   "last_completed_session": 150,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-150-one-bag-one-lookup",
-  "checkpoint_commit": "d4a8ca4f34b2ef366a1452b083d230e20abb0915",
-  "task": "Lookup fix published; persisted-state duplicate handling next",
-  "resume_instruction": "Sessions 146-150 published; 146-149 are VERIFIED-LIVE with nine of nine bankers audited. Next: session 151 for persisted-state duplicates (BuildCurrentStock and FindNextFreeBag double-count, #stock shows 42 where 21 exist; CensusApplication drops the donor anchor). Also open: SDK Bank.RegisterItems appends without clearing, which manufactures the duplicates; and a second audit on one connection fails all inventory bags. Next journal seq352.",
-  "base_commit": "144d31f750b3fe3018458337c8dad3e52a960212"
+  "transaction": "session-151-review-corrections",
+  "checkpoint_commit": "0d64731466884eab1ce8fdedbe20fbc48629a378",
+  "task": "Correct four reviewed bag and org echo regressions",
+  "resume_instruction": "Implement fresh storage return evidence, location-scoped bag lookup, audit action selection, and per-message exact org echo tracking. Preserve Claude census/build/journal fixes. No builds or live tests. Persisted stock/donor cleanup remains separate.",
+  "base_commit": "0d64731466884eab1ce8fdedbe20fbc48629a378"
 }
