@@ -1,3 +1,9 @@
+## Session 181 — donor-style pickup views
+
+- Extended both #pickups and #takers: bare command opens overview/navigation; last shows latest25 confirmed delivered items; top ranks25 recipients by delivered item records; member resolves main and shows total plus latest10; item <name or AOID> searches item name fragments or either AOID and shows total plus latest25.
+- Canonicalized recipient names group alts under current main mappings. All views include CRU and use existing DeliveredUtc evidence; no change to delivery, stock or persistence. Times remain UTC. Member/admin gate, blob escaping and pagination retained; tell routing and help updated.
+- Validation: source review and published-file verification only. Owner rebuild/restart and check each view through either alias. No builds, test suites or live operations performed; no in-game changelog entry added.
+
 ## Session 180 — recent pickups command
 
 - [RESOLVED] Added #pickups with #takers alias: newest25 confirmed delivered item records, UTC timestamp, recorded recipient main (requester fallback) and item link. One row per delivered item, including CRU; multi-item trades can occupy multiple rows.

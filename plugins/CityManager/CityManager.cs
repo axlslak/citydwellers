@@ -475,8 +475,6 @@ namespace CityManager
             string command = parts[0].ToLowerInvariant();
             bool hasCommandShape =
                 ((command == "cru" ||
-                  command == "pickups" ||
-                  command == "takers" ||
                   command == "changelog" ||
                   command == "online" ||
                   command == "cloak" ||
@@ -492,6 +490,7 @@ namespace CityManager
                 ((command == "inventory" || command == "inv") && parts.Length <= 2) ||
                 (command == "help" && parts.Length <= 3) ||
                 (command == "donor" && parts.Length <= 2) ||
+                command == "pickups" || command == "takers" ||
                 command == "lost" || command == "found" ||
                 ((command == "withdraw" || command == "get") && parts.Length == 2) ||
                 command == "items" || command == "i" || command == "itemid" ||

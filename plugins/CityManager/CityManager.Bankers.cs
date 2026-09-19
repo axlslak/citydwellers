@@ -930,42 +930,21 @@ namespace CityManager
 
         private void ProcessBankerPickupsCommand(string[] parts, ReplyTarget target)
         {
-            if (parts == null || parts.Length != 1)
+            bool itemSearch = parts != null && parts.Length > 1 &&
+                string.Equals(parts[1], "item", StringComparison.OrdinalIgnoreCase);
+            if (parts == null || parts.Length == 0 ||
+                (itemSearch ? parts.Length < 3 : parts.Length > 2))
             {
-                Reply(target, Usage(target, "pickups"));
+                Reply(target, Usage(target, "pickups [last|top|member|item <name or AOID>]"));
                 return;
             }
 
+            string[] commandParts = (string[])parts.Clone();
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
                 {
-                    // DeliveredUtc is persisted only after verified physical
-                    // delivery. Include accounting retries, never mere requests.
-                    var pickups = WithdrawalStore.LoadAll(_settingsDir)
-                        .Where(row => row != null && row.DeliveredUtc.HasValue && row.Item != null)
-                        .OrderByDescending(row => row.DeliveredUtc.Value)
-                        .ThenBy(row => row.Id, StringComparer.Ordinal)
-                        .Take(25).ToList();
-                    var body = new StringBuilder();
-                    body.Append("Latest ").Append(pickups.Count)
-                        .Append(" confirmed item pickups (including CRU). Times are UTC.\n\n");
-                    if (pickups.Count == 0)
-                        body.Append("No confirmed pickups recorded yet.\n");
-
-                    foreach (var row in pickups)
-                    {
-                        string recipient = !string.IsNullOrWhiteSpace(row.RecipientMain)
-                            ? row.RecipientMain : row.RequestedBy;
-                        body.Append(FormatDonationUtc(row.DeliveredUtc.Value))
-                            .Append("  ").Append(EscapeBlobText(recipient ?? "Unknown member"))
-                            .Append("\n    ")
-                            .Append(CityBankersChatPalette.ItemLabel(
-                                row.Item.AoId, row.Item.HighId, row.Item.Ql, row.Item.Name, true))
-                            .Append("\n");
-                    }
-
-                    Reply(target, BuildBlobLinks(target, "Latest Pickups", "Latest 25 pickups", body.ToString()));
+                    ProcessBankerPickupsCommandCore(commandParts, target);
                 }
                 catch (Exception ex)
                 {
@@ -973,6 +952,104 @@ namespace CityManager
                     Reply(target, "Pickup history is temporarily unavailable.");
                 }
             });
+        }
+
+        private string PickupRecipient(WithdrawalState row)
+        {
+            string name = !string.IsNullOrWhiteSpace(row.RecipientMain)
+                ? row.RecipientMain : row.RequestedBy;
+            return string.IsNullOrWhiteSpace(name)
+                ? "Unknown member" : ResolveCanonicalAltMain(name);
+        }
+
+        private void ProcessBankerPickupsCommandCore(string[] parts, ReplyTarget target)
+        {
+            // DeliveredUtc is persisted only after verified physical delivery.
+            // Count delivered item records, including accounting retries, not trades.
+            var pickups = WithdrawalStore.LoadAll(_settingsDir)
+                .Where(row => row != null && row.DeliveredUtc.HasValue && row.Item != null)
+                .OrderByDescending(row => row.DeliveredUtc.Value)
+                .ThenBy(row => row.Id, StringComparer.Ordinal)
+                .Select(row => new { Row = row, Recipient = PickupRecipient(row) })
+                .ToList();
+            string view = parts.Length == 1 ? "overview" : parts[1].Trim();
+            string title = "CityBankers Pickups";
+            var body = new StringBuilder();
+            body.Append(CommandLink(target, "pickups", "Overview")).Append(" | ")
+                .Append(CommandLink(target, "pickups last", "Last")).Append(" | ")
+                .Append(CommandLink(target, "pickups top", "Top")).Append("\n\n");
+
+            if (string.Equals(view, "overview", StringComparison.OrdinalIgnoreCase))
+            {
+                body.Append(pickups.Count).Append(" confirmed items collected by ")
+                    .Append(pickups.Select(row => row.Recipient)
+                        .Distinct(StringComparer.OrdinalIgnoreCase).Count())
+                    .Append(" recipients, including CRU.\n\n")
+                    .Append("Use ").Append(EscapeBlobText("#pickups <member>")).Append(" for a member's history.\n")
+                    .Append("Use ").Append(EscapeBlobText("#pickups item <name or AOID>")).Append(" to find an item.\n")
+                    .Append("Alias: takers. Member records are grouped by main.\n");
+            }
+            else if (string.Equals(view, "top", StringComparison.OrdinalIgnoreCase))
+            {
+                title = "Top Pickup Recipients";
+                body.Append("Top 25 recipients by confirmed items collected, including CRU.\n\n");
+                int rank = 0;
+                foreach (var group in pickups.GroupBy(row => row.Recipient, StringComparer.OrdinalIgnoreCase)
+                    .OrderByDescending(group => group.Count())
+                    .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase).Take(25))
+                {
+                    body.Append(++rank).Append(". ")
+                        .Append(CommandLink(target, "pickups " + group.Key, group.Key))
+                        .Append(" — ").Append(group.Count).Append(" items\n");
+                }
+                if (rank == 0) body.Append("No confirmed pickups recorded yet.\n");
+            }
+            else
+            {
+                var selected = pickups.AsEnumerable();
+                int limit = 25;
+                if (string.Equals(view, "item", StringComparison.OrdinalIgnoreCase))
+                {
+                    string query = string.Join(" ", parts.Skip(2)).Trim();
+                    int aoId;
+                    bool numeric = int.TryParse(query, NumberStyles.Integer,
+                        CultureInfo.InvariantCulture, out aoId) && aoId > 0;
+                    selected = selected.Where(entry => numeric
+                        ? entry.Row.Item.AoId == aoId || entry.Row.Item.HighId == aoId
+                        : (entry.Row.Item.Name ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0);
+                    title = "Item Pickups";
+                    body.Append("Item: ").Append(EscapeBlobText(query)).Append("\n");
+                }
+                else if (!string.Equals(view, "last", StringComparison.OrdinalIgnoreCase))
+                {
+                    string canonical = ResolveCanonicalAltMain(view);
+                    selected = selected.Where(entry => string.Equals(entry.Recipient,
+                        canonical, StringComparison.OrdinalIgnoreCase));
+                    limit = 10;
+                    title = canonical + " - Pickups";
+                    body.Append("Member: ").Append(EscapeBlobText(canonical)).Append("\n");
+                }
+                else
+                {
+                    title = "Latest Pickups";
+                }
+
+                var matches = selected.ToList();
+                body.Append(matches.Count).Append(" confirmed items collected; showing latest ")
+                    .Append(Math.Min(limit, matches.Count)).Append(". Times are UTC.\n\n");
+                if (matches.Count == 0) body.Append("No matching confirmed pickups recorded.\n");
+                foreach (var entry in matches.Take(limit))
+                {
+                    var row = entry.Row;
+                    body.Append(FormatDonationUtc(row.DeliveredUtc.Value))
+                        .Append("  ").Append(CommandLink(target, "pickups " + entry.Recipient, entry.Recipient))
+                        .Append("\n    ").Append(CityBankersChatPalette.ItemLabel(
+                            row.Item.AoId, row.Item.HighId, row.Item.Ql, row.Item.Name, true))
+                        .Append("\n");
+                }
+            }
+
+            Reply(target, BuildBlobLinks(target, title, title, body.ToString()));
         }
 
         private void ProcessBankerDonorCommand(string[] parts, ReplyTarget target)
