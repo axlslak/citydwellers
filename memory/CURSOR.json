@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 181,
-  "last_completed_session": 180,
-  "status": "in_progress",
+  "last_completed_session": 181,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-181-pickups-views",
-  "checkpoint_commit": "d0c06e2516580d3180629293e5d500fe58856210",
-  "task": "Extend pickups/takers with donor-style views",
-  "resume_instruction": "Implement last/top/member/item views, review source, publish and seal. No builds/tests.",
+  "checkpoint_commit": "f74e7c69ffd740214205e8b43fd974b204b2fdf1",
+  "task": "Donor-style pickup views published",
+  "resume_instruction": "Owner rebuild/restart. Both #pickups and #takers support overview, last25, top25 recipients, member totals/latest10, item <name or AOID> totals/latest25. Confirmed DeliveredUtc item records only, including CRU, grouped by current main. Source reviewed and published files verified; no builds/tests. Prior Bobsan runtime verification still pending.",
   "base_commit": "bde9413b6a51783f5183868e791efced1bf2b396"
 }
