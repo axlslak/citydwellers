@@ -1,3 +1,4 @@
+using File = CityDwellers.Shared.SqlFile;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -41,7 +42,6 @@ namespace CityBankers
     {
         public const string ReadyFilePrefix = "citybankers-storage-writefront-ready-";
 
-        private const string LayoutMutexName = "CityBankers.StorageLayoutRemap.v1";
         private const int PollMilliseconds = 100;
         private const string FullBagFailure =
             "Live bag is full even though persisted state expected free space. Reconcile before continuing.";
@@ -390,7 +390,18 @@ namespace CityBankers
             PublishReadyMarker();
         }
 
-        private bool TryReconcileOpenBagContents(
+        private bool TryReconcileOpenBagContents(Container container, out int importedExtras, out string error)
+        {
+            int imported = 0;
+            string problem = null;
+            bool success = CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
+                TryReconcileOpenBagContentsCore(container, out imported, out problem));
+            importedExtras = imported;
+            error = problem;
+            return success;
+        }
+
+        private bool TryReconcileOpenBagContentsCore(
             Container container,
             out int importedExtras,
             out string error)
@@ -409,280 +420,234 @@ namespace CityBankers
                 .OrderBy(item => item.Slot.Instance)
                 .ToList();
 
-            using (var mutex = new Mutex(false, LayoutMutexName))
+            StorageState state = RuntimeStateStore.LoadStorageState(_settingsDir);
+            StorageWorkerState worker = FindWorker(state);
+            if (worker == null)
             {
-                bool entered = false;
-                try
-                {
-                    try
-                    {
-                        entered = mutex.WaitOne(TimeSpan.FromSeconds(5));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        entered = true;
-                    }
-
-                    if (!entered)
-                    {
-                        error = "timed out waiting for storage-state reconciliation lock";
-                        return false;
-                    }
-
-                    StorageState state = RuntimeStateStore.LoadStorageState(_settingsDir);
-                    StorageWorkerState worker = FindWorker(state);
-                    if (worker == null)
-                    {
-                        error = "persistent storage worker entry is missing";
-                        return false;
-                    }
-
-                    List<StorageBagState> bagMatches = (worker.Bags ?? new List<StorageBagState>())
-                        .Where(bag => bag != null &&
-                            string.Equals(
-                                bag.Source,
-                                _preflightBagSource,
-                                StringComparison.OrdinalIgnoreCase) &&
-                            ((!string.IsNullOrWhiteSpace(_preflightBagIdentity) &&
-                              string.Equals(
-                                  bag.LastUniqueIdentity,
-                                  _preflightBagIdentity,
-                                  StringComparison.Ordinal)) ||
-                             bag.OuterSlotInstance == _preflightOuterSlot))
-                        .ToList();
-                    if (bagMatches.Count != 1)
-                    {
-                        error = "persistent target bag is not uniquely resolvable; matches=" +
-                            bagMatches.Count;
-                        return false;
-                    }
-
-                    StorageBagState persistedBag = bagMatches[0];
-                    if (liveItems.Count > persistedBag.Capacity)
-                    {
-                        error = "live bag contains " + liveItems.Count +
-                            " item(s), exceeding persisted capacity " +
-                            persistedBag.Capacity;
-                        return false;
-                    }
-
-                    var remainingLive = new List<Item>(liveItems);
-                    var merged = new List<StoredItemState>();
-                    foreach (StoredItemState persisted in
-                        persistedBag.Items ?? new List<StoredItemState>())
-                    {
-                        if (persisted == null)
-                            continue;
-
-                        int index = FindMatchingLiveItemIndex(remainingLive, persisted);
-                        if (index < 0)
-                        {
-                            error =
-                                "persisted item is missing from the live bag; refusing to " +
-                                "erase physical/accounting history: " +
-                                (persisted.Name ?? "<unnamed>") + " AOID=" +
-                                persisted.AoId + " QL" + persisted.Ql;
-                            return false;
-                        }
-
-                        Item actual = remainingLive[index];
-                        remainingLive.RemoveAt(index);
-                        persisted.UniqueIdentity = IsUsableIdentity(
-                            actual.UniqueIdentity.ToString())
-                                ? actual.UniqueIdentity.ToString()
-                                : null;
-                        persisted.AoId = actual.Id;
-                        persisted.HighId = actual.HighId;
-                        persisted.Ql = actual.Ql;
-                        persisted.Name = actual.Name ?? persisted.Name ?? string.Empty;
-                        persisted.InnerSlot = actual.Slot.Instance & 0xFFFF;
-                        persisted.ObservedUtc = DateTime.UtcNow;
-                        merged.Add(persisted);
-                    }
-
-                    var importedLedgerItems = new List<LedgerItem>();
-                    foreach (Item extra in remainingLive)
-                    {
-                        string routedRole;
-                        bool managed = SymbiantCatalog.TryGetDestinationRole(
-                            _settingsDir,
-                            extra.Id,
-                            out routedRole);
-                        if (!managed && extra.HighId != extra.Id)
-                        {
-                            managed = SymbiantCatalog.TryGetDestinationRole(
-                                _settingsDir,
-                                extra.HighId,
-                                out routedRole);
-                        }
-
-                        if (!managed || !string.Equals(
-                                routedRole,
-                                _role,
-                                StringComparison.OrdinalIgnoreCase))
-                        {
-                            error =
-                                "live bag contains an unaccounted item that is unmanaged or " +
-                                "routed elsewhere; refusing automatic import: " +
-                                (extra.Name ?? "<unnamed>") + " AOID=" + extra.Id +
-                                " QL" + extra.Ql + " routed=" +
-                                (routedRole ?? "unmanaged");
-                            return false;
-                        }
-
-                        var imported = new StoredItemState
-                        {
-                            UniqueIdentity = IsUsableIdentity(extra.UniqueIdentity.ToString())
-                                ? extra.UniqueIdentity.ToString()
-                                : null,
-                            AoId = extra.Id,
-                            HighId = extra.HighId,
-                            Ql = extra.Ql,
-                            Name = extra.Name ?? string.Empty,
-                            InnerSlot = extra.Slot.Instance & 0xFFFF,
-                            ObservedUtc = DateTime.UtcNow,
-                            TransactionId = "writefront-reconcile-" + _runId
-                        };
-                        merged.Add(imported);
-                        importedExtras++;
-                        importedLedgerItems.Add(new LedgerItem
-                        {
-                            UniqueIdentity = imported.UniqueIdentity,
-                            AoId = imported.AoId,
-                            HighId = imported.HighId,
-                            Ql = imported.Ql,
-                            Name = imported.Name,
-                            Role = _role,
-                            BagSource = persistedBag.Source,
-                            BagOuterSlot = _preflightOuterSlot,
-                            InnerSlot = imported.InnerSlot
-                        });
-                    }
-
-                    persistedBag.Items = merged
-                        .OrderBy(item => item.InnerSlot)
-                        .ToList();
-                    persistedBag.LastUniqueIdentity = _preflightBagIdentity;
-                    persistedBag.LastHandle = container.Handle;
-                    persistedBag.OuterSlotInstance = _preflightOuterSlot;
-                    worker.ObservedUtc = DateTime.UtcNow;
-                    state.UpdatedUtc = DateTime.UtcNow;
-
-                    RuntimeStateStore.WriteJsonAtomic(
-                        RuntimeStateStore.GetStorageStatePath(_settingsDir),
-                        state);
-                    RuntimeStateStore.WriteJsonAtomic(
-                        RuntimeStateStore.GetCurrentStockPath(_settingsDir),
-                        RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
-
-                    if (importedLedgerItems.Count > 0)
-                    {
-                        RuntimeStateStore.AppendLedger(
-                            _settingsDir,
-                            new LedgerRecord
-                            {
-                                Utc = DateTime.UtcNow,
-                                Event = "write_front_live_contents_reconciled",
-                                TransactionId = "writefront-reconcile-" + _runId,
-                                Actor = Client.CharacterName,
-                                Role = _role,
-                                Character = Client.CharacterName,
-                                Source = "live-bag",
-                                Destination = "storage-state",
-                                Message =
-                                    "Startup write-front reconciliation imported " +
-                                    importedLedgerItems.Count +
-                                    " physically present managed item(s) that were absent " +
-                                    "from persisted bag occupancy. Existing persisted items " +
-                                    "were all matched before import.",
-                                Items = importedLedgerItems
-                            });
-                    }
-
-                    return true;
-                }
-                finally
-                {
-                    if (entered)
-                        mutex.ReleaseMutex();
-                }
+                error = "persistent storage worker entry is missing";
+                return false;
             }
+
+            List<StorageBagState> bagMatches = (worker.Bags ?? new List<StorageBagState>())
+                .Where(bag => bag != null &&
+                    string.Equals(
+                        bag.Source,
+                        _preflightBagSource,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    ((!string.IsNullOrWhiteSpace(_preflightBagIdentity) &&
+                      string.Equals(
+                          bag.LastUniqueIdentity,
+                          _preflightBagIdentity,
+                          StringComparison.Ordinal)) ||
+                     bag.OuterSlotInstance == _preflightOuterSlot))
+                .ToList();
+            if (bagMatches.Count != 1)
+            {
+                error = "persistent target bag is not uniquely resolvable; matches=" +
+                    bagMatches.Count;
+                return false;
+            }
+
+            StorageBagState persistedBag = bagMatches[0];
+            if (liveItems.Count > persistedBag.Capacity)
+            {
+                error = "live bag contains " + liveItems.Count +
+                    " item(s), exceeding persisted capacity " +
+                    persistedBag.Capacity;
+                return false;
+            }
+
+            var remainingLive = new List<Item>(liveItems);
+            var merged = new List<StoredItemState>();
+            foreach (StoredItemState persisted in
+                persistedBag.Items ?? new List<StoredItemState>())
+            {
+                if (persisted == null)
+                    continue;
+
+                int index = FindMatchingLiveItemIndex(remainingLive, persisted);
+                if (index < 0)
+                {
+                    error =
+                        "persisted item is missing from the live bag; refusing to " +
+                        "erase physical/accounting history: " +
+                        (persisted.Name ?? "<unnamed>") + " AOID=" +
+                        persisted.AoId + " QL" + persisted.Ql;
+                    return false;
+                }
+
+                Item actual = remainingLive[index];
+                remainingLive.RemoveAt(index);
+                persisted.UniqueIdentity = IsUsableIdentity(
+                    actual.UniqueIdentity.ToString())
+                        ? actual.UniqueIdentity.ToString()
+                        : null;
+                persisted.AoId = actual.Id;
+                persisted.HighId = actual.HighId;
+                persisted.Ql = actual.Ql;
+                persisted.Name = actual.Name ?? persisted.Name ?? string.Empty;
+                persisted.InnerSlot = actual.Slot.Instance & 0xFFFF;
+                persisted.ObservedUtc = DateTime.UtcNow;
+                merged.Add(persisted);
+            }
+
+            var importedLedgerItems = new List<LedgerItem>();
+            foreach (Item extra in remainingLive)
+            {
+                string routedRole;
+                bool managed = SymbiantCatalog.TryGetDestinationRole(
+                    _settingsDir,
+                    extra.Id,
+                    out routedRole);
+                if (!managed && extra.HighId != extra.Id)
+                {
+                    managed = SymbiantCatalog.TryGetDestinationRole(
+                        _settingsDir,
+                        extra.HighId,
+                        out routedRole);
+                }
+
+                if (!managed || !string.Equals(
+                        routedRole,
+                        _role,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    error =
+                        "live bag contains an unaccounted item that is unmanaged or " +
+                        "routed elsewhere; refusing automatic import: " +
+                        (extra.Name ?? "<unnamed>") + " AOID=" + extra.Id +
+                        " QL" + extra.Ql + " routed=" +
+                        (routedRole ?? "unmanaged");
+                    return false;
+                }
+
+                var imported = new StoredItemState
+                {
+                    UniqueIdentity = IsUsableIdentity(extra.UniqueIdentity.ToString())
+                        ? extra.UniqueIdentity.ToString()
+                        : null,
+                    AoId = extra.Id,
+                    HighId = extra.HighId,
+                    Ql = extra.Ql,
+                    Name = extra.Name ?? string.Empty,
+                    InnerSlot = extra.Slot.Instance & 0xFFFF,
+                    ObservedUtc = DateTime.UtcNow,
+                    TransactionId = "writefront-reconcile-" + _runId
+                };
+                merged.Add(imported);
+                importedExtras++;
+                importedLedgerItems.Add(new LedgerItem
+                {
+                    UniqueIdentity = imported.UniqueIdentity,
+                    AoId = imported.AoId,
+                    HighId = imported.HighId,
+                    Ql = imported.Ql,
+                    Name = imported.Name,
+                    Role = _role,
+                    BagSource = persistedBag.Source,
+                    BagOuterSlot = _preflightOuterSlot,
+                    InnerSlot = imported.InnerSlot
+                });
+            }
+
+            persistedBag.Items = merged
+                .OrderBy(item => item.InnerSlot)
+                .ToList();
+            persistedBag.LastUniqueIdentity = _preflightBagIdentity;
+            persistedBag.LastHandle = container.Handle;
+            persistedBag.OuterSlotInstance = _preflightOuterSlot;
+            worker.ObservedUtc = DateTime.UtcNow;
+            state.UpdatedUtc = DateTime.UtcNow;
+
+            RuntimeStateStore.WriteJsonAtomic(
+                RuntimeStateStore.GetStorageStatePath(_settingsDir),
+                state);
+            RuntimeStateStore.WriteJsonAtomic(
+                RuntimeStateStore.GetCurrentStockPath(_settingsDir),
+                RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
+
+            if (importedLedgerItems.Count > 0)
+            {
+                RuntimeStateStore.AppendLedger(
+                    _settingsDir,
+                    new LedgerRecord
+                    {
+                        Utc = DateTime.UtcNow,
+                        Event = "write_front_live_contents_reconciled",
+                        TransactionId = "writefront-reconcile-" + _runId,
+                        Actor = Client.CharacterName,
+                        Role = _role,
+                        Character = Client.CharacterName,
+                        Source = "live-bag",
+                        Destination = "storage-state",
+                        Message =
+                            "Startup write-front reconciliation imported " +
+                            importedLedgerItems.Count +
+                            " physically present managed item(s) that were absent " +
+                            "from persisted bag occupancy. Existing persisted items " +
+                            "were all matched before import.",
+                        Items = importedLedgerItems
+                    });
+            }
+
+            return true;
         }
 
-        private bool TryUpdatePersistedBagSlot(
+        private bool TryUpdatePersistedBagSlot(string identity, string source, int liveSlot, out string error)
+        {
+            string problem = null;
+            bool success = CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
+                TryUpdatePersistedBagSlotCore(identity, source, liveSlot, out problem));
+            error = problem;
+            return success;
+        }
+
+        private bool TryUpdatePersistedBagSlotCore(
             string identity,
             string source,
             int liveSlot,
             out string error)
         {
             error = null;
-            using (var mutex = new Mutex(false, LayoutMutexName))
+            StorageState state = RuntimeStateStore.LoadStorageState(_settingsDir);
+            StorageWorkerState worker = FindWorker(state);
+            if (worker == null)
             {
-                bool entered = false;
-                try
-                {
-                    try
-                    {
-                        entered = mutex.WaitOne(TimeSpan.FromSeconds(5));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        entered = true;
-                    }
-
-                    if (!entered)
-                    {
-                        error = "timed out waiting for bag-slot update lock";
-                        return false;
-                    }
-
-                    StorageState state = RuntimeStateStore.LoadStorageState(_settingsDir);
-                    StorageWorkerState worker = FindWorker(state);
-                    if (worker == null)
-                    {
-                        error = "persistent storage worker entry is missing";
-                        return false;
-                    }
-
-                    List<StorageBagState> matches = (worker.Bags ?? new List<StorageBagState>())
-                        .Where(bag => bag != null &&
-                            string.Equals(bag.Source, source, StringComparison.OrdinalIgnoreCase) &&
-                            string.Equals(
-                                bag.LastUniqueIdentity,
-                                identity,
-                                StringComparison.Ordinal))
-                        .ToList();
-                    if (matches.Count != 1)
-                    {
-                        error = "returned bag identity is not unique in persisted state; matches=" +
-                            matches.Count;
-                        return false;
-                    }
-
-                    matches[0].OuterSlotInstance = liveSlot;
-                    worker.ObservedUtc = DateTime.UtcNow;
-                    state.UpdatedUtc = DateTime.UtcNow;
-                    RuntimeStateStore.WriteJsonAtomic(
-                        RuntimeStateStore.GetStorageStatePath(_settingsDir),
-                        state);
-                    RuntimeStateStore.WriteJsonAtomic(
-                        RuntimeStateStore.GetCurrentStockPath(_settingsDir),
-                        RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
-                    return true;
-                }
-                finally
-                {
-                    if (entered)
-                        mutex.ReleaseMutex();
-                }
+                error = "persistent storage worker entry is missing";
+                return false;
             }
+
+            List<StorageBagState> matches = (worker.Bags ?? new List<StorageBagState>())
+                .Where(bag => bag != null &&
+                    string.Equals(bag.Source, source, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(
+                        bag.LastUniqueIdentity,
+                        identity,
+                        StringComparison.Ordinal))
+                .ToList();
+            if (matches.Count != 1)
+            {
+                error = "returned bag identity is not unique in persisted state; matches=" +
+                    matches.Count;
+                return false;
+            }
+
+            matches[0].OuterSlotInstance = liveSlot;
+            worker.ObservedUtc = DateTime.UtcNow;
+            state.UpdatedUtc = DateTime.UtcNow;
+            RuntimeStateStore.WriteJsonAtomic(
+                RuntimeStateStore.GetStorageStatePath(_settingsDir),
+                state);
+            RuntimeStateStore.WriteJsonAtomic(
+                RuntimeStateStore.GetCurrentStockPath(_settingsDir),
+                RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
+            return true;
         }
 
         private void PublishReadyMarker()
         {
             StorageState state = RuntimeStateStore.LoadStorageState(_settingsDir);
             string path = GetReadyPath(_settingsDir, Client.CharacterName);
-            string temp = path + ".tmp";
             var marker = new WriteFrontReadyMarker
             {
                 Format = "citybankers-storage-writefront-ready-v1",
@@ -698,10 +663,7 @@ namespace CityBankers
                 ImportedExtraItems = _preflightImportedExtras
             };
 
-            File.WriteAllText(temp, JsonConvert.SerializeObject(marker, Formatting.Indented));
-            if (File.Exists(path))
-                File.Delete(path);
-            File.Move(temp, path);
+            File.WriteAllText(path, JsonConvert.SerializeObject(marker, Formatting.Indented));
 
             _preflightReady = true;
             _lastProblem = null;

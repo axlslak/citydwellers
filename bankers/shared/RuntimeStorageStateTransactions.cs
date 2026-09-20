@@ -6,8 +6,8 @@ using System.Threading;
 namespace CityBankers.Shared
 {
     /// <summary>
-    /// Live physical-storage reconciliation helpers that share the exact same cross-process
-    /// mutex as RuntimeStateStore.RecordPlacement. Every mutation is therefore one atomic
+    /// Live physical-storage reconciliation helpers that share the exact same database transaction
+    /// lock as RuntimeStateStore.RecordPlacement. Every mutation is therefore one atomic
     /// load -> validate -> modify -> save transaction relative to normal worker placement.
     /// </summary>
     public static class RuntimeStorageStateTransactions
@@ -354,32 +354,7 @@ namespace CityBankers.Shared
 
         private static void WithRuntimeStateMutex(Action action)
         {
-            using (var mutex = new Mutex(false, RuntimeStateMutexName))
-            {
-                bool acquired = false;
-                try
-                {
-                    try
-                    {
-                        acquired = mutex.WaitOne(TimeSpan.FromSeconds(10));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        acquired = true;
-                    }
-
-                    if (!acquired)
-                        throw new InvalidOperationException(
-                            "Timed out waiting for CityBankers runtime-state transaction lock.");
-
-                    action();
-                }
-                finally
-                {
-                    if (acquired)
-                        mutex.ReleaseMutex();
-                }
-            }
+            CityDwellers.Shared.SqlStore.WithLock(RuntimeStateMutexName, action);
         }
     }
 }

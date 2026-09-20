@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.IO;
 using System.Text;
@@ -5,7 +7,7 @@ using Newtonsoft.Json;
 
 namespace CityDwellers.Shared
 {
-    // File handoff crosses the Manager AppDomain boundary, like Manager restart.
+    // SQL control records cross the Manager AppDomain boundary, like Manager restart.
     internal static class ShutdownControl
     {
         internal const string RequestFile = "citydwellers-shutdown.request";
@@ -38,9 +40,7 @@ namespace CityDwellers.Shared
         internal static void Publish(string dataDirectory, Request request)
         {
             string path = Path.Combine(dataDirectory, RequestFile);
-            string temporaryPath = path + ".tmp";
-            WriteDurable(temporaryPath, JsonConvert.SerializeObject(request), FileMode.Create);
-            File.Move(temporaryPath, path);
+            File.CreateNew(path, new UTF8Encoding(false).GetBytes(JsonConvert.SerializeObject(request)));
         }
 
         internal static void Clear(string dataDirectory)
@@ -52,12 +52,8 @@ namespace CityDwellers.Shared
 
         private static void WriteDurable(string path, string text, FileMode mode)
         {
-            byte[] bytes = new UTF8Encoding(false).GetBytes(text);
-            using (var stream = new FileStream(path, mode, FileAccess.Write, FileShare.Read))
-            {
-                stream.Write(bytes, 0, bytes.Length);
-                stream.Flush(true);
-            }
+            if (mode == FileMode.Append) File.AppendAllText(path, text, new UTF8Encoding(false));
+            else File.WriteAllText(path, text, new UTF8Encoding(false));
         }
     }
 }

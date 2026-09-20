@@ -1,3 +1,4 @@
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;

@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -102,8 +104,9 @@ namespace CityDwellers.Shared
     }
 
     // Shared source is compiled into each plugin, as with the other shared services.
-    // Each AppDomain has its own immutable compact snapshot. A process-wide named
-    // mutex serializes cache creation, so nine bankers do not parse the raw dump together.
+    // Each AppDomain has its own immutable compact snapshot. A process mutex
+    // serializes expensive cache construction without holding a gameplay SQL lock
+    // while parsing. The exclusive runtime DB lease prevents another host writer.
     public static class ItemCatalog
     {
         private static readonly object Sync = new object();
@@ -130,34 +133,21 @@ namespace CityDwellers.Shared
             {
                 string root = Environment.GetEnvironmentVariable("CITYDWELLERS_RUNTIME_ROOT");
                 string path = Path.Combine(string.IsNullOrWhiteSpace(root) ? AppDomain.CurrentDomain.BaseDirectory : root, "data", "items.json");
-                if (!File.Exists(path)) throw new FileNotFoundException("Place the extracted items.json in the runtime data folder.");
-                ItemCatalogSnapshot result;
-                using (var mutex = new Mutex(false, "Local\\CityDwellers.Items." + System.Diagnostics.Process.GetCurrentProcess().Id))
+                if (!File.Exists(path)) throw new FileNotFoundException("The migrated items.json catalogue is absent from MySQL. Import it with DataMigration before starting.");
+                ItemCatalogSnapshot result = WithCacheConstructionLock(() =>
                 {
-                    bool owned = false;
-                    try
+                    long length = File.GetLength(path), stamp = File.GetLastWriteTimeUtc(path).Ticks;
+                    string cache = path + ".index-v1.bin";
+                    ItemCatalogSnapshot found = ReadCache(cache, length, stamp);
+                    if (found == null)
                     {
-                        try { owned = mutex.WaitOne(TimeSpan.FromMinutes(5)); }
-                        catch (AbandonedMutexException) { owned = true; }
-                        if (!owned) throw new IOException("Item catalogue cache is busy; retry shortly.");
-                        var source = new FileInfo(path);
-                        long length = source.Length, stamp = source.LastWriteTimeUtc.Ticks;
-                        string cache = path + ".index-v1.bin";
-                        result = ReadCache(cache, length, stamp);
-                        if (result == null)
-                        {
-                            result = ReadDump(path);
-                            source.Refresh();
-                            if (source.Length != length || source.LastWriteTimeUtc.Ticks != stamp)
-                                throw new IOException("items.json changed while reading; retry after copying finishes.");
-                            // Cache is an optimization: read-only data directories still work.
-                            try { WriteCache(cache, result, length, stamp); }
-                            catch (IOException) { }
-                            catch (UnauthorizedAccessException) { }
-                        }
+                        found = ReadDump(path);
+                        if (File.GetLength(path) != length || File.GetLastWriteTimeUtc(path).Ticks != stamp)
+                            throw new IOException("The SQL item catalogue changed while reading.");
+                        WriteCache(cache, found, length, stamp);
                     }
-                    finally { if (owned) mutex.ReleaseMutex(); }
-                }
+                    return found;
+                });
                 lock (Sync) { snapshot = result; status = result.Count.ToString(CultureInfo.InvariantCulture) + " item templates loaded."; }
             }
             catch (Exception ex)
@@ -166,10 +156,26 @@ namespace CityDwellers.Shared
             }
             finally { lock (Sync) loading = false; }
         }
+        private static ItemCatalogSnapshot WithCacheConstructionLock(Func<ItemCatalogSnapshot> build)
+        {
+            using (var mutex = new Mutex(false, "Local\\CityDwellers.Items." + System.Diagnostics.Process.GetCurrentProcess().Id))
+            {
+                bool owned = false;
+                try
+                {
+                    try { owned = mutex.WaitOne(TimeSpan.FromMinutes(5)); }
+                    catch (AbandonedMutexException) { owned = true; }
+                    if (!owned) throw new IOException("Item catalogue cache construction is busy; retry shortly.");
+                    return build();
+                }
+                finally { if (owned) mutex.ReleaseMutex(); }
+            }
+        }
+
         private static ItemCatalogSnapshot ReadDump(string path)
         {
             var items = new List<ItemDefinition>();
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var stream = File.OpenRead(path))
             using (var text = new StreamReader(stream))
             using (var reader = new JsonTextReader(text) { DateParseHandling = DateParseHandling.None, MaxDepth = 128 })
             {
@@ -255,10 +261,9 @@ namespace CityDwellers.Shared
         }
         private static void WriteCache(string path, ItemCatalogSnapshot data, long length, long stamp)
         {
-            string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            try
+            using (var stream = new MemoryStream())
             {
-                using (var writer = new BinaryWriter(File.Create(temporary)))
+                using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true))
                 {
                     writer.Write(CacheMagic); writer.Write(length); writer.Write(stamp); writer.Write(data.Count);
                     foreach (var item in data.Entries)
@@ -269,10 +274,8 @@ namespace CityDwellers.Shared
                         writer.Write(item.Can.HasValue); if (item.Can.HasValue) writer.Write(item.Can.Value);
                     }
                 }
-                if (File.Exists(path)) File.Delete(path);
-                File.Move(temporary, path);
+                File.WriteAllBytes(path, stream.ToArray());
             }
-            finally { if (File.Exists(temporary)) File.Delete(temporary); }
         }
     }
 }

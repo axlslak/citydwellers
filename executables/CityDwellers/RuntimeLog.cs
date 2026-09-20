@@ -1,3 +1,4 @@
+using CityDwellers.Shared;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -8,36 +9,20 @@ namespace CityDwellers.Host
 {
     internal static class RuntimeLog
     {
-        private const long MaximumLogBytes = 10L * 1024L * 1024L;
         private static readonly object Sync = new object();
         private static readonly Stopwatch Uptime = Stopwatch.StartNew();
         private static bool _timeTrusted;
-        private static StreamWriter _fileWriter;
+        private static SynchronizedTeeWriter _writer;
 
         public static void Initialize(string dataDirectory)
         {
             lock (Sync)
             {
-                if (_fileWriter != null)
-                    return;
-
-                string path = Path.Combine(dataDirectory, "citydwellers.log");
-                RotateIfNeeded(path);
-
-                _fileWriter = new StreamWriter(
-                    new FileStream(
-                        path,
-                        FileMode.Append,
-                        FileAccess.Write,
-                        FileShare.ReadWrite),
-                    new UTF8Encoding(false))
-                {
-                    AutoFlush = true
-                };
-
-                var writer = new SynchronizedTeeWriter(Console.Out, _fileWriter);
-                Console.SetOut(writer);
-                Console.SetError(writer);
+                if (_writer != null) return;
+                _writer = new SynchronizedTeeWriter(Console.Out,
+                    Path.Combine(dataDirectory, "citydwellers.log"));
+                Console.SetOut(_writer);
+                Console.SetError(_writer);
             }
         }
 
@@ -60,35 +45,25 @@ namespace CityDwellers.Host
             Console.WriteLine("[HOST " + prefix + "] " + message);
         }
 
-        private static void RotateIfNeeded(string path)
-        {
-            if (!File.Exists(path) || new FileInfo(path).Length < MaximumLogBytes)
-                return;
-
-            string previous = path + ".previous";
-            if (File.Exists(previous))
-                File.Delete(previous);
-            File.Move(path, previous);
-        }
     }
 
     internal sealed class SynchronizedTeeWriter : TextWriter
     {
         private readonly object _sync = new object();
         private readonly TextWriter _first;
-        private readonly TextWriter _second;
+        private readonly string _streamPath;
 
-        public SynchronizedTeeWriter(TextWriter first, TextWriter second)
+        public SynchronizedTeeWriter(TextWriter first, string streamPath)
         {
             _first = first;
-            _second = second;
+            _streamPath = streamPath;
         }
 
-        public override Encoding Encoding => _second.Encoding;
+        public override Encoding Encoding => new UTF8Encoding(false);
 
-        // Keep complete diagnostics on disk. Only the operator console is condensed.
+        // Persist complete diagnostics synchronously in MySQL before filtering the console.
         private readonly ThreadLocal<StringBuilder> _line =
-            new ThreadLocal<StringBuilder>(() => new StringBuilder());
+            new ThreadLocal<StringBuilder>(() => new StringBuilder(), true);
         private readonly bool _verbose = string.Equals(
             Environment.GetEnvironmentVariable("CITYDWELLERS_VERBOSE_CONSOLE"), "1", StringComparison.Ordinal);
         public override void Write(char value) => Write(value.ToString());
@@ -98,18 +73,17 @@ namespace CityDwellers.Host
             if (value == null) return;
             lock (_sync)
             {
-                _second.Write(value);
                 foreach (char character in value)
                 {
                     if (character == '\n')
                     {
-                        RenderLine(_line.Value.ToString().TrimEnd('\r'));
+                        PersistAndRender(_line.Value.ToString().TrimEnd('\r'));
                         _line.Value.Clear();
                     }
                     else _line.Value.Append(character);
                     if (_line.Value.Length >= 16384)
                     {
-                        RenderLine(_line.Value.ToString());
+                        PersistAndRender(_line.Value.ToString());
                         _line.Value.Clear();
                     }
                 }
@@ -118,6 +92,15 @@ namespace CityDwellers.Host
 
         public override void WriteLine(string value) => Write((value ?? string.Empty) + NewLine);
         public override void WriteLine() => Write(NewLine);
+
+        private void PersistAndRender(string line)
+        {
+            // Child client loggers call back into this host while holding their
+            // own SQL transactions. This independent append never reacquires the
+            // gameplay writer lock and remains committed if game state rolls back.
+            SqlStore.AppendRuntimeLog(_streamPath, line + "\n");
+            RenderLine(line);
+        }
 
         private void RenderLine(string line)
         {
@@ -146,13 +129,13 @@ namespace CityDwellers.Host
         {
             lock (_sync)
             {
-                if (_line.Value.Length > 0)
+                foreach (StringBuilder pending in _line.Values)
                 {
-                    _first.Write(_line.Value.ToString());
-                    _line.Value.Clear();
+                    if (pending.Length == 0) continue;
+                    PersistAndRender(pending.ToString());
+                    pending.Clear();
                 }
                 _first.Flush();
-                _second.Flush();
             }
         }
     }

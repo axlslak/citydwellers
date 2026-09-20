@@ -124,3 +124,12 @@ believed published and never existed. Always verify against Git.
   `plugins/CityBankers`, `plugins/CityBuddies`, `plugins/CityFlipper`,
   `plugins/CityBuffers`, `shared/`, `bankers/shared/`.
 - Build and runtime layout: `BUILDING.md`. Topic docs live in `docs/`.
+
+## Session 192: storage boundary
+
+MySQL is mandatory for all mutable runtime data, including logs and diagnostics.
+There is no physical runtime data folder or offline fallback. Root administrator
+configuration and immutable deployment assets remain file inputs. Follow the
+MySQL migration and transaction guidance in AGENTS.md and docs/MYSQL_MIGRATION.md.
+Historical references to data paths identify the original input snapshot or
+logical SQL keys; do not recreate the directory. LoginTry is retired.

@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -33,15 +35,7 @@ namespace CityBankers
             // The one attempt is consumed BEFORE the scanner opens/moves a bag.
             if (_owner == null || _owner._startupFailed || !_owner._issued ||
                 _owner._finished || run != _owner._auditRun || InitialAuditUsed) return false;
-            using (var file = new FileStream(MemberPath(MemberCharacter, ".initial-audit-used"),
-                FileMode.CreateNew, FileAccess.Write, FileShare.Read))
-            using (var writer = new StreamWriter(file))
-            {
-                writer.Write(run);
-                writer.Flush();
-                file.Flush(true);
-            }
-            return true;
+            return File.TryCreateNew(MemberPath(MemberCharacter, ".initial-audit-used"), run);
         }
 
         private static string _traceData;
@@ -124,18 +118,7 @@ namespace CityBankers
         }
         private static void Locked(Action action)
         {
-            using (var mutex = new Mutex(false, "CityBankers.Census." + Generation))
-            {
-                bool acquired = false;
-                try
-                {
-                    try { acquired = mutex.WaitOne(1000); }
-                    catch (AbandonedMutexException) { acquired = true; }
-                    if (!acquired) throw new IOException("Census coordinator is busy.");
-                    action();
-                }
-                finally { if (acquired) mutex.ReleaseMutex(); }
-            }
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Census." + Generation, action);
         }
 
         public static bool IsOpen

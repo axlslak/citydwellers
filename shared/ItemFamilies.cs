@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -58,41 +60,20 @@ namespace CityDwellers.Shared
     {
         public static ItemTemplatePair[] Merge(string path, IEnumerable<ItemTemplatePair> observations)
         {
-            string hash;
-            using (var sha = SHA256.Create()) hash = BitConverter.ToString(sha.ComputeHash(
-                Encoding.UTF8.GetBytes(Path.GetFullPath(path).ToUpperInvariant()))).Replace("-", "");
-            using (var mutex = new Mutex(false, "Local\\CityDwellers.ItemPairs." + hash))
+            return SqlStore.WithLock("item-pair-evidence", () =>
             {
-                bool owned = false;
-                try
-                {
-                    try { owned = mutex.WaitOne(TimeSpan.FromSeconds(5)); }
-                    catch (AbandonedMutexException) { owned = true; }
-                    if (!owned) throw new IOException("Item pair evidence is busy; retry shortly.");
-                    var stored = File.Exists(path)
-                        ? JsonConvert.DeserializeObject<ItemTemplatePair[]>(File.ReadAllText(path))
-                        : new ItemTemplatePair[0];
-                    if (stored == null || stored.Any(p => p == null || p.LowId <= 0 || p.HighId <= 0 || p.LowId == p.HighId))
-                        throw new InvalidDataException("Invalid item pair evidence file.");
-                    var result = new ItemFamilyIndex(stored.Concat(observations)).Pairs
-                        .OrderBy(p => p.LowId).ThenBy(p => p.HighId).ToArray();
-                    if (!result.Select(p => p.LowId + ":" + p.HighId).SequenceEqual(
-                        stored.OrderBy(p => p.LowId).ThenBy(p => p.HighId).Select(p => p.LowId + ":" + p.HighId)))
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(path));
-                        string temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                        try
-                        {
-                            File.WriteAllText(temporary, JsonConvert.SerializeObject(result, Formatting.Indented));
-                            if (File.Exists(path)) File.Replace(temporary, path, null); else File.Move(temporary, path);
-                        }
-                        finally { if (File.Exists(temporary)) File.Delete(temporary); }
-                    }
-                    return result;
-                }
-                finally { if (owned) mutex.ReleaseMutex(); }
-            }
+                var stored = File.Exists(path)
+                    ? JsonConvert.DeserializeObject<ItemTemplatePair[]>(File.ReadAllText(path))
+                    : new ItemTemplatePair[0];
+                if (stored == null || stored.Any(p => p == null || p.LowId <= 0 || p.HighId <= 0 || p.LowId == p.HighId))
+                    throw new InvalidDataException("Invalid SQL item pair evidence.");
+                var result = new ItemFamilyIndex(stored.Concat(observations ?? Enumerable.Empty<ItemTemplatePair>())).Pairs
+                    .OrderBy(p => p.LowId).ThenBy(p => p.HighId).ToArray();
+                if (!result.Select(p => p.LowId + ":" + p.HighId).SequenceEqual(
+                    stored.OrderBy(p => p.LowId).ThenBy(p => p.HighId).Select(p => p.LowId + ":" + p.HighId)))
+                    File.WriteAllText(path, JsonConvert.SerializeObject(result, Formatting.Indented));
+                return result;
+            });
         }
     }
-
 }

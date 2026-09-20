@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -157,15 +159,8 @@ internal static class FlipperCacheStore
         {
             try
             {
-                string tempPath = _cachePath + ".tmp";
-                File.WriteAllText(
-                    tempPath,
+                File.WriteAllText(_cachePath,
                     JsonConvert.SerializeObject(record, Formatting.Indented));
-
-                if (File.Exists(_cachePath))
-                    File.Delete(_cachePath);
-
-                File.Move(tempPath, _cachePath);
 
                 _freshObservedUtc = UtcTimestamp.Normalize(record.ObservedUtc);
                 _freshSavedTimestamp = Stopwatch.GetTimestamp();

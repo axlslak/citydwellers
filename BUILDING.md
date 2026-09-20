@@ -13,7 +13,7 @@ AOSharp or AOSharp.Clientless source checkout.
 
 Open `citydwellers.sln`, select the `Release` configuration, and build the
 solution. Visual Studio restores the pinned dependencies from NuGet before it
-compiles the projects. The unified host and four plugins write into one
+compiles the projects. The unified host, five plugins, and DataMigration utility build into one
 portable runtime root:
 
 - `release` for a Release build;
@@ -30,8 +30,8 @@ msbuild citydwellers.sln -restore -property:Configuration=Release
 If automatic restore has been disabled, right-click the solution and select
 **Restore NuGet Packages** before building.
 
-Dependency versions are maintained once for all five projects in
-`Directory.Build.props`. Restored packages live in the developer's global NuGet
+Runtime dependency versions are maintained in `Directory.Build.props`; the standalone
+DataMigration project pins the same MySQL dependency versions without loading AO. Restored packages live in the developer's global NuGet
 cache rather than in this repository or at a hard-coded filesystem path.
 
 ### AOSharp.Clientless GameData
@@ -50,8 +50,9 @@ external helper is used.
 
 The build copies GameData to `release\GameData` or `debug\GameData`. The
 `.dependencies` cache and compiled/static files in the runtime root are
-reproducible. Do not delete the administrator JSON files or the `data`
-directory when cleaning a live runtime.
+reproducible. Keep the administrator settings file when cleaning the runtime. Mutable state
+lives in MySQL. Before upgrading an existing installation, run the verified
+[one-time migration](docs/MYSQL_MIGRATION.md); do not delete its old `data` manually.
 
 ## Portable runtime layout
 
@@ -59,47 +60,25 @@ The output directory is the complete City Dwellers runtime and is independent
 of the Git checkout after it has been built. It may be a normal directory or a
 Windows directory link to durable storage.
 
-```text
-release\
-  CityDwellers.exe
-  CityManager.dll
-  CityFlipper.dll
-  CityBuddies.dll
-  CityBankers.dll
-  citydwellers.json
-  GameData\
-  NavMeshes\
-  data\
-```
+The deployed files are `CityDwellers.exe`, `DataMigration.exe`, the five plugin
+DLLs, their dependencies, `citydwellers.json`, and immutable `GameData`,
+`NavMeshes`, and `Buffers` assets. **There is no runtime `data` directory.**
 
-`citydwellers.json` is the one administrator settings file. It contains the
-trusted-time gate plus the Manager, Flipper, Buddies, and Bankers sections
-needed for all services to work.
-Every cache, state file, database, generated list, request/result marker, log,
-diagnostic dump, and navigation trace created by City Dwellers lives under
-`data`.
+`citydwellers.json` is the administrator bootstrap configuration, including
+MySQL connection settings and the Manager, Flipper, Buddies, Bankers, Buffers,
+and time-gate settings. It remains beside the executable because connecting to
+SQL and signing bots in must be possible before reading mutable runtime state.
 
-At every unified-host startup, City Dwellers inventories both locations. It
-logs a warning for each unknown entry and a more specific warning when a known
-setting, data file, binary, or static directory is on the wrong side. The
-inventory is diagnostic only: it never deletes, moves, opens, or chooses
-between duplicate files. Only the copy in the documented location is used.
-The bot-owned `NavigationTraces` and `diagnostic-dumps` directories are also
-checked for unexpected contents.
+Every mutable cache, generated list, queue, receipt, state snapshot, log,
+diagnostic dump and navigation trace is stored in MySQL. Legacy relative names
+such as `alts.json` identify SQL documents; they are no longer disk files.
+The runtime does not fall back to local storage. A completed migration is a
+startup requirement, and a lost SQL connection stops the host.
 
-The unified host binds this runtime root at process scope before creating any
-AOSharp child AppDomain. Manager, Flipper, Buddies, Bankers, and their plugins
-therefore
-resolve the same settings and `data` paths even when AOSharp assigns a different
-base directory to a child domain. Plugin location never changes the runtime
-root.
-
-On first start from the new repository-relative output, City Dwellers
-conservatively imports an existing repository `settings` directory and mutable
-files from the old `bin\Release` or `bin\Debug` directory. It copies a file only
-when its new destination does not exist; it never deletes or overwrites the old
-installation. Once the new runtime is verified, the old directories are no
-longer used.
+The host binds the runtime root before creating AOSharp child AppDomains so
+all components share the same configuration and database. Immutable game
+assets still load from the deployed installation. The old automatic file-layout
+migration has been removed; only DataMigration imports old runtime data.
 
 For an interactive Windows account that already has `Y:` connected, the
 runtime directory can be redirected before building:
@@ -123,10 +102,11 @@ the placeholder shared password and nine role mappings in `Bankers`, then start
 the program again. The host rejects unchanged examples before attempting to
 log in.
 
-Examples of bot-owned files under `data` include `adminlist.json`,
-`banlist.json`, `memberlist.json`, `alts.json`, cloak and raid state,
-`cityflipper-cache.json`, process-coordination markers, diagnostic logs and
-dumps, and `NavigationTraces`.
+Before starting bots, add the `MySql` section and run `DataMigration.exe` while
+the old bots are stopped. See [migration and SQL operations](docs/MYSQL_MIGRATION.md)
+for the exact commands, restart behavior, source cleanup, schema and indexes.
+A fresh installation also needs the utility to initialize and seal an empty
+store. LoginTry is retired; its measured result remains in project history.
 
 Plugin DLLs are fixed parts of the unified runtime and are not administrator
 settings. Manager always loads `CityManager.dll`, Flipper always loads
@@ -136,7 +116,7 @@ paths are not represented in `citydwellers.json`.
 
 `Manager.Bot` belongs in `citydwellers.json`. Set it to the character name of the bot that
 answers `alts <character>` tells, or leave it `null` to disable external alt
-lookups. Manager stores the last good answers in `data\alts.json`,
+lookups. Manager stores the last good answers in the SQL document `alts.json`,
 refreshes administrator identities after 24 hours, and keeps using the cache if
 the alt bot is unavailable.
 
@@ -144,16 +124,16 @@ the alt bot is unavailable.
 
 Run `CityDwellers.exe` for an interactive console. It starts the persistent
 Manager AO client, the idle Flipper and Buddies request services, and all nine
-banker AO clients under one supervisor. The live-proven Flipper host runs in a
-separate process so AOSharp state cannot leak between it and the persistent
-Manager/Banker clients; all components remain concurrent. Flipper does not log its
+banker AO clients under one supervisor. Flipper uses an isolated AOSharp client AppDomain within the unified host;
+all components remain concurrent. Flipper does not log its
 character in until it receives an operation; Buddies starts zero helper AO
 sessions until Manager requests them. Press ENTER or CTRL+C to stop every
 component.
 
-All console output is also written to `data\citydwellers.log`, including when
-the executable runs without a visible desktop. The log rotates at 10 MiB to
-`citydwellers.log.previous`.
+Complete runtime diagnostics are written to SQL before console filtering,
+including when the executable runs without a visible desktop. There is no
+local log or rotation fallback. The SQL diagnostics guide provides indexed
+queries for streams, times, actors, events and transactions.
 
 From an elevated console in the durable runtime directory:
 
@@ -176,8 +156,8 @@ write permission on the UNC share. Do not configure a mapped drive letter in
 the service path or settings; mapped drives belong to interactive logon
 sessions.
 
-Before starting Manager, Flipper, Buddies, or Bankers, the host verifies that `data` is
-writable and obtains independent UTC from the NTP servers in
+Before starting Manager, Flipper, Buddies, or Bankers, the host verifies the
+mandatory MySQL schema, completed migration and exclusive runtime lease, then obtains independent UTC from the NTP servers in
 `citydwellers.json`. If the system clock differs by more than the configured
 limit, it asks Windows Time to rediscover/resynchronize and continues waiting
 with monotonic retry timing. AO components never see the pre-gate untrusted

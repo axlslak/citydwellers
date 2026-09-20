@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -143,7 +145,7 @@ public class FlipperLoader
             : 20000;
 
         _pluginPath = Path.Combine(_settingsDir, "CityFlipper.dll");
-        if (!File.Exists(_pluginPath))
+        if (!System.IO.File.Exists(_pluginPath))
         {
             StopForConfiguration(
                 $"Required Flipper plugin was not found at '{_pluginPath}'.");

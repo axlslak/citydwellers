@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -316,7 +318,11 @@ namespace CityDwellers.Host
 
             try
             {
-                ProbeWritableData(dataDirectory);
+                settings = LoadOrCreateSettings(runtimeDirectory);
+                if (System.IO.Directory.Exists(dataDirectory))
+                    throw new InvalidDataException("The legacy data folder still exists. Run DataMigration to finish verified MySQL import and cleanup before starting City Dwellers.");
+                SqlStore.Initialize(runtimeDirectory);
+                SqlStore.StartRuntime();
                 RuntimeLog.Initialize(dataDirectory);
                 BuildIdentity.StartHost(runtimeDirectory);
                 RuntimeLog.Write("BUILD " + BuildIdentity.Label + " | revision=" + BuildIdentity.Revision);
@@ -331,8 +337,7 @@ namespace CityDwellers.Host
                 DeleteManagerRestartRequest();
                 if (IsManagerRestartRequested())
                     throw new IOException(
-                        "A stale Manager restart request could not be removed from data.");
-                settings = LoadOrCreateSettings(runtimeDirectory);
+                        "A stale Manager restart request could not be removed from MySQL.");
             }
             catch (Exception ex)
             {
@@ -341,7 +346,7 @@ namespace CityDwellers.Host
             }
 
             RuntimeLog.Write("Portable runtime: " + runtimeDirectory);
-            RuntimeLog.Write("Mutable data: " + dataDirectory);
+            RuntimeLog.Write("Mutable state, logs, queues and diagnostics: mandatory MySQL backend.");
 
             if (!settings.RequireTrustedTime)
             {
@@ -364,35 +369,26 @@ namespace CityDwellers.Host
         private static HostSettings LoadOrCreateSettings(string runtimeDirectory)
         {
             string path = Path.Combine(runtimeDirectory, "citydwellers.json");
-            if (!File.Exists(path))
+            if (!System.IO.File.Exists(path))
             {
                 HostSettings defaults = HostSettings.CreateDefault();
-                File.WriteAllText(
+                System.IO.File.WriteAllText(
                     path,
                     JsonConvert.SerializeObject(defaults, Formatting.Indented));
-                RuntimeLog.Write("Created unified host settings: " + path);
+                Console.WriteLine("Created unified host settings: " + path);
                 throw new InvalidDataException(
                     "Created the complete citydwellers.json template. " +
                     "Replace its example credentials, then start CityDwellers again.");
             }
 
             HostSettings settings = JsonConvert.DeserializeObject<HostSettings>(
-                File.ReadAllText(path));
+                System.IO.File.ReadAllText(path));
             string validationError;
             if (!HostSettings.TryValidate(settings, out validationError))
                 throw new InvalidDataException(
                     "citydwellers.json is invalid: " + validationError);
 
             return settings;
-        }
-
-        private static void ProbeWritableData(string dataDirectory)
-        {
-            string path = Path.Combine(
-                dataDirectory,
-                ".citydwellers-write-test-" + Guid.NewGuid().ToString("N"));
-            File.WriteAllText(path, "write test");
-            File.Delete(path);
         }
 
         private static void ReportRuntimeLayout(
@@ -416,7 +412,7 @@ namespace CityDwellers.Host
 
             if (warnings.Count == 0)
             {
-                RuntimeLog.Write("Runtime inventory contains no alien entries.");
+                RuntimeLog.Write("MySQL runtime is ready; no legacy data folder remains.");
                 return;
             }
 
@@ -462,6 +458,7 @@ namespace CityDwellers.Host
                     ? "Unified host stopped after an earlier component failure; shutdown results are reported above."
                     : cleanupFailure ? "Unified host stopped with component cleanup errors."
                     : "Unified host stopped cleanly.");
+            Console.Out.Flush();
             return unexpectedExit || cleanupFailure ? 1 : 0;
         }
 

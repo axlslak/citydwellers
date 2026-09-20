@@ -19,7 +19,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CityDwellers", "executables
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CityBuffers", "plugins\CityBuffers\CityBuffers.csproj", "{FB7792AC-2714-45BE-832D-BBDBFF8CB001}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LoginTry", "executables\LoginTry\LoginTry.csproj", "{2914C075-088F-4938-BFD1-095BDA2C5187}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DataMigration", "executables\DataMigration\DataMigration.csproj", "{E449D8A9-B3ED-41ED-A157-1C63432BD192}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -27,10 +27,10 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{2914C075-088F-4938-BFD1-095BDA2C5187}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{2914C075-088F-4938-BFD1-095BDA2C5187}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{2914C075-088F-4938-BFD1-095BDA2C5187}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{2914C075-088F-4938-BFD1-095BDA2C5187}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E449D8A9-B3ED-41ED-A157-1C63432BD192}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E449D8A9-B3ED-41ED-A157-1C63432BD192}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E449D8A9-B3ED-41ED-A157-1C63432BD192}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E449D8A9-B3ED-41ED-A157-1C63432BD192}.Release|Any CPU.Build.0 = Release|Any CPU
 		{FB7792AC-2714-45BE-832D-BBDBFF8CB001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{FB7792AC-2714-45BE-832D-BBDBFF8CB001}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FB7792AC-2714-45BE-832D-BBDBFF8CB001}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -60,7 +60,7 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
-		{2914C075-088F-4938-BFD1-095BDA2C5187} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
+		{E449D8A9-B3ED-41ED-A157-1C63432BD192} = {02EA681E-C7D8-13C7-8484-4AC65E1B71E8}
 		{FB7792AC-2714-45BE-832D-BBDBFF8CB001} = {95E29EAD-3858-43A5-9ADC-4C4B3302F99B}
 		{BABA4B25-B66F-41B6-930C-DF68CB217F2E} = {95E29EAD-3858-43A5-9ADC-4C4B3302F99B}
 		{FA82DD5A-388B-420A-B565-0675B72D1CD4} = {95E29EAD-3858-43A5-9ADC-4C4B3302F99B}

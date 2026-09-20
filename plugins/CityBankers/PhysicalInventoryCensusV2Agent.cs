@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -474,12 +476,7 @@ namespace CityBankers
 
         private static void WriteAtomicJson(string path, object value)
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-            string temp = path + ".tmp";
-            File.WriteAllText(temp, JsonConvert.SerializeObject(value, Formatting.Indented));
-            if (File.Exists(path))
-                File.Delete(path);
-            File.Move(temp, path);
+            RuntimeStateStore.WriteJsonAtomic(path, value);
         }
 
         private sealed class CensusConfig

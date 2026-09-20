@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -243,10 +245,6 @@ namespace CityBankers.Shared
         private const string LedgerMutexName = "CityBankers.Ledger.v1";
         private const string LogMutexName = "CityBankers.ActivityLog.v1";
         private const string IdentityNoneText = "(None:0000)";
-        private const int AtomicFileRetryCount = 50;
-        private const int AtomicFileRetryDelayMilliseconds = 100;
-        private const int SharedReadRetryCount = 12;
-        private const int SharedReadRetryDelayMilliseconds = 25;
 
         public static bool TryReadUtc(JToken token, out DateTime value)
         {
@@ -274,7 +272,7 @@ namespace CityBankers.Shared
 
         public static string GetDataDirectory(string settingsDir)
         {
-            return EnsureDirectory(Path.Combine(settingsDir, "data"));
+            return CityDwellers.Shared.SqlStore.GetDataDirectory(settingsDir);
         }
 
         public static string GetLedgerDirectory(string settingsDir)
@@ -344,29 +342,32 @@ namespace CityBankers.Shared
             StorageState storageState,
             string transactionId)
         {
-            if (storageState == null)
-                throw new ArgumentNullException("storageState");
-
-            WithMutex(StateMutexName, delegate
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
             {
-                storageState.UpdatedUtc = DateTime.UtcNow;
-                WriteJsonAtomic(GetStorageStatePath(settingsDir), storageState);
-                CurrentStockState stock = BuildCurrentStock(settingsDir, storageState);
-                WriteJsonAtomic(GetCurrentStockPath(settingsDir), stock);
-            });
+                if (storageState == null)
+                    throw new ArgumentNullException("storageState");
 
-            AppendLedger(
-                settingsDir,
-                new LedgerRecord
+                WithMutex(StateMutexName, delegate
                 {
-                    Utc = DateTime.UtcNow,
-                    Event = "storage_baseline_saved",
-                    TransactionId = transactionId,
-                    Actor = "bagaudit",
-                    Message =
-                        "Authoritative physical bag/content baseline saved from completed audit run " +
-                        storageState.BaselineRunId + "."
+                    storageState.UpdatedUtc = DateTime.UtcNow;
+                    WriteJsonAtomic(GetStorageStatePath(settingsDir), storageState);
+                    CurrentStockState stock = BuildCurrentStock(settingsDir, storageState);
+                    WriteJsonAtomic(GetCurrentStockPath(settingsDir), stock);
                 });
+
+                AppendLedger(
+                    settingsDir,
+                    new LedgerRecord
+                    {
+                        Utc = DateTime.UtcNow,
+                        Event = "storage_baseline_saved",
+                        TransactionId = transactionId,
+                        Actor = "bagaudit",
+                        Message =
+                            "Authoritative physical bag/content baseline saved from completed audit run " +
+                            storageState.BaselineRunId + "."
+                    });
+            });
         }
 
         public static void MergeAuditedStorageWorker(
@@ -375,67 +376,70 @@ namespace CityBankers.Shared
             string baselineRunId,
             string transactionId)
         {
-            if (replacement == null)
-                throw new ArgumentNullException("replacement");
-            if (string.IsNullOrWhiteSpace(replacement.Role) ||
-                string.IsNullOrWhiteSpace(replacement.Character))
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
             {
-                throw new InvalidOperationException(
-                    "Audited storage worker is missing role or character identity.");
-            }
-
-            WithMutex(StateMutexName, delegate
-            {
-                StorageState state = ReadJson<StorageState>(GetStorageStatePath(settingsDir)) ??
-                    new StorageState();
-                if (state.Workers == null)
-                    state.Workers = new List<StorageWorkerState>();
-
-                StorageWorkerState previous = state.Workers.FirstOrDefault(worker =>
-                    worker != null &&
-                    (string.Equals(
-                         worker.Role,
-                         replacement.Role,
-                         StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(
-                         worker.Character,
-                         replacement.Character,
-                         StringComparison.OrdinalIgnoreCase)));
-                PreserveAuditedItemMetadata(previous, replacement);
-
-                state.Workers.RemoveAll(worker => worker != null &&
-                    (string.Equals(
-                         worker.Role,
-                         replacement.Role,
-                         StringComparison.OrdinalIgnoreCase) ||
-                     string.Equals(
-                         worker.Character,
-                         replacement.Character,
-                         StringComparison.OrdinalIgnoreCase)));
-                state.Workers.Add(replacement);
-                state.BaselineRunId = baselineRunId;
-                state.UpdatedUtc = DateTime.UtcNow;
-
-                WriteJsonAtomic(GetStorageStatePath(settingsDir), state);
-                WriteJsonAtomic(
-                    GetCurrentStockPath(settingsDir),
-                    BuildCurrentStock(settingsDir, state));
-            });
-
-            AppendLedger(
-                settingsDir,
-                new LedgerRecord
+                if (replacement == null)
+                    throw new ArgumentNullException("replacement");
+                if (string.IsNullOrWhiteSpace(replacement.Role) ||
+                    string.IsNullOrWhiteSpace(replacement.Character))
                 {
-                    Utc = DateTime.UtcNow,
-                    Event = "storage_worker_audit_merged",
-                    TransactionId = transactionId,
-                    Actor = "startup-enrollment",
-                    Role = replacement.Role,
-                    Character = replacement.Character,
-                    Message =
-                        "Audited worker storage map merged from completed startup self-check " +
-                        baselineRunId + "."
+                    throw new InvalidOperationException(
+                        "Audited storage worker is missing role or character identity.");
+                }
+
+                WithMutex(StateMutexName, delegate
+                {
+                    StorageState state = ReadJson<StorageState>(GetStorageStatePath(settingsDir)) ??
+                        new StorageState();
+                    if (state.Workers == null)
+                        state.Workers = new List<StorageWorkerState>();
+
+                    StorageWorkerState previous = state.Workers.FirstOrDefault(worker =>
+                        worker != null &&
+                        (string.Equals(
+                             worker.Role,
+                             replacement.Role,
+                             StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(
+                             worker.Character,
+                             replacement.Character,
+                             StringComparison.OrdinalIgnoreCase)));
+                    PreserveAuditedItemMetadata(previous, replacement);
+
+                    state.Workers.RemoveAll(worker => worker != null &&
+                        (string.Equals(
+                             worker.Role,
+                             replacement.Role,
+                             StringComparison.OrdinalIgnoreCase) ||
+                         string.Equals(
+                             worker.Character,
+                             replacement.Character,
+                             StringComparison.OrdinalIgnoreCase)));
+                    state.Workers.Add(replacement);
+                    state.BaselineRunId = baselineRunId;
+                    state.UpdatedUtc = DateTime.UtcNow;
+
+                    WriteJsonAtomic(GetStorageStatePath(settingsDir), state);
+                    WriteJsonAtomic(
+                        GetCurrentStockPath(settingsDir),
+                        BuildCurrentStock(settingsDir, state));
                 });
+
+                AppendLedger(
+                    settingsDir,
+                    new LedgerRecord
+                    {
+                        Utc = DateTime.UtcNow,
+                        Event = "storage_worker_audit_merged",
+                        TransactionId = transactionId,
+                        Actor = "startup-enrollment",
+                        Role = replacement.Role,
+                        Character = replacement.Character,
+                        Message =
+                            "Audited worker storage map merged from completed startup self-check " +
+                            baselineRunId + "."
+                    });
+            });
         }
 
         private static void PreserveAuditedItemMetadata(
@@ -837,72 +841,21 @@ namespace CityBankers.Shared
 
         public static T ReadJson<T>(string path) where T : class
         {
-            try
-            {
-                T result = null;
-                WithMutex(GetFileMutexName(path), delegate
-                {
-                    result = ReadJsonNoLock<T>(path);
-                });
-                return result;
-            }
-            catch
-            {
-                return null;
-            }
+            return ReadJsonStrict<T>(path);
         }
 
-        // Every writer here publishes by writing a temporary file and replacing
-        // the destination, so a reader never observes a half-written document
-        // and only has to survive the instant of replacement. Sharing write and
-        // delete lets the read proceed while a writer holds the file; the retry
-        // covers the replacement window itself. Unlike ReadTextStrict this takes
-        // no mutex, so it is safe to call while holding a caller's own lock.
+        // SQL reads return a committed document. An absent key is distinct from
+        // backend failure: the mandatory backend terminates the host on failure.
         public static string ReadTextShared(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", "path");
-            IOException lastError = null;
-            for (int attempt = 1; attempt <= SharedReadRetryCount; attempt++)
-            {
-                if (!File.Exists(path)) return null;
-                try
-                {
-                    using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
-                        FileShare.ReadWrite | FileShare.Delete))
-                    using (var reader = new StreamReader(stream, Encoding.UTF8, true))
-                        return reader.ReadToEnd();
-                }
-                catch (FileNotFoundException)
-                {
-                    // Replaced between the existence check and the open.
-                    lastError = null;
-                }
-                catch (IOException ex)
-                {
-                    lastError = ex;
-                }
-                if (attempt < SharedReadRetryCount)
-                    Thread.Sleep(SharedReadRetryDelayMilliseconds);
-            }
-            if (lastError == null) return null;
-            throw new StateContentionException(path, lastError);
+            return File.ReadAllTextOrNull(path);
         }
 
-        // Unlike ReadJson, evidence/readiness reads must not turn sharing,
-        // corruption or permission failures into an absent record. Use the same
-        // per-file mutex as atomic writers and preserve the exception for retry.
         public static string ReadTextStrict(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", "path");
-            string text = null;
-            WithMutex(GetFileMutexName(path), delegate
-            {
-                if (!File.Exists(path)) return;
-                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
-                using (var reader = new StreamReader(stream, Encoding.UTF8, true))
-                    text = reader.ReadToEnd();
-            });
-            return text;
+            return File.ReadAllTextOrNull(path);
         }
 
         public static T ReadJsonStrict<T>(string path) where T : class
@@ -936,52 +889,8 @@ namespace CityBankers.Shared
 
         private static void WriteJsonAtomicNoLock(string path, object value)
         {
-            string directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrWhiteSpace(directory))
-                Directory.CreateDirectory(directory);
-
-            string temp = path + ".tmp-" + Guid.NewGuid().ToString("N");
-            File.WriteAllText(
-                temp,
-                JsonConvert.SerializeObject(value, Formatting.Indented),
+            File.WriteAllText(path, JsonConvert.SerializeObject(value, Formatting.Indented),
                 new UTF8Encoding(false));
-
-            Exception lastError = null;
-            try
-            {
-                for (int attempt = 1; attempt <= AtomicFileRetryCount; attempt++)
-                {
-                    try
-                    {
-                        if (File.Exists(path))
-                            File.Replace(temp, path, null);
-                        else
-                            File.Move(temp, path);
-                        return;
-                    }
-                    catch (IOException ex)
-                    {
-                        lastError = ex;
-                    }
-                    catch (UnauthorizedAccessException ex)
-                    {
-                        lastError = ex;
-                    }
-
-                    if (attempt < AtomicFileRetryCount)
-                        Thread.Sleep(AtomicFileRetryDelayMilliseconds);
-                }
-
-                throw new IOException(
-                    "Unable to replace '" + path + "' after " +
-                    AtomicFileRetryCount + " attempts; the last good file was preserved.",
-                    lastError);
-            }
-            finally
-            {
-                if (File.Exists(temp))
-                    File.Delete(temp);
-            }
         }
 
         private static bool IsUsableItemIdentity(string value)
@@ -1004,40 +913,7 @@ namespace CityBankers.Shared
 
         private static void WithMutex(string name, Action action)
         {
-            using (var mutex = new Mutex(false, name))
-            {
-                bool acquired = false;
-                try
-                {
-                    try
-                    {
-                        acquired = mutex.WaitOne(TimeSpan.FromSeconds(10));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        acquired = true;
-                    }
-
-                    if (!acquired)
-                        throw new IOException(
-                            "Timed out waiting for CityBankers runtime-state lock '" + name + "'.");
-
-                    action();
-                }
-                finally
-                {
-                    if (acquired)
-                    {
-                        try
-                        {
-                            mutex.ReleaseMutex();
-                        }
-                        catch
-                        {
-                        }
-                    }
-                }
-            }
+            CityDwellers.Shared.SqlStore.WithLock(name, action);
         }
 
         private static string SafeFileToken(string value)

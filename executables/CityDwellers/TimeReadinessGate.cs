@@ -8,8 +8,19 @@ using System.Threading;
 
 namespace CityDwellers.Host
 {
+    internal sealed class MySqlSettings
+    {
+        public string Host = "mysql.example.invalid";
+        public uint Port = 3306;
+        public string User = "citydwellers";
+        public string Password = "CHANGE_ME";
+        public string Database = "citydwellers";
+        public string SslMode = "Required";
+    }
+
     internal sealed class HostSettings
     {
+        public MySqlSettings MySql = new MySqlSettings();
         public CityDwellers.Shared.SyslogSettings Syslog = new CityDwellers.Shared.SyslogSettings();
         public bool BankersEnabled = true;
         public bool RequireTrustedTime = true;

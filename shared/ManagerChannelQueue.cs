@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.IO;
 using System.Linq;
@@ -11,8 +13,6 @@ namespace CityDwellers.Shared
     {
         private const string Format = "citydwellers-manager-channel-v1";
         private const string QueueDirectoryName = "manager-channel";
-        private const string SequenceMutexName =
-            "CityDwellers.ManagerChannelQueue.Sequence.v1";
 
         public static string Enqueue(
             string dataDirectory,
@@ -20,29 +20,30 @@ namespace CityDwellers.Shared
             string message)
         {
             if (string.IsNullOrWhiteSpace(dataDirectory))
-                throw new ArgumentException("A data directory is required.", nameof(dataDirectory));
+                throw new ArgumentException("A SQL data namespace is required.", nameof(dataDirectory));
             if (string.IsNullOrWhiteSpace(message))
                 throw new ArgumentException("A channel message is required.", nameof(message));
 
-            string directory = GetDirectory(dataDirectory);
-            Directory.CreateDirectory(directory);
-            long sequence = NextSequence(directory);
-            var job = new ManagerChannelJob
+            return SqlStore.WithLock("manager-channel-enqueue", () =>
             {
-                Format = Format,
-                Id = Guid.NewGuid().ToString("N"),
-                Sequence = sequence,
-                CreatedUtc = DateTime.UtcNow,
-                SourceCharacter = sourceCharacter,
-                Message = message
-            };
-            string target = Path.Combine(
-                directory,
-                sequence.ToString("D20") + "-" + job.Id + ".json");
-            string temporary = target + ".tmp-" + Guid.NewGuid().ToString("N");
-            File.WriteAllText(temporary, JsonConvert.SerializeObject(job));
-            File.Move(temporary, target);
-            return job.Id;
+                string directory = GetDirectory(dataDirectory);
+                Directory.CreateDirectory(directory);
+                long sequence = NextSequence(directory);
+                var job = new ManagerChannelJob
+                {
+                    Format = Format,
+                    Id = Guid.NewGuid().ToString("N"),
+                    Sequence = sequence,
+                    CreatedUtc = DateTime.UtcNow,
+                    SourceCharacter = sourceCharacter,
+                    Message = message
+                };
+                string target = Path.Combine(
+                    directory,
+                    sequence.ToString("D20") + "-" + job.Id + ".json");
+                File.WriteAllText(target, JsonConvert.SerializeObject(job));
+                return job.Id;
+            });
         }
 
         public static bool TryReadNext(
@@ -75,43 +76,17 @@ namespace CityDwellers.Shared
 
         private static long NextSequence(string directory)
         {
-            using (var mutex = new Mutex(false, SequenceMutexName))
+            return SqlStore.WithLock("manager-channel-sequence", () =>
             {
-                bool entered = false;
-                try
-                {
-                    try
-                    {
-                        entered = mutex.WaitOne(TimeSpan.FromSeconds(5));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        entered = true;
-                    }
-
-                    if (!entered)
-                        throw new IOException(
-                            "Timed out waiting for the Manager channel sequence lock.");
-
-                    string path = Path.Combine(directory, "sequence.txt");
-                    long value = 0;
-                    if (File.Exists(path))
-                        long.TryParse(File.ReadAllText(path).Trim(), out value);
-                    value++;
-                    string temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
-                    File.WriteAllText(temporary, value.ToString());
-                    if (File.Exists(path))
-                        File.Replace(temporary, path, null);
-                    else
-                        File.Move(temporary, path);
-                    return value;
-                }
-                finally
-                {
-                    if (entered)
-                        mutex.ReleaseMutex();
-                }
-            }
+                string path = Path.Combine(directory, "sequence.txt");
+                long value = 0;
+                if (File.Exists(path) && !long.TryParse(File.ReadAllText(path).Trim(),
+                    System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out value))
+                    throw new InvalidDataException("Invalid Manager channel sequence in MySQL.");
+                value = checked(value + 1);
+                File.WriteAllText(path, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                return value;
+            });
         }
 
         private static ManagerChannelJob Read(string path)

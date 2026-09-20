@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -10,7 +12,7 @@ using Newtonsoft.Json.Linq;
 
 namespace CityDwellers.Shared
 {
-    // Local evidence, not a second console/syslog logger. Only Manager renders
+    // SQL transaction evidence. Only Manager renders
     // user-facing dumps. Never let observational I/O retry a physical operation.
     public static class IncidentJournal
     {
@@ -77,18 +79,9 @@ namespace CityDwellers.Shared
         }
         private static void Locked(string key, Action action)
         {
-            using (var mutex = new Mutex(false, "CityDwellers.Incident." + Id(key)))
-            {
-                bool owned = false;
-                try
-                {
-                    try { owned = mutex.WaitOne(100); } catch (AbandonedMutexException) { owned = true; }
-                    if (!owned) throw new IOException("Incident evidence writer busy.");
-                    action();
-                }
-                finally { if (owned) mutex.ReleaseMutex(); }
-            }
+            SqlStore.WithLock("incident-evidence", action);
         }
+
         public static void Record(string data, string trace, string actor, string stage, object detail,
             bool problem = false, IEnumerable<string> links = null, bool state = false)
         {
@@ -156,10 +149,10 @@ namespace CityDwellers.Shared
                 if (!File.Exists(source)) { gaps.Add("No retained earlier evidence for " + next); continue; }
                 Locked(root + next, () =>
                 {
-                    versions.Add(next + "/" + File.GetLastWriteTimeUtc(source).Ticks + "/" + new FileInfo(source).Length);
+                    versions.Add(next + "/" + File.GetLastWriteTimeUtc(source).Ticks + "/" + File.GetLength(source));
                     foreach (string line in File.ReadLines(source))
                     {
-                        if (events.Count >= 5000) { gaps.Add("Event limit reached; original trace files retained."); break; }
+                        if (events.Count >= 5000) { gaps.Add("Event limit reached; original SQL trace records retained."); break; }
                         try
                         {
                             var e = JsonConvert.DeserializeObject<Entry>(line);
@@ -172,7 +165,7 @@ namespace CityDwellers.Shared
                     }
                 });
             }
-            if (pending.Count > 0) gaps.Add("Linked trace limit reached; original trace files retained.");
+            if (pending.Count > 0) gaps.Add("Linked trace limit reached; original SQL trace records retained.");
             string directory = Path.Combine(data, "incident-dumps"); Directory.CreateDirectory(directory);
             string output = Path.Combine(directory, id + ".log");
             string signature = string.Join(";", versions.OrderBy(v => v)) + "|" + string.Join(";", gaps.Distinct());
@@ -195,11 +188,11 @@ namespace CityDwellers.Shared
             foreach (var e in events.GroupBy(e => e.Id).Select(g => g.First()).OrderBy(e => e.Utc).ThenBy(e => e.Id))
                 text.AppendLine(e.Utc.ToString("O") + " [" + e.Actor + "] " + e.Event + " trace=" + e.Trace +
                     (e.Problem ? " [INCIDENT]" : "") + " " + e.Detail?.ToString(Formatting.None));
-            string temp = output + ".tmp-" + Guid.NewGuid().ToString("N");
-            File.WriteAllText(temp, text.ToString(), new UTF8Encoding(false));
-            try { if (File.Exists(output)) File.Replace(temp, output, null); else File.Move(temp, output); }
-            finally { if (File.Exists(temp)) File.Delete(temp); }
-            File.WriteAllText(output + ".signature", signature);
+            SqlStore.WithLock("incident-dump", () =>
+            {
+                File.WriteAllText(output, text.ToString(), new UTF8Encoding(false));
+                File.WriteAllText(output + ".signature", signature);
+            });
             return output;
         }
     }

@@ -1,3 +1,4 @@
+using File = CityDwellers.Shared.SqlFile;
 using System;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -896,15 +897,7 @@ namespace CityBankers
 
         private static void WriteAtomicJson(string path, object value)
         {
-            string temp = path + ".tmp";
-            File.WriteAllText(
-                temp,
-                JsonConvert.SerializeObject(value, Formatting.Indented));
-
-            if (File.Exists(path))
-                File.Delete(path);
-
-            File.Move(temp, path);
+            RuntimeStateStore.WriteJsonAtomic(path, value);
         }
 
         private static string SafeFileToken(string value)

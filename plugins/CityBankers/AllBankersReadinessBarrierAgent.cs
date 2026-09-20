@@ -1,3 +1,4 @@
+using File = CityDwellers.Shared.SqlFile;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -464,7 +465,6 @@ namespace CityBankers
         private void PublishReadyMarker()
         {
             string path = GetReadyMarkerPath();
-            string temp = path + ".tmp";
             var state = new
             {
                 format = "citybankers-all-bankers-ready-v1",
@@ -477,10 +477,7 @@ namespace CityBankers
                 }).ToList()
             };
 
-            File.WriteAllText(temp, JsonConvert.SerializeObject(state, Formatting.Indented));
-            if (File.Exists(path))
-                File.Delete(path);
-            File.Move(temp, path);
+            File.WriteAllText(path, JsonConvert.SerializeObject(state, Formatting.Indented));
         }
 
         private void ClearReadyMarker()

@@ -18,46 +18,65 @@ namespace MalisBuffBots
     public class BanJson : JsonFile<List<string>>
     {
         public readonly List<string> Entries;
+        private readonly object _sync = new object();
 
         public BanJson(string jsonPath) : base(jsonPath)
         {
             Entries = _data;
         }
 
-        public bool Contains(string name) => _data.Contains(name);
+        public bool Contains(string name)
+        {
+            lock (_sync)
+                return _data.Any(value => string.Equals(value, name, StringComparison.OrdinalIgnoreCase));
+        }
 
         public bool TryAdd(string name, bool save = true)
         {
-            try
+            lock (_sync)
             {
-                if (_data.Contains(name))
+                if (string.IsNullOrWhiteSpace(name) || Contains(name))
                     return false;
 
                 _data.Add(name);
-
-                if (save)
-                    Save();
-
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Logger.Information(ex.Message);
-                return false;
+                try
+                {
+                    if (save)
+                        Save();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _data.Remove(name);
+                    Logger.Information("Ban was not changed: " + ex.Message);
+                    return false;
+                }
             }
         }
 
         public bool TryRemove(string name, bool save = true)
         {
-            if (!_data.Contains(name))
-                return false;
+            lock (_sync)
+            {
+                int index = _data.FindIndex(value => string.Equals(value, name, StringComparison.OrdinalIgnoreCase));
+                if (index < 0)
+                    return false;
 
-            _data.Remove(name);
-
-            if (save)
-                Save();
-
-            return true;
+                string existing = _data[index];
+                _data.RemoveAt(index);
+                try
+                {
+                    if (save)
+                        Save();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _data.Insert(index, existing);
+                    Logger.Information("Ban was not changed: " + ex.Message);
+                    return false;
+                }
+            }
         }
     }
 }

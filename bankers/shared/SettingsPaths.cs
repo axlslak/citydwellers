@@ -1,3 +1,4 @@
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.IO;
 
@@ -18,16 +19,15 @@ namespace CityBankers.Shared
 
             try
             {
-                Directory.CreateDirectory(settingsDirectory);
-                Directory.CreateDirectory(Path.Combine(settingsDirectory, "data"));
+                Directory.CreateDirectory(CityDwellers.Shared.SqlStore.GetDataDirectory(settingsDirectory));
                 error = null;
                 return true;
             }
             catch (Exception ex)
             {
                 error =
-                    $"Unable to create settings directory '{settingsDirectory}'. " +
-                    $"Check that this account has write permission. {ex.Message}";
+                    $"Unable to access MySQL runtime namespace '{settingsDirectory}'. " +
+                    $"Check the required MySQL configuration and connectivity. {ex.Message}";
                 return false;
             }
         }
@@ -40,7 +40,7 @@ namespace CityBankers.Shared
         public static JObject ReadBankersSettings(string settingsDirectory)
         {
             string path = Path.Combine(settingsDirectory, "citydwellers.json");
-            JObject root = JObject.Parse(File.ReadAllText(path));
+            JObject root = JObject.Parse(System.IO.File.ReadAllText(path));
             JObject bankers = root.GetValue(
                 "Bankers",
                 StringComparison.OrdinalIgnoreCase) as JObject;
@@ -80,7 +80,7 @@ namespace CityBankers.Shared
         public static string ReadManagerCharacter(string settingsDirectory)
         {
             string path = Path.Combine(settingsDirectory, "citydwellers.json");
-            JObject root = JObject.Parse(File.ReadAllText(path));
+            JObject root = JObject.Parse(System.IO.File.ReadAllText(path));
             JObject manager = root.GetValue(
                 "Manager",
                 StringComparison.OrdinalIgnoreCase) as JObject;
@@ -92,26 +92,6 @@ namespace CityBankers.Shared
                 throw new InvalidDataException(
                     "'" + path + "' requires Manager.Accounts[0].Character.");
             return character.Trim();
-        }
-
-        public static bool TryCreateFile(
-            string path,
-            string contents,
-            out string error)
-        {
-            try
-            {
-                File.WriteAllText(path, contents);
-                error = null;
-                return true;
-            }
-            catch (Exception ex)
-            {
-                error =
-                    $"Unable to create settings file '{path}'. " +
-                    $"Check that this account has write permission. {ex.Message}";
-                return false;
-            }
         }
 
         internal static string GetSettingsDirectory()

@@ -143,3 +143,22 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
 - Four active pickup orders (three items each) are staging capacity, not simultaneous Central trades. One Central trade window remains. Do not claim ten-user throughput without owner live evidence.
 - One buffer cast failure must not clear everybody's queue. Keep duplicate/capacity checks atomic and preserve the no-automatic-audit policy under spam and concurrency.
 - See docs/MULTIUSER_REVIEW.md for limits and repeatable owner live scenarios. Severe tell backlog pauses fresh public input rather than growing an unbounded rejection backlog; authenticated Manager administrative controls remain reachable.
+
+## Mandatory MySQL persistence — session 192
+
+- Owner direction: no runtime `data` folder, including logs, dumps, alts, caches,
+  queues, receipts or generated lists. MySQL is mandatory; no disk fallback.
+- Root `citydwellers.json` is administrator bootstrap configuration; compiled
+  binaries and immutable GameData/NavMeshes/Buffers assets remain deployment
+  inputs. Logical legacy data paths are SQL keys, never physical directories.
+- The offline DataMigration utility creates the schema, preserves immutable
+  source archives, verifies every byte/hash, seals once and removes only verified
+  source files. Reruns must never replace evolved live state with archived data.
+- SQL loss must stop the entire host from any AppDomain. Do not swallow a
+  persistence failure and continue physical AO operations.
+- Preserve atomic custody/accounting and create-only receipt/audit-token rules.
+  Host logging uses its independent SQL transaction path to avoid a cross-domain
+  logger waiting for the caller's state transaction.
+- LoginTry was removed; the measured login evidence remains in history.
+- Schema, indexes, migration commands and SQL debugging queries are documented in
+  docs/MYSQL_MIGRATION.md, docs/mysql-schema.sql and docs/mysql-diagnostics.sql.

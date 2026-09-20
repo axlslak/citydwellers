@@ -49,6 +49,12 @@
     <Exec
       Command="&quot;$(TargetPath)&quot; restore-gamedata &quot;$(ClientlessGameDataCache)&quot; &quot;$(TargetDir)GameData&quot;" />
   </Target>
+  <!-- Retired probe binaries are build products, never owner state. -->
+  <Target Name="RemoveRetiredLoginTry"
+    BeforeTargets="PreparePortableClientlessOutput"
+    Condition="'$(MSBuildProjectName)' == 'CityDwellers'">
+    <Delete Files="$(TargetDir)logintry.exe;$(TargetDir)logintry.exe.config;$(TargetDir)logintry.pdb;$(TargetDir)logintry.xml" />
+  </Target>
   <Target Name="PreparePortableClientlessOutput"
     AfterTargets="RestoreClientlessGameData"
     Condition="'$(MSBuildProjectName)' == 'CityDwellers'">

@@ -1,3 +1,4 @@
+using File = CityDwellers.Shared.SqlFile;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -128,6 +129,17 @@ namespace CityBankers.Shared
             int aoid,
             out AcceptanceRule rule)
         {
+            AcceptanceRule resolved = null;
+            bool accepted = CityDwellers.Shared.SqlStore.WithLock("CityBankers.Catalog.v1", () =>
+                TryGetRuleCore(aoid, LoadPolicy(settingsDirectory), LoadPhatzPolicy(settingsDirectory),
+                    GetPhatzFamilies(settingsDirectory), out resolved));
+            rule = resolved;
+            return accepted;
+        }
+
+        private static bool TryGetRuleCore(int aoid, JObject policy, PhatzPolicyState phatz,
+            ItemFamilyIndex families, out AcceptanceRule rule)
+        {
             string role;
             bool builtIn = RoutesByAoid.TryGetValue(aoid, out role);
             int maximum = !builtIn || string.Equals(role, "dyna", StringComparison.OrdinalIgnoreCase) ||
@@ -139,7 +151,6 @@ namespace CityBankers.Shared
             int builtInOverride;
             if (BuiltInMaximumOverrides.TryGetValue(aoid, out builtInOverride))
                 maximum = builtInOverride;
-            JObject policy = LoadPolicy(settingsDirectory);
 
             if (builtIn && policy != null &&
                 !string.Equals(role, "dyna", StringComparison.OrdinalIgnoreCase) &&
@@ -170,8 +181,6 @@ namespace CityBankers.Shared
                 builtIn = !string.IsNullOrWhiteSpace(role);
             }
 
-            PhatzPolicyState phatz = LoadPhatzPolicy(settingsDirectory);
-            ItemFamilyIndex families = GetPhatzFamilies(settingsDirectory);
             int familyKey = families.Key(aoid);
             var matching = phatz.Items.Where(item => item != null && families.Key(item.AoId) == familyKey &&
                 !phatz.DisabledAoIds.Contains(item.AoId)).ToList();
@@ -217,30 +226,37 @@ namespace CityBankers.Shared
 
         public static IReadOnlyCollection<AcceptanceRule> GetRules(string settingsDirectory)
         {
-            var ids = new HashSet<int>(RoutesByAoid.Keys);
-            JObject items = LoadPolicy(settingsDirectory)?
-                .GetValue("Items", StringComparison.OrdinalIgnoreCase) as JObject;
-            foreach (JProperty property in items?.Properties() ?? Enumerable.Empty<JProperty>())
+            return CityDwellers.Shared.SqlStore.WithLock("CityBankers.Catalog.v1", () =>
             {
-                int aoid;
-                if (!int.TryParse(property.Name, NumberStyles.None, CultureInfo.InvariantCulture, out aoid) || aoid <= 0)
-                    throw new InvalidOperationException(
-                        "AcceptancePolicy.Items keys must be positive AOIDs; invalid key '" + property.Name + "'.");
-                foreach (int id in GetPhatzFamilies(settingsDirectory).Members(aoid)) ids.Add(id);
-            }
-            foreach (PhatzPolicyItem item in LoadPhatzPolicy(settingsDirectory).Items ??
-                new List<PhatzPolicyItem>())
-            {
-                if (item != null && item.AoId > 0)
-                    foreach (int id in GetPhatzFamilies(settingsDirectory).Members(item.AoId)) ids.Add(id);
-            }
-            var result = new List<AcceptanceRule>();
-            foreach (int aoid in ids.OrderBy(value => value))
-            {
-                AcceptanceRule rule;
-                if (TryGetRule(settingsDirectory, aoid, out rule)) result.Add(rule);
-            }
-            return result;
+                // Resolve one consistent catalog snapshot for the whole batch. Re-reading
+                // remote SQL metadata for every built-in AOID would multiply startup latency.
+                JObject policy = LoadPolicy(settingsDirectory);
+                PhatzPolicyState phatz = LoadPhatzPolicy(settingsDirectory);
+                ItemFamilyIndex families = GetPhatzFamilies(settingsDirectory);
+                var ids = new HashSet<int>(RoutesByAoid.Keys);
+                JObject items = policy?.GetValue("Items", StringComparison.OrdinalIgnoreCase) as JObject;
+                foreach (JProperty property in items?.Properties() ?? Enumerable.Empty<JProperty>())
+                {
+                    int aoid;
+                    if (!int.TryParse(property.Name, NumberStyles.None, CultureInfo.InvariantCulture, out aoid) || aoid <= 0)
+                        throw new InvalidOperationException(
+                            "AcceptancePolicy.Items keys must be positive AOIDs; invalid key '" + property.Name + "'.");
+                    foreach (int id in families.Members(aoid)) ids.Add(id);
+                }
+                foreach (PhatzPolicyItem item in phatz.Items ??
+                    new List<PhatzPolicyItem>())
+                {
+                    if (item != null && item.AoId > 0)
+                        foreach (int id in families.Members(item.AoId)) ids.Add(id);
+                }
+                var result = new List<AcceptanceRule>();
+                foreach (int aoid in ids.OrderBy(value => value))
+                {
+                    AcceptanceRule rule;
+                    if (TryGetRuleCore(aoid, policy, phatz, families, out rule)) result.Add(rule);
+                }
+                return result;
+            });
         }
 
         public static IReadOnlyCollection<AcceptanceRule> GetRetentionRules(string settingsDirectory) =>
@@ -254,75 +270,84 @@ namespace CityBankers.Shared
 
         public static PhatzPolicyState LoadPhatzPolicy(string settingsDirectory)
         {
-            string path = Path.Combine(
-                RuntimeStateStore.GetDataDirectory(settingsDirectory),
-                "citybankers-phatz-policy.json");
-            lock (PolicySync)
+            return CityDwellers.Shared.SqlStore.WithLock("CityBankers.Catalog.v1", () =>
             {
-                DateTime writeUtc = File.Exists(path)
-                    ? File.GetLastWriteTimeUtc(path)
-                    : DateTime.MinValue;
-                if (CachedPhatzPolicy == null || writeUtc != CachedPhatzPolicyWriteUtc)
+                string path = Path.Combine(
+                    RuntimeStateStore.GetDataDirectory(settingsDirectory),
+                    "citybankers-phatz-policy.json");
+                lock (PolicySync)
                 {
-                    CachedPhatzPolicy = RuntimeStateStore.ReadJson<PhatzPolicyState>(path) ??
-                        new PhatzPolicyState();
-                    if (CachedPhatzPolicy.Items == null)
-                        CachedPhatzPolicy.Items = new List<PhatzPolicyItem>();
-                    if (CachedPhatzPolicy.DisabledAoIds == null)
-                        CachedPhatzPolicy.DisabledAoIds = new List<int>();
-                    CachedPhatzPolicyWriteUtc = writeUtc;
+                    DateTime writeUtc = File.Exists(path)
+                        ? File.GetLastWriteTimeUtc(path)
+                        : DateTime.MinValue;
+                    if (CachedPhatzPolicy == null || writeUtc != CachedPhatzPolicyWriteUtc)
+                    {
+                        CachedPhatzPolicy = RuntimeStateStore.ReadJson<PhatzPolicyState>(path) ??
+                            new PhatzPolicyState();
+                        if (CachedPhatzPolicy.Items == null)
+                            CachedPhatzPolicy.Items = new List<PhatzPolicyItem>();
+                        if (CachedPhatzPolicy.DisabledAoIds == null)
+                            CachedPhatzPolicy.DisabledAoIds = new List<int>();
+                        CachedPhatzPolicyWriteUtc = writeUtc;
+                    }
+                    return CachedPhatzPolicy;
                 }
-                return CachedPhatzPolicy;
-            }
+            });
         }
 
         public static void AddOrUpdatePhatzItem(
             string settingsDirectory,
             PhatzPolicyItem item)
         {
-            if (item == null || item.AoId <= 0 || item.HighId <= 0 || item.Ql <= 0)
-                throw new ArgumentException("A linked AO item with positive IDs and QL is required.");
-            if (item.MaxCopies < KeepAllCopies || item.MaxCopies == 0)
-                throw new ArgumentException("MaxCopies must be -1 (keep all) or a positive number.");
-
-            lock (PolicySync)
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Catalog.v1", () =>
             {
-                PhatzPolicyState state = CopyPhatzPolicy(LoadPhatzPolicy(settingsDirectory));
-                var families = new ItemFamilyIndex(GetPhatzFamilies(settingsDirectory).Pairs.Concat(new[] {
-                    new ItemTemplatePair { LowId = item.AoId, HighId = item.HighId } }));
-                state.KnownPairs = families.Pairs.ToList();
-                int key = families.Key(item.AoId);
-                state.Items.RemoveAll(value => value != null && families.Key(value.AoId) == key);
-                state.Items.Add(item);
-                state.Items = state.Items.OrderBy(value => value.AoId).ToList();
-                state.DisabledAoIds.RemoveAll(value => families.Key(value) == key);
-                SavePhatzPolicy(settingsDirectory, state);
-            }
+                if (item == null || item.AoId <= 0 || item.HighId <= 0 || item.Ql <= 0)
+                    throw new ArgumentException("A linked AO item with positive IDs and QL is required.");
+                if (item.MaxCopies < KeepAllCopies || item.MaxCopies == 0)
+                    throw new ArgumentException("MaxCopies must be -1 (keep all) or a positive number.");
+
+                lock (PolicySync)
+                {
+                    PhatzPolicyState state = CopyPhatzPolicy(LoadPhatzPolicy(settingsDirectory));
+                    var families = new ItemFamilyIndex(GetPhatzFamilies(settingsDirectory).Pairs.Concat(new[] {
+                        new ItemTemplatePair { LowId = item.AoId, HighId = item.HighId } }));
+                    state.KnownPairs = families.Pairs.ToList();
+                    int key = families.Key(item.AoId);
+                    state.Items.RemoveAll(value => value != null && families.Key(value.AoId) == key);
+                    state.Items.Add(item);
+                    state.Items = state.Items.OrderBy(value => value.AoId).ToList();
+                    state.DisabledAoIds.RemoveAll(value => families.Key(value) == key);
+                    SavePhatzPolicy(settingsDirectory, state);
+                }
+            });
         }
 
         public static bool RemovePhatzItem(string settingsDirectory, int aoid)
         {
-            if (aoid <= 0) return false;
-            lock (PolicySync)
+            return CityDwellers.Shared.SqlStore.WithLock("CityBankers.Catalog.v1", () =>
             {
-                PhatzPolicyState state = CopyPhatzPolicy(LoadPhatzPolicy(settingsDirectory));
-                var families = GetPhatzFamilies(settingsDirectory);
-                int key = families.Key(aoid);
-                int[] aliases = families.Members(aoid);
-                int removed = state.Items.RemoveAll(value => value != null && families.Key(value.AoId) == key);
-                JObject configuredItems = LoadPolicy(settingsDirectory)?
-                    .GetValue("Items", StringComparison.OrdinalIgnoreCase) as JObject;
-                bool acceptedAsPhatz = aliases.Any(id => string.Equals(
-                    (configuredItems?[id.ToString(CultureInfo.InvariantCulture)] as JObject)?
-                        .GetValue("Role", StringComparison.OrdinalIgnoreCase)?.ToString(),
-                    "phatz", StringComparison.OrdinalIgnoreCase));
-                if (removed == 0 && !acceptedAsPhatz) return false;
-                state.KnownPairs = families.Pairs.ToList();
-                state.DisabledAoIds = state.DisabledAoIds.Concat(aliases).Distinct().ToList();
-                state.DisabledAoIds.Sort();
-                SavePhatzPolicy(settingsDirectory, state);
-                return true;
-            }
+                if (aoid <= 0) return false;
+                lock (PolicySync)
+                {
+                    PhatzPolicyState state = CopyPhatzPolicy(LoadPhatzPolicy(settingsDirectory));
+                    var families = GetPhatzFamilies(settingsDirectory);
+                    int key = families.Key(aoid);
+                    int[] aliases = families.Members(aoid);
+                    int removed = state.Items.RemoveAll(value => value != null && families.Key(value.AoId) == key);
+                    JObject configuredItems = LoadPolicy(settingsDirectory)?
+                        .GetValue("Items", StringComparison.OrdinalIgnoreCase) as JObject;
+                    bool acceptedAsPhatz = aliases.Any(id => string.Equals(
+                        (configuredItems?[id.ToString(CultureInfo.InvariantCulture)] as JObject)?
+                            .GetValue("Role", StringComparison.OrdinalIgnoreCase)?.ToString(),
+                        "phatz", StringComparison.OrdinalIgnoreCase));
+                    if (removed == 0 && !acceptedAsPhatz) return false;
+                    state.KnownPairs = families.Pairs.ToList();
+                    state.DisabledAoIds = state.DisabledAoIds.Concat(aliases).Distinct().ToList();
+                    state.DisabledAoIds.Sort();
+                    SavePhatzPolicy(settingsDirectory, state);
+                    return true;
+                }
+            });
         }
 
         private static void SavePhatzPolicy(string settingsDirectory, PhatzPolicyState state)
@@ -350,61 +375,67 @@ namespace CityBankers.Shared
         // Policy edits retain it too; no ledger occurrence is rewritten.
         public static ItemFamilyIndex GetPhatzFamilies(string settingsDirectory)
         {
-            lock (PolicySync)
+            return CityDwellers.Shared.SqlStore.WithLock("CityBankers.Catalog.v1", () =>
             {
-                var policy = LoadPhatzPolicy(settingsDirectory);
-                string path = Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "ledger.json");
-                string evidencePath = Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "items-pairs.json");
-                var evidence = new FileInfo(evidencePath);
-                DateTime evidenceStamp = evidence.Exists ? evidence.LastWriteTimeUtc : DateTime.MinValue;
-                long evidenceLength = evidence.Exists ? evidence.Length : 0;
-                var file = new FileInfo(path);
-                DateTime stamp = file.Exists ? file.LastWriteTimeUtc : DateTime.MinValue;
-                long length = file.Exists ? file.Length : 0;
-                if (CachedFamilies != null && FamilyDirectory == settingsDirectory &&
-                    ReferenceEquals(FamilyPolicy, policy) && FamilyLedgerWrite == stamp && FamilyLedgerLength == length &&
-                    FamilyEvidenceWrite == evidenceStamp && FamilyEvidenceLength == evidenceLength)
-                    return CachedFamilies;
-                var pairs = new List<ItemTemplatePair>();
-                if (CachedFamilies != null && FamilyDirectory == settingsDirectory) pairs.AddRange(CachedFamilies.Pairs);
-                pairs.AddRange(policy.KnownPairs ?? new List<ItemTemplatePair>());
-                pairs.AddRange(policy.Items.Where(i => i != null).Select(i => new ItemTemplatePair { LowId = i.AoId, HighId = i.HighId }));
-                if (file.Exists)
+                lock (PolicySync)
                 {
-                    // Local ledger is already atomic. Never use item names as equivalence evidence.
-                    // Read it shared: another banker publishing the ledger must not turn a
-                    // catalogue lookup into a failed banking tick. PolicySync is held here, so
-                    // this read deliberately takes no file mutex of its own.
-                    string document = RuntimeStateStore.ReadTextShared(path);
-                    JObject ledger = string.IsNullOrWhiteSpace(document) ? new JObject() : JObject.Parse(document);
-                    foreach (JToken item in ledger["Items"] as JArray ?? new JArray())
+                    var policy = LoadPhatzPolicy(settingsDirectory);
+                    string path = Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "ledger.json");
+                    string evidencePath = Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "items-pairs.json");
+                    bool evidenceExists = File.Exists(evidencePath);
+                    DateTime evidenceStamp = evidenceExists ? File.GetLastWriteTimeUtc(evidencePath) : DateTime.MinValue;
+                    long evidenceLength = evidenceExists ? File.GetLength(evidencePath) : 0;
+                    bool ledgerExists = File.Exists(path);
+                    DateTime stamp = ledgerExists ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+                    long length = ledgerExists ? File.GetLength(path) : 0;
+                    if (CachedFamilies != null && FamilyDirectory == settingsDirectory &&
+                        ReferenceEquals(FamilyPolicy, policy) && FamilyLedgerWrite == stamp && FamilyLedgerLength == length &&
+                        FamilyEvidenceWrite == evidenceStamp && FamilyEvidenceLength == evidenceLength)
+                        return CachedFamilies;
+                    var pairs = new List<ItemTemplatePair>();
+                    if (CachedFamilies != null && FamilyDirectory == settingsDirectory) pairs.AddRange(CachedFamilies.Pairs);
+                    pairs.AddRange(policy.KnownPairs ?? new List<ItemTemplatePair>());
+                    pairs.AddRange(policy.Items.Where(i => i != null).Select(i => new ItemTemplatePair { LowId = i.AoId, HighId = i.HighId }));
+                    if (ledgerExists)
                     {
-                        int low = (int?)item["AoId"] ?? 0, high = (int?)item["HighId"] ?? 0;
-                        if (low > 0 && high > 0 && low != high)
-                            pairs.Add(new ItemTemplatePair { LowId = low, HighId = high });
+                        // The SQL ledger document is already atomic. Never use item names as equivalence evidence.
+                        // Read the committed document: another banker publishing the ledger must not turn a
+                        // catalogue lookup into a failed banking tick. Acquire SQL before
+                        // PolicySync, including catalog reads that learn template pairs.
+                        string document = RuntimeStateStore.ReadTextShared(path);
+                        JObject ledger = string.IsNullOrWhiteSpace(document) ? new JObject() : JObject.Parse(document);
+                        foreach (JToken item in ledger["Items"] as JArray ?? new JArray())
+                        {
+                            int low = (int?)item["AoId"] ?? 0, high = (int?)item["HighId"] ?? 0;
+                            if (low > 0 && high > 0 && low != high)
+                                pairs.Add(new ItemTemplatePair { LowId = low, HighId = high });
+                        }
                     }
+                    CachedFamilies = new ItemFamilyIndex(ItemPairEvidenceStore.Merge(evidencePath, pairs));
+                    // Keep the pre-read stamp: a concurrent writer must cause another refresh.
+                    FamilyEvidenceWrite = evidenceStamp;
+                    FamilyEvidenceLength = evidenceLength;
+                    FamilyPolicy = policy; FamilyDirectory = settingsDirectory;
+                    FamilyLedgerWrite = stamp; FamilyLedgerLength = length;
+                    return CachedFamilies;
                 }
-                CachedFamilies = new ItemFamilyIndex(ItemPairEvidenceStore.Merge(evidencePath, pairs));
-                // Keep the pre-read stamp: a concurrent writer must cause another refresh.
-                FamilyEvidenceWrite = evidenceStamp;
-                FamilyEvidenceLength = evidenceLength;
-                FamilyPolicy = policy; FamilyDirectory = settingsDirectory;
-                FamilyLedgerWrite = stamp; FamilyLedgerLength = length;
-                return CachedFamilies;
-            }
+            });
         }
 
         public static void ObserveItemPair(string settingsDirectory, int lowId, int highId)
         {
-            if (lowId <= 0 || highId <= 0 || lowId == highId) return;
-            lock (PolicySync)
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Catalog.v1", () =>
             {
-                var families = GetPhatzFamilies(settingsDirectory);
-                if (families.PairsFor(lowId).Any(p => p.LowId == lowId && p.HighId == highId)) return;
-                ItemPairEvidenceStore.Merge(Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "items-pairs.json"),
-                    families.Pairs.Concat(new[] { new ItemTemplatePair { LowId = lowId, HighId = highId } }));
-                FamilyPolicy = null; // Next read picks up the persisted evidence in every domain.
-            }
+                if (lowId <= 0 || highId <= 0 || lowId == highId) return;
+                lock (PolicySync)
+                {
+                    var families = GetPhatzFamilies(settingsDirectory);
+                    if (families.PairsFor(lowId).Any(p => p.LowId == lowId && p.HighId == highId)) return;
+                    ItemPairEvidenceStore.Merge(Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "items-pairs.json"),
+                        families.Pairs.Concat(new[] { new ItemTemplatePair { LowId = lowId, HighId = highId } }));
+                    FamilyPolicy = null; // Next read picks up the persisted evidence in every domain.
+                }
+            });
         }
 
         public static int PhatzFamilyMaximum(IEnumerable<PhatzPolicyItem> rows)

@@ -1,3 +1,4 @@
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -175,11 +176,7 @@ namespace CityBankers
             byte[] bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(_receipt, Formatting.Indented));
             string path = Path.Combine(_receiptDirectory,
                 (_receiptSequence++).ToString("D6") + "-" + phase + ".json");
-            using (var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read))
-            {
-                stream.Write(bytes, 0, bytes.Length);
-                stream.Flush(true);
-            }
+            CityDwellers.Shared.SqlFile.CreateNew(path, bytes);
             CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
                 _receipt.TransactionId ?? _receipt.BatchId, Client.CharacterName, "receipt." + phase, _receipt,
                 CityDwellers.Shared.IncidentJournal.IsProblem(phase), new[] { _receipt.BatchId, _tradeTrace });

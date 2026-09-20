@@ -21,6 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- All runtime state lives in mandatory MySQL; shared sources also load in client AppDomains. -->
+    <Compile Include="$(MSBuildThisFileDirectory)shared\Sql*.cs"><Link>Sql\%(Filename)%(Extension)</Link></Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\CharacterNames.cs"><Link>CharacterNames.cs</Link></Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\ItemFamilies.cs"><Link>ItemFamilies.cs</Link></Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\FileSnapshot.cs"><Link>FileSnapshot.cs</Link></Compile>
@@ -70,6 +72,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="MySqlConnector" Version="[2.3.7]" />
     <PackageReference Include="AOSharp.Clientless" Version="1.0.16" />
     <!-- Owner-approved 1.0.91 trial for Mali integration. Previous baseline: 1.0.84.
          1.0.106 previously failed ChatHeader.Size; 1.0.91 is not live-verified. -->

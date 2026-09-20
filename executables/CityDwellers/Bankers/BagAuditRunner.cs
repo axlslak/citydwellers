@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -67,7 +69,7 @@ internal static class BagAuditRunner
         }
 
         string pluginPath = Path.GetFullPath(Path.Combine(baseDir, PluginFileName));
-        if (!File.Exists(pluginPath))
+        if (!System.IO.File.Exists(pluginPath))
         {
             StopForError(
                 $"Required plugin '{pluginPath}' was not found. Build the City Dwellers " +
@@ -76,7 +78,7 @@ internal static class BagAuditRunner
         }
 
         // All mutable banker state and coordination artifacts share the unified
-        // City Dwellers data directory.
+        // City Dwellers MySQL data namespace.
         baseDir = RuntimeStateStore.GetDataDirectory(settingsDir);
 
         Logger logger = new LoggerConfiguration()
@@ -105,8 +107,8 @@ internal static class BagAuditRunner
             Console.WriteLine($"Workers:   {roles.Count - 1} storage bankers concurrently after Central");
             Console.WriteLine("Bank bags: stage one at a time through normal inventory, open/read, return to bank");
             Console.WriteLine($"Plugin:    {pluginPath}");
-            Console.WriteLine($"State:     {baseDir}");
-            Console.WriteLine($"Output:    {Path.Combine(baseDir, "diagnostic-dumps")}");
+            Console.WriteLine("State:     MySQL");
+            Console.WriteLine("Output:    mysql:diagnostic-dumps/");
             Console.WriteLine();
 
             foreach (AuditRole role in roles)
@@ -498,13 +500,8 @@ internal static class BagAuditRunner
             BagMoveTimeoutMs = BagMoveTimeoutMs
         };
 
-        string temp = runtime.AuditCommandPath + ".tmp";
-        File.WriteAllText(
-            temp,
+        File.WriteAllText(runtime.AuditCommandPath,
             JsonConvert.SerializeObject(command, Formatting.Indented));
-        if (File.Exists(runtime.AuditCommandPath))
-            File.Delete(runtime.AuditCommandPath);
-        File.Move(temp, runtime.AuditCommandPath);
     }
 
     private static bool WaitForFile(string path, int timeoutMs)
@@ -691,7 +688,7 @@ internal static class BagAuditRunner
             "snapshot with live audit results and did not replace it.");
 
         File.WriteAllText(path, text.ToString());
-        return Path.GetFullPath(path);
+        return CityDwellers.Shared.SqlStore.DescribePath(path);
     }
 
     private static void AppendExpectedStateComparison(

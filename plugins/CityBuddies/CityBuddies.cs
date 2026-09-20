@@ -326,7 +326,7 @@ namespace CityBuddies
 
             try
             {
-                File.WriteAllText(
+                SqlFile.WriteAllText(
                     _readyPath,
                     $"{Client.CharacterName}|{DateTime.UtcNow:O}");
 
@@ -371,7 +371,7 @@ namespace CityBuddies
             try
             {
                 if (string.IsNullOrWhiteSpace(_homeDirectivePath) ||
-                    !File.Exists(_homeDirectivePath))
+                    !SqlFile.Exists(_homeDirectivePath))
                 {
                     return;
                 }
@@ -953,14 +953,12 @@ namespace CityBuddies
                 string traceDirectory = Path.Combine(
                     _dataDirectory,
                     "NavigationTraces");
-                Directory.CreateDirectory(traceDirectory);
-
                 string fileName =
                     $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-" +
                     $"{SafeFileToken(Client.CharacterName)}-" +
-                    $"{SafeFileToken(directive.JobId)}.jsonl";
+                    $"{SafeFileToken(directive.JobId)}-{Guid.NewGuid():N}.jsonl";
                 string path = Path.Combine(traceDirectory, fileName);
-                File.WriteAllText(path, string.Empty);
+                SqlFile.WriteAllText(path, string.Empty);
 
                 lock (_navigationTraceSync)
                 {
@@ -1266,7 +1264,7 @@ namespace CityBuddies
 
                 try
                 {
-                    File.AppendAllLines(
+                    SqlFile.AppendAllLines(
                         _navigationTracePath,
                         _pendingNavigationTrace);
                     _pendingNavigationTrace.Clear();
@@ -1576,7 +1574,7 @@ namespace CityBuddies
 
             lock (_snapshotSync)
             {
-                try { File.Delete(_snapshotPath); }
+                try { SqlFile.Delete(_snapshotPath); }
                 catch { }
             }
         }

@@ -1,14 +1,21 @@
-# Local items catalogue
+> Session 192 storage update: the catalogue and its binary index now live in
+> mandatory MySQL. The offline migration utility streams existing `items.json`
+> and every related file into SQL without changing their bytes. Names below are
+> logical SQL keys, not filesystem paths. No runtime data folder is used. See
+> [migration](MYSQL_MIGRATION.md).
 
-Extract `items.json` from the owner's tinkerparser `items.zip` and place it in
-`data/items.json` beside the runtime's other data files. Keep the JSON unchanged.
-Do not copy the ZIP there and do not commit the dump. The supplied dump contains
+# Items catalogue in MySQL
+
+Before the first migration, ensure the original data directory contains the
+extracted `items.json` from the owner's tinkerparser `items.zip`. DataMigration
+imports it as the SQL document `items.json`; the running bot reads that document.
+Keep its bytes unchanged and do not commit the private dump. The supplied dump contains
 120,842 unique AOIDs in 445,001,349 bytes.
 
 The Manager loads in the background. Until ready, requests report loading or a
 useful error. Missing/invalid input is retried on demand after 30 seconds. After
-replacing a successfully loaded source, restart the runtime. No external item
-service, database server, generated embedded catalogue or credentials are used.
+replacing a successfully loaded SQL source, restart the runtime. MySQL is the
+required backend; item lookups do not call an external item service.
 
 ## Commands
 
@@ -46,10 +53,9 @@ QL segments; only recorded edges with valid increasing endpoint QLs render range
 Unpaired templates remain exact. This is not a complete global interpolation or
 obtainability database: an unseen relationship remains unknown until observed.
 
-Sanitized pairs (only two numeric IDs) persist in `data/items-pairs.json`, so
+Sanitized pairs (only two numeric IDs) persist in the SQL `items-pairs.json` document, so
 withdrawing the last copy does not erase the relationship on restart. Writers
-merge under a path-specific cross-domain/process mutex and replace the file
-atomically. Explicit Phatz policy edits also retain `KnownPairs`. Source metadata
+merge and replace the SQL record in a database transaction. Explicit Phatz policy edits also retain `KnownPairs`. Source metadata
 changes refresh domain-local family snapshots. The large raw catalogue still
 loads once per domain as described below.
 
@@ -113,7 +119,7 @@ All per-item values come from the owner's dump.
 
 ## Cache and inventory
 
-The first load writes `data/items.json.index-v1.bin`, containing only the retained
+The first load writes the SQL `items.json.index-v1.bin` document, containing only the retained
 fields. A process-wide mutex serializes cache creation across plugin domains.
 Later domains/startups read the compact cache, keyed by schema, source length and
 last-write UTC ticks. Truncated/invalid caches rebuild; an unwritable cache does

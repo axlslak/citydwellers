@@ -320,7 +320,7 @@ namespace CityManager
                         target,
                         "dump",
                         "Write a timestamped diagnostic snapshot to disk and report its full path.",
-                        "Use dump incidents to list recent transaction problems, then dump incident-ID for a small report. Problem reports are also saved automatically under data/incident-dumps. Bare dump retains the full diagnostic snapshot.",
+                        "Use dump incidents to list recent transaction problems, then dump incident-ID for a small report. Problem reports are also saved automatically in MySQL. Bare dump saves Manager state and the latest 10,000 diagnostic lines; complete history stays in MySQL.",
                         "Administrator",
                         null);
                     return true;
@@ -545,7 +545,7 @@ namespace CityManager
                     "The guest channel is a shared place for commands and concise live Manager diagnostics.") +
                 HelpSyntaxLine(target, "join", "Ask the Manager to invite you.") +
                 HelpSyntaxLine(target, "leave", "Leave the Manager's private channel.") +
-                "\n<font color='" + ColorMuted + "'>Connecting the channel never dumps earlier telemetry. New diagnostic events appear live; administrators create a file with dump when history is needed.</font>";
+                "\n<font color='" + ColorMuted + "'>Connecting the channel never dumps earlier telemetry. New diagnostic events appear live; administrators save a MySQL snapshot with dump when history is needed.</font>";
         }
 
         private string BuildAdminHelp(ReplyTarget target)
@@ -935,12 +935,12 @@ namespace CityManager
         private List<CloakEventRecord> LoadRecentCloakEvents(int limit, bool announcementsOnly = false)
         {
             var recent = new List<CloakEventRecord>();
-            if (limit <= 0 || string.IsNullOrWhiteSpace(_eventsPath) || !File.Exists(_eventsPath))
+            if (limit <= 0 || string.IsNullOrWhiteSpace(_eventsPath) || !SqlFile.Exists(_eventsPath))
                 return recent;
 
             try
             {
-                foreach (string line in File.ReadLines(_eventsPath))
+                foreach (string line in SqlFile.ReadLines(_eventsPath))
                 {
                     if (string.IsNullOrWhiteSpace(line))
                         continue;
@@ -1015,8 +1015,8 @@ namespace CityManager
                         else
                         {
                             string path = CityDwellers.Shared.IncidentJournal.Export(_dataDir, parts[1]);
-                            Reply(target, BuildBlobLinks(target, "Incident dump", "File ready",
-                                "Transaction evidence saved to:\n" + EscapeBlobText(path)));
+                            Reply(target, BuildBlobLinks(target, "Incident dump", "SQL snapshot ready",
+                                "Transaction evidence saved in MySQL under key:\n" + EscapeBlobText(path)));
                         }
                     }
                     catch (Exception ex) { Reply(target, "Incident dump unavailable: " + ex.Message); }
@@ -1034,10 +1034,9 @@ namespace CityManager
                 try
                 {
                     string directory = Path.Combine(_dataDir, "diagnostic-dumps");
-                    Directory.CreateDirectory(directory);
                     string filename =
                         "apcmanager-dump-" +
-                        DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) +
+                        DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N") +
                         ".log";
                     string path = Path.Combine(directory, filename);
 
@@ -1058,23 +1057,25 @@ namespace CityManager
                     header.AppendLine("Membership: " + BuildMembershipStatusForBlob());
                     header.AppendLine("OrgOutput: " + BuildOrgOutboundStatusSummary());
                     header.AppendLine();
-                    header.AppendLine("Diagnostic log:");
+                    header.AppendLine("Diagnostic log (latest 10,000 lines; complete history remains in MySQL):");
 
                     lock (_devSync)
                     {
-                        File.WriteAllText(path, header.ToString());
-                        if (File.Exists(_diagnosticLogPath))
-                            File.AppendAllText(path, File.ReadAllText(_diagnosticLogPath));
+                        if (SqlFile.Exists(_diagnosticLogPath))
+                            foreach (string line in SqlFile.ReadTailLines(_diagnosticLogPath, 10000))
+                                header.AppendLine(line);
                         else
-                            File.AppendAllLines(path, _diagnosticHistory.ToArray());
+                            foreach (string line in _diagnosticHistory)
+                                header.AppendLine(line);
+                        SqlFile.WriteAllText(path, header.ToString());
                     }
 
                     Logger.Warning("Manager diagnostic dump created: " + path);
                     string body =
                         HelpHeader(
                             "Diagnostic dump created",
-                            "A timestamped copy of Manager state and retained diagnostics is ready to collect.") +
-                        "<font color='" + ColorTitle + "'>File</font>\n" +
+                            "Manager state and the latest 10,000 diagnostic lines were saved in MySQL.") +
+                        "<font color='" + ColorTitle + "'>SQL record key</font>\n" +
                         EscapeBlobText(path) + "\n\n" +
                         "<font color='" + ColorMuted + "'>The live guest feed continues with new events only. No backlog was sent to chat.</font>";
                     Reply(target, BuildBlobLinks(target, "Diagnostic Dump", "Open dump details", body));

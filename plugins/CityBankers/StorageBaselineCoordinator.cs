@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,7 +15,7 @@ namespace CityBankers
 {
     /// <summary>
     /// Central-only coordinator that turns a complete, clean storage-worker bagaudit run
-    /// into the first durable physical storage baseline under settings/data.
+    /// into the first durable physical storage baseline in MySQL.
     ///
     /// The transient per-worker audit result files remain the handoff mechanism from
     /// BagAuditAgent. This coordinator never promotes a partial or failed run.
@@ -103,7 +105,7 @@ namespace CityBankers
             Logger.Information(
                 $"CityBankers storage-baseline coordinator armed on Central {Client.CharacterName}. " +
                 $"A clean {StorageRoles.Length}-worker bagaudit will publish authoritative state below " +
-                $"'{Path.Combine(_settingsDir, "data")}'. No baseline is assumed before that run succeeds.");
+                $"'{RuntimeStateStore.GetDataDirectory(_settingsDir)}'. No baseline is assumed before that run succeeds.");
         }
 
         public override void Teardown()
@@ -200,7 +202,7 @@ namespace CityBankers
             JObject baseline = BuildBaseline(runId, results);
             string json = baseline.ToString(Formatting.Indented) + Environment.NewLine;
 
-            string dataDir = Path.Combine(_settingsDir, "data");
+            string dataDir = RuntimeStateStore.GetDataDirectory(_settingsDir);
             string archiveDir = Path.Combine(dataDir, "storage-baselines");
             Directory.CreateDirectory(archiveDir);
 
@@ -211,8 +213,11 @@ namespace CityBankers
 
             // Preserve the exact cutover run forever, then replace the stable latest pointer.
             // The latest file is only touched after aggregate validation succeeds.
-            WriteNewFileAtomically(archivePath, json);
-            ReplaceFileAtomically(latestPath, json);
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
+            {
+                WriteNewFileAtomically(archivePath, json);
+                ReplaceFileAtomically(latestPath, File.ReadAllText(archivePath));
+            });
 
             _lastPublishedRunId = runId;
             _lastProblemKey = null;
@@ -520,44 +525,13 @@ namespace CityBankers
 
         private static void WriteNewFileAtomically(string path, string content)
         {
-            if (File.Exists(path))
-            {
-                // A run id should be unique. If the exact archive already exists, leave it
-                // untouched rather than rewriting historical physical evidence.
-                return;
-            }
-
-            string temp = path + ".tmp-" + Guid.NewGuid().ToString("N");
-            try
-            {
-                File.WriteAllText(temp, content);
-                File.Move(temp, path);
-            }
-            finally
-            {
-                TryDelete(temp);
-            }
+            // An existing run remains immutable, including after a restart.
+            File.TryCreateNew(path, content);
         }
 
         private static void ReplaceFileAtomically(string path, string content)
         {
-            string directory = Path.GetDirectoryName(path);
-            if (!string.IsNullOrWhiteSpace(directory))
-                Directory.CreateDirectory(directory);
-
-            string temp = path + ".tmp-" + Guid.NewGuid().ToString("N");
-            try
-            {
-                File.WriteAllText(temp, content);
-                if (File.Exists(path))
-                    File.Replace(temp, path, null, true);
-                else
-                    File.Move(temp, path);
-            }
-            finally
-            {
-                TryDelete(temp);
-            }
+            File.WriteAllText(path, content);
         }
 
         private static void TryDelete(string path)

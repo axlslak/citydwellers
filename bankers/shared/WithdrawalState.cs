@@ -1,3 +1,4 @@
+using File = CityDwellers.Shared.SqlFile;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -393,18 +394,7 @@ namespace CityBankers.Shared
 
         private static T Locked<T>(Func<T> action)
         {
-            using (var mutex = new Mutex(false, MutexName))
-            {
-                bool entered = false;
-                try
-                {
-                    try { entered = mutex.WaitOne(TimeSpan.FromSeconds(10)); }
-                    catch (AbandonedMutexException) { entered = true; }
-                    if (!entered) throw new TimeoutException("Withdrawal queue is busy.");
-                    return action();
-                }
-                finally { if (entered) mutex.ReleaseMutex(); }
-            }
+            return CityDwellers.Shared.SqlStore.WithLock(MutexName, action);
         }
 
         public static List<WithdrawalState> LoadAll(string directory)

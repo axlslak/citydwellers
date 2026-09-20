@@ -26,10 +26,10 @@ Bankers create structured reports with event ID, UTC time, name, AO ID, role,
 severity, message and event-specific data. Workers send them to Central over
 process-scoped named pipes. Central validates the configured source role and
 relays the original fields to Manager. Manager validates the route, deduplicates
-recent event IDs, appends `data/citydwellers-events.jsonl`, and alone sends syslog.
+recent event IDs, appends the SQL `citydwellers-events.jsonl` stream, and alone sends syslog.
 Manager's own reports enter its local queue. Invalid logging configuration warns
-locally and disables reporting without stopping game services. The host console is NOT a syslog
-source. Existing raw `data/citydwellers.log` remains unchanged.
+and disables only external forwarding without stopping internal SQL event capture. The host console is NOT a syslog
+source. Complete runtime diagnostics are stored in MySQL; no local runtime log is written.
 
 Initial event coverage:
 
@@ -44,16 +44,17 @@ Initial event coverage:
 This is an operational event stream, not every SDK debug line. Buffers, Buddies,
 Flipper and additional domain events have not yet been instrumented here.
 
-Queues and connections run in the background; reporting cannot wait on a game
-thread. IPC queues hold256 reports, sender1024. Outages retry with bounded waits;
-full queues drop new reports with a local warning. Reports over60000 characters
-are rejected with the same warning. IPC receipt acknowledges in-memory queueing,
-not durable delivery. Shutdown drain is bounded; a crash can lose queued reports.
-Manager's event file preserves accepted/persisted reports, but no automatic disk
-replay is implemented. TCP failures may duplicate a transmitted event; the stable
-Id lets downstream processing deduplicate. UDP has no delivery acknowledgment.
-Local diagnostics remain the fallback. Manager event JSONL needs normal local
-retention/archival; it is not auto-deleted by this feature.
+Each source event is synchronously committed to MySQL before background relay.
+IPC queues hold 256 reports and the syslog sender holds 1024. Forwarding retries
+use bounded waits; full queues or oversized reports can skip forwarding, while
+the original SQL event remains available. IPC receipt acknowledges in-memory
+queueing, not delivery to the external syslog server. A crash may lose queued
+forwarding but cannot erase an already committed SQL source record.
+
+TCP retries may duplicate a transmitted event; the stable event `Id` allows
+deduplication. UDP has no delivery acknowledgment. MySQL records are the durable
+source; there is no local diagnostic fallback or automatic disk replay. Plan
+SQL backup and retention explicitly; this migration does not delete SQL history.
 
 ## Rsyslog receiver file
 
@@ -110,3 +111,11 @@ Use `ccze -l` to see installed plugins. Sources:
 https://manpages.debian.org/bookworm/ccze/ccze.1.en.html
 https://docs.rsyslog.com/doc/configuration/properties.html
 https://www.rfc-editor.org/info/rfc6587/
+
+## MySQL source records
+
+Every service event is committed synchronously to its SQL source stream before
+entering the bounded relay. Manager may also record the same event in its
+canonical stream. The JSON event `Id` is the deduplication identity when querying
+across both streams. Optional syslog failure does not disable source capture.
+See [the SQL migration and diagnostics guide](MYSQL_MIGRATION.md).

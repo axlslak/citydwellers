@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -349,7 +351,7 @@ public class BankerLoader
         string pluginPath = Path.GetFullPath(
             Path.Combine(_baseDir, PluginFileName));
 
-        if (!File.Exists(pluginPath))
+        if (!System.IO.File.Exists(pluginPath))
         {
             Console.WriteLine(
                 $"Required plugin '{pluginPath}' was not found. " +
@@ -379,7 +381,7 @@ public class BankerLoader
                 $"Mode:      {(roles.Count > 1 ? "all configured roles" : roles[0].Role)}");
             Console.WriteLine($"Clients:   {roles.Count}");
             Console.WriteLine($"Plugin:    {pluginPath}");
-            Console.WriteLine($"State:     {pluginDir}");
+            Console.WriteLine("State:     MySQL");
             Console.WriteLine($"Parallel-login limit: {_config.MaxParallelLogins}");
             if (!string.IsNullOrWhiteSpace(reportRecipient))
                 Console.WriteLine($"Capacity report recipient: {reportRecipient}");

@@ -1,3 +1,8 @@
+> Storage update (session 192): runtime data/log/dump paths in this guide now
+> identify MySQL records, not local files. Use [SQL diagnostics](MYSQL_MIGRATION.md)
+> to inspect them; do not recreate a data directory. Historical audit scenarios
+> do not override the current one-startup/admin-only audit policy.
+
 > Retired in session117 after owner logs verified completion for all nine bankers
 > (seven equipped, Central and Dyna absent). The following describes the historical
 > migration. Permanent storage restrictions and portable-bank support remain.

@@ -26,19 +26,19 @@ namespace CityManager
                 catch (Exception ex) { Logger.Warning("Incident dump export will retry: " + ex.Message); }
                 finally { System.Threading.Interlocked.Exchange(ref _incidentExporting, 0); }
             }, null, 15000, 30000);
-            // Manager alone owns the external sender and canonical event file.
-            _syslog = SyslogSender.Create(_settingsDir, message => Logger.Warning(message));
-            if (_syslog == null) return;
+            // MySQL event persistence is always enabled, independently of syslog.
+            try { _syslog = SyslogSender.Create(_settingsDir, message => Logger.Warning(message)); }
+            catch (Exception ex) { Logger.Warning("Manager syslog disabled: " + ex.Message); }
             var sender = _syslog;
             string path = Path.Combine(_dataDir, "citydwellers-events.jsonl");
             ServiceEvents.Start(_settingsDir, Client.CharacterName, () => Client.LocalDynelId,
                 message => Logger.Warning(message), report =>
                 {
-                    File.AppendAllText(path, JsonConvert.SerializeObject(report) + Environment.NewLine, new UTF8Encoding(false));
-                    sender.Enqueue(report);
+                    SqlFile.AppendAllText(path, JsonConvert.SerializeObject(report) + Environment.NewLine, new UTF8Encoding(false));
+                    sender?.Enqueue(report);
                 });
             ServiceEvents.Report("manager.logging", "info", "Manager event reporting started.");
-            Logger.Information("Manager owns syslog reporting; banker events arrive through Central.");
+            Logger.Information("Manager persists service events in MySQL; banker events arrive through Central.");
         }
 
         private void ShutdownEventReporting()

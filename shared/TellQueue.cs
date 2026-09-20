@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -22,7 +24,6 @@ namespace CityDwellers.Shared
         private const string AcknowledgementsName = "acknowledgements";
         private const string SendersName = "senders";
         private const string FailedName = "failed";
-        private const string AssignmentMutexName = "Local\\CityDwellersTellQueueAssignmentsV1";
         private static bool _heartbeatUnavailable;
 
         public static string Enqueue(
@@ -34,32 +35,35 @@ namespace CityDwellers.Shared
             string requiredSender = null)
         {
             if (string.IsNullOrWhiteSpace(dataDirectory))
-                throw new ArgumentException("A data directory is required.", nameof(dataDirectory));
+                throw new ArgumentException("A SQL data namespace is required.", nameof(dataDirectory));
             if (string.IsNullOrWhiteSpace(recipientName) && !recipientId.HasValue)
                 throw new ArgumentException("A tell recipient is required.", nameof(recipientName));
             if (string.IsNullOrWhiteSpace(message))
                 throw new ArgumentException("A tell message is required.", nameof(message));
 
-            EnsureDirectories(dataDirectory);
-            long sequence = NextSequence(dataDirectory);
-            var job = new TellQueueJob
+            return SqlStore.WithLock("tell-queue-enqueue", () =>
             {
-                Format = Format,
-                Id = DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffffffZ") + "-" +
-                     Guid.NewGuid().ToString("N"),
-                Sequence = sequence,
-                CreatedUtc = DateTime.UtcNow,
-                SourceCharacter = sourceCharacter,
-                RecipientName = recipientName,
-                RecipientId = recipientId,
-                Message = message,
-                RequiredSender = requiredSender
-            };
+                EnsureDirectories(dataDirectory);
+                long sequence = NextSequence(dataDirectory);
+                var job = new TellQueueJob
+                {
+                    Format = Format,
+                    Id = DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffffffZ") + "-" +
+                         Guid.NewGuid().ToString("N"),
+                    Sequence = sequence,
+                    CreatedUtc = DateTime.UtcNow,
+                    SourceCharacter = sourceCharacter,
+                    RecipientName = recipientName,
+                    RecipientId = recipientId,
+                    Message = message,
+                    RequiredSender = requiredSender
+                };
 
-            AtomicWrite(
-                Path.Combine(PendingDirectory(dataDirectory), job.Id + ".json"),
-                job);
-            return job.Id;
+                AtomicWrite(
+                    Path.Combine(PendingDirectory(dataDirectory), job.Id + ".json"),
+                    job);
+                return job.Id;
+            });
         }
 
         public static void EnsureDirectories(string dataDirectory)
@@ -166,26 +170,22 @@ namespace CityDwellers.Shared
 
             string pendingPath = Path.Combine(PendingDirectory(dataDirectory), job.Id + ".json");
             string assignedPath = AssignmentPath(dataDirectory, sender, job.Id);
-            job.AssignedSender = sender;
-            job.AssignedUtc = nowUtc;
-            job.Attempts++;
-
             return WithAssignmentLock(() =>
             {
-                try
-                {
-                    AtomicWrite(pendingPath, job);
-                    File.Move(pendingPath, assignedPath);
-                    return true;
-                }
-                catch (FileNotFoundException)
-                {
-                    return false;
-                }
-                catch (IOException)
-                {
-                    return false;
-                }
+                // A caller may hold an old pending snapshot. Never recreate it or
+                // give the same queue entry to two senders after another claim.
+                TellQueueJob current = Read<TellQueueJob>(pendingPath);
+                if (!IsValidJob(current) || HasAssignment(dataDirectory) ||
+                    File.Exists(assignedPath)) return false;
+                current.AssignedSender = sender;
+                current.AssignedUtc = nowUtc;
+                current.Attempts++;
+                AtomicWrite(pendingPath, current);
+                File.Move(pendingPath, assignedPath);
+                job.AssignedSender = current.AssignedSender;
+                job.AssignedUtc = current.AssignedUtc;
+                job.Attempts = current.Attempts;
+                return true;
             });
         }
 
@@ -240,7 +240,22 @@ namespace CityDwellers.Shared
             return IsValidJob(job);
         }
 
-        public static void Complete(
+        public static void Complete(string dataDirectory, TellQueueJob job,
+            string assignmentPath, string sender, bool success, string error)
+        {
+            WithAssignmentLock(() =>
+            {
+                TellQueueJob active = Read<TellQueueJob>(assignmentPath);
+                if (!IsValidJob(active) || job == null || active.Id != job.Id ||
+                    !string.Equals(active.AssignedSender, sender, StringComparison.OrdinalIgnoreCase) ||
+                    active.AssignedUtc != job.AssignedUtc || active.Attempts != job.Attempts)
+                    return false; // A timed-out/older sender cannot acknowledge a new attempt.
+                CompleteLocked(dataDirectory, active, assignmentPath, sender, success, error);
+                return true;
+            });
+        }
+
+        private static void CompleteLocked(
             string dataDirectory,
             TellQueueJob job,
             string assignmentPath,
@@ -306,6 +321,11 @@ namespace CityDwellers.Shared
         }
 
         public static int RequeueStaleAssignments(string dataDirectory, DateTime nowUtc)
+        {
+            return WithAssignmentLock(() => RequeueStaleAssignmentsLocked(dataDirectory, nowUtc));
+        }
+
+        private static int RequeueStaleAssignmentsLocked(string dataDirectory, DateTime nowUtc)
         {
             EnsureDirectories(dataDirectory);
             int count = 0;
@@ -375,83 +395,22 @@ namespace CityDwellers.Shared
 
         private static long NextSequence(string dataDirectory)
         {
-            string path = Path.Combine(Root(dataDirectory), "sequence.txt");
-            using (var mutex = new Mutex(false, "Local\\CityDwellersTellQueueV1"))
+            return SqlStore.WithLock("tell-queue-sequence", () =>
             {
-                bool acquired = false;
-                try
-                {
-                    try
-                    {
-                        acquired = mutex.WaitOne(TimeSpan.FromSeconds(5));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        acquired = true;
-                    }
-
-                    if (!acquired)
-                        throw new TimeoutException("Timed out acquiring the tell queue sequence.");
-
-                    long sequence = 0;
-                    if (File.Exists(path))
-                    {
-                        long.TryParse(
-                            File.ReadAllText(path).Trim(),
-                            NumberStyles.Integer,
-                            CultureInfo.InvariantCulture,
-                            out sequence);
-                    }
-
-                    sequence++;
-                    string temp = path + ".tmp-" + Guid.NewGuid().ToString("N");
-                    File.WriteAllText(temp, sequence.ToString(CultureInfo.InvariantCulture));
-                    try
-                    {
-                        if (File.Exists(path))
-                            File.Delete(path);
-                        File.Move(temp, path);
-                    }
-                    finally
-                    {
-                        DeleteIfExists(temp);
-                    }
-                    return sequence;
-                }
-                finally
-                {
-                    if (acquired)
-                        mutex.ReleaseMutex();
-                }
-            }
+                string path = Path.Combine(Root(dataDirectory), "sequence.txt");
+                long sequence = 0;
+                if (File.Exists(path) && !long.TryParse(File.ReadAllText(path).Trim(),
+                    NumberStyles.Integer, CultureInfo.InvariantCulture, out sequence))
+                    throw new InvalidDataException("Invalid tell queue sequence in MySQL.");
+                sequence = checked(sequence + 1);
+                File.WriteAllText(path, sequence.ToString(CultureInfo.InvariantCulture));
+                return sequence;
+            });
         }
 
         private static T WithAssignmentLock<T>(Func<T> action)
         {
-            using (var mutex = new Mutex(false, AssignmentMutexName))
-            {
-                bool acquired = false;
-                try
-                {
-                    try
-                    {
-                        acquired = mutex.WaitOne(TimeSpan.FromSeconds(5));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        acquired = true;
-                    }
-
-                    if (!acquired)
-                        return default(T);
-                    return action();
-                }
-                finally
-                {
-                    if (acquired)
-                        mutex.ReleaseMutex();
-                }
-            }
+            return SqlStore.WithLock("tell-queue-assignments", action);
         }
 
         private static void DeleteIfExists(string path)

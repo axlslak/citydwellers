@@ -892,7 +892,7 @@ namespace CityManager
         {
             _permanentMembers.Clear();
 
-            if (!File.Exists(_memberListPath))
+            if (!SqlFile.Exists(_memberListPath))
             {
                 TrySavePermanentMembersLocked();
                 return;
@@ -902,7 +902,7 @@ namespace CityManager
             {
                 PersistedMemberList state =
                     JsonConvert.DeserializeObject<PersistedMemberList>(
-                        File.ReadAllText(_memberListPath));
+                        SqlFile.ReadAllText(_memberListPath));
 
                 if (state == null ||
                     state.Version != MemberListVersion ||
@@ -924,9 +924,8 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Error($"Unable to load permanent member list: {ex.Message}");
-                PreserveInvalidMembershipFileLocked(_memberListPath);
-                _permanentMembers.Clear();
-                TrySavePermanentMembersLocked();
+                SqlStore.FailClosed("The MySQL permanent member list is invalid; repair it before starting Manager.", ex);
+                throw;
             }
         }
 
@@ -937,14 +936,14 @@ namespace CityManager
             _liveAddedMembers.Clear();
             _liveRemovedMembers.Clear();
 
-            if (!File.Exists(_membershipStatePath))
+            if (!SqlFile.Exists(_membershipStatePath))
                 return;
 
             try
             {
                 PersistedMembershipState state =
                     JsonConvert.DeserializeObject<PersistedMembershipState>(
-                        File.ReadAllText(_membershipStatePath));
+                        SqlFile.ReadAllText(_membershipStatePath));
 
                 if (state == null ||
                     (state.Version != 1 && state.Version != MembershipStateVersion))
@@ -983,17 +982,8 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Error($"Unable to load membership state: {ex.Message}");
-                PreserveInvalidMembershipFileLocked(_membershipStatePath);
-                _membershipOrgId = 0;
-                _membershipDimension = 5;
-                _membershipOrgName = null;
-                _membershipLastSuccessfulFetchUtc = null;
-                _membershipSourceUpdatedUtc = null;
-                _suspiciousRosterShrinkCount = 0;
-                _officialMembers.Clear();
-                _officialMemberRanks.Clear();
-                _liveAddedMembers.Clear();
-                _liveRemovedMembers.Clear();
+                SqlStore.FailClosed("The MySQL membership state is invalid; repair it before starting Manager.", ex);
+                throw;
             }
         }
 
@@ -1096,36 +1086,12 @@ namespace CityManager
             }
         }
 
-        private void PreserveInvalidMembershipFileLocked(string path)
-        {
-            if (!File.Exists(path))
-                return;
-
-            try
-            {
-                string backupPath =
-                    path + ".invalid-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-                File.Move(path, backupPath);
-                Logger.Warning($"Preserved invalid membership file as {backupPath}.");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Unable to preserve invalid membership file: {ex.Message}");
-            }
-        }
-
         private void WriteJsonAtomically(string path, string json)
         {
             if (string.IsNullOrWhiteSpace(path))
                 throw new InvalidOperationException("Membership storage is not initialized.");
 
-            string tempPath = path + ".tmp";
-            File.WriteAllText(tempPath, json);
-
-            if (File.Exists(path))
-                File.Delete(path);
-
-            File.Move(tempPath, path);
+            SqlFile.WriteAllText(path, json);
         }
 
         private static List<string> SortedNames(IEnumerable<string> names)

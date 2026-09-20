@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -80,7 +82,7 @@ public class BuddiesHost
         }
 
         _pluginPath = Path.Combine(settingsDirectory, "CityBuddies.dll");
-        if (!File.Exists(_pluginPath))
+        if (!System.IO.File.Exists(_pluginPath))
         {
             StopForConfiguration(
                 $"Required Buddies plugin was not found at '{_pluginPath}'.");
@@ -2107,7 +2109,8 @@ public class BuddiesHost
             string traceSuffix =
                 string.IsNullOrWhiteSpace(snapshot.NavigationTraceFile)
                     ? string.Empty
-                    : $" Trace: data\\NavigationTraces\\{snapshot.NavigationTraceFile}";
+                    : " Trace: " + CityDwellers.Shared.SqlStore.DescribePath(
+                        Path.Combine(_dataDir, "NavigationTraces", snapshot.NavigationTraceFile));
             Console.WriteLine(
                 $"Home navigation {terminalState} for {candidate.Character}: " +
                 $"{detail ?? "no detail"}{traceSuffix}");

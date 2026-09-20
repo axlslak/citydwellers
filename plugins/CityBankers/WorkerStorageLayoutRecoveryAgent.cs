@@ -1,3 +1,4 @@
+using File = CityDwellers.Shared.SqlFile;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -33,7 +34,6 @@ namespace CityBankers
         public const string EnrollmentRequestFilePrefix =
             "citybankers-enrollment-request-";
 
-        public const string LayoutMutexName = "CityBankers.StorageLayoutRemap.v1";
         private const int PollMilliseconds = 100;
 
         private string _settingsDir;
@@ -179,112 +179,88 @@ namespace CityBankers
 
         private bool TryReconcileLiveBagSlots()
         {
-            if (Inventory.Bank == null || !Inventory.Bank.IsOpen ||
-                Inventory.Bank.Items == null || Inventory.Items == null)
+            return CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
             {
-                return false;
-            }
-
-            using (var mutex = new Mutex(false, LayoutMutexName))
-            {
-                bool entered = false;
-                try
+                if (Inventory.Bank == null || !Inventory.Bank.IsOpen ||
+                    Inventory.Bank.Items == null || Inventory.Items == null)
                 {
-                    try
-                    {
-                        entered = mutex.WaitOne(TimeSpan.FromSeconds(5));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        entered = true;
-                    }
+                    return false;
+                }
 
-                    if (!entered)
-                    {
-                        ReportLayoutProblem("Timed out waiting for storage-layout state lock.");
-                        return false;
-                    }
+                StorageState state = RuntimeStateStore.LoadStorageState(_settingsDir);
+                StorageWorkerState worker = (state?.Workers ?? new List<StorageWorkerState>())
+                    .FirstOrDefault(candidate =>
+                        candidate != null &&
+                        string.Equals(candidate.Role, _role, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(
+                            candidate.Character,
+                            Client.CharacterName,
+                            StringComparison.OrdinalIgnoreCase));
+                if (worker == null)
+                {
+                    ReportLayoutProblem(
+                        "Persistent storage state has no worker entry for " +
+                        Client.CharacterName + "/" + _role + ".");
+                    return false;
+                }
 
-                    StorageState state = RuntimeStateStore.LoadStorageState(_settingsDir);
-                    StorageWorkerState worker = (state?.Workers ?? new List<StorageWorkerState>())
-                        .FirstOrDefault(candidate =>
-                            candidate != null &&
-                            string.Equals(candidate.Role, _role, StringComparison.OrdinalIgnoreCase) &&
-                            string.Equals(
-                                candidate.Character,
-                                Client.CharacterName,
-                                StringComparison.OrdinalIgnoreCase));
-                    if (worker == null)
+                int remapped = 0;
+                foreach (StorageBagState bag in worker.Bags ?? new List<StorageBagState>())
+                {
+                    if (bag == null)
+                        continue;
+
+                    List<Item> live = FindLiveBagsForStoredBag(bag);
+                    if (live.Count != 1)
                     {
                         ReportLayoutProblem(
-                            "Persistent storage state has no worker entry for " +
-                            Client.CharacterName + "/" + _role + ".");
+                            "Cannot uniquely reconcile persisted " + (bag.Source ?? "?") +
+                            " bag identity=" + (bag.LastUniqueIdentity ?? "<none>") +
+                            " oldSlot=" + bag.OuterSlotInstance +
+                            "; liveMatches=" + live.Count + ".");
                         return false;
                     }
 
-                    int remapped = 0;
-                    foreach (StorageBagState bag in worker.Bags ?? new List<StorageBagState>())
+                    Item actual = live[0];
+                    if (actual.Slot.Instance != bag.OuterSlotInstance)
                     {
-                        if (bag == null)
-                            continue;
-
-                        List<Item> live = FindLiveBagsForStoredBag(bag);
-                        if (live.Count != 1)
-                        {
-                            ReportLayoutProblem(
-                                "Cannot uniquely reconcile persisted " + (bag.Source ?? "?") +
-                                " bag identity=" + (bag.LastUniqueIdentity ?? "<none>") +
-                                " oldSlot=" + bag.OuterSlotInstance +
-                                "; liveMatches=" + live.Count + ".");
-                            return false;
-                        }
-
-                        Item actual = live[0];
-                        if (actual.Slot.Instance != bag.OuterSlotInstance)
-                        {
-                            int oldSlot = bag.OuterSlotInstance;
-                            bag.OuterSlotInstance = actual.Slot.Instance;
-                            remapped++;
-                            Logger.Information(
-                                "[CityBankers] LIVE BAG SLOT remap worker=" + Client.CharacterName +
-                                " source=" + bag.Source + " identity=" +
-                                actual.UniqueIdentity + " " + oldSlot + " -> " +
-                                bag.OuterSlotInstance + ".");
-                        }
-
-                        bag.LastUniqueIdentity = actual.UniqueIdentity.ToString();
+                        int oldSlot = bag.OuterSlotInstance;
+                        bag.OuterSlotInstance = actual.Slot.Instance;
+                        remapped++;
+                        Logger.Information(
+                            "[CityBankers] LIVE BAG SLOT remap worker=" + Client.CharacterName +
+                            " source=" + bag.Source + " identity=" +
+                            actual.UniqueIdentity + " " + oldSlot + " -> " +
+                            bag.OuterSlotInstance + ".");
                     }
 
-                    worker.ObservedUtc = DateTime.UtcNow;
-                    state.UpdatedUtc = DateTime.UtcNow;
-                    RuntimeStateStore.WriteJsonAtomic(
-                        RuntimeStateStore.GetStorageStatePath(_settingsDir),
-                        state);
-                    RuntimeStateStore.WriteJsonAtomic(
-                        RuntimeStateStore.GetCurrentStockPath(_settingsDir),
-                        RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
-
-                    WriteLayoutReadyMarker(state.BaselineRunId, remapped);
-                    _layoutReady = true;
-                    _layoutBaselineRunId = state.BaselineRunId;
-                    _lastLayoutProblem = null;
-                    DeleteIfExists(GetEnrollmentRequestPath(Client.CharacterName));
-
-                    string notice =
-                        "Storage layout ready on " + Client.CharacterName +
-                        ": reconciled " + (worker.Bags?.Count ?? 0) +
-                        " persisted bag(s) to live AO slots; remapped=" + remapped + ".";
-                    Logger.Information("[CityBankers] " + notice);
-                    if (remapped > 0)
-                        TellKavem(notice);
-                    return true;
+                    bag.LastUniqueIdentity = actual.UniqueIdentity.ToString();
                 }
-                finally
-                {
-                    if (entered)
-                        mutex.ReleaseMutex();
-                }
-            }
+
+                worker.ObservedUtc = DateTime.UtcNow;
+                state.UpdatedUtc = DateTime.UtcNow;
+                RuntimeStateStore.WriteJsonAtomic(
+                    RuntimeStateStore.GetStorageStatePath(_settingsDir),
+                    state);
+                RuntimeStateStore.WriteJsonAtomic(
+                    RuntimeStateStore.GetCurrentStockPath(_settingsDir),
+                    RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
+
+                WriteLayoutReadyMarker(state.BaselineRunId, remapped);
+                _layoutReady = true;
+                _layoutBaselineRunId = state.BaselineRunId;
+                _lastLayoutProblem = null;
+                DeleteIfExists(GetEnrollmentRequestPath(Client.CharacterName));
+
+                string notice =
+                    "Storage layout ready on " + Client.CharacterName +
+                    ": reconciled " + (worker.Bags?.Count ?? 0) +
+                    " persisted bag(s) to live AO slots; remapped=" + remapped + ".";
+                Logger.Information("[CityBankers] " + notice);
+                if (remapped > 0)
+                    TellKavem(notice);
+                return true;
+            });
         }
 
         private void RefreshLayoutReadinessForBaselineChange()
@@ -356,7 +332,6 @@ namespace CityBankers
         private void WriteEnrollmentRequest(string problem)
         {
             string path = GetEnrollmentRequestPath(Client.CharacterName);
-            string temp = path + ".tmp";
             var request = new EnrollmentRequest
             {
                 Format = "citybankers-enrollment-request-v1",
@@ -366,16 +341,12 @@ namespace CityBankers
                 Problem = problem
             };
 
-            File.WriteAllText(temp, JsonConvert.SerializeObject(request, Formatting.Indented));
-            if (File.Exists(path))
-                File.Delete(path);
-            File.Move(temp, path);
+            File.WriteAllText(path, JsonConvert.SerializeObject(request, Formatting.Indented));
         }
 
         private void WriteLayoutReadyMarker(string baselineRunId, int remapped)
         {
             string path = GetLayoutReadyPath(Client.CharacterName);
-            string temp = path + ".tmp";
             var marker = new LayoutReadyMarker
             {
                 Format = "citybankers-storage-layout-ready-v1",
@@ -386,10 +357,7 @@ namespace CityBankers
                 RemappedBagCount = remapped
             };
 
-            File.WriteAllText(temp, JsonConvert.SerializeObject(marker, Formatting.Indented));
-            if (File.Exists(path))
-                File.Delete(path);
-            File.Move(temp, path);
+            File.WriteAllText(path, JsonConvert.SerializeObject(marker, Formatting.Indented));
         }
 
         public static string GetLayoutReadyPath(string settingsDir, string character)

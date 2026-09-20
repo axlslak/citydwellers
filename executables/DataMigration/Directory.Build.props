@@ -1,0 +1,7 @@
+<Project>
+  <!-- Offline utility: do not inherit AO/gameplay sources or dependencies. -->
+  <PropertyGroup>
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
+  </PropertyGroup>
+  <PropertyGroup><RestoreProjectStyle>PackageReference</RestoreProjectStyle></PropertyGroup>
+</Project>

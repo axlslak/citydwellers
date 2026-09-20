@@ -10,12 +10,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using CityDwellers.Shared;
 
 namespace MalisBuffBots
 {
     public class JsonFile<T>
     {
         private readonly string _path;
+        private readonly bool _mutable;
         protected readonly T _data;
         protected string Raw;
 
@@ -24,16 +26,18 @@ namespace MalisBuffBots
             try
             {
                 _path = jsonPath;
+                _mutable = string.Equals(jsonPath, Path.BAN_JSON, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(jsonPath, Path.USERRANK_JSON, StringComparison.OrdinalIgnoreCase);
 
-                if (!File.Exists(jsonPath))
+                if (_mutable && !SqlFile.Exists(jsonPath))
                 {
-                    if (jsonPath.Contains("BanList"))
+                    if (string.Equals(jsonPath, Path.BAN_JSON, StringComparison.OrdinalIgnoreCase))
                     {
-                        File.WriteAllText(jsonPath, JsonConvert.SerializeObject(new List<string>()));
+                        SqlFile.TryCreateNew(jsonPath, JsonConvert.SerializeObject(new List<string>()));
                     }
-                    else if (jsonPath.Contains("UserRanks"))
+                    else
                     {
-                        File.WriteAllText(jsonPath, JsonConvert.SerializeObject(new Dictionary<Rank, List<string>>
+                        SqlFile.TryCreateNew(jsonPath, JsonConvert.SerializeObject(new Dictionary<Rank, List<string>>
                         {
                             { Rank.Admin, new List<string> {  } },
                             { Rank.Moderator, new List<string> {  } },
@@ -43,19 +47,23 @@ namespace MalisBuffBots
                     }
                 }
 
-                Raw = File.ReadAllText(jsonPath);
+                Raw = _mutable ? SqlFile.ReadAllText(jsonPath) : System.IO.File.ReadAllText(jsonPath);
                 _data = JsonConvert.DeserializeObject<T>(Raw);
                 if (ReferenceEquals(_data, null)) throw new InvalidOperationException("JSON contains null.");
             }
             catch (Exception ex)
             {
+                if (_mutable)
+                    SqlStore.FailClosed("The MySQL buffer authority record is invalid: " + jsonPath, ex);
                 throw new InvalidOperationException("Cannot load buffer JSON: " + jsonPath, ex);
             }
         }
 
         public void Save()
         {
-            File.WriteAllText(_path, JsonConvert.SerializeObject(_data));
+            if (!_mutable)
+                throw new InvalidOperationException("Deployed buffer definitions are read-only.");
+            SqlFile.WriteAllText(_path, JsonConvert.SerializeObject(_data));
         }
     }
 }

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Read-only inspection of private bag-origin-v1 captures; requires only Python.
 
-Usage: python tools/inspect-bag-origin.py /path/to/bag-origin-*-login.json ...
+Usage: python tools/inspect-bag-origin.py -  (SQL JSON piped on stdin)
+Legacy input: python tools/inspect-bag-origin.py /path/to/bag-origin-*-login.json ...
 Offsets follow AOtomation Header/N3Message/FullCharacterMessage/BankMessage.
 This verifies record framing and compares fields independently of the runtime
 serializer. It does not prove physical item uniqueness or server semantics.
@@ -25,7 +26,11 @@ def require(condition, message):
 
 
 def inspect(path):
-    document = json.loads(path.read_text(encoding='utf-8-sig'))
+    # SQL diagnostics can be inspected without creating a local dump file.
+    from_sql = str(path) == '-'
+    document = json.loads(sys.stdin.read().lstrip('\ufeff') if from_sql else
+                          path.read_text(encoding='utf-8-sig'))
+    source_name = 'mysql:stdin' if from_sql else path.name
     require(document.get('format') == 'citybankers-bag-origin-v1', 'Unknown format')
     for observation in document['observations']:
         kind = observation['MessageType']
@@ -66,7 +71,7 @@ def inspect(path):
                               high=high, ql=ql, unknown=unknown)
                 groups[instance].append(detail)
                 bags.append(detail)
-        print(json.dumps(dict(file=path.name, generation=document['generation'],
+        print(json.dumps(dict(file=source_name, generation=document['generation'],
             message=kind, records=count, start=start, end=end, packet_bytes=len(data),
             container_records=len(bags),
             duplicates={format(k & 0xffffffff, 'X'): v for k, v in groups.items() if len(v) > 1},

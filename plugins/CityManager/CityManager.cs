@@ -32,7 +32,6 @@ namespace CityManager
         private const string CommandPrefix = "#";
         private const string DeveloperCharacter = "Kavem";
         private const int DiagnosticHistoryLimit = 500;
-        private const long DiagnosticLogRotateBytes = 2L * 1024L * 1024L;
 
         private static readonly HashSet<string> PublicCommands =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -213,7 +212,7 @@ namespace CityManager
             SaveOrgBlobBudgetState();
 
             Logger.Information($"CityManager settings: {_settingsDir}");
-            Logger.Information($"CityManager data: {_dataDir}");
+            Logger.Information("CityManager persistence: MySQL.");
             try { InitializeEventReporting(); }
             catch (Exception ex)
             {
@@ -224,9 +223,9 @@ namespace CityManager
             AdminListStore.Initialize(_dataDir);
             BanListStore.Initialize(_dataDir);
             DevTrace(
-                $"ADMIN LIST initialized file=adminlist.json " +
+                $"ADMIN LIST initialized sql-key=adminlist.json " +
                 $"count={AdminListStore.Snapshot().Count}.");
-            if (!File.Exists(CityBankers.Shared.SettingsPaths.BankTerminalPath(_settingsDir)))
+            if (!SqlFile.Exists(CityBankers.Shared.SettingsPaths.BankTerminalPath(_settingsDir)))
                 CityBankers.Shared.SettingsPaths.SaveBankTerminal(_settingsDir,
                     CityBankers.Shared.SettingsPaths.InitialBankTerminalInstance, "initial");
             InitializeMembership();
@@ -2108,11 +2107,11 @@ namespace CityManager
             try
             {
                 if (string.IsNullOrWhiteSpace(_orgBlobStatePath) ||
-                    !File.Exists(_orgBlobStatePath))
+                    !SqlFile.Exists(_orgBlobStatePath))
                     return;
 
                 OrgBlobBudgetState saved = JsonConvert.DeserializeObject<OrgBlobBudgetState>(
-                    File.ReadAllText(_orgBlobStatePath));
+                    SqlFile.ReadAllText(_orgBlobStatePath));
                 if (saved == null ||
                     saved.DefaultPageSize != OrgBlobPageSize ||
                     saved.CurrentPageSize < OrgBlobMinPageSize ||
@@ -2606,28 +2605,6 @@ namespace CityManager
             string restartRequestPath = Path.Combine(
                 _dataDir,
                 "citydwellers-manager-restart.request");
-            string temporaryPath = restartRequestPath + ".tmp";
-            try
-            {
-                File.WriteAllText(
-                    temporaryPath,
-                    senderName + "|" + DateTime.UtcNow.ToString("O"));
-            }
-            catch (Exception ex)
-            {
-                Reply(target, "Manager restart is unavailable: " + ex.Message);
-                DevTrace("RESTART PREPARE ERROR actor=" + senderName + ": " + ex.Message);
-                try
-                {
-                    if (File.Exists(temporaryPath))
-                        File.Delete(temporaryPath);
-                }
-                catch
-                {
-                }
-                return;
-            }
-
             Reply(
                 target,
                 "<font color='#F79410'>Manager restart accepted.</font> " +
@@ -2639,23 +2616,15 @@ namespace CityManager
 
             try
             {
-                if (File.Exists(restartRequestPath))
-                    File.Delete(restartRequestPath);
-                File.Move(temporaryPath, restartRequestPath);
+                SqlFile.WriteAllText(restartRequestPath,
+                    senderName + "|" + DateTime.UtcNow.ToString("O"));
             }
             catch (Exception ex)
             {
                 Logger.Error("Manager restart handoff failed: " + ex);
                 DevTrace("RESTART HANDOFF ERROR actor=" + senderName + ": " + ex.Message);
                 Reply(target, "Manager restart handoff failed: " + ex.Message);
-                try
-                {
-                    if (File.Exists(temporaryPath))
-                        File.Delete(temporaryPath);
-                }
-                catch
-                {
-                }
+
             }
         }
 
@@ -2968,16 +2937,7 @@ namespace CityManager
 
             try
             {
-                if (File.Exists(_diagnosticLogPath) &&
-                    new FileInfo(_diagnosticLogPath).Length >= DiagnosticLogRotateBytes)
-                {
-                    string previous = _diagnosticLogPath + ".previous";
-                    if (File.Exists(previous))
-                        File.Delete(previous);
-                    File.Move(_diagnosticLogPath, previous);
-                }
-
-                File.AppendAllText(_diagnosticLogPath, line + Environment.NewLine);
+                SqlFile.AppendAllText(_diagnosticLogPath, line + Environment.NewLine);
             }
             catch (Exception ex)
             {
@@ -3241,12 +3201,12 @@ namespace CityManager
             try
             {
                 PersistedCloakState state = null;
-                if (File.Exists(_statePath))
+                if (SqlFile.Exists(_statePath))
                 {
                     try
                     {
                         state = JsonConvert.DeserializeObject<PersistedCloakState>(
-                            File.ReadAllText(_statePath));
+                            SqlFile.ReadAllText(_statePath));
                     }
                     catch (Exception ex)
                     {
@@ -3351,12 +3311,12 @@ namespace CityManager
 
         private CloakEventRecord LoadLatestCloakEvent()
         {
-            if (!File.Exists(_eventsPath))
+            if (!SqlFile.Exists(_eventsPath))
                 return null;
 
             CloakEventRecord latest = null;
 
-            foreach (string line in File.ReadLines(_eventsPath))
+            foreach (string line in SqlFile.ReadLines(_eventsPath))
             {
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
@@ -3398,12 +3358,8 @@ namespace CityManager
                     ObservationSource = _observationSource
                 };
 
-                string tempPath = _statePath + ".tmp";
-                File.WriteAllText(tempPath, JsonConvert.SerializeObject(state, Formatting.Indented));
-
-                if (File.Exists(_statePath))
-                    File.Delete(_statePath);
-                File.Move(tempPath, _statePath);
+                SqlFile.WriteAllText(_statePath,
+                    JsonConvert.SerializeObject(state, Formatting.Indented));
             }
             catch (Exception ex)
             {
@@ -3440,7 +3396,7 @@ namespace CityManager
                     RawMessage = rawMessage
                 };
 
-                File.AppendAllText(_eventsPath, JsonConvert.SerializeObject(record) + Environment.NewLine);
+                SqlFile.AppendAllText(_eventsPath, JsonConvert.SerializeObject(record) + Environment.NewLine);
                 CityDwellers.Shared.ServiceEvents.Report("cloak.changed", "info", "Cloak observation recorded.", record);
             }
             catch (Exception ex)

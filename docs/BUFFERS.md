@@ -67,7 +67,7 @@ for queued output to be delivered; no direct-send fallback bypasses pacing.
 Other original options remain in the packaged `Buffers/JSON/Settings.json`.
 Use the unified `Behavior` overrides for local configuration; builds may refresh
 packaged assets. All froobs in the group must use the same IPC channel.
-Mutable bans/ranks live in `data/buffers/<character>/BanList.json` and
+Mutable bans/ranks live in the SQL namespace `buffers/<character>/BanList.json` and
 `UserRanks.json`. Rank lists start empty; add trusted character names to `Admin`
 or `Moderator` while the host is stopped if Mali administrative commands are
 needed. These permissions are Mali's and are separate from Manager permissions.

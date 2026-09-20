@@ -1,3 +1,8 @@
+> Storage update (session 192): runtime data/log/dump paths in this guide now
+> identify MySQL records, not local files. Use [SQL diagnostics](MYSQL_MIGRATION.md)
+> to inspect them; do not recreate a data directory. Historical audit scenarios
+> do not override the current one-startup/admin-only audit policy.
+
 # Startup census livelock
 
 Diagnosed from the owner's console run of 2026-09-18T12:11:35+03:00 (build

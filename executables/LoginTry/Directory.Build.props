@@ -1,3 +1,0 @@
-<Project>
-  <!-- Standalone probe: do not inherit the production host's shared sources/packages. -->
-</Project>

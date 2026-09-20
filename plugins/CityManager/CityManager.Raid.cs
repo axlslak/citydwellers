@@ -617,16 +617,10 @@ namespace CityManager
             string path = Path.Combine(
                 _dataDir,
                 "cityflipper-cancel.request");
-            string tempPath = path + "." + requestId + ".tmp";
 
             try
             {
-                File.WriteAllText(tempPath, requestId);
-
-                if (File.Exists(path))
-                    File.Delete(path);
-
-                File.Move(tempPath, path);
+                SqlFile.WriteAllText(path, requestId);
                 DevTrace(
                     $"RAID FLIPPER cancel requested [{ShortId(requestId)}] before cloak lower.");
             }
@@ -634,17 +628,6 @@ namespace CityManager
             {
                 DevTrace(
                     $"RAID FLIPPER cancel marker failed [{ShortId(requestId)}]: {ex.Message}");
-            }
-            finally
-            {
-                try
-                {
-                    if (File.Exists(tempPath))
-                        File.Delete(tempPath);
-                }
-                catch
-                {
-                }
             }
         }
 
@@ -2205,15 +2188,8 @@ namespace CityManager
                     }
 
                     string path = RaidStatePath;
-                    string tempPath = path + ".tmp";
                     string json = JsonConvert.SerializeObject(state, Formatting.Indented);
-
-                    File.WriteAllText(tempPath, json);
-
-                    if (File.Exists(path))
-                        File.Delete(path);
-
-                    File.Move(tempPath, path);
+                    SqlFile.WriteAllText(path, json);
                 }
                 catch (Exception ex)
                 {
@@ -2226,14 +2202,14 @@ namespace CityManager
         private void LoadRaidState()
         {
             string path = RaidStatePath;
-            if (!File.Exists(path))
+            if (!SqlFile.Exists(path))
                 return;
 
             try
             {
                 PersistedRaidCoordinatorState state =
                     JsonConvert.DeserializeObject<PersistedRaidCoordinatorState>(
-                        File.ReadAllText(path));
+                        SqlFile.ReadAllText(path));
 
                 if (state == null || state.Version != 1)
                     throw new InvalidDataException("Unsupported raid-state file.");
@@ -2740,10 +2716,10 @@ namespace CityManager
                     string path = RaidStatePath;
                     string tempPath = path + ".tmp";
 
-                    if (File.Exists(path))
-                        File.Delete(path);
-                    if (File.Exists(tempPath))
-                        File.Delete(tempPath);
+                    if (SqlFile.Exists(path))
+                        SqlFile.Delete(path);
+                    if (SqlFile.Exists(tempPath))
+                        SqlFile.Delete(tempPath);
                 }
                 catch (Exception ex)
                 {

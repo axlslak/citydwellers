@@ -1,3 +1,4 @@
+using CityDwellers.Shared;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -25,18 +26,15 @@ namespace CityManager
                 _path = Path.Combine(settingsDirectory, FileName);
                 Administrators.Clear();
 
-                if (File.Exists(_path))
+                if (SqlFile.Exists(_path))
                 {
-                    try
-                    {
-                        LoadLocked();
-                    }
+                    // Existing authority state must remain authoritative. Invalid
+                    // imported records require repair; never reset to defaults.
+                    try { LoadLocked(); }
                     catch (Exception ex)
                     {
-                        Logger.Error($"Unable to load administrator list: {ex.Message}");
-                        PreserveInvalidFileLocked();
-                        SeedDefaultsLocked();
-                        TrySaveBootstrapLocked();
+                        SqlStore.FailClosed("The MySQL authority record is invalid: " + _path, ex);
+                        throw;
                     }
                 }
                 else
@@ -196,7 +194,7 @@ namespace CityManager
         {
             PersistedAdminList state =
                 JsonConvert.DeserializeObject<PersistedAdminList>(
-                    File.ReadAllText(_path));
+                    SqlFile.ReadAllText(_path));
 
             if (state == null || state.Version != CurrentVersion)
                 throw new InvalidDataException("Unsupported administrator-list file.");
@@ -227,15 +225,7 @@ namespace CityManager
 
         private static void TrySaveBootstrapLocked()
         {
-            try
-            {
-                SaveLocked();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(
-                    $"Unable to create administrator-list file {_path}: {ex.Message}");
-            }
+            SaveLocked();
         }
 
         private static void SaveLocked()
@@ -249,35 +239,8 @@ namespace CityManager
                 Administrators = SnapshotLocked()
             };
 
-            string tempPath = _path + ".tmp";
-            string json = JsonConvert.SerializeObject(state, Formatting.Indented);
-
-            File.WriteAllText(tempPath, json);
-
-            if (File.Exists(_path))
-                File.Delete(_path);
-
-            File.Move(tempPath, _path);
-        }
-
-        private static void PreserveInvalidFileLocked()
-        {
-            if (!File.Exists(_path))
-                return;
-
-            try
-            {
-                string backupPath =
-                    _path + ".invalid-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-                File.Move(_path, backupPath);
-                Logger.Warning(
-                    $"Preserved invalid administrator list as {backupPath}.");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(
-                    $"Unable to preserve invalid administrator list: {ex.Message}");
-            }
+            SqlFile.WriteAllText(_path,
+                JsonConvert.SerializeObject(state, Formatting.Indented));
         }
 
         private static List<string> SnapshotLocked()

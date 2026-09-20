@@ -33,8 +33,8 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\LoginTry\LoginTry.csproj">
-      <Project>{2914C075-088F-4938-BFD1-095BDA2C5187}</Project><Name>LoginTry</Name>
+    <ProjectReference Include="..\DataMigration\DataMigration.csproj">
+      <Project>{E449D8A9-B3ED-41ED-A157-1C63432BD192}</Project><Name>DataMigration</Name>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
   </ItemGroup>

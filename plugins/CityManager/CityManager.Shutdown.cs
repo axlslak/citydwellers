@@ -72,7 +72,7 @@ namespace CityManager
         {
             lock (_shutdownSync)
             {
-                if (_shutdownRequested || File.Exists(Path.Combine(_dataDir, ShutdownControl.RequestFile)))
+                if (_shutdownRequested || SqlFile.Exists(Path.Combine(_dataDir, ShutdownControl.RequestFile)))
                 {
                     Reply(target, "City Dwellers shutdown is already requested.");
                     return;

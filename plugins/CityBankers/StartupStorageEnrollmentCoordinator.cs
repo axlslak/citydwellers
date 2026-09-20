@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -352,38 +354,8 @@ namespace CityBankers
 
         private void MergeWorker(StorageWorkerState replacement, string runId)
         {
-            using (var mutex = new Mutex(
-                false,
-                WorkerStorageLayoutRecoveryAgent.LayoutMutexName))
-            {
-                bool entered = false;
-                try
-                {
-                    try
-                    {
-                        entered = mutex.WaitOne(TimeSpan.FromSeconds(10));
-                    }
-                    catch (AbandonedMutexException)
-                    {
-                        entered = true;
-                    }
-
-                    if (!entered)
-                        throw new IOException(
-                            "Timed out waiting for live storage-layout reconciliation.");
-
-                    RuntimeStateStore.MergeAuditedStorageWorker(
-                        _settingsDir,
-                        replacement,
-                        runId,
-                        "startup-enrollment:" + runId);
-                }
-                finally
-                {
-                    if (entered)
-                        mutex.ReleaseMutex();
-                }
-            }
+            RuntimeStateStore.MergeAuditedStorageWorker(
+                _settingsDir, replacement, runId, "startup-enrollment:" + runId);
         }
 
         private static StorageWorkerState BuildWorker(
@@ -670,11 +642,7 @@ namespace CityBankers
 
         private static void WriteAtomicJson(string path, object value)
         {
-            string temp = path + ".tmp";
-            File.WriteAllText(temp, JsonConvert.SerializeObject(value, Formatting.Indented));
-            if (File.Exists(path))
-                File.Delete(path);
-            File.Move(temp, path);
+            RuntimeStateStore.WriteJsonAtomic(path, value);
         }
 
         private static void DeleteIfExists(string path)

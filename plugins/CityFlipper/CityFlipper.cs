@@ -101,16 +101,9 @@ namespace CityFlipper
                 _dataDirectory,
                 "cityflipper-operation.id");
 
-            if (File.Exists(operationIdPath))
+            if (SqlFile.Exists(operationIdPath))
             {
-                try
-                {
-                    _operationId = File.ReadAllText(operationIdPath).Trim();
-                }
-                catch
-                {
-                    _operationId = null;
-                }
+                _operationId = SqlFile.ReadAllText(operationIdPath).Trim();
             }
 
             string toggleRequestPath = Path.Combine(
@@ -118,16 +111,9 @@ namespace CityFlipper
                 "cityflipper-toggle.request");
 
             string requestedAction = null;
-            if (File.Exists(toggleRequestPath))
+            if (SqlFile.Exists(toggleRequestPath))
             {
-                try
-                {
-                    requestedAction = File.ReadAllText(toggleRequestPath).Trim();
-                }
-                catch
-                {
-                    requestedAction = "toggle";
-                }
+                requestedAction = SqlFile.ReadAllText(toggleRequestPath).Trim();
             }
 
             _toggleRequested = !string.IsNullOrWhiteSpace(requestedAction);
@@ -762,18 +748,11 @@ namespace CityFlipper
                 return false;
             }
 
-            try
-            {
-                return File.Exists(_cancelRequestPath) &&
+            return SqlFile.Exists(_cancelRequestPath) &&
                        string.Equals(
-                           File.ReadAllText(_cancelRequestPath).Trim(),
+                           SqlFile.ReadAllText(_cancelRequestPath).Trim(),
                            _operationId,
                            StringComparison.Ordinal);
-            }
-            catch
-            {
-                return false;
-            }
         }
 
         private Dictionary<string, string> DumpObject(object value)
@@ -892,22 +871,15 @@ namespace CityFlipper
                 string resultPath = Path.Combine(
                     _dataDirectory,
                     "cityflipper-result.json");
-                string tempPath = resultPath + ".tmp";
-
                 string json = JsonConvert.SerializeObject(result, Formatting.Indented);
-
-                File.WriteAllText(tempPath, json);
 
                 Logger.Information(
                     $"Flipper observation complete after {_timer.Elapsed.TotalMilliseconds:F0} ms.");
                 Logger.Information("Waiting for the unified host to unload the Flipper client.");
 
-                if (File.Exists(resultPath))
-                    File.Delete(resultPath);
-
-                // Expose the final file last. The unified host may unload the
-                // child AppDomain as soon as this atomic rename becomes visible.
-                File.Move(tempPath, resultPath);
+                // Publish the complete result last: the host can unload this
+                // AppDomain as soon as the atomic SQL write commits.
+                SqlFile.WriteAllText(resultPath, json);
             }
             catch (Exception ex)
             {

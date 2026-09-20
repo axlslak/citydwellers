@@ -1,3 +1,5 @@
+using File = CityDwellers.Shared.SqlFile;
+using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -18,19 +20,17 @@ namespace CityBankers
     ///
     /// The active ledger contains one row per physical symbiant CityBankers owns now.
     /// Immutable/repeated AO metadata lives in a separate index. When an item leaves
-    /// custody its active row is removed and appended to monthly JSONL history.
+    /// custody its active row and SQL history stream are updated in one transaction.
     ///
     /// Workers never write ledger/index/history. They continue to report physical work
     /// through the existing dispatch/result/event surfaces; Central consumes that evidence
-    /// and mutates the authoritative accounting files.
+    /// and mutates the authoritative SQL accounting records.
     /// </summary>
     public sealed class ActiveLedgerCoordinator : ClientlessPluginEntry
     {
         private string _settingsDir;
         private bool _isCentral;
         private DateTime _nextTickUtc;
-        private readonly Dictionary<string, long> _eventOffsets =
-            new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
 
         public override void Init(string pluginDir)
         {
@@ -97,59 +97,6 @@ namespace CityBankers
                     Client.CharacterName,
                     "central",
                     "ACTIVE LEDGER ERROR: " + ex);
-            }
-        }
-
-        private void InitializeEventOffsets()
-        {
-            string directory = ActiveLedgerStore.GetLegacyEventDirectory(_settingsDir);
-            if (!Directory.Exists(directory))
-                return;
-
-            foreach (string path in Directory.GetFiles(directory, "citybankers-*.jsonl"))
-                _eventOffsets[path] = new FileInfo(path).Length;
-        }
-
-        private void ProcessNewLegacyEvents()
-        {
-            string directory = ActiveLedgerStore.GetLegacyEventDirectory(_settingsDir);
-            if (!Directory.Exists(directory))
-                return;
-
-            foreach (string path in Directory.GetFiles(directory, "citybankers-*.jsonl")
-                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
-            {
-                long offset;
-                if (!_eventOffsets.TryGetValue(path, out offset))
-                    offset = 0;
-
-                FileInfo info = new FileInfo(path);
-                if (offset > info.Length)
-                    offset = 0;
-                if (offset == info.Length)
-                {
-                    _eventOffsets[path] = offset;
-                    continue;
-                }
-
-                using (var stream = new FileStream(
-                    path,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.ReadWrite))
-                {
-                    stream.Seek(offset, SeekOrigin.Begin);
-                    using (var reader = new StreamReader(stream, Encoding.UTF8, true, 4096, true))
-                    {
-                        string line;
-                        while ((line = reader.ReadLine()) != null)
-                        {
-                            if (!string.IsNullOrWhiteSpace(line))
-                                ProcessLegacyEvent(line);
-                        }
-                    }
-                    _eventOffsets[path] = stream.Position;
-                }
             }
         }
 
@@ -370,23 +317,26 @@ namespace CityBankers
             string centralCharacter,
             CurrentStockState legacyStock)
         {
-            EnsureIndexSeeded(settingsDir);
-
-            ActiveLedgerState ledger = LoadLedger(settingsDir);
-            if (ledger == null)
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
             {
-                ledger = MigrateLegacyStock(settingsDir, legacyStock);
-                SaveLedger(settingsDir, ledger);
-                RuntimeStateStore.AppendActivity(
-                    settingsDir,
-                    centralCharacter,
-                    "central",
-                    "ACTIVE LEDGER migrated from current physical stock; entries=" +
-                    ledger.Items.Count + ".");
-            }
+                EnsureIndexSeeded(settingsDir);
 
-            UpsertIndexFromStock(settingsDir, legacyStock);
-            MigrateLegacyHistory(settingsDir, centralCharacter);
+                ActiveLedgerState ledger = LoadLedger(settingsDir);
+                if (ledger == null)
+                {
+                    ledger = MigrateLegacyStock(settingsDir, legacyStock);
+                    SaveLedger(settingsDir, ledger);
+                    RuntimeStateStore.AppendActivity(
+                        settingsDir,
+                        centralCharacter,
+                        "central",
+                        "ACTIVE LEDGER migrated from current physical stock; entries=" +
+                        ledger.Items.Count + ".");
+                }
+
+                UpsertIndexFromStock(settingsDir, legacyStock);
+                MigrateLegacyHistory(settingsDir, centralCharacter);
+            });
         }
 
         public static ActiveLedgerState LoadLedger(string settingsDir)
@@ -402,89 +352,101 @@ namespace CityBankers
             IEnumerable<TransferItemState> metadata, string evidence,
             IEnumerable<string> confirmedDeliveryIds = null)
         {
-            UpsertIndex(settingsDir, metadata);
-            SaveLedger(settingsDir, new ActiveLedgerState { Items = items },
-                "Ledger entry not matched by completed physical census; cause unknown. Compare found for possible provenance ambiguity.",
-                evidence, confirmedDeliveryIds);
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            {
+                UpsertIndex(settingsDir, metadata);
+                SaveLedger(settingsDir, new ActiveLedgerState { Items = items },
+                    "Ledger entry not matched by completed physical census; cause unknown. Compare found for possible provenance ambiguity.",
+                    evidence, confirmedDeliveryIds);
+            });
         }
 
         internal static void RecordPhysicalReturn(string settingsDir, string ledgerId, string transaction,
             string source, string central, TransferItemState item, int? slot)
         {
-            var ledger = LoadLedger(settingsDir);
-            var entry = ledger?.Items?.SingleOrDefault(e => e.Id == ledgerId);
-            if (entry == null || entry.TransactionId != transaction || entry.AoId != item.AoId ||
-                (entry.HighId.HasValue && entry.HighId != item.HighId) ||
-                (entry.Ql.HasValue && entry.Ql != item.Ql))
-                throw new InvalidOperationException("Verified return cannot identify its ledger occurrence.");
-            // A persistence retry must not rewrite a location already committed.
-            if (string.Equals(entry.Character, central, StringComparison.OrdinalIgnoreCase)) return;
-            if (!string.Equals(entry.Character, source, StringComparison.OrdinalIgnoreCase) ||
-                entry.Location != "inventory" || entry.Bag.HasValue)
-                throw new InvalidOperationException("Return occurrence changed custody before accounting.");
-            entry.Character = central;
-            entry.Location = "inventory";
-            entry.Bag = null;
-            entry.Slot = slot.HasValue ? slot.Value & 65535 : (int?)null;
-            entry.HighId = item.HighId;
-            entry.Ql = item.Ql;
-            SaveLedger(settingsDir, ledger);
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            {
+                var ledger = LoadLedger(settingsDir);
+                var entry = ledger?.Items?.SingleOrDefault(e => e.Id == ledgerId);
+                if (entry == null || entry.TransactionId != transaction || entry.AoId != item.AoId ||
+                    (entry.HighId.HasValue && entry.HighId != item.HighId) ||
+                    (entry.Ql.HasValue && entry.Ql != item.Ql))
+                    throw new InvalidOperationException("Verified return cannot identify its ledger occurrence.");
+                // A persistence retry must not rewrite a location already committed.
+                if (string.Equals(entry.Character, central, StringComparison.OrdinalIgnoreCase)) return;
+                if (!string.Equals(entry.Character, source, StringComparison.OrdinalIgnoreCase) ||
+                    entry.Location != "inventory" || entry.Bag.HasValue)
+                    throw new InvalidOperationException("Return occurrence changed custody before accounting.");
+                entry.Character = central;
+                entry.Location = "inventory";
+                entry.Bag = null;
+                entry.Slot = slot.HasValue ? slot.Value & 65535 : (int?)null;
+                entry.HighId = item.HighId;
+                entry.Ql = item.Ql;
+                SaveLedger(settingsDir, ledger);
+            });
         }
 
         internal static void RecordWithdrawalArrival(string settingsDir, WithdrawalState state,
             string central, TransferItemState item, int inventorySlot)
         {
-            // Called only after a physically verified worker receipt has become
-            // central-received, before central-ready. Keep the existing occurrence ID.
-            if (!WithdrawalStore.HasStatus(state, "central-received"))
-                throw new InvalidOperationException("Withdrawal arrival lacks verified received state.");
-            var ledger = LoadLedger(settingsDir);
-            var entry = ledger?.Items?.SingleOrDefault(value => value.Id == state.ActiveLedgerId);
-            if (entry == null || entry.TransactionId != state.DonationTransactionId || entry.AoId != item.AoId ||
-                (entry.HighId.HasValue && entry.HighId != item.HighId) ||
-                (entry.Ql.HasValue && entry.Ql != item.Ql) ||
-                (!string.Equals(entry.Character, state.SourceCharacter, StringComparison.OrdinalIgnoreCase) &&
-                 !string.Equals(entry.Character, central, StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidOperationException("Verified withdrawal arrival cannot identify its ledger occurrence.");
-            entry.Character = central;
-            entry.Location = "inventory";
-            entry.Bag = null;
-            entry.Slot = inventorySlot & 65535;
-            entry.HighId = item.HighId;
-            entry.Ql = item.Ql;
-            SaveLedger(settingsDir, ledger);
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            {
+                // Called only after a physically verified worker receipt has become
+                // central-received, before central-ready. Keep the existing occurrence ID.
+                if (!WithdrawalStore.HasStatus(state, "central-received"))
+                    throw new InvalidOperationException("Withdrawal arrival lacks verified received state.");
+                var ledger = LoadLedger(settingsDir);
+                var entry = ledger?.Items?.SingleOrDefault(value => value.Id == state.ActiveLedgerId);
+                if (entry == null || entry.TransactionId != state.DonationTransactionId || entry.AoId != item.AoId ||
+                    (entry.HighId.HasValue && entry.HighId != item.HighId) ||
+                    (entry.Ql.HasValue && entry.Ql != item.Ql) ||
+                    (!string.Equals(entry.Character, state.SourceCharacter, StringComparison.OrdinalIgnoreCase) &&
+                     !string.Equals(entry.Character, central, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException("Verified withdrawal arrival cannot identify its ledger occurrence.");
+                entry.Character = central;
+                entry.Location = "inventory";
+                entry.Bag = null;
+                entry.Slot = inventorySlot & 65535;
+                entry.HighId = item.HighId;
+                entry.Ql = item.Ql;
+                SaveLedger(settingsDir, ledger);
+            });
         }
 
         internal static void RecordExtraction(string settingsDir, ExtractionProof proof)
         {
-            var ledger = LoadLedger(settingsDir);
-            var entry = ledger?.Items?.SingleOrDefault(e => e.Id == proof.LedgerId);
-            if (entry == null || entry.TransactionId != proof.TransactionId || entry.AoId != proof.Item.AoId ||
-                (entry.HighId.HasValue && entry.HighId != proof.Item.HighId) || (entry.Ql.HasValue && entry.Ql != proof.Item.Ql) ||
-                !string.Equals(entry.Character, proof.Character, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Extraction cannot identify its ledger occurrence.");
-            bool alreadyApplied = entry.Location == "inventory" && !entry.Bag.HasValue && entry.Slot == proof.InventorySlot;
-            if (!alreadyApplied && (entry.Location != proof.Source || entry.Bag != proof.Bag || entry.Slot != proof.SourceSlot))
-                throw new InvalidOperationException("Extraction ledger source changed before accounting.");
-            if (proof.Bag.HasValue)
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
             {
-                if (!proof.FinalBagSlot.HasValue) throw new InvalidOperationException("Extraction has not returned its source bag.");
-                Func<ExtractionSlot, RuntimeStorageStateTransactions.LiveBagItemSnapshot> snapshot = s =>
-                    new RuntimeStorageStateTransactions.LiveBagItemSnapshot { InnerSlot = s.Slot, AoId = s.Item.AoId,
-                        HighId = s.Item.HighId, Ql = s.Item.Ql, Name = s.Item.Name, UniqueIdentity = s.Item.UniqueIdentity };
-                RuntimeStorageStateTransactions.CommitVerifiedExtraction(settingsDir, proof.Character, proof.Source,
-                    proof.Bag.Value, proof.BagIdentity, proof.FinalBagSlot.Value, proof.SourceSlot,
-                    proof.BeforeSource.Select(snapshot), proof.AfterSource.Select(snapshot));
-                foreach (var other in ledger.Items.Where(e => e.Id != proof.LedgerId &&
-                    string.Equals(e.Character, proof.Character, StringComparison.OrdinalIgnoreCase) &&
-                    e.Location == proof.Source && e.Bag == proof.Bag)) other.Bag = proof.FinalBagSlot;
-            }
-            entry.Location = "inventory";
-            entry.Bag = null;
-            entry.Slot = proof.InventorySlot;
-            entry.HighId = proof.Item.HighId;
-            entry.Ql = proof.Item.Ql;
-            SaveLedger(settingsDir, ledger);
+                var ledger = LoadLedger(settingsDir);
+                var entry = ledger?.Items?.SingleOrDefault(e => e.Id == proof.LedgerId);
+                if (entry == null || entry.TransactionId != proof.TransactionId || entry.AoId != proof.Item.AoId ||
+                    (entry.HighId.HasValue && entry.HighId != proof.Item.HighId) || (entry.Ql.HasValue && entry.Ql != proof.Item.Ql) ||
+                    !string.Equals(entry.Character, proof.Character, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Extraction cannot identify its ledger occurrence.");
+                bool alreadyApplied = entry.Location == "inventory" && !entry.Bag.HasValue && entry.Slot == proof.InventorySlot;
+                if (!alreadyApplied && (entry.Location != proof.Source || entry.Bag != proof.Bag || entry.Slot != proof.SourceSlot))
+                    throw new InvalidOperationException("Extraction ledger source changed before accounting.");
+                if (proof.Bag.HasValue)
+                {
+                    if (!proof.FinalBagSlot.HasValue) throw new InvalidOperationException("Extraction has not returned its source bag.");
+                    Func<ExtractionSlot, RuntimeStorageStateTransactions.LiveBagItemSnapshot> snapshot = s =>
+                        new RuntimeStorageStateTransactions.LiveBagItemSnapshot { InnerSlot = s.Slot, AoId = s.Item.AoId,
+                            HighId = s.Item.HighId, Ql = s.Item.Ql, Name = s.Item.Name, UniqueIdentity = s.Item.UniqueIdentity };
+                    RuntimeStorageStateTransactions.CommitVerifiedExtraction(settingsDir, proof.Character, proof.Source,
+                        proof.Bag.Value, proof.BagIdentity, proof.FinalBagSlot.Value, proof.SourceSlot,
+                        proof.BeforeSource.Select(snapshot), proof.AfterSource.Select(snapshot));
+                    foreach (var other in ledger.Items.Where(e => e.Id != proof.LedgerId &&
+                        string.Equals(e.Character, proof.Character, StringComparison.OrdinalIgnoreCase) &&
+                        e.Location == proof.Source && e.Bag == proof.Bag)) other.Bag = proof.FinalBagSlot;
+                }
+                entry.Location = "inventory";
+                entry.Bag = null;
+                entry.Slot = proof.InventorySlot;
+                entry.HighId = proof.Item.HighId;
+                entry.Ql = proof.Item.Ql;
+                SaveLedger(settingsDir, ledger);
+            });
         }
 
         public static SymbiantIndexState LoadIndex(string settingsDir)
@@ -504,47 +466,50 @@ namespace CityBankers
             DateTime receivedUtc,
             IEnumerable<TransferItemState> items)
         {
-            List<TransferItemState> incoming = (items ?? Enumerable.Empty<TransferItemState>())
-                .Where(item => item != null && item.AoId != 0 && !CruPolicy.IsCru(item.AoId))
-                .ToList();
-            if (incoming.Count == 0)
-                return;
-
-            UpsertIndex(settingsDir, incoming);
-            ActiveLedgerState ledger = LoadLedger(settingsDir) ?? NewLedger();
-            bool changed = false;
-
-            foreach (var group in incoming.GroupBy(item => new { item.AoId, item.HighId, item.Ql }))
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
             {
-                int existingCount = ledger.Items.Count(entry =>
-                    entry.AoId == group.Key.AoId && entry.HighId == group.Key.HighId && entry.Ql == group.Key.Ql &&
-                    string.Equals(entry.TransactionId, transactionId, StringComparison.Ordinal));
+                List<TransferItemState> incoming = (items ?? Enumerable.Empty<TransferItemState>())
+                    .Where(item => item != null && item.AoId != 0 && !CruPolicy.IsCru(item.AoId))
+                    .ToList();
+                if (incoming.Count == 0)
+                    return;
 
-                foreach (TransferItemState item in group.Skip(existingCount))
+                UpsertIndex(settingsDir, incoming);
+                ActiveLedgerState ledger = LoadLedger(settingsDir) ?? NewLedger();
+                bool changed = false;
+
+                foreach (var group in incoming.GroupBy(item => new { item.AoId, item.HighId, item.Ql }))
                 {
-                    string family;
-                    SymbiantCatalog.TryGetDestinationRole(settingsDir, item.AoId, out family);
-                    ledger.Items.Add(new ActiveLedgerItem
-                    {
-                        Id = "cb-" + Guid.NewGuid().ToString("N"),
-                        AoId = item.AoId,
-                        HighId = item.HighId,
-                        Ql = item.Ql,
-                        TransactionId = transactionId,
-                        From = donor,
-                        ReceivedUtc = receivedUtc == DateTime.MinValue ? DateTime.UtcNow : receivedUtc,
-                        Family = family,
-                        Character = centralCharacter,
-                        Location = "inventory",
-                        Bag = null,
-                        Slot = null
-                    });
-                    changed = true;
-                }
-            }
+                    int existingCount = ledger.Items.Count(entry =>
+                        entry.AoId == group.Key.AoId && entry.HighId == group.Key.HighId && entry.Ql == group.Key.Ql &&
+                        string.Equals(entry.TransactionId, transactionId, StringComparison.Ordinal));
 
-            if (changed)
-                SaveLedger(settingsDir, ledger);
+                    foreach (TransferItemState item in group.Skip(existingCount))
+                    {
+                        string family;
+                        SymbiantCatalog.TryGetDestinationRole(settingsDir, item.AoId, out family);
+                        ledger.Items.Add(new ActiveLedgerItem
+                        {
+                            Id = "cb-" + Guid.NewGuid().ToString("N"),
+                            AoId = item.AoId,
+                            HighId = item.HighId,
+                            Ql = item.Ql,
+                            TransactionId = transactionId,
+                            From = donor,
+                            ReceivedUtc = receivedUtc == DateTime.MinValue ? DateTime.UtcNow : receivedUtc,
+                            Family = family,
+                            Character = centralCharacter,
+                            Location = "inventory",
+                            Bag = null,
+                            Slot = null
+                        });
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                    SaveLedger(settingsDir, ledger);
+            });
         }
 
         public static void MarkDispatched(
@@ -555,146 +520,152 @@ namespace CityBankers
             string sourceCharacter = null,
             IEnumerable<string> occurrenceIds = null)
         {
-            if (string.IsNullOrWhiteSpace(sourceCharacter) || occurrenceIds == null)
-                throw new InvalidOperationException("Dispatch accounting requires the prepared sender and occurrence IDs.");
-            var selectedIds = new HashSet<string>(occurrenceIds, StringComparer.Ordinal);
-            ActiveLedgerState ledger = LoadLedger(settingsDir);
-            if (ledger == null)
-                throw new InvalidOperationException("Dispatch accounting has no active ledger.");
-
-            bool changed = false;
-            foreach (IGrouping<int, TransferItemState> group in
-                (items ?? Enumerable.Empty<TransferItemState>()).GroupBy(item => item.AoId))
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
             {
-                List<ActiveLedgerItem> entries = ledger.Items
-                    .Where(entry =>
-                        entry.AoId == group.Key &&
-                        string.Equals(entry.TransactionId, transactionId, StringComparison.Ordinal) &&
-                        selectedIds.Contains(entry.Id))
-                    .OrderBy(entry => entry.Id, StringComparer.Ordinal)
-                    .Take(group.Count())
-                    .ToList();
+                if (string.IsNullOrWhiteSpace(sourceCharacter) || occurrenceIds == null)
+                    throw new InvalidOperationException("Dispatch accounting requires the prepared sender and occurrence IDs.");
+                var selectedIds = new HashSet<string>(occurrenceIds, StringComparer.Ordinal);
+                ActiveLedgerState ledger = LoadLedger(settingsDir);
+                if (ledger == null)
+                    throw new InvalidOperationException("Dispatch accounting has no active ledger.");
 
-                if (entries.Count != group.Count())
-                    throw new InvalidOperationException("Dispatch accounting cannot identify enough sender-held occurrences for " + transactionId + "/" + group.Key);
-
-                foreach (ActiveLedgerItem entry in entries)
+                bool changed = false;
+                foreach (IGrouping<int, TransferItemState> group in
+                    (items ?? Enumerable.Empty<TransferItemState>()).GroupBy(item => item.AoId))
                 {
-                    // Worker storage can be observed before Central's Finished callback.
-                    // Do not move that exact, already-arrived occurrence back to inventory.
-                    if (string.Equals(entry.Character, workerCharacter, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    if (!string.Equals(entry.Character, sourceCharacter, StringComparison.OrdinalIgnoreCase) ||
-                        entry.Location != "inventory" || entry.Bag != null)
-                        throw new InvalidOperationException("Prepared dispatch occurrence changed custody unexpectedly: " + entry.Id);
-                    entry.Character = workerCharacter;
-                    entry.Location = "inventory";
-                    entry.Bag = null;
-                    entry.Slot = null;
-                    changed = true;
-                }
-            }
+                    List<ActiveLedgerItem> entries = ledger.Items
+                        .Where(entry =>
+                            entry.AoId == group.Key &&
+                            string.Equals(entry.TransactionId, transactionId, StringComparison.Ordinal) &&
+                            selectedIds.Contains(entry.Id))
+                        .OrderBy(entry => entry.Id, StringComparer.Ordinal)
+                        .Take(group.Count())
+                        .ToList();
 
-            if (changed)
-                SaveLedger(settingsDir, ledger);
+                    if (entries.Count != group.Count())
+                        throw new InvalidOperationException("Dispatch accounting cannot identify enough sender-held occurrences for " + transactionId + "/" + group.Key);
+
+                    foreach (ActiveLedgerItem entry in entries)
+                    {
+                        // Worker storage can be observed before Central's Finished callback.
+                        // Do not move that exact, already-arrived occurrence back to inventory.
+                        if (string.Equals(entry.Character, workerCharacter, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        if (!string.Equals(entry.Character, sourceCharacter, StringComparison.OrdinalIgnoreCase) ||
+                            entry.Location != "inventory" || entry.Bag != null)
+                            throw new InvalidOperationException("Prepared dispatch occurrence changed custody unexpectedly: " + entry.Id);
+                        entry.Character = workerCharacter;
+                        entry.Location = "inventory";
+                        entry.Bag = null;
+                        entry.Slot = null;
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                    SaveLedger(settingsDir, ledger);
+            });
         }
 
         public static void SyncStoredLocations(
             string settingsDir,
             CurrentStockState stock)
         {
-            var censusing = WithdrawalStore.GetCensusCharacters(settingsDir);
-            var readyCharacters = WithdrawalStore.GetReadyCharacters(settingsDir);
-            List<StockItemState> physical = (stock?.Items ?? new List<StockItemState>())
-                .Where(item => item != null && !censusing.Contains(item.Character) && readyCharacters.Contains(item.Character))
-                .ToList();
-            if (physical.Count == 0)
-                return;
-
-            UpsertIndexFromStock(settingsDir, stock);
-            ActiveLedgerState ledger = LoadLedger(settingsDir);
-            if (ledger == null)
-                return;
-
-            Dictionary<string, LegacyProvenance> provenance = null;
-            bool changed = false;
-
-            foreach (IGrouping<string, StockItemState> transactionGroup in physical.GroupBy(item =>
-                (item.TransactionId ?? string.Empty) + "\n" + item.AoId))
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
             {
-                List<StockItemState> physicalItems = transactionGroup
-                    .OrderBy(item => item.Character, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(item => item.BagSource, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(item => item.BagOuterSlot)
-                    .ThenBy(item => item.InnerSlot)
+                var censusing = WithdrawalStore.GetCensusCharacters(settingsDir);
+                var readyCharacters = WithdrawalStore.GetReadyCharacters(settingsDir);
+                List<StockItemState> physical = (stock?.Items ?? new List<StockItemState>())
+                    .Where(item => item != null && !censusing.Contains(item.Character) && readyCharacters.Contains(item.Character))
                     .ToList();
-                StockItemState first = physicalItems[0];
-                List<ActiveLedgerItem> entries = ledger.Items
-                    .Where(entry =>
-                        !censusing.Contains(entry.Character) && readyCharacters.Contains(entry.Character) && entry.AoId == first.AoId &&
-                        string.Equals(entry.TransactionId, first.TransactionId, StringComparison.Ordinal))
-                    .OrderBy(entry => entry.Id, StringComparer.Ordinal)
-                    .ToList();
+                if (physical.Count == 0)
+                    return;
 
-                while (entries.Count < physicalItems.Count)
+                UpsertIndexFromStock(settingsDir, stock);
+                ActiveLedgerState ledger = LoadLedger(settingsDir);
+                if (ledger == null)
+                    return;
+
+                Dictionary<string, LegacyProvenance> provenance = null;
+                bool changed = false;
+
+                foreach (IGrouping<string, StockItemState> transactionGroup in physical.GroupBy(item =>
+                    (item.TransactionId ?? string.Empty) + "\n" + item.AoId))
                 {
-                    if (provenance == null)
-                        provenance = LoadLegacyProvenance(settingsDir);
-                    StockItemState missingPhysical = physicalItems[entries.Count];
-                    LegacyProvenance source;
-                    provenance.TryGetValue(missingPhysical.TransactionId ?? string.Empty, out source);
-                    ActiveLedgerItem added = FromLegacyStock(missingPhysical, source);
-                    ledger.Items.Add(added);
-                    entries.Add(added);
-                    changed = true;
-                }
+                    List<StockItemState> physicalItems = transactionGroup
+                        .OrderBy(item => item.Character, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(item => item.BagSource, StringComparer.OrdinalIgnoreCase)
+                        .ThenBy(item => item.BagOuterSlot)
+                        .ThenBy(item => item.InnerSlot)
+                        .ToList();
+                    StockItemState first = physicalItems[0];
+                    List<ActiveLedgerItem> entries = ledger.Items
+                        .Where(entry =>
+                            !censusing.Contains(entry.Character) && readyCharacters.Contains(entry.Character) && entry.AoId == first.AoId &&
+                            string.Equals(entry.TransactionId, first.TransactionId, StringComparison.Ordinal))
+                        .OrderBy(entry => entry.Id, StringComparer.Ordinal)
+                        .ToList();
 
-                // Reserve existing slot matches before assigning any unmatched copy.
-                physicalItems = physicalItems.OrderByDescending(item => entries.Any(candidate =>
-                    string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase) &&
-                    string.Equals(candidate.Location, item.BagSource, StringComparison.OrdinalIgnoreCase) &&
-                    candidate.Bag == item.BagOuterSlot && candidate.Slot == item.InnerSlot)).ToList();
-
-                for (int index = 0; index < physicalItems.Count; index++)
-                {
-                    StockItemState item = physicalItems[index];
-                    // Keep a stable assignment for occurrences already at this slot.
-                    // Sorting IDs again on each sync can swap an in-transit duplicate
-                    // with the copy that was stored by an earlier one-item dispatch.
-                    ActiveLedgerItem entry = entries.FirstOrDefault(candidate =>
-                        string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase) &&
-                        string.Equals(candidate.Location, item.BagSource, StringComparison.OrdinalIgnoreCase) &&
-                        candidate.Bag == item.BagOuterSlot && candidate.Slot == item.InnerSlot)
-                        ?? entries.FirstOrDefault(candidate => candidate.Bag == null && candidate.Location == "inventory" &&
-                            string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase))
-                        ?? entries.First();
-                    entries.Remove(entry);
-                    string location = string.IsNullOrWhiteSpace(item.BagSource)
-                        ? "inventory"
-                        : item.BagSource;
-                    int? bag = string.IsNullOrWhiteSpace(item.BagSource)
-                        ? (int?)null
-                        : item.BagOuterSlot;
-                    int? slot = string.IsNullOrWhiteSpace(item.BagSource)
-                        ? (int?)null
-                        : item.InnerSlot;
-
-                    if (!string.Equals(entry.Character, item.Character, StringComparison.OrdinalIgnoreCase) ||
-                        !string.Equals(entry.Location, location, StringComparison.OrdinalIgnoreCase) ||
-                        entry.Bag != bag || entry.Slot != slot)
+                    while (entries.Count < physicalItems.Count)
                     {
-                        entry.Character = item.Character;
-                        entry.Location = location;
-                        entry.Bag = bag;
-                        entry.Slot = slot;
-                        entry.Family = item.Role;
+                        if (provenance == null)
+                            provenance = LoadLegacyProvenance(settingsDir);
+                        StockItemState missingPhysical = physicalItems[entries.Count];
+                        LegacyProvenance source;
+                        provenance.TryGetValue(missingPhysical.TransactionId ?? string.Empty, out source);
+                        ActiveLedgerItem added = FromLegacyStock(missingPhysical, source);
+                        ledger.Items.Add(added);
+                        entries.Add(added);
                         changed = true;
                     }
-                }
-            }
 
-            if (changed)
-                SaveLedger(settingsDir, ledger);
+                    // Reserve existing slot matches before assigning any unmatched copy.
+                    physicalItems = physicalItems.OrderByDescending(item => entries.Any(candidate =>
+                        string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(candidate.Location, item.BagSource, StringComparison.OrdinalIgnoreCase) &&
+                        candidate.Bag == item.BagOuterSlot && candidate.Slot == item.InnerSlot)).ToList();
+
+                    for (int index = 0; index < physicalItems.Count; index++)
+                    {
+                        StockItemState item = physicalItems[index];
+                        // Keep a stable assignment for occurrences already at this slot.
+                        // Sorting IDs again on each sync can swap an in-transit duplicate
+                        // with the copy that was stored by an earlier one-item dispatch.
+                        ActiveLedgerItem entry = entries.FirstOrDefault(candidate =>
+                            string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(candidate.Location, item.BagSource, StringComparison.OrdinalIgnoreCase) &&
+                            candidate.Bag == item.BagOuterSlot && candidate.Slot == item.InnerSlot)
+                            ?? entries.FirstOrDefault(candidate => candidate.Bag == null && candidate.Location == "inventory" &&
+                                string.Equals(candidate.Character, item.Character, StringComparison.OrdinalIgnoreCase))
+                            ?? entries.First();
+                        entries.Remove(entry);
+                        string location = string.IsNullOrWhiteSpace(item.BagSource)
+                            ? "inventory"
+                            : item.BagSource;
+                        int? bag = string.IsNullOrWhiteSpace(item.BagSource)
+                            ? (int?)null
+                            : item.BagOuterSlot;
+                        int? slot = string.IsNullOrWhiteSpace(item.BagSource)
+                            ? (int?)null
+                            : item.InnerSlot;
+
+                        if (!string.Equals(entry.Character, item.Character, StringComparison.OrdinalIgnoreCase) ||
+                            !string.Equals(entry.Location, location, StringComparison.OrdinalIgnoreCase) ||
+                            entry.Bag != bag || entry.Slot != slot)
+                        {
+                            entry.Character = item.Character;
+                            entry.Location = location;
+                            entry.Bag = bag;
+                            entry.Slot = slot;
+                            entry.Family = item.Role;
+                            changed = true;
+                        }
+                    }
+                }
+
+                if (changed)
+                    SaveLedger(settingsDir, ledger);
+            });
         }
 
         public static void ArchiveActiveItem(
@@ -706,52 +677,58 @@ namespace CityBankers
             string recipient,
             string sourceCharacter = null)
         {
-            ActiveLedgerState ledger = LoadLedger(settingsDir);
-            if (ledger == null)
-                throw new InvalidOperationException("Cannot archive custody without an active ledger.");
-
-            ActiveLedgerItem entry = string.IsNullOrWhiteSpace(sourceCharacter)
-                ? FindActive(ledger, transactionId, aoId)
-                : ledger.Items.FirstOrDefault(candidate => candidate.AoId == aoId &&
-                    string.Equals(candidate.TransactionId, transactionId, StringComparison.Ordinal) &&
-                    string.Equals(candidate.Character, sourceCharacter, StringComparison.OrdinalIgnoreCase) &&
-                    candidate.Location == "inventory" && candidate.Bag == null);
-            if (entry == null)
-                throw new InvalidOperationException("Cannot identify the occurrence leaving custody: " + transactionId + "/" + aoId);
-
-            DateTime when = leftUtc == DateTime.MinValue ? DateTime.UtcNow : leftUtc;
-            if (!HistoryContains(settingsDir, when, entry.Id, reason))
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
             {
-                AppendHistory(
-                    settingsDir,
-                    new ActiveHistoryRecord
-                    {
-                        LeftUtc = when,
-                        Reason = reason,
-                        Recipient = recipient,
-                        Item = Clone(entry)
-                    });
-            }
+                ActiveLedgerState ledger = LoadLedger(settingsDir);
+                if (ledger == null)
+                    throw new InvalidOperationException("Cannot archive custody without an active ledger.");
 
-            ledger.Items.Remove(entry);
-            SaveLedger(settingsDir, ledger, reason, "archive/" + reason,
-                reason == "withdrawn" || reason == "deleted_overcap" ? new[] { entry.Id } : null);
+                ActiveLedgerItem entry = string.IsNullOrWhiteSpace(sourceCharacter)
+                    ? FindActive(ledger, transactionId, aoId)
+                    : ledger.Items.FirstOrDefault(candidate => candidate.AoId == aoId &&
+                        string.Equals(candidate.TransactionId, transactionId, StringComparison.Ordinal) &&
+                        string.Equals(candidate.Character, sourceCharacter, StringComparison.OrdinalIgnoreCase) &&
+                        candidate.Location == "inventory" && candidate.Bag == null);
+                if (entry == null)
+                    throw new InvalidOperationException("Cannot identify the occurrence leaving custody: " + transactionId + "/" + aoId);
+
+                DateTime when = leftUtc == DateTime.MinValue ? DateTime.UtcNow : leftUtc;
+                if (!HistoryContains(settingsDir, when, entry.Id, reason))
+                {
+                    AppendHistory(
+                        settingsDir,
+                        new ActiveHistoryRecord
+                        {
+                            LeftUtc = when,
+                            Reason = reason,
+                            Recipient = recipient,
+                            Item = Clone(entry)
+                        });
+                }
+
+                ledger.Items.Remove(entry);
+                SaveLedger(settingsDir, ledger, reason, "archive/" + reason,
+                    reason == "withdrawn" || reason == "deleted_overcap" ? new[] { entry.Id } : null);
+            });
         }
 
         internal static void RecordCensusConfirmedDelivery(string settingsDir, WithdrawalState withdrawal,
             ActiveLedgerItem original)
         {
-            if (!WithdrawalStore.HasConfirmedDelivery(withdrawal))
-                throw new InvalidOperationException("Census cannot invent a delivery confirmation.");
-            // The full original request is also retained in census history. If
-            // historical metadata is absent, do not fabricate donor or time.
-            if (original == null || !withdrawal.DeliveredUtc.HasValue) return;
-            if (original.Id != withdrawal.ActiveLedgerId)
-                throw new InvalidOperationException("Confirmed withdrawal refers to a different ledger occurrence.");
-            DateTime when = withdrawal.DeliveredUtc.Value;
-            if (!HistoryContains(settingsDir, when, original.Id, "withdrawn"))
-                AppendHistory(settingsDir, new ActiveHistoryRecord
-                { LeftUtc = when, Reason = "withdrawn", Recipient = withdrawal.RecipientMain, Item = Clone(original) });
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            {
+                if (!WithdrawalStore.HasConfirmedDelivery(withdrawal))
+                    throw new InvalidOperationException("Census cannot invent a delivery confirmation.");
+                // The full original request is also retained in census history. If
+                // historical metadata is absent, do not fabricate donor or time.
+                if (original == null || !withdrawal.DeliveredUtc.HasValue) return;
+                if (original.Id != withdrawal.ActiveLedgerId)
+                    throw new InvalidOperationException("Confirmed withdrawal refers to a different ledger occurrence.");
+                DateTime when = withdrawal.DeliveredUtc.Value;
+                if (!HistoryContains(settingsDir, when, original.Id, "withdrawn"))
+                    AppendHistory(settingsDir, new ActiveHistoryRecord
+                    { LeftUtc = when, Reason = "withdrawn", Recipient = withdrawal.RecipientMain, Item = Clone(original) });
+            });
         }
 
         public static bool ArchiveActiveItemById(
@@ -761,26 +738,29 @@ namespace CityBankers
             string reason,
             string recipient)
         {
-            ActiveLedgerState ledger = LoadLedger(settingsDir);
-            ActiveLedgerItem entry = ledger?.Items?.FirstOrDefault(item =>
-                string.Equals(item.Id, itemId, StringComparison.Ordinal));
-            if (entry == null)
-                return HistoryContains(settingsDir, leftUtc, itemId, reason);
-            DateTime when = leftUtc == DateTime.MinValue ? DateTime.UtcNow : leftUtc;
-            if (!HistoryContains(settingsDir, when, entry.Id, reason))
+            return CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
             {
-                AppendHistory(settingsDir, new ActiveHistoryRecord
+                ActiveLedgerState ledger = LoadLedger(settingsDir);
+                ActiveLedgerItem entry = ledger?.Items?.FirstOrDefault(item =>
+                    string.Equals(item.Id, itemId, StringComparison.Ordinal));
+                if (entry == null)
+                    return HistoryContains(settingsDir, leftUtc, itemId, reason);
+                DateTime when = leftUtc == DateTime.MinValue ? DateTime.UtcNow : leftUtc;
+                if (!HistoryContains(settingsDir, when, entry.Id, reason))
                 {
-                    LeftUtc = when,
-                    Reason = reason,
-                    Recipient = recipient,
-                    Item = Clone(entry)
-                });
-            }
-            ledger.Items.Remove(entry);
-            SaveLedger(settingsDir, ledger, reason, "archive/" + reason,
-                reason == "withdrawn" || reason == "deleted_overcap" ? new[] { entry.Id } : null);
-            return true;
+                    AppendHistory(settingsDir, new ActiveHistoryRecord
+                    {
+                        LeftUtc = when,
+                        Reason = reason,
+                        Recipient = recipient,
+                        Item = Clone(entry)
+                    });
+                }
+                ledger.Items.Remove(entry);
+                SaveLedger(settingsDir, ledger, reason, "archive/" + reason,
+                    reason == "withdrawn" || reason == "deleted_overcap" ? new[] { entry.Id } : null);
+                return true;
+            });
         }
 
         public static CurrentStockState BuildStockView(string settingsDir)
@@ -1006,63 +986,66 @@ namespace CityBankers
             string removalReason = "Ledger entry removed without a recorded delivery; cause unknown.",
             string evidence = "ledger-update", IEnumerable<string> excludedRemovalIds = null)
         {
-            // Strict reads: an unreadable old ledger is never an empty baseline.
-            var previous = RuntimeStateStore.ReadJsonStrict<ActiveLedgerState>(GetActiveLedgerPath(settingsDir));
-            if (ledger.Items == null || ledger.Items.Any(i => i == null || string.IsNullOrWhiteSpace(i.Id)) ||
-                ledger.Items.GroupBy(i => i.Id, StringComparer.Ordinal).Any(g => g.Count() != 1) ||
-                (previous != null && (previous.Items == null || previous.Items.Any(i => i == null || string.IsNullOrWhiteSpace(i.Id)) ||
-                    previous.Items.GroupBy(i => i.Id, StringComparer.Ordinal).Any(g => g.Count() != 1))))
-                throw new InvalidDataException("Cannot commit an invalid ledger.");
-            var remaining = new HashSet<string>(ledger.Items.Select(i => i.Id), StringComparer.Ordinal);
-            var excluded = new HashSet<string>(excludedRemovalIds ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
-            LostItemsStore.ExcludePendingRemovals(settingsDir, excluded, "Confirmed delivery or intentional deletion");
-            var removed = (previous?.Items ?? new List<ActiveLedgerItem>())
-                .Where(i => !remaining.Contains(i.Id) && !excluded.Contains(i.Id)).ToList();
-            if (removed.Count > 0)
+            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
             {
-                var index = RuntimeStateStore.ReadJsonStrict<SymbiantIndexState>(GetIndexPath(settingsDir));
-                DateTime discovered = DateTime.UtcNow;
-                LostItemsStore.RecordBeforeRemoval(settingsDir, removed.Select(item => new LostItemRecord
+                // Strict reads: an unreadable old ledger is never an empty baseline.
+                var previous = RuntimeStateStore.ReadJsonStrict<ActiveLedgerState>(GetActiveLedgerPath(settingsDir));
+                if (ledger.Items == null || ledger.Items.Any(i => i == null || string.IsNullOrWhiteSpace(i.Id)) ||
+                    ledger.Items.GroupBy(i => i.Id, StringComparer.Ordinal).Any(g => g.Count() != 1) ||
+                    (previous != null && (previous.Items == null || previous.Items.Any(i => i == null || string.IsNullOrWhiteSpace(i.Id)) ||
+                        previous.Items.GroupBy(i => i.Id, StringComparer.Ordinal).Any(g => g.Count() != 1))))
+                    throw new InvalidDataException("Cannot commit an invalid ledger.");
+                var remaining = new HashSet<string>(ledger.Items.Select(i => i.Id), StringComparer.Ordinal);
+                var excluded = new HashSet<string>(excludedRemovalIds ?? Enumerable.Empty<string>(), StringComparer.Ordinal);
+                LostItemsStore.ExcludePendingRemovals(settingsDir, excluded, "Confirmed delivery or intentional deletion");
+                var removed = (previous?.Items ?? new List<ActiveLedgerItem>())
+                    .Where(i => !remaining.Contains(i.Id) && !excluded.Contains(i.Id)).ToList();
+                if (removed.Count > 0)
                 {
-                    IncidentId = item.Id + "/" + evidence, LedgerId = item.Id,
-                    ItemName = index?.Items?.FirstOrDefault(i => i.AoId == item.AoId)?.Name,
-                    DiscoveredUtc = discovered, Reason = removalReason, Evidence = evidence,
-                    PreviousLedgerEntry = JObject.FromObject(item)
-                }));
-            }
-            ledger.UpdatedUtc = DateTime.UtcNow;
-            ledger.Items = (ledger.Items ?? new List<ActiveLedgerItem>())
-                .OrderBy(item => item.AoId)
-                .ThenBy(item => item.ReceivedUtc)
-                .ThenBy(item => item.Id, StringComparer.Ordinal)
-                .ToList();
-            RuntimeStateStore.WriteJsonAtomic(GetActiveLedgerPath(settingsDir), ledger);
-            LostItemsStore.ConfirmRemovals(settingsDir, remaining);
-            // Evidence describes the committed transition, including exact old
-            // and new locations. Unknown provenance is not an inferred loss time.
-            try
-            {
-                var old = (previous?.Items ?? new List<ActiveLedgerItem>()).ToDictionary(i => i.Id);
-                foreach (var missing in removed)
-                    CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(settingsDir),
-                        "ledger:" + missing.Id, "ledger", "ledger.claim-unmatched", new {
-                            Previous = missing, Reason = removalReason, Evidence = evidence,
-                            SameTemplateClaims = ledger.Items.Where(i => i.AoId == missing.AoId && i.HighId == missing.HighId && i.Ql == missing.Ql).ToList(),
-                            Note = "Same-template claims are comparison candidates, not proof that this occurrence was found." },
-                        true, new[] { missing.TransactionId, "recovery:" + evidence });
-                foreach (var item in ledger.Items)
-                {
-                    ActiveLedgerItem before;
-                    old.TryGetValue(item.Id, out before);
-                    if (JsonConvert.SerializeObject(before) == JsonConvert.SerializeObject(item)) continue;
-                    bool found = before == null && string.IsNullOrWhiteSpace(item.From);
-                    CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(settingsDir),
-                        "ledger:" + item.Id, "ledger", found ? "found.committed" : "ledger.committed",
-                        new { Before = before, After = item, Reason = removalReason, Evidence = evidence, CauseKnown = false },
-                        found, new[] { item.TransactionId, "recovery:" + evidence });
+                    var index = RuntimeStateStore.ReadJsonStrict<SymbiantIndexState>(GetIndexPath(settingsDir));
+                    DateTime discovered = DateTime.UtcNow;
+                    LostItemsStore.RecordBeforeRemoval(settingsDir, removed.Select(item => new LostItemRecord
+                    {
+                        IncidentId = item.Id + "/" + evidence, LedgerId = item.Id,
+                        ItemName = index?.Items?.FirstOrDefault(i => i.AoId == item.AoId)?.Name,
+                        DiscoveredUtc = discovered, Reason = removalReason, Evidence = evidence,
+                        PreviousLedgerEntry = JObject.FromObject(item)
+                    }));
                 }
-            }
-            catch { /* Observability cannot change a committed ledger. */ }
+                ledger.UpdatedUtc = DateTime.UtcNow;
+                ledger.Items = (ledger.Items ?? new List<ActiveLedgerItem>())
+                    .OrderBy(item => item.AoId)
+                    .ThenBy(item => item.ReceivedUtc)
+                    .ThenBy(item => item.Id, StringComparer.Ordinal)
+                    .ToList();
+                RuntimeStateStore.WriteJsonAtomic(GetActiveLedgerPath(settingsDir), ledger);
+                LostItemsStore.ConfirmRemovals(settingsDir, remaining);
+                // Evidence describes the committed transition, including exact old
+                // and new locations. Unknown provenance is not an inferred loss time.
+                try
+                {
+                    var old = (previous?.Items ?? new List<ActiveLedgerItem>()).ToDictionary(i => i.Id);
+                    foreach (var missing in removed)
+                        CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(settingsDir),
+                            "ledger:" + missing.Id, "ledger", "ledger.claim-unmatched", new {
+                                Previous = missing, Reason = removalReason, Evidence = evidence,
+                                SameTemplateClaims = ledger.Items.Where(i => i.AoId == missing.AoId && i.HighId == missing.HighId && i.Ql == missing.Ql).ToList(),
+                                Note = "Same-template claims are comparison candidates, not proof that this occurrence was found." },
+                            true, new[] { missing.TransactionId, "recovery:" + evidence });
+                    foreach (var item in ledger.Items)
+                    {
+                        ActiveLedgerItem before;
+                        old.TryGetValue(item.Id, out before);
+                        if (JsonConvert.SerializeObject(before) == JsonConvert.SerializeObject(item)) continue;
+                        bool found = before == null && string.IsNullOrWhiteSpace(item.From);
+                        CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(settingsDir),
+                            "ledger:" + item.Id, "ledger", found ? "found.committed" : "ledger.committed",
+                            new { Before = before, After = item, Reason = removalReason, Evidence = evidence, CauseKnown = false },
+                            found, new[] { item.TransactionId, "recovery:" + evidence });
+                    }
+                }
+                catch { /* Observability cannot change a committed ledger. */ }
+            });
         }
 
         private static void EnsureIndexSeeded(string settingsDir)

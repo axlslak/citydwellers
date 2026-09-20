@@ -28,7 +28,7 @@ namespace CityManager
                 StorageState storage = RuntimeStateStore.LoadStorageState(_settingsDir);
                 DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
                 List<WithdrawalState> withdrawals = WithdrawalStore.LoadAll(_settingsDir);
-                bool allReady = File.Exists(Path.Combine(
+                bool allReady = SqlFile.Exists(Path.Combine(
                     _dataDir, "citybankers-all-bankers-ready.json"));
                 int processId = Process.GetCurrentProcess().Id;
                 int totalUsed = 0;
@@ -65,7 +65,7 @@ namespace CityManager
                     bool bankOpen = online && ParseBool(heartbeat?["BankOpen"]);
                     bool roleReady = string.Equals(role, "central", StringComparison.OrdinalIgnoreCase)
                         ? allReady
-                        : File.Exists(Path.Combine(
+                        : SqlFile.Exists(Path.Combine(
                             _dataDir, "citybankers-storage-writefront-ready-" + token + ".json"));
 
                     List<DispatchBatchState> roleBatches = (queue?.Batches ?? new List<DispatchBatchState>())
@@ -728,7 +728,6 @@ namespace CityManager
 
         private void ProcessCentralDynelCommand(string senderName, ReplyTarget target)
         {
-            string temporaryPath = null;
             try
             {
                 JObject config = CityBankers.Shared.SettingsPaths.ReadBankersSettings(_settingsDir);
@@ -740,23 +739,19 @@ namespace CityManager
                 string token = character;
                 foreach (char invalid in Path.GetInvalidFileNameChars()) token = token.Replace(invalid, '_');
                 string path = Path.Combine(_dataDir, "citybankers-report-command-" + token + ".json");
-                if (File.Exists(path)) { Reply(target, "Central already has a diagnostic request pending."); return; }
-                temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                File.WriteAllText(temporaryPath, new JObject {
+                if (!SqlFile.TryCreateNew(path, new JObject {
                     ["Recipient"] = senderName, ["Kind"] = "dynel"
-                }.ToString());
-                File.Move(temporaryPath, path);
+                }.ToString()))
+                {
+                    Reply(target, "Central already has a diagnostic request pending.");
+                    return;
+                }
                 Reply(target, "Requested Kbcentral's current dynel list; it will arrive by tell.");
             }
             catch (Exception ex)
             {
                 Logger.Warning("Central dynel request: " + ex.Message);
                 Reply(target, "Could not queue Central's dynel diagnostic: " + ex.Message);
-            }
-            finally
-            {
-                if (temporaryPath != null && File.Exists(temporaryPath))
-                    try { File.Delete(temporaryPath); } catch { }
             }
         }
 
@@ -1165,16 +1160,16 @@ namespace CityManager
             }
 
             string historyDirectory = Path.Combine(_dataDir, "history");
-            if (Directory.Exists(historyDirectory))
+            if (SqlDirectory.Exists(historyDirectory))
             {
-                foreach (string path in Directory.GetFiles(
+                foreach (string path in SqlDirectory.GetFiles(
                     historyDirectory,
                     "history-*.jsonl").OrderBy(value => value, StringComparer.Ordinal))
                 {
                     int lineNumber = 0;
                     try
                     {
-                        foreach (string line in File.ReadLines(path))
+                        foreach (string line in SqlFile.ReadLines(path))
                         {
                             lineNumber++;
                             if (string.IsNullOrWhiteSpace(line))

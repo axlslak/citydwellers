@@ -1,3 +1,4 @@
+using File = CityDwellers.Shared.SqlFile;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -60,7 +61,7 @@ namespace CityBankers
             Logger.Information(
                 $"CityBankers canonical storage-state seeder armed on Central {Client.CharacterName}. " +
                 "It will seed storage-state/current-stock/ledger only from a validated " +
-                "settings/data/storage-baseline.json cutover snapshot.");
+                "MySQL storage-baseline.json cutover snapshot.");
         }
 
         public override void Teardown()

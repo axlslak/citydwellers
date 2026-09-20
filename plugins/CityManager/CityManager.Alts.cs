@@ -92,7 +92,7 @@ namespace CityManager
                 _onlineSnapshotResponse = null;
                 _startupOnlineSnapshotPending = false;
 
-                if (File.Exists(_altsPath))
+                if (SqlFile.Exists(_altsPath))
                 {
                     try
                     {
@@ -101,10 +101,9 @@ namespace CityManager
                     catch (Exception ex)
                     {
                         Logger.Error($"Unable to load alt cache: {ex.Message}");
-                        PreserveInvalidAltsFileLocked();
-                        _altGroups.Clear();
-                        _altToMain.Clear();
-                        TrySaveAltsLocked();
+                        // Never discard authoritative imported identities.
+                        SqlStore.FailClosed("The MySQL alt cache is invalid; repair it before starting Manager.", ex);
+                        throw;
                     }
                 }
                 else
@@ -119,7 +118,7 @@ namespace CityManager
                 $"Alt cache initialized: groups={GetAltGroupCount()}, " +
                 $"bot={_altsBotName ?? "disabled"}.");
             DevTrace(
-                $"ALTS initialized file=alts.json groups={GetAltGroupCount()} " +
+                $"ALTS initialized sql-key=alts.json groups={GetAltGroupCount()} " +
                 $"bot={_altsBotName ?? "disabled"}.");
         }
 
@@ -1826,7 +1825,7 @@ namespace CityManager
         private void LoadAltsLocked()
         {
             PersistedAltState state = JsonConvert.DeserializeObject<PersistedAltState>(
-                File.ReadAllText(_altsPath));
+                SqlFile.ReadAllText(_altsPath));
 
             if (state == null ||
                 (state.Version != 1 && state.Version != AltStateVersion) ||
@@ -1888,15 +1887,8 @@ namespace CityManager
                     .ToList()
             };
 
-            string tempPath = _altsPath + ".tmp";
-            File.WriteAllText(
-                tempPath,
+            SqlFile.WriteAllText(_altsPath,
                 JsonConvert.SerializeObject(state, Formatting.Indented));
-
-            if (File.Exists(_altsPath))
-                File.Delete(_altsPath);
-
-            File.Move(tempPath, _altsPath);
         }
 
         private void TrySaveAltsLocked()
@@ -1908,24 +1900,6 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Error($"Unable to save alt cache {_altsPath}: {ex.Message}");
-            }
-        }
-
-        private void PreserveInvalidAltsFileLocked()
-        {
-            if (!File.Exists(_altsPath))
-                return;
-
-            try
-            {
-                string backup =
-                    _altsPath + ".invalid-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss");
-                File.Move(_altsPath, backup);
-                Logger.Warning($"Preserved invalid alt cache as {backup}.");
-            }
-            catch (Exception ex)
-            {
-                Logger.Error($"Unable to preserve invalid alt cache: {ex.Message}");
             }
         }
 
