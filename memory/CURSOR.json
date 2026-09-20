@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 188,
+  "current_session": 189,
   "last_completed_session": 188,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-188-build-wiring",
+  "transaction": "session-189-relog-evidence",
   "checkpoint_commit": "161440baa591aade83c04b70683e9d65f20b4f59",
-  "task": "Resolved: shutdown helper compile links and LoginTry build configurations",
-  "resume_instruction": "Owner log contained missing ShutdownControl errors in Manager/host and skipped LoginTry, not timing results. Published direct Compile links in both consumers and removed conditional root include; normalized LoginTry solution Any CPU mappings and explicit Debug/Release AnyCPU project groups. Owner reload updated solution, rebuild Release, then run logintry and return timestamped log. No assistant build/live testing; audit behavior unchanged and deferred.",
-  "base_commit": "e54fec6d7142adc8c319568327b438e535d49f8b"
+  "task": "Record owner nine-cycle relog evidence and correct probe outcome accounting",
+  "resume_instruction": "Persist sanitized timing evidence and avatar-presence versus relog distinction; separate successful login from disconnect errors in logintry. Audit-policy production changes remain the next task, not implemented by this evidence transaction.",
+  "base_commit": "64aa3779e223e695e69c79cc6c97aecead7d5036"
 }
