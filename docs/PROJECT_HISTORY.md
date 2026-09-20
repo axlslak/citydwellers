@@ -2816,3 +2816,12 @@ Both findings come from a 112-agent adversarial sweep over six lenses; 21 findin
 - `[DECISION]` Accepting a match on any record is not a weakened custody check. The old code was not checking "is the bag where it belongs"; it was checking "is one arbitrary record's slot the expected slot". A record at the expected slot is the client saying the bag is there, which is the same evidence the check always wanted.
 - `[OPEN]` Unchanged from session 149: `BuildCurrentStock` and `FindNextFreeBag` count a duplicated bag twice in persisted state (`#stock` reports 42 symbiants where 21 exist); `CensusApplication` drops the donor anchor for every item in a bag the persisted state lists twice; the SDK's `Bank.RegisterItems` appends without clearing, which is how the duplicate bank records are manufactured; and a second audit on one connection fails every inventory bag.
 - Validation: owner log correlation across the 11:57-12:00 run, source review of the three lookup sites, brace and parenthesis balance, `git diff --check`. No assistant compilation or live run.
+
+## Owner rule — no automatic physical audits (session 186)
+
+- First priority when asked what needs fixing: remove automatic audits from normal bot operations. Do not resurrect this recovery strategy.
+- Physical bag audits/censuses require an explicit administrator request. SC+ alone is not sufficient. Keep the implementation in source, but disable/comment out automatic startup, periodic and failure-triggered execution.
+- A problem on one banker must not audit or disrupt the whole roster. Report the concrete fault to the administrator; do not infer that a CRU donation justifies checking nine bankers.
+- Prefer a local relog to refresh distrusted client state. There is no clientless 30-second relog rule. Never relog during a trade. Relogging must not implicitly launch an audit or manufacture proof of container contents.
+- Hold only affected uncertain operations and explain the bug; administrator decides whether to authorize a physical audit. Evidence first, not blanket reconciliation.
+

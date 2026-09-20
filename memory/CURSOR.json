@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 185,
+  "current_session": 186,
   "last_completed_session": 185,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-185-audited-shutdown",
+  "transaction": "session-186-admin-only-physical-audits",
   "checkpoint_commit": "67db404e0aa8186e881080c047a70eaceccee982",
-  "task": "Resolved: audited SC+/admin whole-host shutdown; org controller reviewed",
-  "resume_instruction": "Published #shutdown/bare tell shutdown for SC+ including verified officer alts and admins. Audit actor/authority/channel/UTC/request ID before handoff and host acceptance; all components stop then process exits, service reports normal stop. #restart remains admin-only Manager-only. Org controller unchanged: qualifying large org replies probe upward; eligible frontier misses shrink/retry, small/tell replies do not train it. Owner builds/live-tests; no assistant builds performed. Reopen on concrete issue.",
-  "base_commit": "4579cdaa8efaed81e6dcc11dd113db5358e86dda"
+  "task": "Remove automatic physical audits from normal runtime; explicit admin authorization only",
+  "resume_instruction": "Owner policy recorded first in AGENTS/state/history/journal. Disable automatic startup/periodic/fault audits and roster-wide escalation, preserve implementation and explicit admin audit path. Local relog only outside trades, no assumed30s cooldown; uncertain operations report/hold locally. Inspect startup readiness and persisted custody so disabling audits does not blindly bless inventory. No builds/live tests.",
+  "base_commit": "df6c904e1ba20ed2cd90a83883fdb565bfbc50fa"
 }

@@ -114,3 +114,12 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
   entries after implementation, infer entries from Git/recovery notes, invent
   dates, or paraphrase the owner's text.
 - Do not move this changelog into runtime JSON or the user's data directory.
+
+## Owner rule — no automatic physical audits (session 186)
+
+- First priority when asked what needs fixing: remove automatic audits from normal bot operations. Do not resurrect this recovery strategy.
+- Physical bag audits/censuses require an explicit administrator request. SC+ alone is not sufficient. Keep the implementation in source, but disable/comment out automatic startup, periodic and failure-triggered execution.
+- A problem on one banker must not audit or disrupt the whole roster. Report the concrete fault to the administrator; do not infer that a CRU donation justifies checking nine bankers.
+- Prefer a local relog to refresh distrusted client state. There is no clientless 30-second relog rule. Never relog during a trade. Relogging must not implicitly launch an audit or manufacture proof of container contents.
+- Hold only affected uncertain operations and explain the bug; administrator decides whether to authorize a physical audit. Evidence first, not blanket reconciliation.
+
