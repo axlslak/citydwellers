@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 201,
-  "last_completed_session": 200,
-  "status": "in_progress",
+  "last_completed_session": 201,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-201-remove-stale-folder-guard",
-  "checkpoint_commit": "dac436062cc063d888c0985672b61aa6a5066501",
-  "task": "Fix coordinator rejecting permitted disk data folder",
-  "resume_instruction": "Remove leftover coordinator folder rejection and SettingsPaths warning; correct runtime layout message. Owner reported exact Program.cs line323 failure after session200. SQL startup gates remain. No build/tests per owner boundary.",
+  "checkpoint_commit": "39bbf9b141bee262088d5735b8f689ec5c9402b8",
+  "task": "No active task",
+  "resume_instruction": "Session201 published: obsolete startup data-folder rejection and migration warning removed; runtime message corrected. Disk items.json/logs/dumps permitted; SQL gates unchanged. No data movement/deletion/storage redesign. Source review and diff checks only; owner builds and live-tests.",
   "base_commit": "fdab5d8f780afac80f67f3bbde33f3947ce10580"
 }
