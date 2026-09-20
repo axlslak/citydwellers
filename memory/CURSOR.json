@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 184,
+  "current_session": 185,
   "last_completed_session": 184,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-184-org-feedback-confidence",
+  "transaction": "session-185-audited-shutdown",
   "checkpoint_commit": "62724e6379cabef0636c98c63b7e9c515ba1daa2",
-  "task": "Confidence-aware organization blob probing published",
-  "resume_instruction": "Owner rebuild/restart. V3 org state migrates to v4 without trusting old negative echoes. A qualifying ~4.9KB confirmation near a 5200 budget should mark 5200 proven-safe and advance current to about 5700; another qualifying frontier success can advance to about 6250. A 644B self-echo miss below larger confirmed evidence logs uncertainty only and must not retry. An unproven larger frontier miss records failed budget, narrows between safe/fail, rebuilds/retries after 3s; late exact echo still cancels queued retry. #status shows current(default), proven safe, failed probe, max-confirmed, last-unconfirmed and retries.",
-  "base_commit": "f3acd1c3cbf2ce9617e237188a40c14075135438"
+  "task": "Review org probing and implement audited SC+/admin whole-host shutdown",
+  "resume_instruction": "Implement one-command shutdown using existing officer/admin authority and unified stop path. Persist actor/authority/channel/time before shutdown, handle Windows service intentional stop, register files/help. Org controller review only. Owner builds/live-tests.",
+  "base_commit": "4579cdaa8efaed81e6dcc11dd113db5358e86dda"
 }
