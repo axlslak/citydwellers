@@ -10,6 +10,7 @@
     <AssemblyName>DataMigration</AssemblyName>
     <StartupObject>CityDwellers.DataMigration.Program</StartupObject>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
     <PlatformTarget>x86</PlatformTarget>
     <LangVersion>latest</LangVersion>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
@@ -36,7 +37,10 @@
     <Reference Include="System.Data" />
     <Compile Include="Program.cs" />
     <Compile Include="VerifiedSource.cs" />
-    <Compile Include="..\..\shared\Sql*.cs"><Link>Shared\%(Filename)%(Extension)</Link></Compile>
+    <Compile Include="..\..\shared\SqlStore.cs"><Link>Sql\SqlStore.cs</Link></Compile>
+    <Compile Include="..\..\shared\SqlSchema.cs"><Link>Sql\SqlSchema.cs</Link></Compile>
+    <Compile Include="..\..\shared\SqlFile.cs"><Link>Sql\SqlFile.cs</Link></Compile>
+    <Compile Include="..\..\shared\SqlDirectory.cs"><Link>Sql\SqlDirectory.cs</Link></Compile>
     <PackageReference Include="MySqlConnector" Version="[2.3.7]" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="System.Diagnostics.DiagnosticSource" Version="7.0.2" />

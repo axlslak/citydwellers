@@ -14,6 +14,26 @@ Framework 4.8/x86, as the host does. The pinned
 [MySqlConnector 2.3.7 package](https://www.nuget.org/packages/MySqlConnector/2.3.7)
 includes a .NET Framework 4.8 target.
 
+## Updating an already-open Visual Studio solution
+
+This update replaces the LoginTry project with DataMigration and adds SQL sources
+and dependencies to every runtime project. After copying/pulling the updated
+source, close and reopen `citydwellers.sln` so Visual Studio refreshes the project
+graph and references. Restore NuGet packages before rebuilding.
+
+If Visual Studio reports `Project unavailable` during restore, close the solution
+and run this from a Visual Studio Developer Command Prompt in the repository root:
+
+```text
+msbuild citydwellers.sln /t:Restore /p:RestoreForce=true /p:Configuration=Release
+```
+
+This restores packages without compiling or starting any bot. Resolve any actual
+restore error it prints before reopening and rebuilding the solution. Missing
+`MySqlConnector`/`Newtonsoft` types following a failed restore are not evidence of
+a SQL server problem; no database connection is needed to build. Do not delete
+runtime `data` to troubleshoot a build. Only the verified migration removes it.
+
 ## Connection and first conversion
 
 Use **MySQL 8.0 or newer** and an existing database. This schema is not a MariaDB

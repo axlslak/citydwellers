@@ -1,3 +1,10 @@
+## Session 193 — SQL project references after owner build failure
+
+- [OWNER BUILD] All seven projects failed. Runtime assemblies reported missing SqlFile/SqlDirectory; DataMigration reported missing MySqlConnector/Newtonsoft after NuGet restore failed with Project unavailable. The attachment provides no detailed NuGet cause. No migration ran.
+- [FIX] Each of the seven csproj files now explicitly links SqlStore.cs, SqlSchema.cs, SqlFile.cs and SqlDirectory.cs. Each runtime project declares its MySqlConnector package directly. Removed the imported SQL wildcard/package entries to avoid duplicate inclusion and make project changes visible to Visual Studio reload. DataMigration declares PackageReference restore in its own project; redundant local props declarations removed while preserving offline isolation.
+- [RESTORE] Documented reopening the changed solution after LoginTry replacement and a standalone forced MSBuild Restore from Developer Command Prompt. A stale Visual Studio project graph is a possibility, not a confirmed cause of the owner's generic Project unavailable message. Further restore errors must be read directly; no database credentials/connection are needed for compilation.
+- [VALIDATION] XML/source inspection confirms all seven projects explicitly include all four existing SQL sources once, the connector once, valid solution GUID/path/build mappings, and offline utility dependency isolation. git diff --check. No assistant compilation, restore execution, test suite, SQL import or AO run. Published source fix is resolved; owner rebuild remains the source of actual compiler evidence.
+
 ## Session 192 — mandatory MySQL backend and verified offline migration
 
 - [OWNER DIRECTION / IMPLEMENTED] MySQL is the sole mutable runtime backend: state, stock, donor/pickup history, alts, bans/admins/membership, item catalogue/index, queues, receipts, audit markers, logs, incident reports, dumps and navigation traces. No physical runtime data folder or disk fallback. The root administrator citydwellers.json and immutable deployment assets remain file inputs. LoginTry is removed and replaced in the solution/host build by DataMigration.exe.
