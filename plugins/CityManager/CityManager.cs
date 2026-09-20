@@ -2545,16 +2545,24 @@ namespace CityManager
                       " ago"
                     : ", no send attempted since startup";
 
-                string confirmed = _orgLastConfirmedBytes > 0
-                    ? _orgLastConfirmedBytes + "B"
+                string safe = _orgBlobProvenSafePageSize > 0
+                    ? _orgBlobProvenSafePageSize.ToString(CultureInfo.InvariantCulture)
+                    : "unproven";
+                string failed = _orgBlobFailedPageSize > 0
+                    ? _orgBlobFailedPageSize.ToString(CultureInfo.InvariantCulture)
                     : "none";
-                string failed = _orgLastFailedBytes > 0
-                    ? _orgLastFailedBytes + "B"
+                string confirmed = _orgMaxConfirmedBytes > 0
+                    ? _orgMaxConfirmedBytes + "B max"
+                    : "none";
+                string unconfirmed = _orgLastUnconfirmedBytes > 0
+                    ? _orgLastUnconfirmedBytes + "B"
                     : "none";
                 string adaptive =
-                    ", blob " + _orgBlobCurrentPageSize + "(" + OrgBlobPageSize + " default)" +
-                    ", last confirmed " + confirmed +
-                    ", last failed " + failed +
+                    ", blob " + _orgBlobCurrentPageSize + " (" + OrgBlobPageSize + " default)" +
+                    ", proven safe budget " + safe +
+                    ", failed probe budget " + failed +
+                    ", confirmed " + confirmed +
+                    ", last unconfirmed " + unconfirmed +
                     ", retries queued " + _orgRetryQueue.Count;
 
                 return (_orgOutboundDegraded ? "degraded" : "ready") +
