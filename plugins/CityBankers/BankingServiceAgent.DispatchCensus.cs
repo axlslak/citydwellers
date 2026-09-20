@@ -78,12 +78,19 @@ namespace CityBankers
 
         private bool BeginDispatchDispute()
         {
+            if (!IsDispatchEvidence(_receipt)) return false;
+            PersistReceipt("dispatch-relog-required");
+            StartupCensusGate.Block("Dispatch inventory differs from its receipt; relog this banker only.");
+            return true;
+#if false // Owner policy: retained legacy automatic audit path.
+
             if (!IsDispatchEvidence(_receipt) || Trade.IsTrading || !StartupCensusGate.IsOpen) return false;
             PersistReceipt("dispatch-census-required");
             _dispatchDispute = JsonConvert.DeserializeObject<ReceiptEvidence>(JsonConvert.SerializeObject(_receipt));
             _dispatchDisputePause = StartupCensusGate.PauseLocalCensus(
                 "Dispatch inventory differs from its receipt; coordinating full physical audits of both participants.");
             return true;
+        #endif
         }
 
         private ReceiptEvidence DispatchEvidence(string attempt)
@@ -156,6 +163,11 @@ namespace CityBankers
 
         private bool HandleDispatchCensusProposal(DispatchProposal proposal)
         {
+            if (proposal.Kind != "dispatch-census-request" && proposal.Kind != "dispatch-census-prepare") return false;
+            proposal.Reply.TrySetResult("denied:Physical audit requires explicit administrator action.");
+            return true;
+#if false // Owner policy: retained legacy automatic audit path.
+
             if (proposal.Kind != "dispatch-census-request" && proposal.Kind != "dispatch-census-prepare") return false;
             DispatchCensusGrant grant;
             if (proposal.Kind == "dispatch-census-request")
@@ -231,10 +243,14 @@ namespace CityBankers
                 proposal.Reply.TrySetResult(_dispatchCensus.Batch.AttemptId == grant.Batch.AttemptId ? "joined" : "pending");
             }
             return true;
+        #endif
         }
 
         private void JoinDispatchCensus(DispatchCensusGrant grant)
         {
+            throw new InvalidOperationException("Automatic physical audits are disabled.");
+#if false // Retain implementation; exclude automatic audit workers from runtime.
+
             string run = _isCentral ? grant.CentralRun : grant.WorkerRun;
             var evidence = DispatchEvidence(grant.Batch.AttemptId);
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(LocalCensusDirectory(run), "dispatch-pair.json"), grant);
@@ -255,6 +271,7 @@ namespace CityBankers
             _localCensusReason = "Paired dispatch census for " + grant.Batch.BatchId;
             _localCensusAttempt = 0; _localCensusIssued = false; _localCensusResult = null; _localCensusCommit = null;
             _localCensusRetry.Restart(); _localCensusPoll.Restart();
+        #endif
         }
 
         private string _failedDispatchSignature;
@@ -262,6 +279,9 @@ namespace CityBankers
 
         private bool TryRecoverFailedDispatch()
         {
+            return false;
+#if false // Retain implementation; exclude automatic audit workers from runtime.
+
             if (!_isCentral || _dispatchDispute != null || _dispatchCensus != null ||
                 !CanStartLocalCensus() || _failedDispatchCensusPoll.ElapsedMilliseconds < 5000) return false;
             _failedDispatchCensusPoll.Restart();
@@ -287,10 +307,14 @@ namespace CityBankers
                 return true;
             }
             return false;
+        #endif
         }
 
         private bool TickDispatchCensus()
         {
+            return false;
+#if false // Retain implementation; exclude automatic audit workers from runtime.
+
             if (_dispatchDispute == null && _dispatchCensus == null) return false;
             try
             {
@@ -321,6 +345,7 @@ namespace CityBankers
                 _dispatchCensusError = ex.Message;
             }
             return _localCensus == null;
+        #endif
         }
 
         private async Task<string> SendDispatchCensus(string character, DispatchProposal proposal)

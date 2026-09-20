@@ -58,6 +58,9 @@ namespace CityBankers
 
         private void RequestStorageRecovery(StorageJob job)
         {
+            StartupCensusGate.Block("Storage placement was not verified; relog this banker only. Retain the operation for administrator review if still unresolved.");
+#if false // Owner policy: retained legacy automatic audit path.
+
             if (IsReserveBatch(job.Command?.Items))
             {
                 StartupCensusGate.Block("Empty replacement bag placement requires physical census reconciliation.");
@@ -69,10 +72,14 @@ namespace CityBankers
             _storageRecovery = new StorageRecoveryRequest { RunId = Guid.NewGuid().ToString("N"), Received = received };
             _storageRecoveryReply = null;
             _storageRecoveryRetry.Restart();
+        #endif
         }
 
         private bool TickStorageRecovery()
         {
+            return false;
+#if false // Retain implementation; exclude automatic audit workers from runtime.
+
             if (_storageRecovery == null) return false;
             if (_storageRecoveryRetry.ElapsedMilliseconds < 1000) return true;
             _storageRecoveryRetry.Restart();
@@ -97,6 +104,7 @@ namespace CityBankers
                 _storageRecoveryError = ex.Message;
             }
             return true;
+        #endif
         }
 
         private async Task<string> SendStorageRecovery(StorageRecoveryRequest request)
@@ -112,6 +120,11 @@ namespace CityBankers
 
         private bool HandleStorageRecoveryProposal(DispatchProposal proposal)
         {
+            if (proposal.Kind != "storage-recovery") return false;
+            proposal.Reply.TrySetResult("denied:Physical audit requires explicit administrator action.");
+            return true;
+#if false // Owner policy: retained legacy automatic audit path.
+
             if (proposal.Kind != "storage-recovery") return false;
             var request = proposal.StorageRecovery;
             Guid run;
@@ -154,6 +167,7 @@ namespace CityBankers
             { proposal.Reply.TrySetResult("pending"); return true; }
             proposal.Reply.TrySetResult("ready:" + request.RunId);
             return true;
+        #endif
         }
 
         private void ValidateStorageGrant(StorageRecoveryGrant grant, string run, string character)

@@ -113,6 +113,10 @@ namespace CityBankers
 
         private bool StartLocalCensus(string reason, string requestedRun = null)
         {
+            StartupCensusGate.Block(reason);
+            return false;
+#if false // Owner policy: retained legacy automatic audit path.
+
             if (_localCensus != null) return true;
             if (!CanStartLocalCensus() || HasPendingPeerWork(Client.CharacterName, requestedRun)) return false;
             string run = requestedRun ?? Guid.NewGuid().ToString("N");
@@ -129,6 +133,7 @@ namespace CityBankers
             CityDwellers.Shared.ServiceEvents.Report("census.started", "warning", reason, new { Run = run });
             _localCensusPoll.Restart();
             return true;
+        #endif
         }
 
         private string LocalCensusDirectory(string run) => Path.Combine(
@@ -136,6 +141,9 @@ namespace CityBankers
 
         private bool TickLocalCensus()
         {
+            return false;
+#if false // Retain implementation; exclude automatic audit workers from runtime.
+
             if (_localCensus == null) return false;
             // Recovery IPC performs no AO movement. Other workers can finish
             // their accounting while Central's own bags are being observed.
@@ -238,6 +246,7 @@ namespace CityBankers
                 _localCensusError = ex.Message;
             }
             return true;
+        #endif
         }
 
         private async Task<string> SendLocalCensus(BagAuditAgent.BagAuditResult census)

@@ -129,3 +129,10 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
 - The owner's30-second logout statement concerns lingering avatar exposure to mobs, not a mandatory clientless reconnect delay. Do not use it as a cooldown or world-settling requirement.
 - Owner measured nine consecutive in-play logins in18.184 seconds total (mean1.993 seconds per login), with next login starting about21–23 ms after local disconnect. All domains unloaded. Disconnect exceptions were separate from successful logins; do not repeat the probe's old misleading successful=0 conclusion.
 - Prefer affected-only relog when client state is doubted, outside any active trade. Successful reconnect is not proof of unseen container contents. No blanket audit or roster disruption; existing one-startup/admin-only audit policy remains.
+
+## Implemented recovery policy — session 190
+
+- Normal banker recovery uses affected-only relog, never automatic physical audits after the one initial startup attempt. Scanner enforcement consumes a per-banker allowance per host generation before scanning; domain/plugin reload cannot reset it.
+- Retain disabled audit code in source. Do not reconnect/restart Manager as part of banker recovery. Do not interpret another banker's fault, missing heartbeat or recovery file as permission to scan/relog peers.
+- No relog during a trade; no fixed clientless relog/world-settling wait. Use fresh connection/bank state. Unresolved operation evidence remains local and is reported for administrator review instead of being silently reconciled or audited.
+- Explicit administrator audit access remains the separate console-admin bankers-bagaudit mode. There is no new runtime SC+ audit authority. First-startup admission is not permission for a second scan.

@@ -17,8 +17,6 @@ namespace CityBankers
 {
     public class CityBankers : ClientlessPluginEntry
     {
-        private static readonly TimeSpan DiagnosticSettleDelay =
-            TimeSpan.FromSeconds(5);
         private static readonly TimeSpan BankOpenTimeout =
             TimeSpan.FromSeconds(8);
 
@@ -161,12 +159,12 @@ namespace CityBankers
                 _portableRetryUtc = DateTime.MaxValue;
                 _snapshotWritten = false;
                 _pendingResult = null;
-                _snapshotDueUtc = DateTime.UtcNow.Add(DiagnosticSettleDelay);
+                _snapshotDueUtc = DateTime.UtcNow;
                 _bankDeadlineUtc = DateTime.MaxValue;
 
                 Logger.Information(
                     $"CityBankers ready: {Client.CharacterName} reached InPlay. " +
-                    $"Waiting {DiagnosticSettleDelay.TotalSeconds:F0}s for inventory to settle before opening bank.");
+                    "Opening bank on the next update; no fixed world-settling delay.");
             }
             catch (Exception ex)
             {

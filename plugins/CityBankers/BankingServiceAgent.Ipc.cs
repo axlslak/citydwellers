@@ -131,14 +131,21 @@ namespace CityBankers
                 if (proposal.Reply.Task.IsCompleted) continue;
                 try
                 {
+                    if (proposal.Kind == "dispatch-census-request" || proposal.Kind == "dispatch-census-prepare" ||
+                        proposal.Kind == "storage-recovery" || proposal.Kind == "local-census")
+                    {
+                        proposal.Reply.TrySetResult("denied:Physical audit requires explicit administrator action.");
+                        continue;
+                    }
                     if (HandleCruProposal(proposal)) continue;
                     if (_stackOperation != null || _reserveOperation != null) { proposal.Reply.TrySetResult("busy"); continue; }
-                    if (HandleDispatchCensusProposal(proposal)) continue;
+                    // Disabled: if (HandleDispatchCensusProposal(proposal)) continue;
                     if (HandleWithdrawalPreparation(proposal)) continue;
                     if (HandleTradeStageProposal(proposal)) continue;
-                    if (HandleStorageRecoveryProposal(proposal)) continue;
+                    // Disabled: if (HandleStorageRecoveryProposal(proposal)) continue;
                     if (HandleCancellationProposal(proposal)) continue;
-                    if (HandleLocalCensusProposal(proposal)) continue;
+                    // First-startup admission calls the merger directly.
+                    // Disabled: if (HandleLocalCensusProposal(proposal)) continue;
                     if (HandleExtractionProposal(proposal)) continue;
                     if (HandleReturnProposal(proposal)) continue;
                 }

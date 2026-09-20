@@ -100,7 +100,7 @@ namespace CityBankers
             Client.OnUpdate += Tick;
             Logger.Information(
                 $"CityBankers bag-audit agent initialized; runtime state root='{pluginDir}'; " +
-                "idle until a manual audit or startup enrollment command is present.");
+                "idle until the single initial startup audit or an explicit console-admin audit.");
         }
 
         public override void Teardown()
@@ -133,7 +133,7 @@ namespace CityBankers
 
         private void TryStart()
         {
-            if (!Client.InPlay || !ClientlessSessionGuard.BankCacheTrusted ||
+            if (!Client.InPlay || Trade.IsTrading || !ClientlessSessionGuard.BankCacheTrusted ||
                 !Inventory.Bank.IsOpen)
             {
                 return;
@@ -149,11 +149,13 @@ namespace CityBankers
                 _activeCommandPath = _manualCommandPath;
                 _activeResultPath = _manualResultPath;
             }
+#if false // Owner policy: normal-operation enrollment cannot launch physical audits.
             else if (File.Exists(_enrollmentCommandPath) && StartupCensusGate.IsOpen)
             {
                 _activeCommandPath = _enrollmentCommandPath;
                 _activeResultPath = _enrollmentResultPath;
             }
+#endif
             else
             {
                 return;
@@ -175,6 +177,15 @@ namespace CityBankers
             {
                 Logger.Error("BAG AUDIT command is empty or missing RunId.");
                 DeleteIfExists(_activeCommandPath);
+                return;
+            }
+
+            // Final execution boundary: only the gate's one initial startup scan,
+            // or the separate console-admin bankers-bagaudit process, may run.
+            if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.TryAuthorizeInitialAudit(command.RunId))
+            {
+                DeleteIfExists(_activeCommandPath);
+                Logger.Error("BAG AUDIT DENIED: initial scan already used or command is not the startup gate's run. Administrator action required.");
                 return;
             }
 

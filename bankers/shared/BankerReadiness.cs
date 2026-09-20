@@ -40,8 +40,8 @@ namespace CityBankers.Shared
                 string root = Path.Combine(data, "startup-census", HostGeneration);
                 var cycle = RuntimeStateStore.ReadJsonStrict<JObject>(Path.Combine(root, "cycle.json"));
                 if (cycle == null) return available;
-                if ((string)cycle["Phase"] != "released" || (string)cycle["Id"] != (string)ready["cycle"] ||
-                    Directory.EnumerateFiles(root, "*.recovery.json").Any()) return available;
+                // Legacy recovery requests cannot invalidate the entire roster.
+                if ((string)cycle["Phase"] != "released" || (string)cycle["Id"] != (string)ready["cycle"]) return available;
                 var members = ready["characters"] as JArray;
                 var central = members?.SingleOrDefault(r => string.Equals((string)r["role"], "central", StringComparison.OrdinalIgnoreCase));
                 if (!ReadyConnection(root, (string)ready["cycle"], central)) return available;

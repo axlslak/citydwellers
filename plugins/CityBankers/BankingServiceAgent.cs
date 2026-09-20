@@ -278,7 +278,7 @@ namespace CityBankers
             }
             if (pending == null || _blockedRecoveryAge.ElapsedMilliseconds < 60000) return false;
             StartupCensusGate.Block("Recovery ownership/peer accounting did not converge: " + pending +
-                "; retire retained operations through a fresh coordinated census.");
+                "; relog this banker only; unresolved evidence requires administrator review.");
             return true;
         }
 
@@ -286,9 +286,9 @@ namespace CityBankers
         {
             if (StartupCensusGate.RosterRecoveryActive || !StartupCensusGate.IsCurrentParticipant) return;
             if (TickRecoveryOwnership()) return;
-            if (TickWithdrawalCensus()) return;
-            if (TickDispatchCensus()) return;
-            if (TickLocalCensus()) return;
+            // Disabled by owner: no automatic recovery audits. if (TickWithdrawalCensus()) return;
+            // Disabled by owner: no automatic recovery audits. if (TickDispatchCensus()) return;
+            // Disabled by owner: no automatic recovery audits. if (TickLocalCensus()) return;
             if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
                 return;
 
@@ -307,7 +307,7 @@ namespace CityBankers
                 }
                 if (_localCensus != null || !StartupCensusGate.IsOpen) return;
                 TickCancellationOutbox();
-                if (TickStorageRecovery()) return;
+                // Disabled by owner: no automatic recovery audits. if (TickStorageRecovery()) return;
                 TickInternalConfirmation();
                 if (TickPhysicalReceipt()) return;
                 if (TickReserveOperation()) return;
@@ -327,10 +327,10 @@ namespace CityBankers
                     TickDonationCleanup();
                     if (TickBagReserve()) return;
                     DetectLocalInventoryDifference();
-                    if (_localCensus != null) return;
-                    if (TryRecoverFailedDispatch()) return;
+                    if (_localCensus != null || !StartupCensusGate.IsOpen) return;
+                    // Disabled by owner: no automatic recovery audits. if (TryRecoverFailedDispatch()) return;
                     TickDispatch();
-                    if (_localCensus != null) return;
+                    if (_localCensus != null || !StartupCensusGate.IsOpen) return;
                     StartRecoveryExtraction();
                 }
                 else
@@ -340,7 +340,7 @@ namespace CityBankers
                         return;
                     TickWorkerTrade();
                     DetectLocalInventoryDifference();
-                    if (_localCensus != null) return;
+                    if (_localCensus != null || !StartupCensusGate.IsOpen) return;
                     TickLocalStorageRecovery();
                     TickLooseReturnRecovery();
                     StartRecoveryExtraction();

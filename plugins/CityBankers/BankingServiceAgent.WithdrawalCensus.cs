@@ -56,6 +56,12 @@ namespace CityBankers
 
         private bool BeginWithdrawalDispute(string reason)
         {
+            if (!WithdrawalReceipt(_receipt)) return false;
+            PersistReceipt("withdrawal-relog-required");
+            StartupCensusGate.Block(reason);
+            return true;
+#if false // Owner policy: retained legacy automatic audit path.
+
             if (_withdrawalDispute) return true;
             if (!WithdrawalReceipt(_receipt) || !StartupCensusGate.IsOpen) return false;
             bool hadCru = _receipt.Expected?.Any(i => CruPolicy.IsCru(i.AoId)) == true;
@@ -85,6 +91,7 @@ namespace CityBankers
             _withdrawalDispute = true;
             Logger.Warning("[CityBankers] WITHDRAWAL CENSUS REQUIRED batch=" + _receipt.BatchId + ": " + reason);
             return true;
+        #endif
         }
 
         private bool CanOwnWithdrawalCensus() => _stackOperation == null && Client.InPlay && Inventory.Bank.IsOpen && !Trade.IsTrading &&
@@ -96,6 +103,9 @@ namespace CityBankers
 
         private bool TryStartWithdrawalCensus()
         {
+            return false;
+#if false // Retain implementation; exclude automatic audit workers from runtime.
+
             if (!_isCentral || _withdrawalCensus != null || !CanOwnWithdrawalCensus()) return false;
             var rows = WithdrawalStore.LoadAll(_settingsDir).Where(r => WithdrawalStore.IsActive(r) && !CruPolicy.IsCru(r)).ToList();
             if (!_withdrawalDispute && !rows.Any(r => WithdrawalStore.HasStatus(r, "failed") &&
@@ -117,6 +127,7 @@ namespace CityBankers
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(WithdrawalCensusDirectory(grant.Id), "grant.json"), grant);
             _withdrawalCensus = grant; // retain before either of the admission writes
             return true;
+        #endif
         }
 
         private void ValidateWithdrawalCensus(WithdrawalCensusGrant grant)
@@ -148,6 +159,9 @@ namespace CityBankers
 
         private void JoinWithdrawalCensus(WithdrawalCensusGrant grant)
         {
+            throw new InvalidOperationException("Automatic physical audits are disabled.");
+#if false // Retain implementation; exclude automatic audit workers from runtime.
+
             string run = grant.Runs[Client.CharacterName];
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(LocalCensusDirectory(run), "withdrawal-group.json"), grant);
             RuntimeStateStore.WriteJsonAtomic(Path.Combine(LocalCensusDirectory(run), "superseded-operation.json"), new
@@ -170,10 +184,14 @@ namespace CityBankers
             _localCensusAttempt = 0; _localCensusIssued = false; _localCensusResult = null; _localCensusCommit = null;
             _dispatchCensusInventory = null;
             _localCensusRetry.Restart(); _localCensusPoll.Restart();
+        #endif
         }
 
         private bool TickWithdrawalCensus()
         {
+            return false;
+#if false // Retain implementation; exclude automatic audit workers from runtime.
+
             if (ServicePolicy.IsBagAuditMode() || !_enabled || !Client.InPlay) return false;
             if (_withdrawalCensusPoll.ElapsedMilliseconds < 1000)
                 return (_withdrawalDispute || _withdrawalCensus != null) && _localCensus == null;
@@ -240,6 +258,7 @@ namespace CityBankers
                 return true;
             }
             return _localCensus == null;
+        #endif
         }
 
         private bool HandleWithdrawalCensusResult(BagAuditAgent.BagAuditResult census)

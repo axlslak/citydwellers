@@ -12,13 +12,38 @@ using Newtonsoft.Json.Linq;
 
 namespace CityBankers
 {
-    // A connection is a separate custody epoch even inside the same host process.
-    // The coordinator freezes operational actors before collecting any new plan.
+    // One initial physical census per banker per host. Later uncertainty is
+    // handled by local relog/reporting; never by another automatic census.
     public sealed class StartupCensusGate : ClientlessPluginEntry
     {
         private static readonly string Generation = Process.GetCurrentProcess().Id + "-" +
             Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
         private static string _directory;
+        private static StartupCensusGate _owner;
+        private static string _localFaultReason, _lastRelogReason;
+        private static bool _localRelogPending;
+        private bool _startupFailed, _awaitingUnresolvedRelog, _heldForAdmin;
+
+        private static bool InitialAuditUsed => _directory != null &&
+            File.Exists(MemberPath(MemberCharacter, ".initial-audit-used"));
+
+        internal static bool TryAuthorizeInitialAudit(string run)
+        {
+            // Persist across plugin/domain reloads within this host process.
+            // The one attempt is consumed BEFORE the scanner opens/moves a bag.
+            if (_owner == null || _owner._startupFailed || !_owner._issued ||
+                _owner._finished || run != _owner._auditRun || InitialAuditUsed) return false;
+            using (var file = new FileStream(MemberPath(MemberCharacter, ".initial-audit-used"),
+                FileMode.CreateNew, FileAccess.Write, FileShare.Read))
+            using (var writer = new StreamWriter(file))
+            {
+                writer.Write(run);
+                writer.Flush();
+                file.Flush(true);
+            }
+            return true;
+        }
+
         private static string _traceData;
         private static string _memberCharacter;
         private static string MemberCharacter => _memberCharacter ?? Client.CharacterName;
@@ -85,7 +110,9 @@ namespace CityBankers
         private static string CycleDirectory(Cycle cycle) => Path.Combine(_directory, "cycle-" + cycle.Id);
         private static T Read<T>(string path) where T : class => CensusApplication.ReadExisting<T>(path);
         private static Cycle Current() => Read<Cycle>(CyclePath);
-        private static bool Requested() => _characters.Any(c => File.Exists(MemberPath(c, ".recovery.json")));
+        // A fault on one banker never requests a roster audit.
+        private static bool Requested() => false;
+        // Legacy: _characters.Any(c => File.Exists(MemberPath(c, ".recovery.json")));
         private static bool Includes(Cycle cycle, string character, string connection) =>
             cycle?.Participants != null && cycle.Participants.Any(p =>
                 string.Equals(p.Key, character, StringComparison.OrdinalIgnoreCase) && p.Value == connection);
@@ -185,6 +212,26 @@ namespace CityBankers
 
         public static void Block(string reason)
         {
+            if (_localFaultReason != null) return; // Retain the first fault; no retry storm.
+            _localFaultReason = reason;
+            _localRelogPending = reason != _lastRelogReason;
+            _invalidated = true;
+            try
+            {
+                if (_directory != null) Locked(() => { Hold(reason); ClearOperational(); });
+                BankingServiceAgent.TraceRecovery(reason, "banker-relog:" + _connection);
+                if (_directory != null)
+                    CityDwellers.Shared.IncidentJournal.Record(_traceData, "banker-relog:" + _connection,
+                        MemberCharacter, "banker.fault", new { Reason = reason, RelogQueued = _localRelogPending }, true);
+            }
+            catch (Exception ex) { Logger.Error("[CityBankers] Local fault recording failed: " + ex.Message); }
+            Logger.Error("[CityBankers] BANKER FAULT " + MemberCharacter + ": " + reason +
+                (_localRelogPending ? " Relog queued for this banker only, after any trade ends." :
+                    " Fault persisted after relog; administrator review required. No automatic audit."));
+            CityDwellers.Shared.ServiceEvents.Report("banker.fault", "error", reason,
+                new { Character = MemberCharacter, RelogQueued = _localRelogPending });
+#if false // Owner policy: retained legacy recovery/audit path.
+
             // Ordinary local census pauses do not request a roster-wide recovery.
             // An unrelated error explicitly supersedes that owner through a new
             // cycle; no old local completion is allowed to release its token.
@@ -207,13 +254,18 @@ namespace CityBankers
             catch (Exception ex) { Logger.Error("[CityBankers] Recovery publication retry: " + ex.Message); }
             Logger.Error("[CityBankers] CENSUS RECOVERY " + MemberCharacter + ": " + reason);
             CityDwellers.Shared.ServiceEvents.Report("census.recovery", "error", reason);
+        #endif
         }
 
         private static void PublishRequest(string reason)
         {
+            throw new InvalidOperationException("Automatic roster audit requests are disabled.");
+#if false // Owner policy: retained legacy recovery/audit path.
+
             RuntimeStateStore.WriteJsonAtomic(MemberPath(MemberCharacter, ".recovery.json"), new
             { Id = _recoveryRequest, Connection = _connection, Reason = reason });
             _requestPublished = true;
+        #endif
         }
 
         internal static bool RosterRecoveryActive
@@ -266,6 +318,7 @@ namespace CityBankers
             if (_characters == null || _characters.Length != 9 || _characters.Any(string.IsNullOrWhiteSpace) ||
                 _characters.Distinct(StringComparer.OrdinalIgnoreCase).Count() != 9)
             { Block("Census requires nine distinct configured bankers."); return; }
+            _owner = this;
             _character = Client.CharacterName;
             _memberCharacter = _character;
             _role = _roles.Properties().Single(p => string.Equals((string)p.Value["Character"],
@@ -281,6 +334,63 @@ namespace CityBankers
         private void RejectBeforeCensus(Identity target) { if (!IsOpen) Trade.Decline(); }
         private void OnDisconnected()
         {
+            string retiredConnection = _connection;
+            bool initialUsed = InitialAuditUsed;
+            try { RetireAdmission(); }
+            catch (Exception ex) { Logger.Error("[CityBankers] Admission cleanup on disconnect: " + ex.Message); }
+            _connection = Guid.NewGuid().ToString("N");
+            _stagingBag = _stagingFailureLayout = _stagingBeforeLayout = null;
+            _presenceRetryAfter = 0;
+            _localRelogPending = false; // An existing SDK reconnect now owns this offline session.
+            try
+            {
+                Locked(() =>
+                {
+                    var cycle = Current();
+                    bool idle = _idleReconnectCycle == cycle?.Id && _idleReconnectCycle != null;
+                    if (!idle && cycle?.Phase == "released" &&
+                        Includes(cycle, _character, retiredConnection) && _idleInventory != null &&
+                        BankingServiceAgent.CanResumeIdleConnection())
+                    {
+                        _idleReconnectCycle = cycle.Id;
+                        _idleReconnectConnection = retiredConnection;
+                        _idleReconnectInventory = _idleInventory;
+                        idle = true;
+                    }
+                    _reconnectObserved = null;
+                    _reconnectSettled.Reset();
+                    Hold("Banker disconnected; refresh this connection only. No automatic audit.");
+                    ClearOperational();
+                    RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                    if (!initialUsed)
+                    {
+                        // Pre-scan reconnect keeps the initial cycle; nobody repeats a scan.
+                        if (cycle?.Phase == "collecting" && Includes(cycle, _character, retiredConnection))
+                        {
+                            cycle.Participants[_character] = _connection;
+                            RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                        }
+                        _auditCycle = null;
+                        _issued = _finished = _quiesced = false;
+                    }
+                    else if (!idle)
+                    {
+                        // Retained unresolved operations are evidence, not permission
+                        // to restart audits or clear another banker's state.
+                        _awaitingUnresolvedRelog = true;
+                    }
+                });
+                Logger.Information("[CityBankers] " + MemberCharacter +
+                    " disconnected; only this banker is unavailable. No peer audits or relogs requested.");
+            }
+            catch (Exception ex)
+            {
+                _heldForAdmin = true;
+                Logger.Error("[CityBankers] Local reconnect state needs administrator review: " + ex.Message);
+            }
+            finally { BagAuditAgent.CancelForRecovery(); }
+#if false // Owner policy: retained legacy recovery/audit path.
+
             // Recovery owns a quiesced banker and has not issued its census.
             // Its planned verification reconnect can withdraw just this member.
             bool plannedPreCensus = (SharedBagRecovery.PlannedReconnect || ClientlessSessionGuard.CensusRefreshPending) &&
@@ -354,6 +464,7 @@ namespace CityBankers
                 Block("Disconnect recovery could not verify census membership: " + ex.Message);
             }
             finally { BagAuditAgent.CancelForRecovery(); }
+        #endif
         }
         public override void Teardown()
         {
@@ -362,7 +473,10 @@ namespace CityBankers
             Client.Disconnected -= OnDisconnected;
             Trade.TradeOpened -= RejectBeforeCensus;
             if (_directory == null) return;
-            Block("Banker unloaded; connection-bound work is retired.");
+            Hold("Banker unloaded; connection-bound work is retired.");
+            ClearOperational();
+            _localRelogPending = false;
+            if (_owner == this) _owner = null;
             RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
         }
 
@@ -372,16 +486,52 @@ namespace CityBankers
             _poll.Restart();
             try
             {
+                if (_localRelogPending && Client.InPlay && !Trade.IsTrading)
+                {
+                    _localRelogPending = false;
+                    _lastRelogReason = _localFaultReason;
+                    Logger.Warning("[CityBankers] RELOG " + MemberCharacter + ": " + _localFaultReason +
+                        "; affected banker only; no added cooldown.");
+                    try { ClientlessSessionGuard.ReconnectForBagRecovery(); }
+                    catch (Exception ex)
+                    {
+                        _heldForAdmin = true;
+                        Logger.Error("[CityBankers] Relog failed; administrator review required. Type=" + ex.GetType().Name);
+                    }
+                    return;
+                }
+                if (_heldForAdmin || (_startupFailed && !_awaitingUnresolvedRelog)) return;
+                if (!Client.InPlay || !ClientlessSessionGuard.BankCacheTrusted ||
+                    !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
+                // Never compare a fresh inventory against an old connection's bank cache.
                 if (SharedBagRecovery.RequiresHold)
                 {
                     _stagingFailureLayout = null;
                     _presenceRetryAfter = 0;
-                    _idleReconnectCycle = null;
-                    if (!_invalidated) Block("Shared bag detected; autonomous evacuation requires census ownership.");
+                    if (_localFaultReason != null && !_localRelogPending)
+                    {
+                        _heldForAdmin = true;
+                        Hold("Shared bag uncertainty persists after relog; administrator review required.");
+                        Logger.Error("[CityBankers] " + _character + " shared bag uncertainty persists after relog; no automatic audit or evacuation.");
+                        CityDwellers.Shared.ServiceEvents.Report("banker.fault", "error",
+                            "Shared bag uncertainty persists after relog; administrator review required.");
+                    }
+                    else Block("Shared bag state is uncertain; refresh this banker with a relog.");
+                    return;
                 }
-                if (!Client.InPlay || !ClientlessSessionGuard.BankCacheTrusted ||
-                    !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
+                if (_awaitingUnresolvedRelog)
+                {
+                    _awaitingUnresolvedRelog = false;
+                    _heldForAdmin = true;
+                    Hold("Fresh login received; retained operation is unresolved. Administrator review required; no automatic audit.");
+                    Logger.Error("[CityBankers] " + _character +
+                        " relog completed; retained operation still needs administrator review. Other bankers keep their state; no audit started.");
+                    CityDwellers.Shared.ServiceEvents.Report("banker.fault", "error",
+                        "Relog completed; unresolved operation retained for administrator review.", new { Character = _character });
+                    return;
+                }
                 if (_idleReconnectCycle != null && !TryResumeIdleConnection()) return;
+                if (_heldForAdmin) return;
                 if (_stagingFailureLayout != null)
                 {
                     // A hold used to end only when the layout changed, and the hold
@@ -396,8 +546,7 @@ namespace CityBankers
                 }
                 RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".presence.json"),
                     new Presence { Connection = _connection, Stamp = Stopwatch.GetTimestamp() });
-                // Retry a failed request write. Joining a new cycle consumes it.
-                if (_recoveryRequest != null && !_requestPublished) Locked(() => PublishRequest("Retained local recovery request."));
+                // Disabled: faults never publish roster recovery requests.
                 if (string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase) && _gather.ElapsedMilliseconds >= 5000) Locked(Coordinate);
                 var cycle = Current();
                 if (_admission != null && (_admission.Cycle != cycle?.Id ||
@@ -405,7 +554,13 @@ namespace CityBankers
                     RetireAdmission();
                 if (cycle?.Phase == "released" && !Includes(cycle, _character, _connection) && !Requested())
                 {
-                    TickAdmission(cycle);
+                    if (!InitialAuditUsed || _admission != null) TickAdmission(cycle);
+                    else if (!_heldForAdmin)
+                    {
+                        _heldForAdmin = true;
+                        Hold("Initial audit already used; readmission cannot launch another audit. Administrator review required.");
+                        Logger.Error("[CityBankers] " + _character + " readmission requires administrator review; automatic audit denied.");
+                    }
                     return;
                 }
                 if (!Includes(cycle, _character, _connection)) return;
@@ -448,6 +603,12 @@ namespace CityBankers
                     return;
                 }
                 if (cycle.Phase != "collecting" && cycle.Phase != "applying") return;
+                if (InitialAuditUsed && (_auditCycle != cycle.Id || !_issued))
+                {
+                    _startupFailed = true;
+                    Block("Initial audit allowance is used; automatic repeat denied.");
+                    return;
+                }
                 if (_auditCycle != cycle.Id)
                 {
                     Hold("Coordinated census " + cycle.Id);
@@ -474,7 +635,8 @@ namespace CityBankers
                     string signature = InventoryLayout();
                     if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                     if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
-                    if (SharedBagRecovery.Tick()) { _signature = null; _settled.Restart(); return; }
+                    // Disabled: automatic shared-bag evacuation/audit recovery.
+                    // if (SharedBagRecovery.Tick()) { _signature = null; _settled.Restart(); return; }
                     if (!ClientlessSessionGuard.PrepareCensusConnection()) return;
                     ReportSmallBackpackCapacity();
                     ReportDuplicateBagRecords();
@@ -492,6 +654,10 @@ namespace CityBankers
                 catch
                 {
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(CycleDirectory(cycle), _character + ".failed-" + _auditRun + ".json"), result);
+                    _startupFailed = true;
+                    RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                    Block("Initial audit result was rejected; no automatic repeat. Relog and report this banker only.");
+#if false // Retained legacy repeated startup audits.
                     _issued = false; _auditRun = Guid.NewGuid().ToString("N"); _retry.Restart();
                     // An unscannable worker is unavailable, not a prerequisite
                     // that prevents healthy members from starting indefinitely.
@@ -509,6 +675,7 @@ namespace CityBankers
                         _presenceRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * backoff;
                         RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
                     }
+#endif
                     throw;
                 }
                 RuntimeStateStore.WriteJsonAtomic(Path.Combine(CycleDirectory(cycle), _character.ToLowerInvariant() + ".json"), result);
@@ -544,6 +711,49 @@ namespace CityBankers
 
         private bool TryResumeIdleConnection()
         {
+            // InPlay plus the newly received bank snapshot is the reconnect
+            // boundary. No 30-second delay or extra world-settling timer.
+            string observed = ReconnectInventory();
+            bool resumed = false;
+            Locked(() =>
+            {
+                var cycle = Current();
+                if (cycle?.Id != _idleReconnectCycle || cycle.Phase != "released" ||
+                    !Includes(cycle, _character, _idleReconnectConnection))
+                {
+                    _heldForAdmin = true;
+                    Hold("Reconnect membership changed; administrator review required. No automatic audit.");
+                    return;
+                }
+                if (!BankingServiceAgent.CanResumeIdleConnection() || observed != _idleReconnectInventory)
+                {
+                    _heldForAdmin = true;
+                    Hold("Fresh login differs from retained idle evidence or has unresolved work. Administrator review required; no automatic audit.");
+                    Logger.Error("[CityBankers] " + _character +
+                        " relog completed but state remains uncertain; administrator review required. No peer recovery requested.");
+                    CityDwellers.Shared.ServiceEvents.Report("banker.fault", "error",
+                        "Relog completed but retained state remains uncertain; administrator review required.", new { Character = _character });
+                    return;
+                }
+                cycle.Participants[_character] = _connection;
+                RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                PublishReadyRoster(cycle);
+                RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".blocked"));
+                File.WriteAllText(MemberPath(_character, ".ready"), cycle.Id + "/" + _connection);
+                _invalidated = false;
+                _auditPause = _holdVersion;
+                _localFaultReason = null;
+                _idleReconnectCycle = null;
+                resumed = true;
+            });
+            if (resumed)
+            {
+                Logger.Information("[CityBankers] " + _character + " relog verified; resumed without audit.");
+                CityDwellers.Shared.ServiceEvents.Report("banker.reconnected", "info", "Relog verified; resumed without audit.");
+            }
+            return resumed;
+#if false // Owner policy: retained legacy recovery/audit path.
+
             string observed = ReconnectInventory();
             if (_reconnectObserved != observed)
             {
@@ -609,6 +819,7 @@ namespace CityBankers
                 CityDwellers.Shared.ServiceEvents.Report("banker.reconnected", "info", "Idle reconnect verified; resumed without bag audit.");
             }
             return _idleReconnectCycle == null;
+        #endif
         }
 
         private void PublishReadyRoster(Cycle cycle)
@@ -851,7 +1062,8 @@ namespace CityBankers
                 string signature = InventoryLayout();
                 if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                 if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
-                if (SharedBagRecovery.Tick()) { _signature = null; _settled.Restart(); return; }
+                // Disabled: automatic shared-bag evacuation/audit recovery.
+                // if (SharedBagRecovery.Tick()) { _signature = null; _settled.Restart(); return; }
                 if (!ClientlessSessionGuard.PrepareCensusConnection()) return;
                 ReportSmallBackpackCapacity();
                 ReportDuplicateBagRecords();
@@ -872,12 +1084,18 @@ namespace CityBankers
                 RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, "local-" + _admission.Run,
                     "failed.json"), result);
                 RetireAdmission();
+                _startupFailed = true;
+                RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                Block("Initial admission audit failed; no automatic repeat. Relog and report this banker only.");
+#if false // Retained legacy repeated admission audits.
+                RetireAdmission();
                 if (_censusRejections < 5) _censusRejections++;
                 long backoff = 60L << (_censusRejections - 1);
                 _presenceRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * backoff;
                 RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
                 Logger.Warning("[CityBankers] CENSUS READMISSION rejected for " + _character +
                     "; retrying only this banker in " + backoff + "s; healthy cycle retained.");
+#endif
                 throw;
             }
             _admission.Result = result;
@@ -976,7 +1194,9 @@ namespace CityBankers
                 RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
                 var application = CensusApplication.Apply(_settings, CycleDirectory(cycle), cycle.Id, censuses,
                     _roles.Properties().ToDictionary(p => p.Name, p => (string)p.Value["Character"], StringComparer.OrdinalIgnoreCase));
-                bool release = cycle.Participants.All(p => Present(p.Key, p.Value)) && !Requested();
+                // Completed initial evidence can release healthy members even if
+                // another member went offline. Its ready/presence checks still fail.
+                bool release = !Requested();
                 cycle.Phase = release ? "released" : "superseded";
                 if (release) PublishReadyRoster(cycle);
                 RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
@@ -994,6 +1214,9 @@ namespace CityBankers
                 CoordinateAdmissions(cycle, online);
                 return;
             }
+            // Exactly one startup cycle per host; faults cannot replace it.
+            // Late first-startup workers use scoped admission above.
+            if (cycle != null) return;
             var next = new Cycle { Id = Guid.NewGuid().ToString("N"), Phase = "collecting", Participants = online };
             var requests = _characters.Select(c => Read<JObject>(MemberPath(c, ".recovery.json"))).Where(r => r != null).ToList();
             CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settings),

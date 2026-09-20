@@ -81,6 +81,8 @@ namespace CityBankers
         {
             // Client.Disconnect tears down the entire runtime. Disconnect only
             // the game session so the existing AutoReconnect scheduler survives.
+            if (Trade.IsTrading) throw new InvalidOperationException("Cannot relog during a trade.");
+            if (!Client.InPlay) throw new InvalidOperationException("Cannot request another relog while offline.");
             if (!Client.Config.AutoReconnect)
                 throw new InvalidOperationException("Autonomous recovery requires AutoReconnect.");
             var field = typeof(Client).GetField("_netSession", BindingFlags.Static | BindingFlags.NonPublic);
@@ -88,7 +90,15 @@ namespace CityBankers
             var disconnect = session?.GetType().GetMethod("Disconnect", BindingFlags.Instance | BindingFlags.Public,
                 null, Type.EmptyTypes, null);
             if (disconnect == null) throw new InvalidOperationException("Clientless reconnect interface unavailable.");
-            disconnect.Invoke(session, null);
+            // Owner-measured immediate relog; the SDK default 30s retry delay
+            // is not an avatar-presence requirement. This schedules one reconnect.
+            int retryDelay = Client.Config.ReconnectDelay;
+            try
+            {
+                Client.Config.ReconnectDelay = 0;
+                disconnect.Invoke(session, null);
+            }
+            finally { Client.Config.ReconnectDelay = retryDelay; }
         }
 
         private static void TryBind()
@@ -151,6 +161,7 @@ namespace CityBankers
                 // the same sender identity as first login. Native SelectCharacter
                 // installs the real ID again after selecting the character.
                 _setCharacterId?.Invoke(null, new object[] { 0 });
+                Inventory.Bank.IsOpen = false; // Wait for the new connection's bank snapshot.
                 Logger.Information("[CityBankers] Reconnect pending; character is offline, awaiting fresh authentication.");
             }
             catch (Exception ex)
@@ -179,6 +190,7 @@ namespace CityBankers
                 }
                 Inventory.Bank.IsOpen = false;
                 items.Clear();
+                BankCacheTrusted = true;
             }
             try
             {
