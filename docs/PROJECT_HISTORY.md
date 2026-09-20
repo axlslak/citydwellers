@@ -2820,7 +2820,7 @@ Both findings come from a 112-agent adversarial sweep over six lenses; 21 findin
 ## Owner rule — no automatic physical audits (session 186)
 
 - First priority when asked what needs fixing: remove automatic audits from normal bot operations. Do not resurrect this recovery strategy.
-- Physical bag audits/censuses require an explicit administrator request. SC+ alone is not sufficient. Keep the implementation in source, but disable/comment out automatic startup, periodic and failure-triggered execution.
+- Owner clarification: ONE initial startup audit is allowed per banker per host process. After that, physical bag audits/censuses require an explicit administrator request; SC+ alone is not sufficient. Keep the implementation in source, but disable/comment out automatic periodic, reconnect and failure-triggered execution. Existing #restart (Manager only) and #dump remain available.
 - A problem on one banker must not audit or disrupt the whole roster. Report the concrete fault to the administrator; do not infer that a CRU donation justifies checking nine bankers.
 - Prefer a local relog to refresh distrusted client state. There is no clientless 30-second relog rule. Never relog during a trade. Relogging must not implicitly launch an audit or manufacture proof of container contents.
 - Hold only affected uncertain operations and explain the bug; administrator decides whether to authorize a physical audit. Evidence first, not blanket reconciliation.

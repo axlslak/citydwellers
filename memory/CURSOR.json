@@ -7,6 +7,6 @@
   "transaction": "session-186-admin-only-physical-audits",
   "checkpoint_commit": "67db404e0aa8186e881080c047a70eaceccee982",
   "task": "Remove automatic physical audits from normal runtime; explicit admin authorization only",
-  "resume_instruction": "Owner policy recorded first in AGENTS/state/history/journal. Disable automatic startup/periodic/fault audits and roster-wide escalation, preserve implementation and explicit admin audit path. Local relog only outside trades, no assumed30s cooldown; uncertain operations report/hold locally. Inspect startup readiness and persisted custody so disabling audits does not blindly bless inventory. No builds/live tests.",
+  "resume_instruction": "Owner clarification supersedes initial startup prohibition: ONE startup audit allowed per banker per host process. Disable later automatic periodic/reconnect/fault audits and roster-wide escalation; retain source/manual admin capability. #restart Manager-only and #dump remain. Local relog outside trades has no assumed30s cooldown. Report/hold affected uncertain operations; no builds/live tests.",
   "base_commit": "df6c904e1ba20ed2cd90a83883fdb565bfbc50fa"
 }
