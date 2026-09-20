@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">AnyCPU</Platform>
+    <ProjectGuid>{2914C075-088F-4938-BFD1-095BDA2C5187}</ProjectGuid>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>CityDwellers.LoginTry</RootNamespace>
+    <AssemblyName>logintry</AssemblyName>
+    <StartupObject>CityDwellers.LoginTry.Program</StartupObject>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <PlatformTarget>x86</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <Deterministic>true</Deterministic>
+    <OutputPath>..\..\debug\</OutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Optimize>true</Optimize>
+    <OutputPath>..\..\release\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Net.Http" />
+    <Compile Include="Program.cs" />
+    <Compile Include="..\Flipper\ClientlessGameDataBootstrap.cs"><Link>ClientlessGameDataBootstrap.cs</Link></Compile>
+    <PackageReference Include="AOSharp.Clientless" Version="1.0.16" />
+    <PackageReference Include="AOSharpSDK" Version="[1.0.91]" />
+    <PackageReference Include="Serilog" Version="3.1.1" />
+    <None Include="README.md" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Target Name="RestoreLoginTryGameData" AfterTargets="Build">
+    <Exec Command="&quot;$(TargetPath)&quot; restore-gamedata &quot;$(MSBuildProjectDirectory)\..\..\.dependencies\AOSharp.Clientless\1.0.16\GameData&quot; &quot;$(TargetDir)GameData&quot;" />
+  </Target>
+</Project>

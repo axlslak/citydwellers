@@ -32,6 +32,12 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\LoginTry\LoginTry.csproj">
+      <Project>{2914C075-088F-4938-BFD1-095BDA2C5187}</Project><Name>LoginTry</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
   <!-- Build plugins before final portable dependency preparation. They share the output directory. -->
   <ItemGroup>
     <ProjectReference Include="..\..\plugins\CityBuffers\CityBuffers.csproj">

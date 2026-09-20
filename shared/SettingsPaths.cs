@@ -277,7 +277,10 @@ namespace CityDwellers.Shared
                    string.Equals(extension, ".pdb", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(extension, ".xml", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(extension, ".config", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(name, "CityDwellers.exe", StringComparison.OrdinalIgnoreCase);
+                   string.Equals(name, "CityDwellers.exe", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "logintry.exe", StringComparison.OrdinalIgnoreCase) ||
+                   (name.StartsWith("logintry-", StringComparison.OrdinalIgnoreCase) &&
+                    name.EndsWith(".log", StringComparison.OrdinalIgnoreCase));
         }
 
         private static bool IsBotDataDirectory(string name)
