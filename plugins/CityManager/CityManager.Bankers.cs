@@ -1000,7 +1000,7 @@ namespace CityManager
                 {
                     body.Append(++rank).Append(". ")
                         .Append(CommandLink(target, "pickups " + group.Key, group.Key))
-                        .Append(" — ").Append(group.Count).Append(" items\n");
+                        .Append(" — ").Append(group.Count()).Append(" items\n");
                 }
                 if (rank == 0) body.Append("No confirmed pickups recorded yet.\n");
             }

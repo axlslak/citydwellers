@@ -1,3 +1,8 @@
+## Session 182 — pickup ranking build fix
+
+- [RESOLVED] Corrected group.Count to group.Count() in the top pickup recipient output. IGrouping exposes LINQ Count as a method; passing the method group to StringBuilder.Append caused CS1503 at CityManager.Bankers.cs line1003.
+- Owner build output reported this single compiler error (five projects succeeded/up-to-date). Reviewed the focused source correction; no compilation or tests run here. Owner can rebuild. Pickup behavior otherwise unchanged; no in-game changelog entry added.
+
 ## Session 181 — donor-style pickup views
 
 - Extended both #pickups and #takers: bare command opens overview/navigation; last shows latest25 confirmed delivered items; top ranks25 recipients by delivered item records; member resolves main and shows total plus latest10; item <name or AOID> searches item name fragments or either AOID and shows total plus latest25.
