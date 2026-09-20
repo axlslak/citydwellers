@@ -2081,7 +2081,13 @@ namespace CityManager
                 if (delivered)
                 {
                     _orgLastConfirmedBytes = pending.Length;
-                    if (pending.GrowthProbe && !pending.IsRetry)
+                    // Several pages may have been rendered at one budget. The first
+                    // confirming page may advance that budget by one step; later
+                    // confirmations from the old budget are redundant evidence and
+                    // must not ratchet another +50 each.
+                    if (pending.GrowthProbe &&
+                        !pending.IsRetry &&
+                        _orgBlobCurrentPageSize == pending.BudgetAtSend)
                     {
                         _orgBlobCurrentPageSize = Math.Min(
                             OrgBlobMaxPageSize,
@@ -2091,9 +2097,15 @@ namespace CityManager
                 else
                 {
                     _orgLastFailedBytes = pending.Length;
-                    _orgBlobCurrentPageSize = Math.Max(
-                        OrgBlobMinPageSize,
-                        _orgBlobCurrentPageSize - OrgBlobPageStep);
+                    // Likewise, back off once for the budget that actually failed.
+                    // Concurrent old-budget pages still retry, but do not compound
+                    // the reduction before the new smaller budget is exercised.
+                    if (_orgBlobCurrentPageSize == pending.BudgetAtSend)
+                    {
+                        _orgBlobCurrentPageSize = Math.Max(
+                            OrgBlobMinPageSize,
+                            _orgBlobCurrentPageSize - OrgBlobPageStep);
+                    }
                 }
 
                 after = _orgBlobCurrentPageSize;
@@ -2126,8 +2138,17 @@ namespace CityManager
             }
             catch (Exception ex)
             {
-                Logger.Warning("ORG RETRY rebuild failed: " + ex.Message);
-                return;
+                // A single AO markup row cannot be split safely. Never turn that
+                // presentation limitation into a dropped reply: keep retrying the
+                // already-rendered logical page while later replies use the newly
+                // reduced budget.
+                Logger.Warning(
+                    "ORG RETRY could not rebuild smaller; retrying original page: " +
+                    ex.Message);
+                retryMessages = new List<string>
+                {
+                    pending.RetryPlan.RawText ?? string.Empty
+                };
             }
 
             if (retryMessages == null || retryMessages.Count == 0)
