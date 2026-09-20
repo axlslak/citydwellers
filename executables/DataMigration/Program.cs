@@ -13,6 +13,8 @@ namespace CityDwellers.DataMigration
     {
         private static int _cancelRequested;
 
+        // Migration/verification are silent on success; exit 0 is the completion signal.
+        // Explicit help/schema commands still print their requested information.
         private static int Main(string[] args)
         {
             string runId = null;
@@ -30,14 +32,9 @@ namespace CityDwellers.DataMigration
                 {
                     e.Cancel = true;
                     Interlocked.Exchange(ref _cancelRequested, 1);
-                    Console.Error.WriteLine("Cancellation requested. Finishing the current atomic file operation.");
                 };
 
                 string source = Path.Combine(options.RuntimeRoot, "data");
-                Console.WriteLine("City Dwellers offline MySQL migration");
-                Console.WriteLine("Runtime: " + options.RuntimeRoot);
-                Console.WriteLine("Source:  " + source);
-                Console.WriteLine("All bots must be stopped. Acquiring the exclusive SQL lease...");
                 SqlStore.Initialize(options.RuntimeRoot, migration: true);
 
                 if (options.Command == "schema")
@@ -61,7 +58,6 @@ namespace CityDwellers.DataMigration
                         throw new IOException("This migration is bound to another original source: " + previousSource);
                     SqlStore.BindMigrationSource(runId, Path.GetFullPath(source));
                 }
-                Console.WriteLine("Migration: " + runId + (sealedRun ? " (already sealed)" : " (not sealed)"));
 
                 if (sealedRun)
                 {
@@ -69,12 +65,9 @@ namespace CityDwellers.DataMigration
                     VerifyArchives(runId, archived, verifyLiveDocuments: false);
                     if (options.Command == "verify")
                     {
-                        Console.WriteLine("VERIFIED: immutable migration archive. Live SQL documents were not replayed or compared to old data.");
                         return 0;
                     }
-                    Console.WriteLine("Sealed migration: verifying/finishing source cleanup only; live SQL documents will not be overwritten.");
                     CleanupSource(runId, source, archived);
-                    PrintSuccess(archived);
                     return 0;
                 }
 
@@ -86,21 +79,17 @@ namespace CityDwellers.DataMigration
                     foreach (string directory in directories)
                         SqlDirectory.CreateDirectory(directory);
                     SqlStore.StageMigrationInventory(runId, snapshot);
-                    Console.WriteLine("Staged immutable source inventory: " + snapshot.Count + " files, " +
-                        snapshot.Sum(file => file.Length).ToString(CultureInfo.InvariantCulture) + " bytes.");
                 }
 
                 List<SqlStore.MigrationFile> manifest = SqlStore.GetMigrationFiles(runId);
                 ValidateSourceInventory(source, manifest, allowMissing: false, compareContents: false);
 
-                int imported = 0;
                 foreach (SqlStore.MigrationFile file in manifest.OrderBy(file => file.Path, StringComparer.Ordinal))
                 {
                     CheckCancellation();
                     string physical = SourcePath(source, file.OriginalPath);
                     if (file.Archived)
                     {
-                        Console.WriteLine("RESUME " + (++imported) + "/" + manifest.Count + " " + file.OriginalPath);
                         continue;
                     }
 
@@ -112,8 +101,6 @@ namespace CityDwellers.DataMigration
                         if (result.Length != file.Length || !SameHash(result.Sha256, file.Sha256))
                             throw new IOException("Imported bytes differ from the staged source inventory: " + physical);
                     }
-                    Console.WriteLine("IMPORTED " + (++imported) + "/" + manifest.Count + " " + file.OriginalPath +
-                        " bytes=" + file.Length + " sha256=" + file.Sha256);
                 }
 
                 manifest = SqlStore.GetMigrationFiles(runId);
@@ -122,9 +109,7 @@ namespace CityDwellers.DataMigration
                 CheckCancellation();
                 SqlStore.CompleteMigration(runId);
                 sealedRun = true;
-                Console.WriteLine("SEALED: complete source inventory and SQL readback verified. Beginning verified source cleanup.");
                 CleanupSource(runId, source, manifest);
-                PrintSuccess(manifest);
                 return 0;
             }
             catch (Exception ex)
@@ -170,7 +155,6 @@ namespace CityDwellers.DataMigration
                         SourceDeleted = false
                     };
                     result.Add(file);
-                    Console.WriteLine("INVENTORY " + relative + " bytes=" + file.Length + " sha256=" + file.Sha256);
                 }
             }
             return result;
@@ -258,7 +242,6 @@ namespace CityDwellers.DataMigration
 
         private static void VerifyArchives(string runId, IList<SqlStore.MigrationFile> files, bool verifyLiveDocuments)
         {
-            int verified = 0;
             foreach (SqlStore.MigrationFile file in files.OrderBy(file => file.Path, StringComparer.Ordinal))
             {
                 CheckCancellation();
@@ -268,8 +251,6 @@ namespace CityDwellers.DataMigration
                     throw new IOException("SQL immutable archive SHA-256 mismatch: " + file.OriginalPath);
                 if (verifyLiveDocuments && !SameHash(SqlStore.ComputeDocumentSha256(file.Path), file.Sha256))
                     throw new IOException("SQL live document SHA-256 mismatch before sealing: " + file.OriginalPath);
-                Console.WriteLine("VERIFIED " + (++verified) + "/" + files.Count + " " + file.OriginalPath +
-                    " bytes=" + file.Length + " sha256=" + file.Sha256);
             }
         }
 
@@ -297,7 +278,6 @@ namespace CityDwellers.DataMigration
                     throw new IOException("SQL archive changed before source deletion; retained: " + physical);
                 VerifiedSource.DeleteVerified(physical, source, file.Length, file.Sha256);
                 SqlStore.MarkMigrationSourceDeleted(runId, file.Path);
-                Console.WriteLine("CLEANED " + file.OriginalPath);
             }
 
             List<string> directories;
@@ -348,13 +328,6 @@ namespace CityDwellers.DataMigration
                 throw new OperationCanceledException("Migration cancelled at a safe operation boundary; rerun to resume.");
         }
 
-        private static void PrintSuccess(IList<SqlStore.MigrationFile> files)
-        {
-            Console.WriteLine("COMPLETE: " + files.Count + " files, " + files.Sum(file => file.Length) +
-                " original bytes verified in MySQL; the data folder is gone. City Dwellers can now start.");
-            Console.WriteLine("Run DataMigration.exe --schema for every live table definition and index; --verify checks the immutable archive.");
-        }
-
         private static void PrintSchema()
         {
             using (MySqlConnection connection = SqlStore.OpenConnection())
@@ -400,6 +373,7 @@ namespace CityDwellers.DataMigration
             Console.WriteLine("  schema / --schema  Show every SQL table definition, column and index while bots are offline.");
             Console.WriteLine("  --root             Folder containing citydwellers.json and the old data directory; defaults to executable folder.");
             Console.WriteLine("  --empty            Explicitly permit the first migration inventory to contain no files.");
+            Console.WriteLine("Migration/verification print failures only. Exit codes: 0 success, 1 failure, 130 cancelled.");
             Console.WriteLine("Configuration is read from the MySql section of citydwellers.json. Never pass credentials on the command line.");
         }
 

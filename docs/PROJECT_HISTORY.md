@@ -1,3 +1,10 @@
+## Session 194 — migration failures-only output
+
+- [OWNER REPORT] Owner reports the import went well and requests failures-only output for repeated offline trials. This is owner-reported success, not assistant-run database validation.
+- [IMPLEMENTED] Normal migration and --verify are silent on success: no startup, inventory, resume, per-file import/verification/cleanup, seal or COMPLETE output. Failures remain on stderr with retry context and nonzero exit; cancellation exits130, other caught failures1, success0. Explicit --schema and --help retain their requested output. Removed only display counters and success-printing code; import/archive/hash/seal/cleanup behavior remains unchanged.
+- [FRESH TRIALS] Documented restoring the complete original source backup before dropping all eight dedicated migration tables, in foreign-key order. The next normal run recreates schema/indexes and starts a new inventory. Ordinary reruns continue to resume or verify a sealed archive; they never automatically drop tables. Successful migration already removed the old source, so preserve an external original backup across fresh trials.
+- [VALIDATION] Focused diff/output-call review and git diff --check; no compilation, tests, SQL reset/import or AO run by assistant. Exit0 after process termination replaces the former COMPLETE banner. Owner builds and reruns.
+
 ## Session 193 — SQL project references after owner build failure
 
 - [OWNER BUILD] All seven projects failed. Runtime assemblies reported missing SqlFile/SqlDirectory; DataMigration reported missing MySqlConnector/Newtonsoft after NuGet restore failed with Project unavailable. The attachment provides no detailed NuGet cause. No migration ran.

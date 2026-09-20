@@ -83,8 +83,12 @@ checks the certificate identity. The utility never prints the connection string.
    DataMigration.exe --root "C:\CityDwellers\release"
    ```
 
-4. Wait for `COMPLETE` and exit code 0. The utility has then verified MySQL and
-   removed the source `data` folder. Start CityDwellers normally.
+4. Wait for the process to return with exit code 0. Migration and verification
+   now print **only failures**; there is no success banner or per-file progress.
+   In Windows Command Prompt, run `echo %ERRORLEVEL%` immediately afterward
+   (PowerShell: `$LASTEXITCODE`). Zero means verification and source cleanup
+   completed; start CityDwellers normally. Failure exits 1; cancellation exits
+   130. A quiet process that is still running is not a completed migration.
 
 For an intentionally empty/new installation, use `DataMigration.exe --empty`.
 This is also required when the source contains only empty directories. An absent
@@ -146,6 +150,32 @@ a retry; there is no recursive forced deletion.
 The immutable originals remain in `cd_migration_files`/`cd_migration_chunks` after
 cleanup, independently of live documents. They are historical recovery evidence,
 not a live-backend fallback. Include them in normal **server-side** MySQL backups.
+
+## Repeating a fresh offline trial
+
+For a retry after a failure, keep the SQL tables and rerun the same command to
+resume. For a deliberate start from zero, keep all bots and migration processes
+stopped, restore the **original complete `data` backup** beside the utility, then
+drop all eight City Dwellers tables in the dedicated migration database. The next
+normal `DataMigration.exe` run recreates tables/indexes and imports from scratch.
+The utility does not automatically drop tables on an ordinary rerun.
+
+A successful migration removed its input folder. Keep the original backup outside
+the installation throughout these trials: dropping the tables also deletes the
+SQL archive. Do not use `--empty` as a substitute for restoring the original data.
+Drop the entire set, including `cd_meta` and migration tables, so a previous seal
+cannot survive a reset. In child-before-parent order:
+
+```sql
+DROP TABLE IF EXISTS cd_migration_chunks;
+DROP TABLE IF EXISTS cd_migration_files;
+DROP TABLE IF EXISTS cd_migration_runs;
+DROP TABLE IF EXISTS cd_event_lines;
+DROP TABLE IF EXISTS cd_document_chunks;
+DROP TABLE IF EXISTS cd_documents;
+DROP TABLE IF EXISTS cd_directories;
+DROP TABLE IF EXISTS cd_meta;
+```
 
 ## Inspection and debugging
 
