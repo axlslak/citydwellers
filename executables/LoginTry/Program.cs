@@ -93,15 +93,21 @@ namespace CityDwellers.LoginTry
                     if (result.LogoutEnd > 0) previousLogout = result.LogoutEnd;
                     results.Add(result);
                     log.Write(cycle, "RESULT outcome=" + result.Outcome +
+                        " login_succeeded=" + result.LoginSucceeded +
+                        " client_error=" + result.ClientError + " disconnect_error=" + result.DisconnectError +
                         " setup_ms=" + Number(result.SetupMs) + " login_ms=" + Number(result.LoginMs) +
                         " disconnect_call_ms=" + Number(result.LogoutMs) + " unload_ms=" + Number(result.UnloadMs) +
                         " previous_disconnect_to_login_start_ms=" + Number(result.GapMs));
                     if (cleanupFailed) break;
                     // Deliberately NO delay before the next attempt.
                 }
-                var successful = results.Where(r => r.Outcome == "in-play").ToList();
-                log.Write(0, "SUMMARY attempted=" + results.Count + " successful=" + successful.Count +
-                    " failed=" + (results.Count - successful.Count) + " cancelled=" + log.Cancelled +
+                var successful = results.Where(r => r.LoginSucceeded).ToList();
+                int clientErrors = results.Count(r => r.ClientError);
+                int disconnectErrors = results.Count(r => r.DisconnectError);
+                log.Write(0, "SUMMARY attempted=" + results.Count + " login_successful=" + successful.Count +
+                    " login_failed=" + (results.Count - successful.Count) +
+                    " client_errors=" + clientErrors + " disconnect_errors=" + disconnectErrors +
+                    " cancelled=" + log.Cancelled +
                     " cleanup_failed=" + cleanupFailed);
                 if (successful.Count > 0)
                 {
@@ -110,7 +116,8 @@ namespace CityDwellers.LoginTry
                     log.Write(0, "LOGIN_MS min=" + Number(times.First()) + " median=" + Number(median) +
                         " mean=" + Number(times.Average()) + " max=" + Number(times.Last()));
                 }
-                return successful.Count == Attempts && !cleanupFailed && !log.Cancelled ? 0 : 1;
+                return successful.Count == Attempts && clientErrors == 0 && disconnectErrors == 0 &&
+                    !cleanupFailed && !log.Cancelled ? 0 : 1;
             }
         }
 
@@ -122,6 +129,7 @@ namespace CityDwellers.LoginTry
     public sealed class AttemptResult
     {
         public string Outcome;
+        public bool LoginSucceeded, ClientError, DisconnectError;
         public long LoginStart, LogoutEnd;
         public double SetupMs = -1, LoginMs = -1, LogoutMs = -1, UnloadMs = -1, GapMs = -1;
     }
@@ -194,16 +202,21 @@ namespace CityDwellers.LoginTry
             }
             catch (Exception ex)
             {
+                result.ClientError = true;
                 result.Outcome = "client-error-" + ex.GetType().Name;
                 log.Write(cycle, "CLIENT_ERROR type=" + ex.GetType().Name);
             }
             finally
             {
+                // Reaching in-play is independent of later pump/disconnect errors.
+                result.LoginSucceeded = _inPlay;
+                if (_inPlay) result.LoginMs = Program.Milliseconds(result.LoginStart, _inPlayAt);
                 long start = Stopwatch.GetTimestamp();
                 log.Write(cycle, "LOGOUT_START");
                 try { Client.Disconnect(); }
                 catch (Exception ex)
                 {
+                    result.DisconnectError = true;
                     result.Outcome += "/disconnect-error-" + ex.GetType().Name;
                     log.Write(cycle, "DISCONNECT_ERROR type=" + ex.GetType().Name);
                 }

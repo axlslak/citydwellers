@@ -1,3 +1,11 @@
+## Session 189 — measured immediate clientless relog
+
+- [OWNER LIVE EVIDENCE] Nine sequential fresh-client cycles all reached CharacterInPlay in 18.184 seconds total. Login duration min1686.296 ms, median1979.235 ms, mean1992.542 ms, max2313.627 ms. Next LOGIN_START followed prior local disconnect by20.636–22.616 ms. All nine domains unloaded successfully. Sanitized statistics only; raw attachment contains credentials and must not be published.
+- [DISTINCTION] Owner's30-second statement concerns avatar persistence/vulnerability to mobs after logout, NOT a clientless reconnect cooldown or required world-settling wait. This run demonstrates immediate relog acceptance for the tested account/connection; it does not measure server avatar disappearance. Prefer an affected-only relog over an automatic audit when client state is distrusted; never during a trade. Do not reintroduce the30-second rule.
+- [PROBE FIX] Original successful=0 was misleading: every login reached in-play, but every Disconnect reported InvalidOperationException after Disconnected. Record login success independently; report client/disconnect errors separately and retain nonzero exit for lifecycle failures. Successful-login timing statistics now include these reached-in-play attempts. Root cause of the SDK disconnect exception remains unconfirmed; do not claim it fixed.
+- [VALIDATION] Owner log event/timing evidence and focused static diff review; no assistant compilation or live AO test. Production banker recovery unchanged in this transaction.
+- [NEXT] Return to session186 audit-policy implementation: one initial audit per banker per host process; all later physical audits explicit admin-only, never SC+ or automatic fault/reconnect/periodic triggers. Preserve source; no roster-wide audit for a single-bank fault. This remains unimplemented, not resolved by documenting the rule.
+
 ## Session 188 — owner build: missing shutdown helper and skipped probe
 
 - [OWNER BUILD] Release rebuild reports4 succeeded/2 failed/1 skipped. CityManager and CityDwellers fail with CS0103/CS0246 for ShutdownControl; LoginTry is restored but skipped by solution rebuild. No login timing evidence exists yet. Other reported CS0649/source-fingerprint warnings are not these build errors.

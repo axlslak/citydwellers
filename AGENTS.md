@@ -123,3 +123,9 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
 - Prefer a local relog to refresh distrusted client state. There is no clientless 30-second relog rule. Never relog during a trade. Relogging must not implicitly launch an audit or manufacture proof of container contents.
 - Hold only affected uncertain operations and explain the bug; administrator decides whether to authorize a physical audit. Evidence first, not blanket reconciliation.
 
+
+## Owner relog evidence — session 189
+
+- The owner's30-second logout statement concerns lingering avatar exposure to mobs, not a mandatory clientless reconnect delay. Do not use it as a cooldown or world-settling requirement.
+- Owner measured nine consecutive in-play logins in18.184 seconds total (mean1.993 seconds per login), with next login starting about21–23 ms after local disconnect. All domains unloaded. Disconnect exceptions were separate from successful logins; do not repeat the probe's old misleading successful=0 conclusion.
+- Prefer affected-only relog when client state is doubted, outside any active trade. Successful reconnect is not proof of unseen container contents. No blanket audit or roster disruption; existing one-startup/admin-only audit policy remains.

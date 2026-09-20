@@ -30,7 +30,10 @@ Send that file back. UTC timestamps and monotonic millisecond timings include:
 - Character-in-play or login rejection/error/timeout.
 - Disconnect call, observed disconnected event, and completed AppDomain unload.
 - Per-cycle setup, login, local disconnect, unload and inter-attempt gap.
-- Success/failure totals and min/median/mean/max successful login time.
+- Login success/failure totals, separate client/disconnect error counts, and
+  min/median/mean/max successful login time. Reaching in-play counts as a
+  successful login even if disconnect subsequently throws; errors remain visible
+  and produce a nonzero exit code.
 
 The measured gap includes logging and domain setup/teardown; it is not zero
 just because no delay is imposed. Local disconnect is **not** a server logout
@@ -38,6 +41,17 @@ acknowledgement. The next successful login supplies the server-acceptance
 observation. These measurements describe full fresh-client cycles, not reuse
 of a still-running client session. A stuck synchronous SDK call can outlast the
 pump timeout. Unload failure stops the experiment rather than overlapping clients.
+
+Owner's nine-cycle observation (2026-09-20): all nine reached in-play in
+18.184 seconds total; login times were 1686.296–2313.627 ms, mean 1992.542 ms,
+median 1979.235 ms. Next login started 20.636–22.616 ms after local disconnect.
+All nine disconnect calls reported InvalidOperationException after the
+disconnected event; all nine domains unloaded successfully. The original
+`successful=0` summary conflated these errors with login failures; the current
+summary separates them. This is evidence for immediate relog acceptance on
+that connection, not a measurement of when the old avatar disappears.
+The owner's 30-second avatar-presence/combat warning is not a clientless relog
+cooldown. In production, never relog during a trade.
 
 Account/password/argument text and raw SDK logs are not written to the result.
 The requested command-line credentials remain visible to local process tools;
