@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 183,
+  "current_session": 184,
   "last_completed_session": 183,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-183-adaptive-org-blob-budget",
-  "checkpoint_commit": "541317078994961f7a7306323eb45c12f5af0fa6",
-  "task": "Adaptive organization blob budget and retry published",
-  "resume_instruction": "Owner rebuild/restart. Org current budget starts at/restores version3 state with default 5200. Missing exact echo backs one 50-byte step below the failed budget, rebuilds that logical blob page when possible and queues retries at least 3s apart; late exact echo during grace cancels queued replacements. Budget-sized first-attempt confirmed blobs may raise the next budget by 50; retries do not. #status shows blob current(5200 default), last confirmed/failed bytes and queued retries. Guest/tell unchanged. Bobsan online parser is now runtime-verified on the supplied mains10/online15/pages1 and Splicer-2 evidence. Reopen on build or live-log evidence.",
-  "base_commit": "3a8bac6c63d8afd1d9ccb370d732a0f00dc6bc4f"
+  "transaction": "session-184-org-feedback-confidence",
+  "checkpoint_commit": "f3acd1c3cbf2ce9617e237188a40c14075135438",
+  "task": "Separate org echo uncertainty from size failure and accelerate safe upward probing",
+  "resume_instruction": "Owner live run proves exact echoes for 4879/2098, 4887/2100 and 4940/1161 byte org replies, while 644-byte #online visibly delivered to org but Manager missed its self-echo and retried/spammed. Fix: missing echo only drives downshift/retry for a near-current-budget growth probe; small misses are detector uncertainty only. Track proven-safe and failed page budgets plus max confirmed bytes in status. Upward probes use ~10% rounded-to-50 (min250); once a failed budget exists, narrow between proven-safe and failed. Preserve 5200 default, exact positive echo proof and 3s retry grace for genuine frontier probes.",
+  "base_commit": "f3acd1c3cbf2ce9617e237188a40c14075135438"
 }
