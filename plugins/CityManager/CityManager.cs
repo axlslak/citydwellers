@@ -154,7 +154,6 @@ namespace CityManager
             public int OriginalLength;
             public int OriginalBudget;
             public bool OriginalGrowthProbe;
-            public bool OriginalIsRetry;
         }
 
         private sealed class OrgBlobBudgetState
@@ -1927,7 +1926,6 @@ namespace CityManager
             int lateRetryLength = 0;
             int lateRetryBudget = 0;
             bool lateRetryGrowthProbe = false;
-            bool lateRetryWasRetry = false;
             int lateRetryCancelled = 0;
             lock (_orgOutputSync)
             {
@@ -1953,7 +1951,6 @@ namespace CityManager
                             lateRetryLength = late.OriginalLength;
                             lateRetryBudget = late.OriginalBudget;
                             lateRetryGrowthProbe = late.OriginalGrowthProbe;
-                            lateRetryWasRetry = late.OriginalIsRetry;
                             lateRetryCancelled = _orgRetryQueue.RemoveAll(q =>
                                 string.Equals(q.GroupId, lateRetryGroup, StringComparison.Ordinal));
                         }
@@ -1968,8 +1965,7 @@ namespace CityManager
                 RecordLateOrgConfirmation(
                     lateRetryLength,
                     lateRetryBudget,
-                    lateRetryGrowthProbe,
-                    lateRetryWasRetry);
+                    lateRetryGrowthProbe);
                 SetOrgOutboundHealth(false, "late exact echo arrived during org retry grace");
                 Logger.Information(
                     "ORG RETRY CANCELLED: late exact echo arrived before resend; " +
@@ -2370,8 +2366,7 @@ namespace CityManager
         private void RecordLateOrgConfirmation(
             int length,
             int budget,
-            bool growthProbe,
-            bool wasRetry)
+            bool growthProbe)
         {
             if (length <= 0)
                 return;
@@ -2460,8 +2455,7 @@ namespace CityManager
                         ExpectedSenderId = pending.SenderId,
                         OriginalLength = pending.Length,
                         OriginalBudget = pending.BudgetAtSend,
-                        OriginalGrowthProbe = pending.GrowthProbe,
-                        OriginalIsRetry = pending.IsRetry
+                        OriginalGrowthProbe = pending.GrowthProbe
                     });
                     due = due.AddSeconds(3);
                 }
