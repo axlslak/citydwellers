@@ -13,8 +13,13 @@ namespace CityManager
 {
     public partial class CityManager
     {
-        // Owner-adjustable organization blob budget in UTF-8 bytes.
+        // Owner-adjustable organization blob budget baseline in UTF-8 bytes.
+        // Runtime delivery feedback moves the current budget around this default;
+        // changing 5200 here still changes the baseline after the next rebuild.
         private const int OrgBlobPageSize = 5200;
+        private const int OrgBlobPageStep = 50;
+        private const int OrgBlobMinPageSize = 512;
+        private const int OrgBlobMaxPageSize = 32768;
         private const int GuestBlobPageSize = 8000;
         private const int TellBlobPageSize = 7200;
 
@@ -25,6 +30,34 @@ namespace CityManager
         private const string ColorCommand = "#F5C542";
         private const string ColorMuted = "#A0A0A0";
         private const string ColorText = "#FFFFFF";
+
+        // BuildBlobLinks registers the logical page behind each rendered org link.
+        // Reply() consumes the matching template before send. If exact echo proof
+        // later fails, the transport can rebuild that page at a smaller current
+        // budget without re-running the command that produced it.
+        private readonly object _orgBlobTemplateSync = new object();
+        private readonly Dictionary<string, OrgBlobRetryTemplate> _orgBlobRetryTemplates =
+            new Dictionary<string, OrgBlobRetryTemplate>(StringComparer.Ordinal);
+
+        private sealed class OrgBlobRetryTemplate
+        {
+            public string Link;
+            public string Title;
+            public string Label;
+            public string Content;
+            public string HeadingMarkup;
+            public DateTime CreatedUtc;
+        }
+
+        private sealed class OrgReplyRetryPlan
+        {
+            public ReplyTarget Target;
+            public string RawText;
+            public bool IsBlob;
+            public string Prefix;
+            public string Suffix;
+            public OrgBlobRetryTemplate Blob;
+        }
 
         private void ProcessHelpCommand(
             string[] parts,
@@ -1052,7 +1085,8 @@ namespace CityManager
                 Encoding.UTF8.GetByteCount(EscapeBlobText(label ?? string.Empty)) + 512;
             if (headingMarkup != null)
                 envelope += Encoding.UTF8.GetByteCount(EscapeTextUri(headingMarkup));
-            List<string> pages = PaginateBlob(content, Math.Max(256, BlobPageSize(target) - envelope));
+            int pageBudget = BlobPageSize(target);
+            List<string> pages = PaginateBlob(content, Math.Max(256, pageBudget - envelope));
             var links = new List<string>();
 
             for (int index = 0; index < pages.Count; index++)
@@ -1069,10 +1103,18 @@ namespace CityManager
                     heading += " - Page " + (index + 1) + "/" + pages.Count;
                 string payload = heading + "\n\n" +
                     CityBankers.Shared.CityBankersChatPalette.WhiteBaseMarkup(pages[index]);
-                links.Add(
+                string link =
                     "<a href=\"text://" + EscapeTextUri(payload) + "\">" +
                     "<font color='" + ColorCommand + "'>[" +
-                    EscapeBlobText(pageLabel) + "]</font></a>");
+                    EscapeBlobText(pageLabel) + "]</font></a>";
+                links.Add(link);
+                RegisterOrgBlobRetryTemplate(
+                    target,
+                    link,
+                    pageTitle,
+                    pageLabel,
+                    pages[index],
+                    heading);
             }
 
             return links;
@@ -1081,10 +1123,109 @@ namespace CityManager
         private int BlobPageSize(ReplyTarget target)
         {
             if (target.IsOrg)
-                return OrgBlobPageSize;
+                return CurrentOrgBlobPageSize();
             if (target.IsGuest)
                 return GuestBlobPageSize;
             return TellBlobPageSize;
+        }
+
+        private void RegisterOrgBlobRetryTemplate(
+            ReplyTarget target,
+            string link,
+            string title,
+            string label,
+            string content,
+            string headingMarkup)
+        {
+            if (target == null || !target.IsOrg || string.IsNullOrEmpty(link))
+                return;
+
+            var template = new OrgBlobRetryTemplate
+            {
+                Link = link,
+                Title = title ?? string.Empty,
+                Label = label ?? string.Empty,
+                Content = content ?? string.Empty,
+                HeadingMarkup = headingMarkup,
+                CreatedUtc = DateTime.UtcNow
+            };
+
+            lock (_orgBlobTemplateSync)
+            {
+                _orgBlobRetryTemplates[link] = template;
+                if (_orgBlobRetryTemplates.Count <= 512)
+                    return;
+
+                foreach (string old in _orgBlobRetryTemplates
+                    .OrderBy(pair => pair.Value.CreatedUtc)
+                    .Take(_orgBlobRetryTemplates.Count - 384)
+                    .Select(pair => pair.Key)
+                    .ToArray())
+                {
+                    _orgBlobRetryTemplates.Remove(old);
+                }
+            }
+        }
+
+        private OrgReplyRetryPlan CaptureOrgReplyRetryPlan(
+            ReplyTarget target,
+            string rawText)
+        {
+            var plan = new OrgReplyRetryPlan
+            {
+                Target = target,
+                RawText = rawText ?? string.Empty
+            };
+
+            if (target == null || !target.IsOrg || string.IsNullOrEmpty(rawText))
+                return plan;
+
+            lock (_orgBlobTemplateSync)
+            {
+                string matchedLink = null;
+                int matchedIndex = int.MaxValue;
+                foreach (string link in _orgBlobRetryTemplates.Keys)
+                {
+                    int index = rawText.IndexOf(link, StringComparison.Ordinal);
+                    if (index >= 0 && index < matchedIndex)
+                    {
+                        matchedLink = link;
+                        matchedIndex = index;
+                    }
+                }
+
+                if (matchedLink == null)
+                    return plan;
+
+                OrgBlobRetryTemplate template = _orgBlobRetryTemplates[matchedLink];
+                _orgBlobRetryTemplates.Remove(matchedLink);
+                plan.IsBlob = true;
+                plan.Blob = template;
+                plan.Prefix = rawText.Substring(0, matchedIndex);
+                plan.Suffix = rawText.Substring(matchedIndex + matchedLink.Length);
+                return plan;
+            }
+        }
+
+        private List<string> RebuildOrgReplyRetry(OrgReplyRetryPlan plan)
+        {
+            if (plan == null)
+                return new List<string>();
+
+            if (!plan.IsBlob || plan.Blob == null)
+                return new List<string> { plan.RawText ?? string.Empty };
+
+            List<string> links = BuildBlobLinks(
+                plan.Target,
+                plan.Blob.Title,
+                plan.Blob.Label,
+                plan.Blob.Content,
+                plan.Blob.HeadingMarkup);
+
+            return links.Select(link =>
+                (plan.Prefix ?? string.Empty) +
+                link +
+                (plan.Suffix ?? string.Empty)).ToList();
         }
 
         private List<string> PaginateBlob(string content, int maxLength)
