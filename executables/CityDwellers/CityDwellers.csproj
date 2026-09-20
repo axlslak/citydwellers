@@ -67,6 +67,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="..\..\shared\ShutdownControl.cs"><Link>ShutdownControl.cs</Link></Compile>
     <Compile Include="ClientDomainLifetime.cs" />
     <Compile Include="BuffersHost.cs" />
     <Compile Include="..\..\shared\BufferSettings.cs">

@@ -58,10 +58,6 @@
     </Compile>
   </ItemGroup>
 
-  <ItemGroup Condition="'$(MSBuildProjectName)' == 'CityDwellers' Or '$(MSBuildProjectName)' == 'CityManager'">
-    <Compile Include="$(MSBuildThisFileDirectory)shared\ShutdownControl.cs"><Link>ShutdownControl.cs</Link></Compile>
-  </ItemGroup>
-
   <!-- Host also references Scriban so its dependency closure and binding redirects
        are present when the plugin loads into client AppDomains. -->
   <ItemGroup Condition="'$(MSBuildProjectName)' == 'CityDwellers' Or '$(MSBuildProjectName)' == 'CityBuffers'">

@@ -1,3 +1,10 @@
+## Session 188 — owner build: missing shutdown helper and skipped probe
+
+- [OWNER BUILD] Release rebuild reports4 succeeded/2 failed/1 skipped. CityManager and CityDwellers fail with CS0103/CS0246 for ShutdownControl; LoginTry is restored but skipped by solution rebuild. No login timing evidence exists yet. Other reported CS0649/source-fingerprint warnings are not these build errors.
+- [FIX] Link shared/ShutdownControl.cs explicitly in both consuming project files and remove its conditional Directory.Build.props Compile entry, ensuring one inclusion per assembly without relying on that shared condition. Log proves missing inclusion, not why the owner build failed to evaluate the previous condition.
+- [FIX] LoginTry now declares conventional Debug|AnyCPU and Release|AnyCPU property groups, and its solution mappings use Visual Studio's Any CPU spelling like the other projects. Output remains release/logintry.exe and the build-only host reference remains. No runtime behavior changes; audit implementation stays deferred.
+- [VALIDATION] Source paths exist; both project files include the helper exactly once; root duplicate removed; project XML and solution mapping review; git diff --check. No assistant compilation or live AO test. Owner next reloads updated solution and rebuilds Release, then runs logintry and supplies timing log.
+
 ## Session 187 — independent nine-cycle logintry experiment
 
 - [OWNER DIRECTION] Audit implementation was paused before any runtime edits, then superseded by a direct timing experiment. Preserve the policy and await actual evidence before changing banker recovery. Owner supplies account and performs builds/live testing.
