@@ -2100,11 +2100,11 @@ namespace CityManager
                     // Likewise, back off once for the budget that actually failed.
                     // Concurrent old-budget pages still retry, but do not compound
                     // the reduction before the new smaller budget is exercised.
-                    if (_orgBlobCurrentPageSize == pending.BudgetAtSend)
+                    if (_orgBlobCurrentPageSize >= pending.BudgetAtSend)
                     {
                         _orgBlobCurrentPageSize = Math.Max(
                             OrgBlobMinPageSize,
-                            _orgBlobCurrentPageSize - OrgBlobPageStep);
+                            pending.BudgetAtSend - OrgBlobPageStep);
                     }
                 }
 
