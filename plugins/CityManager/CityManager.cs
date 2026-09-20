@@ -1925,6 +1925,9 @@ namespace CityManager
             List<PendingOrgEcho> expired;
             string lateRetryGroup = null;
             int lateRetryLength = 0;
+            int lateRetryBudget = 0;
+            bool lateRetryGrowthProbe = false;
+            bool lateRetryWasRetry = false;
             int lateRetryCancelled = 0;
             lock (_orgOutputSync)
             {
@@ -1948,6 +1951,9 @@ namespace CityManager
                         {
                             lateRetryGroup = late.GroupId;
                             lateRetryLength = late.OriginalLength;
+                            lateRetryBudget = late.OriginalBudget;
+                            lateRetryGrowthProbe = late.OriginalGrowthProbe;
+                            lateRetryWasRetry = late.OriginalIsRetry;
                             lateRetryCancelled = _orgRetryQueue.RemoveAll(q =>
                                 string.Equals(q.GroupId, lateRetryGroup, StringComparison.Ordinal));
                         }
@@ -1959,9 +1965,11 @@ namespace CityManager
             }
             if (lateRetryCancelled > 0)
             {
-                lock (_orgOutputSync)
-                    _orgLastConfirmedBytes = Math.Max(0, lateRetryLength);
-                SaveOrgBlobBudgetState();
+                RecordLateOrgConfirmation(
+                    lateRetryLength,
+                    lateRetryBudget,
+                    lateRetryGrowthProbe,
+                    lateRetryWasRetry);
                 SetOrgOutboundHealth(false, "late exact echo arrived during org retry grace");
                 Logger.Information(
                     "ORG RETRY CANCELLED: late exact echo arrived before resend; " +
@@ -1974,12 +1982,36 @@ namespace CityManager
 
             foreach (var pending in expired)
             {
-                SetOrgOutboundHealth(true, "no observed echo within 15s via " + pending.Route);
-                Logger.Warning("ORG DELIVERY UNCONFIRMED: no echo observed within 15s via " +
-                    pending.Route + "; bytes=" + pending.Length + ".");
-                DevTrace("ORG ECHO MISSING via " + pending.Route + " bytes=" + pending.Length);
-                RecordOrgBlobDelivery(pending, false);
-                QueueOrgRetry(pending);
+                if (IsOrgSizeFailureCandidate(pending))
+                {
+                    SetOrgOutboundHealth(
+                        true,
+                        "frontier org size probe has no observed echo within 15s via " +
+                        pending.Route);
+                    Logger.Warning(
+                        "ORG SIZE PROBE UNCONFIRMED: no echo observed within 15s via " +
+                        pending.Route + "; bytes=" + pending.Length +
+                        "; budget=" + pending.BudgetAtSend + ".");
+                    DevTrace(
+                        "ORG SIZE PROBE MISSING via " + pending.Route +
+                        " bytes=" + pending.Length +
+                        " budget=" + pending.BudgetAtSend);
+                    RecordOrgBlobDelivery(pending, false);
+                    QueueOrgRetry(pending);
+                }
+                else
+                {
+                    RecordOrgEchoUncertainty(pending);
+                    Logger.Warning(
+                        "ORG ECHO UNCONFIRMED: bytes=" + pending.Length +
+                        "; budget=" + pending.BudgetAtSend +
+                        "; below/uninside unproven size frontier; " +
+                        "no blob backoff and no retry.");
+                    DevTrace(
+                        "ORG ECHO UNCERTAIN bytes=" + pending.Length +
+                        " budget=" + pending.BudgetAtSend +
+                        " no-size-action");
+                }
             }
             if (confirmed != null)
             {
@@ -2175,19 +2207,25 @@ namespace CityManager
             }
         }
 
-        private int RoundOrgProbeBudget(int value)
+        private int RoundOrgProbeAmount(int value)
         {
             int quantum = OrgBlobProbeQuantum;
-            int rounded = ((Math.Max(0, value) + (quantum / 2)) / quantum) * quantum;
-            return Math.Max(OrgBlobMinPageSize, Math.Min(OrgBlobMaxPageSize, rounded));
+            return ((Math.Max(0, value) + (quantum / 2)) / quantum) * quantum;
+        }
+
+        private int RoundOrgProbeBudget(int value)
+        {
+            return Math.Max(
+                OrgBlobMinPageSize,
+                Math.Min(OrgBlobMaxPageSize, RoundOrgProbeAmount(value)));
         }
 
         private int OrgExplorationStep(int budget)
         {
             int raw = Math.Max(OrgBlobMinProbeStep, Math.Max(1, budget) / 10);
             return Math.Max(
-                OrgBlobProbeQuantum,
-                RoundOrgProbeBudget(raw));
+                OrgBlobMinProbeStep,
+                RoundOrgProbeAmount(raw));
         }
 
         private int NextOrgProbeBudgetLocked(int safeBudget)
@@ -2413,7 +2451,10 @@ namespace CityManager
                         ExpectedEchoText = pending.Text,
                         ExpectedChannelId = pending.ChannelId,
                         ExpectedSenderId = pending.SenderId,
-                        OriginalLength = pending.Length
+                        OriginalLength = pending.Length,
+                        OriginalBudget = pending.BudgetAtSend,
+                        OriginalGrowthProbe = pending.GrowthProbe,
+                        OriginalIsRetry = pending.IsRetry
                     });
                     due = due.AddSeconds(3);
                 }
