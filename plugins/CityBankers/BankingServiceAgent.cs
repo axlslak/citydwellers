@@ -305,7 +305,7 @@ namespace CityBankers
                 if (_ipcServer == null || _ipcServer.IsCompleted)
                     throw new InvalidOperationException("Banker IPC server is not running.", _ipcServer?.Exception);
                 TickBankerIpc();
-                if (_operationalHeartbeatAge.ElapsedMilliseconds >= 500)
+                if (_operationalHeartbeatAge.ElapsedMilliseconds >= 2000)
                 {
                     StartupCensusGate.PublishOperational();
                     _operationalHeartbeatAge.Restart();

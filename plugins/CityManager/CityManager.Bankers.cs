@@ -39,7 +39,8 @@ namespace CityManager
                 IReadOnlyCollection<SymbiantCatalog.AcceptanceRule> acceptanceRules =
                     SymbiantCatalog.GetRetentionRules(_settingsDir);
 
-                var operationalCharacters = BankerReadiness.GetReadyCharacters(_settingsDir);
+                var readiness = BankerReadiness.Inspect(_settingsDir);
+                var operationalCharacters = readiness.Ready;
                 foreach (string role in new[]
                 {
                     "central", "artillery", "infantry", "control", "support", "extermination",
@@ -121,7 +122,7 @@ namespace CityManager
                         !bankOpen ? (ParseBool(heartbeat?["BankNeedsId"])
                             ? "ONLINE, need new bankid — #bankid [Instance]" : "ONLINE, bank unavailable") :
                         stuck ? "STUCK" :
-                        !operational ? "ONLINE, banking service not ready" :
+                        !operational ? "ONLINE, banking service not ready (" + readiness.ReasonFor(character) + ")" :
                         !roleReady ? "ONLINE, starting" : withdrawalFailed ? "USABLE, some items held" :
                         busy ? "USABLE, busy" : "USABLE";
                     string workText = failed > 0 ? "; failed " + failed :

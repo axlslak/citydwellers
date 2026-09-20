@@ -19,14 +19,26 @@ namespace CityDwellers.Shared
         {
             if (string.IsNullOrEmpty(path)) return false;
             string key; if (!SqlStore.TryKey(path, out key)) return File.Exists(path);
-            return SqlStore.Execute(false, context => FindId(context, key).HasValue);
+            return SqlStore.ReadStatement(context => FindId(context, key).HasValue);
         }
 
         public static string ReadAllText(string path) { return ReadAllText(path, Utf8); }
         public static string ReadAllText(string path, Encoding encoding)
         {
-            using (Stream stream = OpenRead(path))
+            using (Stream stream = OpenTextRead(path))
             using (var reader = new StreamReader(stream, encoding, true)) return reader.ReadToEnd();
+        }
+        private static Stream OpenTextRead(string path)
+        {
+            string key;
+            if (SqlStore.TryKey(path, out key))
+            {
+                var snapshot = ReadSmallDocuments(new[] { path });
+                byte[] bytes;
+                if (!snapshot.TryGetValue(path, out bytes)) throw Missing(key);
+                if (bytes != null) return new MemoryStream(bytes, false);
+            }
+            return OpenRead(path);
         }
         public static string ReadAllTextOrNull(string path)
         {
@@ -38,11 +50,66 @@ namespace CityDwellers.Shared
         }
         public static byte[] ReadAllBytes(string path)
         {
+            string key;
+            if (SqlStore.TryKey(path, out key))
+            {
+                var snapshot = ReadSmallDocuments(new[] { path });
+                byte[] bytes;
+                if (!snapshot.TryGetValue(path, out bytes)) throw Missing(key);
+                if (bytes != null) return bytes;
+            }
             using (Stream stream = OpenRead(path))
             {
                 if (stream.Length > int.MaxValue) throw new IOException("The SQL document is too large to materialize; use OpenRead.");
                 using (var output = new MemoryStream((int)stream.Length)) { stream.CopyTo(output); return output.ToArray(); }
             }
+        }
+
+        // One statement reads exact bytes and existence from the same revision.
+        // Missing paths are absent; null means present but over the 1 MiB bound.
+        // Large archives retain the bounded streaming path above.
+        public static Dictionary<string, byte[]> ReadSmallDocuments(IEnumerable<string> paths)
+        {
+            var requested = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            if (requested.Length > 64) throw new ArgumentException("At most 64 documents per snapshot.");
+            var result = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            if (requested.Length == 0) return result;
+            var keys = requested.Select(FileKey).ToArray();
+            return SqlStore.ReadStatement(context =>
+            {
+                var names = Enumerable.Range(0, keys.Length).Select(i => "@p" + i).ToArray();
+                using (var command = SqlStore.Command(context,
+                    "SELECT d.path,d.byte_length,c.byte_offset,c.content FROM cd_documents d " +
+                    "LEFT JOIN cd_document_chunks c ON c.document_id=d.document_id AND d.byte_length<=1048576 " +
+                    "WHERE d.path IN (" + string.Join(",", names) + ") ORDER BY d.path,c.byte_offset"))
+                {
+                    for (int i = 0; i < keys.Length; i++) command.Parameters.AddWithValue(names[i], keys[i]);
+                    using (var reader = command.ExecuteReader())
+                    {
+                        string previous = null; byte[] bytes = null; long copied = 0;
+                        while (reader.Read())
+                        {
+                            string key = reader.GetString(0); long length = reader.GetInt64(1);
+                            if (length < 0) throw new SqlStore.DatabaseUnavailableException("Invalid SQL document length.");
+                            if (previous != key)
+                            {
+                                if (bytes != null && copied != bytes.Length) throw new SqlStore.DatabaseUnavailableException("Incomplete SQL document snapshot.");
+                                previous = key; copied = 0;
+                                bytes = length <= 1048576 ? new byte[checked((int)length)] : null;
+                                for (int i = 0; i < keys.Length; i++)
+                                    if (string.Equals(keys[i], key, StringComparison.OrdinalIgnoreCase)) result[requested[i]] = bytes;
+                            }
+                            if (bytes == null || reader.IsDBNull(2)) continue;
+                            var chunk = (byte[])reader.GetValue(3);
+                            if (reader.GetInt64(2) != copied || chunk.Length > SqlStore.ChunkSize || chunk.Length > bytes.Length - copied)
+                                throw new SqlStore.DatabaseUnavailableException("Invalid SQL document snapshot offsets.");
+                            Buffer.BlockCopy(chunk, 0, bytes, (int)copied, chunk.Length); copied += chunk.Length;
+                        }
+                        if (bytes != null && copied != bytes.Length) throw new SqlStore.DatabaseUnavailableException("Incomplete SQL document snapshot.");
+                    }
+                }
+                return result;
+            }, keys.Any(SqlStore.IsIndependentLog));
         }
         public static IEnumerable<string> ReadLines(string path) { return ReadLines(path, Utf8); }
         public static IEnumerable<string> ReadLines(string path, Encoding encoding)

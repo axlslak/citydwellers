@@ -69,6 +69,7 @@ namespace CityBankers
         private readonly Stopwatch _stagingAge = new Stopwatch();
         private bool _issued, _finished, _quiesced;
         private readonly Stopwatch _poll = Stopwatch.StartNew();
+        private readonly Stopwatch _presenceAge = new Stopwatch();
         private readonly Stopwatch _gather = Stopwatch.StartNew();
         private readonly Stopwatch _settled = Stopwatch.StartNew();
         private readonly Stopwatch _retry = Stopwatch.StartNew();
@@ -312,6 +313,7 @@ namespace CityBankers
             _traceData = RuntimeStateStore.GetDataDirectory(_settings);
             Directory.CreateDirectory(_directory);
             _connection = Guid.NewGuid().ToString("N");
+            _presenceAge.Reset();
             Client.OnUpdate += Tick;
             Client.Disconnected += OnDisconnected;
             Trade.TradeOpened += RejectBeforeCensus;
@@ -331,6 +333,7 @@ namespace CityBankers
             try { RetireAdmission(); }
             catch (Exception ex) { Logger.Error("[CityBankers] Admission cleanup on disconnect: " + ex.Message); }
             _connection = Guid.NewGuid().ToString("N");
+            _presenceAge.Reset();
             _stagingBag = _stagingFailureLayout = _stagingBeforeLayout = null;
             _presenceRetryAfter = 0;
             _localRelogPending = false; // An existing SDK reconnect now owns this offline session.
@@ -537,8 +540,12 @@ namespace CityBankers
                     _stagingFailureLayout = null;
                     _stagingBag = null;
                 }
-                RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".presence.json"),
-                    new Presence { Connection = _connection, Stamp = Stopwatch.GetTimestamp() });
+                if (!_presenceAge.IsRunning || _presenceAge.ElapsedMilliseconds >= 2000)
+                {
+                    RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".presence.json"),
+                        new Presence { Connection = _connection, Stamp = Stopwatch.GetTimestamp() });
+                    _presenceAge.Restart();
+                }
                 // Disabled: faults never publish roster recovery requests.
                 if (string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase) && _gather.ElapsedMilliseconds >= 5000) Locked(Coordinate);
                 var cycle = Current();

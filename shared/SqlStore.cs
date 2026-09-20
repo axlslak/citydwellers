@@ -334,6 +334,20 @@ namespace CityDwellers.Shared
             return Execute(true, context => action());
         }
 
+        // Only for a single SELECT: its statement snapshot is already atomic.
+        // Reuse an enclosing transaction so callers still see their own writes.
+        internal static T ReadStatement<T>(Func<DbContext, T> action, bool independent = false)
+        {
+            EnsureInitialized();
+            if (_context != null && !independent) return Execute(false, action);
+            try
+            {
+                using (var connection = NewConnection())
+                    return action(new DbContext { Connection = connection });
+            }
+            catch (Exception ex) { HandleDatabaseFailure(ex); throw; }
+        }
+
         internal static T Execute<T>(bool write, Func<DbContext, T> action)
         {
             EnsureInitialized();
