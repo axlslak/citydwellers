@@ -59,6 +59,21 @@ namespace CityDwellers.Host
         private void RunHost()
         {
             int exitCode = CityDwellersCoordinator.Run(_stop, false);
+            if (CityDwellersCoordinator.OperatorShutdownRequested)
+            {
+                // Report a normal service stop even if a component had failed earlier.
+                // Use another thread: OnStop joins this host thread.
+                RuntimeLog.Write("AO operator shutdown completed; stopping Windows service without recovery restart.");
+                ThreadPool.QueueUserWorkItem(_ =>
+                {
+                    ExitCode = 0;
+                    Stop();
+                    // Stop reports SERVICE_STOPPED first, so SCM recovery is not triggered.
+                    // Also terminates any foreground component left after the stop budget.
+                    Environment.Exit(0);
+                });
+                return;
+            }
             if (!_stopRequested && exitCode != 0)
             {
                 RuntimeLog.Write(

@@ -287,6 +287,17 @@ namespace CityManager
                     body = BuildGuestHelp(target);
                     return true;
 
+                case "shutdown":
+                    title = "Shutdown City Dwellers";
+                    body = CommandHelp(
+                        target,
+                        "shutdown",
+                        "Stop all City Dwellers bots and the unified host.",
+                        "One command takes effect without a confirmation prompt. The actor, authority, channel and UTC time are logged before stopping.",
+                        "Squad Commander or higher (including verified officer alts), or administrator",
+                        "This is terminal: a manual start is required. Use restart to recycle only Manager.");
+                    return true;
+
                 case "restart":
                     if (!isAdmin)
                         return false;
@@ -297,7 +308,7 @@ namespace CityManager
                         "Restart Apcmanager and reconnect its AO session.",
                         "Use this when the clientless AO session has degraded, especially when organization output loses its LocalPlayer organization stat.",
                         "Administrator",
-                        "The current process starts a delayed replacement, then exits.");
+                        "Only Manager reconnects; the other City Dwellers bots remain online.");
                     return true;
 
                 case "dump":
@@ -447,6 +458,7 @@ namespace CityManager
                 target,
                 "get [AO item ID]",
                 "Reserve an item and collect it from Kbcentral within three minutes. Alias: withdraw."));
+            body.Append(HelpSyntaxLine(target, "shutdown", "SC+/admins: stop ALL bots; manual start required."));
             body.Append(HelpSyntaxLine(target, "pickups [last|top|member|item <name or AOID>]", "Confirmed pickup totals and history. Alias: takers."));
             body.Append(HelpSyntaxLine(target, "cru", "Collect one CRU from Kbcentral within three minutes."));
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
@@ -653,7 +665,8 @@ namespace CityManager
             string syntax,
             string description)
         {
-            string renderedSyntax = syntax.IndexOf('[') >= 0
+            string renderedSyntax = syntax.IndexOf('[') >= 0 ||
+                string.Equals(syntax, "shutdown", StringComparison.OrdinalIgnoreCase)
                 ? "<font color='" + ColorCommand + "'>" +
                   EscapeBlobText(syntax) + "</font>"
                 : CommandLink(target, syntax, syntax);

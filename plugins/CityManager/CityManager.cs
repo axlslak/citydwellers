@@ -38,6 +38,7 @@ namespace CityManager
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "help",
+                "shutdown",
                 "changelog",
                 "online",
                 "items",
@@ -538,7 +539,8 @@ namespace CityManager
                   command == "memberlist" ||
                   command == "positions" ||
                   command == "dump" ||
-                  command == "restart") && parts.Length == 1) ||
+                  command == "restart" ||
+                  command == "shutdown") && parts.Length == 1) ||
                 ((command == "inventory" || command == "inv") && parts.Length <= 2) ||
                 (command == "help" && parts.Length <= 3) ||
                 (command == "donor" && parts.Length <= 2) ||
@@ -965,6 +967,10 @@ namespace CityManager
 
                 case "dump":
                     BeginDiagnosticDump(senderName, parts, replyTarget);
+                    break;
+
+                case "shutdown":
+                    BeginShutdown(senderName, parts, replyTarget, isAdmin);
                     break;
 
                 case "restart":

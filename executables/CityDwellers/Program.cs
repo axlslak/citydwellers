@@ -84,7 +84,14 @@ namespace CityDwellers.Host
                 };
                 inputThread.Start();
 
-                return CityDwellersCoordinator.Run(stop, true);
+                int exitCode = CityDwellersCoordinator.Run(stop, true);
+                if (CityDwellersCoordinator.OperatorShutdownRequested)
+                {
+                    RuntimeLog.Write("AO operator shutdown: exiting after the component stop budget; no restart.");
+                    // A stuck foreground component must not keep a terminal command alive.
+                    Environment.Exit(0);
+                }
+                return exitCode;
             }
         }
 
@@ -142,6 +149,7 @@ namespace CityDwellers.Host
         private const string ManagerRestartRequestFile =
             "citydwellers-manager-restart.request";
         private static string _dataDirectory;
+        internal static bool OperatorShutdownRequested { get; private set; }
 
         public static int Run(ManualResetEvent stop, bool interactive)
         {
@@ -222,6 +230,13 @@ namespace CityDwellers.Host
                 if (signaled == 0 || stop.WaitOne(0))
                     break;
 
+                if (TryAcceptShutdown())
+                {
+                    OperatorShutdownRequested = true;
+                    stop.Set();
+                    break;
+                }
+
                 bool restartRequested = IsManagerRestartRequested();
 
                 if (restartRequested)
@@ -282,6 +297,7 @@ namespace CityDwellers.Host
             out HostSettings settings)
         {
             settings = null;
+            OperatorShutdownRequested = false;
 
             SettingsPaths.BindRuntimeDirectoryToProcess(
                 AppDomain.CurrentDomain.BaseDirectory);
@@ -307,6 +323,10 @@ namespace CityDwellers.Host
                 foreach (string build in BuildIdentity.DescribeComponents(true))
                     RuntimeLog.Write("BUILD " + build);
                 _dataDirectory = dataDirectory;
+                // Never replay a terminal command from a previous process.
+                if (File.Exists(Path.Combine(dataDirectory, ShutdownControl.RequestFile)))
+                    RuntimeLog.Write("Discarding stale AO shutdown request on explicit startup; audit retained.");
+                ShutdownControl.Clear(dataDirectory);
                 ReportRuntimeLayout(runtimeDirectory, dataDirectory);
                 DeleteManagerRestartRequest();
                 if (IsManagerRestartRequested())
@@ -452,6 +472,33 @@ namespace CityDwellers.Host
                 () => ManagerHost.Run(new string[0], managerStop, false));
             manager.Start();
             return manager;
+        }
+
+        private static bool TryAcceptShutdown()
+        {
+            string path = Path.Combine(_dataDirectory, ShutdownControl.RequestFile);
+            if (!File.Exists(path)) return false;
+            try
+            {
+                var request = JsonConvert.DeserializeObject<ShutdownControl.Request>(File.ReadAllText(path));
+                if (request == null || string.IsNullOrWhiteSpace(request.Id) ||
+                    string.IsNullOrWhiteSpace(request.Actor) || string.IsNullOrWhiteSpace(request.Authority))
+                    throw new InvalidDataException("Missing shutdown actor, authority or request ID.");
+                ShutdownControl.Audit(_dataDirectory, request, "host-accepted");
+                RuntimeLog.Write("SHUTDOWN from AO: actor=" + request.Actor +
+                    "; authority=" + request.Authority + "; channel=" + request.Channel +
+                    "; requestedUtc=" + request.RequestedUtc.ToString("O") +
+                    "; request=" + request.Id + "; stopping ALL components without restart.");
+                // The durable audit is retained even after the one-shot marker is removed.
+                try { ShutdownControl.Clear(_dataDirectory); }
+                catch (Exception ex) { RuntimeLog.Write("Shutdown marker cleanup: " + ex.Message); }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                RuntimeLog.Write("AO shutdown could not be read/audited; host remains running: " + ex.Message);
+                return false;
+            }
         }
 
         private static bool IsManagerRestartRequested()
