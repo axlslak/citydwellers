@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 194,
+  "current_session": 195,
   "last_completed_session": 194,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-194-migration-errors-only",
-  "checkpoint_commit": "5678750dada03fc1e3e72e34c2ae3531ba8d7762",
-  "task": "Resolved: failures-only migration output and fresh-trial instructions",
-  "resume_instruction": "No active task. Owner reports successful import. Session194 failures-only DataMigration output is published: successful migrate/verify exits0 silently; failures retain stderr and nonzero exit, explicit schema/help remain visible. Hash verification, immutable archive, seal, cleanup and runtime SQL gates unchanged. For fresh trials, bots/importer stopped, restore original complete data backup before dropping all eight tables; next normal run recreates schema. See docs/MYSQL_MIGRATION.md. No assistant build, tests, live database reset/import or AO run. Preserve backup across trials and no-auto-audit policy.",
-  "base_commit": "1273033fa81e78cb724e10fe30daf59cca7ebd80"
+  "transaction": "session-195-sql-startup-contention",
+  "checkpoint_commit": "29c20fe6311fbcdb9d48156bc79599fe7cf85b45",
+  "task": "Fix startup SQL writer contention and expose internal fatal reasons",
+  "resume_instruction": "Owner migration completed, then startup stopped with DatabaseUnavailableException roughly30s after ledger init. Inspect ledger history scan/global lock and repeated catalog reads; shorten lock duration without weakening fail-closed accounting. Print safe internal SQL failure reasons. No build/live tests; preserve migration and audit policy.",
+  "base_commit": "29c20fe6311fbcdb9d48156bc79599fe7cf85b45"
 }
