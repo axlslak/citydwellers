@@ -2259,6 +2259,13 @@ namespace CityManager
 
             lock (_orgOutputSync)
             {
+                // Positive echo evidence dominates absence-of-echo evidence.
+                // If a larger physical message already echoed successfully,
+                // this smaller miss cannot honestly be blamed on blob size.
+                if (_orgMaxConfirmedBytes > 0 &&
+                    pending.Length <= _orgMaxConfirmedBytes)
+                    return false;
+
                 return _orgBlobProvenSafePageSize <= 0 ||
                        pending.BudgetAtSend > _orgBlobProvenSafePageSize;
             }
