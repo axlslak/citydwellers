@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 183,
-  "last_completed_session": 182,
-  "status": "in_progress",
+  "last_completed_session": 183,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-183-adaptive-org-blob-budget",
-  "checkpoint_commit": "3a8bac6c63d8afd1d9ccb370d732a0f00dc6bc4f",
-  "task": "Adaptive organization blob budget with echo-driven retry and status visibility",
-  "resume_instruction": "Implement default 5200/current persistent org blob budget. Exact echo-confirmed budget-sized delivery may raise current by 50; missing echo lowers by 50 and queues the failed org reply for a 3-second delayed retry, rebuilding blob pages at the smaller budget where metadata is available. Show current(default), evidence and retry state in #status. Preserve exact echo proof, guest/tell limits and owner build/live-test boundary.",
+  "checkpoint_commit": "541317078994961f7a7306323eb45c12f5af0fa6",
+  "task": "Adaptive organization blob budget and retry published",
+  "resume_instruction": "Owner rebuild/restart. Org current budget starts at/restores version3 state with default 5200. Missing exact echo backs one 50-byte step below the failed budget, rebuilds that logical blob page when possible and queues retries at least 3s apart; late exact echo during grace cancels queued replacements. Budget-sized first-attempt confirmed blobs may raise the next budget by 50; retries do not. #status shows blob current(5200 default), last confirmed/failed bytes and queued retries. Guest/tell unchanged. Bobsan online parser is now runtime-verified on the supplied mains10/online15/pages1 and Splicer-2 evidence. Reopen on build or live-log evidence.",
   "base_commit": "3a8bac6c63d8afd1d9ccb370d732a0f00dc6bc4f"
 }
