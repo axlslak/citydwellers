@@ -1079,8 +1079,9 @@ namespace CityManager
             string content,
             string headingMarkup = null)
         {
-            // Existing channel constants remain the sole page limits. Reserve room
-            // for the escaped title/link, page numbering and callers' short summaries.
+            // Guest/tell keep fixed limits; organization uses the current adaptive
+            // budget. Reserve room for the escaped title/link, page numbering and
+            // callers' short summaries.
             int envelope = Encoding.UTF8.GetByteCount(EscapeTextUri(title ?? string.Empty)) +
                 Encoding.UTF8.GetByteCount(EscapeBlobText(label ?? string.Empty)) + 512;
             if (headingMarkup != null)
