@@ -123,7 +123,38 @@ namespace CityManager
             public long Stamp;
             public int Length, ChannelId;
             public uint SenderId;
+            public OrgReplyRetryPlan RetryPlan;
+            public bool IsRetry;
+            public int RetryAttempt;
+            public int BudgetAtSend;
+            public bool GrowthProbe;
         }
+
+        private string _orgBlobStatePath;
+        private int _orgBlobCurrentPageSize = OrgBlobPageSize;
+        private int _orgLastConfirmedBytes;
+        private int _orgLastFailedBytes;
+        private readonly List<QueuedOrgRetry> _orgRetryQueue = new List<QueuedOrgRetry>();
+        private DateTime _nextOrgRetrySendUtc = DateTime.MinValue;
+
+        private sealed class QueuedOrgRetry
+        {
+            public ReplyTarget Target;
+            public string RawText;
+            public int Attempt;
+            public DateTime DueUtc;
+        }
+
+        private sealed class OrgBlobBudgetState
+        {
+            public int Version;
+            public int DefaultPageSize;
+            public int CurrentPageSize;
+            public int LastConfirmedBytes;
+            public int LastFailedBytes;
+            public DateTime UpdatedUtc;
+        }
+
         private string _orgOutboundDetail = "not tested since startup";
         private DateTime? _lastOrgOutboundAttemptUtc;
 
@@ -158,6 +189,9 @@ namespace CityManager
             _statePath = Path.Combine(_dataDir, "citymanager-cloak-state.json");
             _eventsPath = Path.Combine(_dataDir, "citymanager-cloak-events.jsonl");
             _diagnosticLogPath = Path.Combine(_dataDir, "citymanager-diagnostics.log");
+            _orgBlobStatePath = Path.Combine(_dataDir, "citymanager-org-size.json");
+            LoadOrgBlobBudgetState();
+            SaveOrgBlobBudgetState();
 
             Logger.Information($"CityManager settings: {_settingsDir}");
             Logger.Information($"CityManager data: {_dataDir}");
@@ -1651,6 +1685,10 @@ namespace CityManager
 
         private void Reply(ReplyTarget target, string text)
         {
+            OrgReplyRetryPlan orgRetryPlan =
+                target != null && target.IsOrg
+                    ? CaptureOrgReplyRetryPlan(target, text)
+                    : null;
             text = CityBankers.Shared.CityBankersChatPalette.StyleMarkup(text);
             try
             {
@@ -1662,7 +1700,7 @@ namespace CityManager
 
                 if (target.IsOrg)
                 {
-                    if (TrySendOrgMessage(target, text))
+                    if (TrySendOrgMessage(target, text, orgRetryPlan, false, 0))
                         return;
 
                     string warning =
@@ -1699,7 +1737,12 @@ namespace CityManager
             }
         }
 
-        private bool TrySendOrgMessage(ReplyTarget target, string text)
+        private bool TrySendOrgMessage(
+            ReplyTarget target,
+            string text,
+            OrgReplyRetryPlan retryPlan,
+            bool isRetry,
+            int retryAttempt)
         {
             object channelId = target != null ? target.ChannelId : null;
             string channelName = target != null ? target.ChannelName : null;
@@ -1757,7 +1800,13 @@ namespace CityManager
                 try
                 {
                     // Register before writing: an immediate echo must find its attempt.
-                    pending = NoteOrgEchoPending("Client.SendOrgMessage", text, clanStat);
+                    pending = NoteOrgEchoPending(
+                        "Client.SendOrgMessage",
+                        text,
+                        clanStat,
+                        retryPlan,
+                        isRetry,
+                        retryAttempt);
                     Client.SendOrgMessage(text, false);
                     SetOrgOutboundHealth(false, "Client.SendOrgMessage (" + detail + ")");
                     Logger.Information(
@@ -1781,7 +1830,13 @@ namespace CityManager
             }
 
             string directDetail;
-            if (TrySendDirectGroupMessage(channelId, text, out directDetail))
+            if (TrySendDirectGroupMessage(
+                    channelId,
+                    text,
+                    out directDetail,
+                    retryPlan,
+                    isRetry,
+                    retryAttempt))
             {
                 // Both routes send on the game connection. Delivery remains
                 // unverified until the corresponding chat echo arrives.
@@ -1804,14 +1859,32 @@ namespace CityManager
             return false;
         }
 
-        private PendingOrgEcho NoteOrgEchoPending(string route, string text, int channelId)
+        private PendingOrgEcho NoteOrgEchoPending(
+            string route,
+            string text,
+            int channelId,
+            OrgReplyRetryPlan retryPlan,
+            bool isRetry,
+            int retryAttempt)
         {
+            int length = Encoding.UTF8.GetByteCount(text ?? string.Empty);
+            int budget = CurrentOrgBlobPageSize();
             var pending = new PendingOrgEcho
             {
-                Text = text ?? string.Empty, Route = route,
+                Text = text ?? string.Empty,
+                Route = route,
                 Stamp = Stopwatch.GetTimestamp(),
-                Length = Encoding.UTF8.GetByteCount(text ?? string.Empty),
-                ChannelId = channelId, SenderId = Client.Chat == null ? 0 : Client.Chat.CharId
+                Length = length,
+                ChannelId = channelId,
+                SenderId = Client.Chat == null ? 0 : Client.Chat.CharId,
+                RetryPlan = retryPlan,
+                IsRetry = isRetry,
+                RetryAttempt = retryAttempt,
+                BudgetAtSend = budget,
+                GrowthProbe = retryPlan != null &&
+                    retryPlan.IsBlob &&
+                    !isRetry &&
+                    length >= Math.Max(OrgBlobMinPageSize, budget - 512)
             };
             lock (_orgOutputSync) _pendingOrgEchoes.Add(pending);
             return pending;
@@ -1849,6 +1922,8 @@ namespace CityManager
                 Logger.Warning("ORG DELIVERY UNCONFIRMED: no echo observed within 15s via " +
                     pending.Route + "; bytes=" + pending.Length + ".");
                 DevTrace("ORG ECHO MISSING via " + pending.Route + " bytes=" + pending.Length);
+                RecordOrgBlobDelivery(pending, false);
+                QueueOrgRetry(pending);
             }
             if (confirmed != null)
             {
@@ -1856,13 +1931,17 @@ namespace CityManager
                 Logger.Information("ORG DELIVERY CONFIRMED via " + confirmed.Route +
                     "; bytes=" + confirmed.Length + ".");
                 DevTrace("ORG ECHO CONFIRMED via " + confirmed.Route + " bytes=" + confirmed.Length);
+                RecordOrgBlobDelivery(confirmed, true);
             }
         }
 
         private bool TrySendDirectGroupMessage(
             object channelId,
             string text,
-            out string detail)
+            out string detail,
+            OrgReplyRetryPlan retryPlan,
+            bool isRetry,
+            int retryAttempt)
         {
             detail = "no observed channel id";
             if (channelId == null)
@@ -1880,7 +1959,13 @@ namespace CityManager
                     return false;
                 }
 
-                pending = NoteOrgEchoPending("raw game-connection GroupMsgMessage", text, observedChannelId);
+                pending = NoteOrgEchoPending(
+                    "raw game-connection GroupMsgMessage",
+                    text,
+                    observedChannelId,
+                    retryPlan,
+                    isRetry,
+                    retryAttempt);
                 Client.Send(
                     new GroupMsgMessage
                     {
@@ -1900,6 +1985,240 @@ namespace CityManager
                 detail = "raw org-channel send failed: " + ex.Message;
                 return false;
             }
+        }
+
+        private int CurrentOrgBlobPageSize()
+        {
+            lock (_orgOutputSync)
+                return _orgBlobCurrentPageSize;
+        }
+
+        private void LoadOrgBlobBudgetState()
+        {
+            lock (_orgOutputSync)
+            {
+                _orgBlobCurrentPageSize = OrgBlobPageSize;
+                _orgLastConfirmedBytes = 0;
+                _orgLastFailedBytes = 0;
+            }
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(_orgBlobStatePath) ||
+                    !File.Exists(_orgBlobStatePath))
+                    return;
+
+                OrgBlobBudgetState saved = JsonConvert.DeserializeObject<OrgBlobBudgetState>(
+                    File.ReadAllText(_orgBlobStatePath));
+                if (saved == null ||
+                    saved.Version != 3 ||
+                    saved.DefaultPageSize != OrgBlobPageSize ||
+                    saved.CurrentPageSize < OrgBlobMinPageSize ||
+                    saved.CurrentPageSize > OrgBlobMaxPageSize)
+                    return;
+
+                lock (_orgOutputSync)
+                {
+                    _orgBlobCurrentPageSize = saved.CurrentPageSize;
+                    _orgLastConfirmedBytes = Math.Max(0, saved.LastConfirmedBytes);
+                    _orgLastFailedBytes = Math.Max(0, saved.LastFailedBytes);
+                }
+
+                Logger.Information(
+                    "ORG BLOB BUDGET restored: current=" + saved.CurrentPageSize +
+                    "; default=" + OrgBlobPageSize +
+                    "; lastConfirmed=" + Math.Max(0, saved.LastConfirmedBytes) +
+                    "; lastFailed=" + Math.Max(0, saved.LastFailedBytes) + ".");
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("Org blob budget state could not be restored: " + ex.Message);
+            }
+        }
+
+        private void SaveOrgBlobBudgetState()
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(_orgBlobStatePath))
+                    return;
+
+                OrgBlobBudgetState snapshot;
+                lock (_orgOutputSync)
+                {
+                    snapshot = new OrgBlobBudgetState
+                    {
+                        Version = 3,
+                        DefaultPageSize = OrgBlobPageSize,
+                        CurrentPageSize = _orgBlobCurrentPageSize,
+                        LastConfirmedBytes = _orgLastConfirmedBytes,
+                        LastFailedBytes = _orgLastFailedBytes,
+                        UpdatedUtc = DateTime.UtcNow
+                    };
+                }
+
+                FileSnapshot.WriteText(
+                    _orgBlobStatePath,
+                    JsonConvert.SerializeObject(snapshot, Formatting.Indented));
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("Org blob budget state could not be saved: " + ex.Message);
+            }
+        }
+
+        private void RecordOrgBlobDelivery(PendingOrgEcho pending, bool delivered)
+        {
+            if (pending == null || pending.Length <= 0)
+                return;
+
+            int before;
+            int after;
+            bool changed = false;
+            lock (_orgOutputSync)
+            {
+                before = _orgBlobCurrentPageSize;
+                if (delivered)
+                {
+                    _orgLastConfirmedBytes = pending.Length;
+                    if (pending.GrowthProbe && !pending.IsRetry)
+                    {
+                        _orgBlobCurrentPageSize = Math.Min(
+                            OrgBlobMaxPageSize,
+                            _orgBlobCurrentPageSize + OrgBlobPageStep);
+                    }
+                }
+                else
+                {
+                    _orgLastFailedBytes = pending.Length;
+                    _orgBlobCurrentPageSize = Math.Max(
+                        OrgBlobMinPageSize,
+                        _orgBlobCurrentPageSize - OrgBlobPageStep);
+                }
+
+                after = _orgBlobCurrentPageSize;
+                changed = before != after;
+            }
+
+            if (changed)
+            {
+                Logger.Information(
+                    "ORG BLOB BUDGET " +
+                    (delivered ? "UP" : "DOWN") +
+                    ": " + before + " -> " + after +
+                    " (default " + OrgBlobPageSize +
+                    "); evidence=" + pending.Length + " bytes" +
+                    (pending.IsRetry ? "; retry=" + pending.RetryAttempt : string.Empty) + ".");
+            }
+
+            SaveOrgBlobBudgetState();
+        }
+
+        private void QueueOrgRetry(PendingOrgEcho pending)
+        {
+            if (pending == null || pending.RetryPlan == null)
+                return;
+
+            List<string> retryMessages;
+            try
+            {
+                retryMessages = RebuildOrgReplyRetry(pending.RetryPlan);
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning("ORG RETRY rebuild failed: " + ex.Message);
+                return;
+            }
+
+            if (retryMessages == null || retryMessages.Count == 0)
+                return;
+
+            DateTime now = DateTime.UtcNow;
+            int queueCount;
+            DateTime firstDue;
+            lock (_orgOutputSync)
+            {
+                DateTime due = now.AddSeconds(3);
+                if (_nextOrgRetrySendUtc > due)
+                    due = _nextOrgRetrySendUtc;
+                if (_orgRetryQueue.Count > 0)
+                {
+                    DateTime tail = _orgRetryQueue[_orgRetryQueue.Count - 1].DueUtc.AddSeconds(3);
+                    if (tail > due)
+                        due = tail;
+                }
+
+                firstDue = due;
+                foreach (string raw in retryMessages)
+                {
+                    _orgRetryQueue.Add(new QueuedOrgRetry
+                    {
+                        Target = pending.RetryPlan.Target,
+                        RawText = raw ?? string.Empty,
+                        Attempt = pending.RetryAttempt + 1,
+                        DueUtc = due
+                    });
+                    due = due.AddSeconds(3);
+                }
+
+                queueCount = _orgRetryQueue.Count;
+            }
+
+            Logger.Warning(
+                "ORG RETRY queued: attempt=" + (pending.RetryAttempt + 1) +
+                "; pages=" + retryMessages.Count +
+                "; first retry in " +
+                Math.Max(0, (int)Math.Ceiling((firstDue - now).TotalSeconds)) +
+                "s; queue=" + queueCount +
+                "; current blob budget=" + CurrentOrgBlobPageSize() +
+                " (default " + OrgBlobPageSize + ").");
+        }
+
+        private void TickOrgRetryQueue()
+        {
+            QueuedOrgRetry retry = null;
+            DateTime now = DateTime.UtcNow;
+            lock (_orgOutputSync)
+            {
+                if (_orgRetryQueue.Count == 0 ||
+                    now < _nextOrgRetrySendUtc ||
+                    now < _orgRetryQueue[0].DueUtc)
+                    return;
+
+                retry = _orgRetryQueue[0];
+                _orgRetryQueue.RemoveAt(0);
+                _nextOrgRetrySendUtc = now.AddSeconds(3);
+            }
+
+            OrgReplyRetryPlan plan = CaptureOrgReplyRetryPlan(retry.Target, retry.RawText);
+            string styled = CityBankers.Shared.CityBankersChatPalette.StyleMarkup(retry.RawText);
+            Logger.Information(
+                "ORG RETRY send: attempt=" + retry.Attempt +
+                "; bytes=" + Encoding.UTF8.GetByteCount(styled) +
+                "; current blob budget=" + CurrentOrgBlobPageSize() +
+                " (default " + OrgBlobPageSize + ").");
+
+            if (TrySendOrgMessage(retry.Target, styled, plan, true, retry.Attempt))
+                return;
+
+            lock (_orgOutputSync)
+            {
+                DateTime due = DateTime.UtcNow.AddSeconds(3);
+                if (_nextOrgRetrySendUtc > due)
+                    due = _nextOrgRetrySendUtc;
+                if (_orgRetryQueue.Count > 0)
+                {
+                    DateTime tail = _orgRetryQueue[_orgRetryQueue.Count - 1].DueUtc.AddSeconds(3);
+                    if (tail > due)
+                        due = tail;
+                }
+
+                retry.DueUtc = due;
+                _orgRetryQueue.Add(retry);
+            }
+
+            Logger.Warning(
+                "ORG RETRY send path unavailable; retry remains queued for another attempt.");
         }
 
         private void SetOrgOutboundHealth(bool degraded, string detail)
@@ -1928,8 +2247,20 @@ namespace CityManager
                       " ago"
                     : ", no send attempted since startup";
 
+                string confirmed = _orgLastConfirmedBytes > 0
+                    ? _orgLastConfirmedBytes + "B"
+                    : "none";
+                string failed = _orgLastFailedBytes > 0
+                    ? _orgLastFailedBytes + "B"
+                    : "none";
+                string adaptive =
+                    ", blob " + _orgBlobCurrentPageSize + "(" + OrgBlobPageSize + " default)" +
+                    ", last confirmed " + confirmed +
+                    ", last failed " + failed +
+                    ", retries queued " + _orgRetryQueue.Count;
+
                 return (_orgOutboundDegraded ? "degraded" : "ready") +
-                       " - " + _orgOutboundDetail + observed + attempted;
+                       " - " + _orgOutboundDetail + adaptive + observed + attempted;
             }
         }
 
@@ -2547,6 +2878,7 @@ namespace CityManager
         private void Tick(object sender, double e)
         {
             ObserveOrgEcho(null);
+            TickOrgRetryQueue();
             TickTellQueue();
             TryInviteDeveloper();
             TickMembership();
