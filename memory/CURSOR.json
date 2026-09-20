@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 184,
-  "last_completed_session": 183,
-  "status": "in_progress",
+  "last_completed_session": 184,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-184-org-feedback-confidence",
-  "checkpoint_commit": "f3acd1c3cbf2ce9617e237188a40c14075135438",
-  "task": "Separate org echo uncertainty from size failure and accelerate safe upward probing",
-  "resume_instruction": "Owner live run proves exact echoes for 4879/2098, 4887/2100 and 4940/1161 byte org replies, while 644-byte #online visibly delivered to org but Manager missed its self-echo and retried/spammed. Fix: missing echo only drives downshift/retry for a near-current-budget growth probe; small misses are detector uncertainty only. Track proven-safe and failed page budgets plus max confirmed bytes in status. Upward probes use ~10% rounded-to-50 (min250); once a failed budget exists, narrow between proven-safe and failed. Preserve 5200 default, exact positive echo proof and 3s retry grace for genuine frontier probes.",
+  "checkpoint_commit": "62724e6379cabef0636c98c63b7e9c515ba1daa2",
+  "task": "Confidence-aware organization blob probing published",
+  "resume_instruction": "Owner rebuild/restart. V3 org state migrates to v4 without trusting old negative echoes. A qualifying ~4.9KB confirmation near a 5200 budget should mark 5200 proven-safe and advance current to about 5700; another qualifying frontier success can advance to about 6250. A 644B self-echo miss below larger confirmed evidence logs uncertainty only and must not retry. An unproven larger frontier miss records failed budget, narrows between safe/fail, rebuilds/retries after 3s; late exact echo still cancels queued retry. #status shows current(default), proven safe, failed probe, max-confirmed, last-unconfirmed and retries.",
   "base_commit": "f3acd1c3cbf2ce9617e237188a40c14075135438"
 }
