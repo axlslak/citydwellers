@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 182,
-  "last_completed_session": 181,
-  "status": "in_progress",
+  "last_completed_session": 182,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-182-pickups-count-build-fix",
-  "checkpoint_commit": "f74e7c69ffd740214205e8b43fd974b204b2fdf1",
-  "task": "Fix pickup ranking Count method invocation",
-  "resume_instruction": "Replace group.Count with group.Count(), source review and publish. Owner handles compilation.",
+  "checkpoint_commit": "62d5f98a6427620f1e769b3fa1249bdec6b96b7f",
+  "task": "Pickup ranking compiler error resolved",
+  "resume_instruction": "Published group.Count() correction for sole reported CS1503 in top pickup recipients. Source reviewed and remote file verified; no builds/tests here. Owner may rebuild and use pickups/takers views.",
   "base_commit": "c6c36692b5b4a11578020dea9e3698e0cd51d047"
 }
