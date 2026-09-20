@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 195,
+  "current_session": 196,
   "last_completed_session": 195,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-195-sql-startup-contention",
-  "checkpoint_commit": "d83b0ee76129ea4000c700431d9338662829581b",
-  "task": "Resolved: startup SQL contention fixes and fatal diagnostics",
-  "resume_instruction": "No active implementation task. Session195 startup contention fixes published: batch stock catalog rules, historical event scans outside global writer, per-departure atomic deduplication/index/history, provenance outside writer with ledger recheck. Fatal stderr now includes internal DatabaseUnavailableException reason and stack, excluding connector messages/secrets. Owner reported migration completed then startup failure about30s after ledger init; writer timeout is suspected, not proven by old type-only log. Rebuild/deploy matching assemblies and restart with existing SQL; do not drop tables or rerun migration for this issue. No assistant build/tests/live SQL/AO run. Preserve mandatory persistence and one-startup/admin-only audit policy.",
-  "base_commit": "29c20fe6311fbcdb9d48156bc79599fe7cf85b45"
+  "transaction": "session-196-startup-latency-recovery",
+  "checkpoint_commit": "835b66eba81ba2708ff2c21a5f764fd03505a3bb",
+  "task": "Fix SQL census startup latency and preserve completed startup admission across verified reconnect",
+  "resume_instruction": "Owner asks to fix latest startup log: long ledger initialization, slow census applications, stale readiness and workers held after disconnect. Batch census routing; move historical backfill off AO update thread; preserve only complete idle startup evidence across unchanged reconnect. Keep 10s freshness and one initial audit policy; no builds/live tests.",
+  "base_commit": "835b66eba81ba2708ff2c21a5f764fd03505a3bb"
 }
