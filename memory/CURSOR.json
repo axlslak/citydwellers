@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 187,
+  "current_session": 188,
   "last_completed_session": 187,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-187-logintry-timing-probe",
+  "transaction": "session-188-build-wiring",
   "checkpoint_commit": "751ea6ace227ad1ce637092d139583c88a52e6ba",
-  "task": "Resolved: standalone nine-cycle logintry timing probe published",
-  "resume_instruction": "Owner builds Release (solution or CityDwellers), runs logintry <aoaccount> <aopass> <aochar> and shares timestamped logintry-*.log. Nine sequential fresh-domain Clientless cycles, no added cooldown/dwell, no plugins/chat/automatic reconnect, immediate local Disconnect after CharacterInPlay; logs times/failures/gaps/summary without credentials. Static review only, no assistant builds/live actions. Audit/runtime recovery changes remain deferred and unimplemented pending evidence; policy retained (one startup audit allowed, later audits explicit admin only). Do not claim measured server limits before owner results.",
-  "base_commit": "6ae8e44b0fef0975284ce1348a3a2b2a3908902f"
+  "task": "Fix missing ShutdownControl compile inclusion and skipped LoginTry configuration",
+  "resume_instruction": "Owner build fails CityManager and CityDwellers with ShutdownControl missing, LoginTry skipped. Explicitly include helper in both csproj files, remove conditional shared include, normalize probe solution Any CPU and declare Debug/Release AnyCPU project configurations. Static review only; owner builds.",
+  "base_commit": "e54fec6d7142adc8c319568327b438e535d49f8b"
 }
