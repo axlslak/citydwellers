@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 192,
+  "current_session": 193,
   "last_completed_session": 192,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-192-mysql-backend",
-  "checkpoint_commit": "ff66d5a5c89dc8ba057ff6ddc3b2a0fcfe8e4ec1",
-  "task": "Resolved: mandatory MySQL persistence, verified offline migration and SQL diagnostics",
-  "resume_instruction": "No active task. Session 192 implementation is resolved and published. MySQL 8.0+ is now mandatory for all mutable runtime state and logs; LoginTry is removed. Owner supplies root MySql settings, builds, stops all old bots and runs DataMigration.exe until COMPLETE before starting the host. Utility creates tables/indexes, imports all source bytes, verifies SHA-256, seals and removes verified originals; reruns never replay old state after sealing. See docs/MYSQL_MIGRATION.md, docs/mysql-schema.sql and docs/mysql-diagnostics.sql. No assistant build, tests, live SQL import or AO run was performed. Preserve no-auto-audit policy and do not reopen completed predecessor work without a new owner request.",
-  "base_commit": "1011a17889da233e0fc623301b8574f3717735b3"
+  "transaction": "session-193-mysql-build-wiring",
+  "checkpoint_commit": "97ddcfad48315ba259fbc9e07f09ad0b8497eba5",
+  "task": "Fix owner-reported SQL source inclusion and migration dependency build errors",
+  "resume_instruction": "Make SQL source and package references explicit in project files; review solution restore/reload after LoginTry replacement. Owner build log reports missing SQL types and NuGet Project unavailable. No assistant compilation or tests; publish focused fix and seal.",
+  "base_commit": "97ddcfad48315ba259fbc9e07f09ad0b8497eba5"
 }
