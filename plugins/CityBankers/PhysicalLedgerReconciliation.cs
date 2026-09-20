@@ -65,15 +65,11 @@ namespace CityBankers
                 if (item == null || item.LowId == 0 || item.SlotInstance < 0)
                     throw new InvalidOperationException("Census contains an unreadable item.");
                 if (CruPolicy.IsCru(item.LowId) || BankerPersonalItems.IsPersonal(item.LowId, item.HighId)) return;
-                string destination;
-                if (!SymbiantCatalog.TryGetDestinationRole(settings, item.LowId, out destination) &&
-                    !SymbiantCatalog.TryGetDestinationRole(settings, item.HighId, out destination))
-                    destination = "central";
                 observed.Add(new Observation
                 {
                     Character = census.Character, PhysicalRole = census.Role,
                     Location = location, Bag = bag, Slot = item.SlotInstance & 65535,
-                    BagIdentity = identity, Item = item, DestinationRole = destination,
+                    BagIdentity = identity, Item = item,
                     ObservedUtc = census.ObservedUtc
                 });
             };
@@ -106,6 +102,16 @@ namespace CityBankers
             foreach (var item in census.LooseBankItems) add(item, "bank", null, null);
             if (observed.GroupBy(Address).Any(group => group.Count() != 1))
                 throw new InvalidOperationException("Census reports more than one item at a physical slot.");
+            // Validate the complete physical snapshot first, then resolve routing
+            // in one SQL policy snapshot instead of querying once per item.
+            var rules = SymbiantCatalog.GetRulesFor(settings,
+                observed.SelectMany(item => new[] { item.Item.LowId, item.Item.HighId }));
+            foreach (var item in observed)
+            {
+                SymbiantCatalog.AcceptanceRule rule;
+                item.DestinationRole = rules.TryGetValue(item.Item.LowId, out rule) ||
+                    rules.TryGetValue(item.Item.HighId, out rule) ? rule.Role : "central";
+            }
             return observed;
         }
 

@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
@@ -287,6 +288,8 @@ namespace CityBankers
         private const string LedgerFileName = "ledger.json";
         private const string IndexFileName = "symbiant-index.json";
         private static readonly object HistoryLock = new object();
+        private static readonly object LegacyBackfillLock = new object();
+        private static Task _legacyBackfill;
 
         public static string GetActiveLedgerPath(string settingsDir)
         {
@@ -342,9 +345,28 @@ namespace CityBankers
 
                 UpsertIndexFromStock(settingsDir, legacyStock);
             });
-            // Scan old event streams without owning the global writer. Each
-            // departure commits its deduplication, index and history atomically.
-            MigrateLegacyHistory(settingsDir, centralCharacter);
+            // Historical backfill performs SQL work only. Never stall the AO
+            // packet/update thread while reading years of imported event logs.
+            lock (LegacyBackfillLock)
+            {
+                if (_legacyBackfill == null)
+                    _legacyBackfill = Task.Run(() =>
+                    {
+                        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+                        try
+                        {
+                            Logger.Information("[CityBankers] Legacy departure history backfill running in background; AO updates remain available.");
+                            MigrateLegacyHistory(settingsDir, centralCharacter);
+                            Logger.Information("[CityBankers] Legacy departure history backfill completed in " +
+                                elapsed.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture) + " seconds.");
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Error("[CityBankers] Legacy departure history backfill failed; retained records remain retryable. Type=" +
+                                ex.GetType().FullName + "; stack=" + ex.StackTrace);
+                        }
+                    });
+            }
         }
 
         public static ActiveLedgerState LoadLedger(string settingsDir)

@@ -94,8 +94,12 @@ namespace CityBankers
             catch (Exception ex) { ReportStartupFailure(ex); }
         }
 
+        private static volatile bool _operationalEverStarted;
+        internal static bool HasNeverStartedOperations => !_operationalEverStarted;
+
         private void StartOperational()
         {
+            _operationalEverStarted = true;
             try
             {
                 if (_enabled) return;

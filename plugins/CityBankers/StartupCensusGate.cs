@@ -77,6 +77,8 @@ namespace CityBankers
         private string _duplicateLoggedRun;
         private Admission _admission;
         private bool _admissionPublished;
+        private Admission _completedAdmissionReconnect;
+        private string _completedAdmissionInventory;
 
         internal sealed class Admission
         {
@@ -319,6 +321,13 @@ namespace CityBankers
         {
             string retiredConnection = _connection;
             bool initialUsed = InitialAuditUsed;
+            // A worker awaiting its first admission has performed no operational
+            // transfers. Preserve completed evidence before retiring the old
+            // connection; a fresh identical top-level snapshot is still required.
+            if (_admission?.Result != null && _finished && !_heldForAdmin && !_startupFailed && _localFaultReason == null &&
+                _completedAdmissionInventory != null && BankingServiceAgent.HasNeverStartedOperations &&
+                !SharedBagRecovery.RequiresHold)
+                _completedAdmissionReconnect = _admission;
             try { RetireAdmission(); }
             catch (Exception ex) { Logger.Error("[CityBankers] Admission cleanup on disconnect: " + ex.Message); }
             _connection = Guid.NewGuid().ToString("N");
@@ -356,7 +365,7 @@ namespace CityBankers
                         _auditCycle = null;
                         _issued = _finished = _quiesced = false;
                     }
-                    else if (!idle)
+                    else if (!idle && _completedAdmissionReconnect == null)
                     {
                         // Retained unresolved operations are evidence, not permission
                         // to restart audits or clear another banker's state.
@@ -469,7 +478,7 @@ namespace CityBankers
             _poll.Restart();
             try
             {
-                if (_localRelogPending && Client.InPlay && !Trade.IsTrading)
+                if (_localRelogPending && ClientIsInPlay() && !Trade.IsTrading)
                 {
                     _localRelogPending = false;
                     _lastRelogReason = _localFaultReason;
@@ -484,7 +493,7 @@ namespace CityBankers
                     return;
                 }
                 if (_heldForAdmin || (_startupFailed && !_awaitingUnresolvedRelog)) return;
-                if (!Client.InPlay || !ClientlessSessionGuard.BankCacheTrusted ||
+                if (!ClientIsInPlay() || !ClientlessSessionGuard.BankCacheTrusted ||
                     !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
                 // Never compare a fresh inventory against an old connection's bank cache.
                 if (SharedBagRecovery.RequiresHold)
@@ -502,6 +511,7 @@ namespace CityBankers
                     else Block("Shared bag state is uncertain; refresh this banker with a relog.");
                     return;
                 }
+                if (_completedAdmissionReconnect != null && !ResumeCompletedAdmission()) return;
                 if (_awaitingUnresolvedRelog)
                 {
                     _awaitingUnresolvedRelog = false;
@@ -665,9 +675,14 @@ namespace CityBankers
                 _censusRejections = 0;
                 _finished = true;
             }
+            catch (NullReferenceException) when (!ClientIsInPlay())
+            {
+                // Disconnect retired this callback's SDK objects. OnDisconnected
+                // owns invalidation; wait for fresh InPlay/bank state next tick.
+            }
             catch (Exception ex)
             {
-                if (_error != ex.Message) Logger.Error("[CityBankers] Census waiting: " + ex.Message);
+                if (_error != ex.Message) Logger.Error("[CityBankers] Census waiting: " + ex.Message + "; stack=" + ex.StackTrace);
                 _error = ex.Message;
             }
         }
@@ -986,13 +1001,63 @@ namespace CityBankers
             return false;
         }
 
+        private bool ResumeCompletedAdmission()
+        {
+            var retained = _completedAdmissionReconnect;
+            string connection = _connection;
+            string inventory = ReconnectInventory();
+            bool resumed = false;
+            Locked(() =>
+            {
+                if (connection != _connection || !ClientIsInPlay()) return;
+                var cycle = Current();
+                if (retained == null || cycle == null || cycle.Id != retained.Cycle || cycle.Phase != "released" ||
+                    !BankingServiceAgent.HasNeverStartedOperations || SharedBagRecovery.RequiresHold ||
+                    _localFaultReason != null || _startupFailed || _heldForAdmin ||
+                    inventory != _completedAdmissionInventory)
+                {
+                    _completedAdmissionReconnect = null;
+                    _heldForAdmin = true;
+                    Hold("Completed startup evidence cannot be rebound to this connection; administrator review required. No new audit.");
+                    Logger.Error("[CityBankers] Completed startup reconnect evidence changed for " + _character + "; held for review.");
+                    return;
+                }
+                // Same immutable census/run; only its connection ownership changes.
+                // Central will reserve and idempotently apply the original bundle.
+                _admission = new Admission { Cycle = retained.Cycle, Connection = connection,
+                    Character = retained.Character, Run = retained.Run, Result = retained.Result };
+                _auditCycle = retained.Cycle;
+                _auditRun = retained.Run;
+                Hold("Rebinding completed initial census after verified reconnect.");
+                _auditPause = _holdVersion;
+                _issued = _finished = _quiesced = true;
+                _admissionPublished = false;
+                _awaitingUnresolvedRelog = false;
+                _completedAdmissionReconnect = null;
+                resumed = true;
+            });
+            if (resumed) Logger.Information("[CityBankers] " + _character +
+                " reconnected with unchanged completed startup evidence; rejoining without another audit.");
+            return resumed;
+        }
+
+        private static bool ClientIsInPlay()
+        {
+            // The SDK clears its session during disconnect before every queued
+            // update callback has unwound. This probe must tolerate that interval.
+            try { return Client.InPlay; }
+            catch (NullReferenceException) { return false; }
+            catch (InvalidOperationException) { return false; }
+        }
+
         private void RetireAdmission()
         {
             if (_admission == null) return;
             BagAuditAgent.CancelForRecovery();
             // No member can become ready from a retired connection/run. A
-            // partially applied local bundle remains immutable investigation
-            // evidence; the next scan reconciles the worker's actual state.
+            // partially applied local bundle remains immutable evidence. Only
+            // ResumeCompletedAdmission may rebind a proven idle startup result;
+            // other uncertainty remains held for explicit administrator review.
             RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".admission.json"));
             RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".admission-grant.json"));
             WithdrawalStore.ReleaseRecovery(_settings, _admission.Run);
@@ -1017,6 +1082,7 @@ namespace CityBankers
                 _signature = null;
                 _retry.Restart();
                 _admission = admission;
+                _completedAdmissionInventory = null;
                 _admissionPublished = false;
                 Logger.Information("[CityBankers] CENSUS READMISSION " + _character +
                     "; scan only this banker; healthy cycle=" + cycle.Id + ".");
@@ -1081,9 +1147,17 @@ namespace CityBankers
 #endif
                 throw;
             }
-            _admission.Result = result;
+            var completedAdmission = _admission;
+            if (completedAdmission == null || completedAdmission.Run != result.RunId ||
+                completedAdmission.Connection != _connection) return;
+            string inventory = ReconnectInventory();
+            if (!ReferenceEquals(_admission, completedAdmission) || completedAdmission.Connection != _connection ||
+                !ClientIsInPlay()) return;
+            _completedAdmissionInventory = inventory;
+            completedAdmission.Result = result;
             _admissionPublished = false;
-            RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".admission.json"), _admission);
+            RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".admission.json"), completedAdmission);
+            if (!ReferenceEquals(_admission, completedAdmission) || completedAdmission.Connection != _connection) return;
             _admissionPublished = true;
             _finished = true;
         }
