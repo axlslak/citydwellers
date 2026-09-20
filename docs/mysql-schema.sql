@@ -1,4 +1,4 @@
--- City Dwellers mandatory MySQL schema v1; exact statements also in shared/SqlSchema.cs.
+-- City Dwellers mandatory MySQL schema v2; definitions in shared/SqlSchema.cs and shared/BankerSqlStore.cs.
 -- MySQL >= 8.0; InnoDB; utf8mb4; max_allowed_packet >= 33554432 (32 MiB).
 -- DataMigration creates these tables. Do not hand-set migration completion keys.
 -- No root data directory is used at runtime; path columns are canonical logical keys.
@@ -181,3 +181,64 @@ SELECT path,byte_length,json_projection,line_projection FROM cd_documents
 SELECT d.path,e.line_no,e.occurred_utc,e.actor,e.event_name,e.transaction_id,e.problem,e.truncated,e.raw_text
  FROM cd_event_lines e JOIN cd_documents d ON d.document_id=e.document_id
  WHERE e.problem=1 ORDER BY e.occurred_utc DESC,e.recorded_utc DESC LIMIT 100;
+
+
+-- Live banker state: schema v2. Created/imported by host before AO startup.
+
+-- The old SQL documents are retained source snapshots, not the live ledger/stock.
+
+-- All original DateTime ticks and Kind values are preserved alongside SQL DATETIME(6).
+
+CREATE TABLE IF NOT EXISTS cd_banker_state (state_name VARCHAR(32) PRIMARY KEY, present BOOL NOT NULL, format VARCHAR(96) NULL, baseline_run_id VARCHAR(191) NULL, updated_ticks BIGINT NOT NULL, updated_kind INT NOT NULL, revision BIGINT NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS cd_ledger_items (
+    row_key VARCHAR(191) NOT NULL PRIMARY KEY,
+    ordinal INT NOT NULL,
+    row_hash CHAR(64) CHARACTER SET ascii NOT NULL,
+    ledger_id VARCHAR(191) NULL,
+    aoid INT NULL,
+    high_id INT NULL,
+    ql INT NULL,
+    transaction_id VARCHAR(191) NULL,
+    donor VARCHAR(191) NULL,
+    received_utc DATETIME(6) NULL,
+    received_utc_ticks BIGINT NULL,
+    received_utc_kind INT NULL,
+    family VARCHAR(64) NULL,
+    character_name VARCHAR(191) NULL,
+    location VARCHAR(64) NULL,
+    bag_slot INT NULL,
+    item_slot INT NULL,
+    KEY ix_ledger_aoid (aoid,high_id,ql),
+    KEY ix_ledger_transaction (transaction_id),
+    character_key VARCHAR(191) GENERATED ALWAYS AS (LOWER(character_name)) STORED,
+    KEY ix_ledger_character (character_key,bag_slot,item_slot),
+    UNIQUE KEY ux_ledger_id (ledger_id),
+    KEY ix_ledger_donor (donor,received_utc)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS cd_stock_items (
+    row_key VARCHAR(191) NOT NULL PRIMARY KEY,
+    ordinal INT NOT NULL,
+    row_hash CHAR(64) CHARACTER SET ascii NOT NULL,
+    transaction_id VARCHAR(191) NULL,
+    storage_role VARCHAR(64) NULL,
+    physical_role VARCHAR(64) NULL,
+    route_matches BOOL NULL,
+    character_name VARCHAR(191) NULL,
+    bag_source VARCHAR(64) NULL,
+    bag_slot INT NULL,
+    item_slot INT NULL,
+    unique_identity VARCHAR(191) NULL,
+    aoid INT NULL,
+    high_id INT NULL,
+    ql INT NULL,
+    item_name TEXT NULL,
+    observed_utc DATETIME(6) NULL,
+    observed_utc_ticks BIGINT NULL,
+    observed_utc_kind INT NULL,
+    KEY ix_stock_aoid (aoid,high_id,ql),
+    KEY ix_stock_transaction (transaction_id),
+    character_key VARCHAR(191) GENERATED ALWAYS AS (LOWER(character_name)) STORED,
+    KEY ix_stock_character (character_key,bag_slot,item_slot)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

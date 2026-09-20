@@ -164,7 +164,7 @@ namespace CityBankers
                 $"STORAGE STATE SEEDED run={runId} workers={state.Workers.Count} " +
                 $"bags={bagCount} observedItems={itemCount} " +
                 $"storage='{RuntimeStateStore.GetStorageStatePath(_settingsDir)}' " +
-                $"stock='{RuntimeStateStore.GetCurrentStockPath(_settingsDir)}'. " +
+                "stock=cd_stock_items. " +
                 "This fresh audit is now canonical operational state for future trades.");
         }
 

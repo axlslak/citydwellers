@@ -95,15 +95,19 @@ namespace CityBankers
                 _donationCleanup != null || _dispatchPreparation != null || _extractionScan.ElapsedMilliseconds < 1500) return;
             _extractionScan.Restart();
             if (CensusReservedHere()) return;
-            var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
+            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
             if (ledger == null) return;
             var withdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();
-            foreach (var entry in ledger.Items.Where(e => string.Equals(e.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
-                e.Slot.HasValue && e.HighId.HasValue && e.Ql.HasValue && (e.Bag.HasValue || e.Location == "bank")))
+            var candidates = ledger.Items.Where(e => e.Slot.HasValue && e.HighId.HasValue &&
+                e.Ql.HasValue && (e.Bag.HasValue || e.Location == "bank")).ToList();
+            if (candidates.Count == 0) return;
+            var rules = SymbiantCatalog.GetRulesFor(_settingsDir,
+                candidates.SelectMany(e => new[] { e.AoId, e.HighId.Value }));
+            foreach (var entry in candidates)
             {
-                string destination;
-                if (!SymbiantCatalog.TryGetDestinationRole(_settingsDir, entry.AoId, out destination) &&
-                    !SymbiantCatalog.TryGetDestinationRole(_settingsDir, entry.HighId.Value, out destination)) destination = "central";
+                SymbiantCatalog.AcceptanceRule rule;
+                string destination = rules.TryGetValue(entry.AoId, out rule) ||
+                    rules.TryGetValue(entry.HighId.Value, out rule) ? rule.Role : "central";
                 if ((_isCentral && destination == "central") ||
                     (!_isCentral && entry.Bag.HasValue && string.Equals(destination, _role, StringComparison.OrdinalIgnoreCase))) continue;
                 if (withdrawals.Any(w => w.ActiveLedgerId == entry.Id || (w.Item != null && w.Item.AoId == entry.AoId &&

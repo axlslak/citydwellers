@@ -6,7 +6,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
@@ -285,16 +284,8 @@ namespace CityBankers
 
     internal static class ActiveLedgerStore
     {
-        private const string LedgerFileName = "ledger.json";
         private const string IndexFileName = "symbiant-index.json";
         private static readonly object HistoryLock = new object();
-        private static readonly object LegacyBackfillLock = new object();
-        private static Task _legacyBackfill;
-
-        public static string GetActiveLedgerPath(string settingsDir)
-        {
-            return Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDir), LedgerFileName);
-        }
 
         public static string GetIndexPath(string settingsDir)
         {
@@ -345,34 +336,13 @@ namespace CityBankers
 
                 UpsertIndexFromStock(settingsDir, legacyStock);
             });
-            // Historical backfill performs SQL work only. Never stall the AO
-            // packet/update thread while reading years of imported event logs.
-            lock (LegacyBackfillLock)
-            {
-                if (_legacyBackfill == null)
-                    _legacyBackfill = Task.Run(() =>
-                    {
-                        var elapsed = System.Diagnostics.Stopwatch.StartNew();
-                        try
-                        {
-                            Logger.Information("[CityBankers] Legacy departure history backfill running in background; AO updates remain available.");
-                            MigrateLegacyHistory(settingsDir, centralCharacter);
-                            Logger.Information("[CityBankers] Legacy departure history backfill completed in " +
-                                elapsed.Elapsed.TotalSeconds.ToString("F1", CultureInfo.InvariantCulture) + " seconds.");
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.Error("[CityBankers] Legacy departure history backfill failed; retained records remain retryable. Type=" +
-                                ex.GetType().FullName + "; stack=" + ex.StackTrace);
-                        }
-                    });
-            }
+            // Owner direction: no automatic replay of old diagnostic events.
+            // Live donation/withdrawal paths commit their own accounting.
         }
 
         public static ActiveLedgerState LoadLedger(string settingsDir)
         {
-            ActiveLedgerState state = RuntimeStateStore.ReadJson<ActiveLedgerState>(
-                GetActiveLedgerPath(settingsDir));
+            ActiveLedgerState state = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
             if (state != null && state.Items == null)
                 state.Items = new List<ActiveLedgerItem>();
             return state;
@@ -1021,7 +991,7 @@ namespace CityBankers
             CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
             {
                 // Strict reads: an unreadable old ledger is never an empty baseline.
-                var previous = RuntimeStateStore.ReadJsonStrict<ActiveLedgerState>(GetActiveLedgerPath(settingsDir));
+                var previous = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
                 if (ledger.Items == null || ledger.Items.Any(i => i == null || string.IsNullOrWhiteSpace(i.Id)) ||
                     ledger.Items.GroupBy(i => i.Id, StringComparer.Ordinal).Any(g => g.Count() != 1) ||
                     (previous != null && (previous.Items == null || previous.Items.Any(i => i == null || string.IsNullOrWhiteSpace(i.Id)) ||
@@ -1050,7 +1020,7 @@ namespace CityBankers
                     .ThenBy(item => item.ReceivedUtc)
                     .ThenBy(item => item.Id, StringComparer.Ordinal)
                     .ToList();
-                RuntimeStateStore.WriteJsonAtomic(GetActiveLedgerPath(settingsDir), ledger);
+                CityDwellers.Shared.BankerSqlStore.SaveLedger(ledger);
                 LostItemsStore.ConfirmRemovals(settingsDir, remaining);
                 // Evidence describes the committed transition, including exact old
                 // and new locations. Unknown provenance is not an inferred loss time.

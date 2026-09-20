@@ -320,7 +320,7 @@ namespace CityBankers
             var bundle = CensusApplication.ReadExisting<LocalCensusBundle>(path);
             if (bundle == null)
             {
-                var ledger = CensusApplication.ReadExisting<ActiveLedgerState>(ActiveLedgerStore.GetActiveLedgerPath(_settingsDir));
+                var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
                 if (ledger?.Items == null) throw new InvalidOperationException("Local census requires the current ledger.");
                 var storage = CensusApplication.ReadExisting<StorageState>(RuntimeStateStore.GetStorageStatePath(_settingsDir));
                 var previousStorage = storage?.Workers?.SingleOrDefault(w => string.Equals(w.Character, census.Character, StringComparison.OrdinalIgnoreCase));
@@ -361,7 +361,7 @@ namespace CityBankers
             RuntimeStorageStateTransactions.ReplaceCensusedWorker(_settingsDir, bundle.Storage);
             // Reload unaffected characters on EVERY retry. Never replay an old
             // global ledger/storage snapshot while other bankers are working.
-            var current = CensusApplication.ReadExisting<ActiveLedgerState>(ActiveLedgerStore.GetActiveLedgerPath(_settingsDir));
+            var current = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
             if (current?.Items == null) throw new InvalidOperationException("Current ledger is unavailable.");
             var merged = current.Items.Where(e => !string.Equals(e.Character, census.Character, StringComparison.OrdinalIgnoreCase))
                 .Concat(bundle.Plan.Items).ToList();
@@ -403,7 +403,7 @@ namespace CityBankers
                 StartLocalCensus("Both dispatch peers confirmed cancellation; refresh remaining Central custody before routing.");
                 return;
             }
-            var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
+            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
             if (ledger?.Items == null) return;
             var expected = ledger.Items.Where(e => string.Equals(e.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                 e.Location == "inventory" && !e.Bag.HasValue && !CruPolicy.IsCru(e.AoId) &&

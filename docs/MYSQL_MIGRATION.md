@@ -1,3 +1,29 @@
+## Existing installation: relational ledger and stock upgrade (session199)
+
+Rebuild/deploy matching host and plugin assemblies, then start CityDwellers normally.
+Do **not** rerun DataMigration, reset tables, or recreate the data directory.
+Before AO starts, the host takes its exclusive lease, creates `cd_ledger_items`,
+`cd_stock_items` and `cd_banker_state`, and imports the existing SQL ledger/stock
+once. Every represented field, item ordering, nullable value and timestamp is
+read back and compared inside the import transaction before it is committed.
+Source documents and immutable migration archives remain preserved. Subsequent
+starts use the relational state and cannot overwrite it from those old sources.
+Schema version2 prevents old version1 binaries from silently writing stale copies.
+The database user needs CREATE permission for this additive upgrade.
+
+The active ledger and stock now store one item per relational row, with typed
+columns and indexes on item template, transaction, banker/location and ledger
+ID/donor. Runtime writes apply changed rows and explicit removals within the
+existing custody transaction. Worker recovery reads only that banker's rows via
+the character index. No paths or document chunks are involved in live ledger/stock
+reads or writes. Legacy DTO adapters are in memory only; no JSON item payloads
+are stored in these tables. Other state types retain their current storage for
+now; this is not a claim that the entire backend has been normalized.
+
+Old event logs are no longer automatically replayed on startup. Live operation
+accounting remains enabled. See `mysql-schema.sql` for all columns/indexes and
+`mysql-diagnostics.sql` for authoritative live-state queries.
+
 # MySQL is the City Dwellers backend
 
 All mutable bot state, alts, stock, donations/history, queues, snapshots, runtime

@@ -242,9 +242,7 @@ namespace CityBankers
                 RuntimeStateStore.WriteJsonAtomic(
                     RuntimeStateStore.GetStorageStatePath(_settingsDir),
                     state);
-                RuntimeStateStore.WriteJsonAtomic(
-                    RuntimeStateStore.GetCurrentStockPath(_settingsDir),
-                    RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
+                RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
 
                 WriteLayoutReadyMarker(state.BaselineRunId, remapped);
                 _layoutReady = true;

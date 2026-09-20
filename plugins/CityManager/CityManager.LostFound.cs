@@ -23,7 +23,7 @@ namespace CityManager
                 {
                     // Read the journal first so a newly added claim cannot look absent in an older ledger snapshot.
                     var losses = lost ? LostItemsStore.Read(_settingsDir) : null;
-                    var ledger = RuntimeStateStore.ReadJsonStrict<JObject>(Path.Combine(_dataDir, "ledger.json"));
+                    var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<JObject>();
                     var items = ledger?["Items"] as JArray;
                     if (ledger != null && (items == null || items.Any(i => !(i is JObject) ||
                         string.IsNullOrWhiteSpace(i["Id"]?.ToString()))))

@@ -410,7 +410,7 @@ namespace CityBankers
             if (bundle == null)
             {
                 if (OtherDispatchPending(grant)) throw new InvalidOperationException("Another dispatch still has unresolved custody.");
-                var ledger = CensusApplication.ReadExisting<ActiveLedgerState>(ActiveLedgerStore.GetActiveLedgerPath(_settingsDir));
+                var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
                 if (ledger?.Items == null) throw new InvalidOperationException("Current ledger unavailable for paired census.");
                 var storage = CensusApplication.ReadExisting<StorageState>(RuntimeStateStore.GetStorageStatePath(_settingsDir));
                 foreach (var observation in observations.Where(o => o.Bag.HasValue && !string.IsNullOrWhiteSpace(o.BagIdentity)))
@@ -460,7 +460,7 @@ namespace CityBankers
                     Withdrawals = bundle.Requests.Select(r => new { Original = r, Disposition = "reconciled" }) });
             foreach (var worker in bundle.Storage.Workers)
                 RuntimeStorageStateTransactions.ReplaceCensusedWorker(_settingsDir, worker);
-            var current = CensusApplication.ReadExisting<ActiveLedgerState>(ActiveLedgerStore.GetActiveLedgerPath(_settingsDir));
+            var current = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
             if (current?.Items == null) throw new InvalidOperationException("Current ledger unavailable during paired census application.");
             ActiveLedgerStore.ApplyCensus(_settingsDir, current.Items.Where(i => !scope.Contains(i.Character)).Concat(bundle.Plan.Items).ToList(),
                 observations.Select(o => new TransferItemState { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }),

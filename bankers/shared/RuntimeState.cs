@@ -239,7 +239,6 @@ namespace CityBankers.Shared
     public static class RuntimeStateStore
     {
         private const string StorageFileName = "storage-state.json";
-        private const string StockFileName = "current-stock.json";
         private const string QueueFileName = "dispatch-queue.json";
         private const string StateMutexName = "CityBankers.RuntimeState.v1";
         private const string LedgerMutexName = "CityBankers.Ledger.v1";
@@ -290,11 +289,6 @@ namespace CityBankers.Shared
             return Path.Combine(GetDataDirectory(settingsDir), StorageFileName);
         }
 
-        public static string GetCurrentStockPath(string settingsDir)
-        {
-            return Path.Combine(GetDataDirectory(settingsDir), StockFileName);
-        }
-
         public static string GetDispatchQueuePath(string settingsDir)
         {
             return Path.Combine(GetDataDirectory(settingsDir), QueueFileName);
@@ -319,10 +313,14 @@ namespace CityBankers.Shared
             return ReadJson<StorageState>(GetStorageStatePath(settingsDir));
         }
 
+        public static void SaveCurrentStock(CurrentStockState state)
+        {
+            CityDwellers.Shared.BankerSqlStore.SaveStock(state);
+        }
+
         public static CurrentStockState LoadCurrentStock(string settingsDir)
         {
-            CurrentStockState state = ReadJson<CurrentStockState>(
-                GetCurrentStockPath(settingsDir));
+            CurrentStockState state = CityDwellers.Shared.BankerSqlStore.ReadStock<CurrentStockState>();
             return state ?? new CurrentStockState { UpdatedUtc = DateTime.UtcNow };
         }
 
@@ -352,7 +350,7 @@ namespace CityBankers.Shared
                     storageState.UpdatedUtc = DateTime.UtcNow;
                     WriteJsonAtomic(GetStorageStatePath(settingsDir), storageState);
                     CurrentStockState stock = BuildCurrentStock(settingsDir, storageState);
-                    WriteJsonAtomic(GetCurrentStockPath(settingsDir), stock);
+                    SaveCurrentStock(stock);
                 });
 
                 AppendLedger(
@@ -420,9 +418,7 @@ namespace CityBankers.Shared
                     state.UpdatedUtc = DateTime.UtcNow;
 
                     WriteJsonAtomic(GetStorageStatePath(settingsDir), state);
-                    WriteJsonAtomic(
-                        GetCurrentStockPath(settingsDir),
-                        BuildCurrentStock(settingsDir, state));
+                    SaveCurrentStock(BuildCurrentStock(settingsDir, state));
                 });
 
                 AppendLedger(
@@ -579,9 +575,7 @@ namespace CityBankers.Shared
                     worker.ObservedUtc = DateTime.UtcNow;
                     state.UpdatedUtc = DateTime.UtcNow;
                     WriteJsonAtomic(GetStorageStatePath(settingsDir), state);
-                    WriteJsonAtomic(
-                        GetCurrentStockPath(settingsDir),
-                        BuildCurrentStock(settingsDir, state));
+                    SaveCurrentStock(BuildCurrentStock(settingsDir, state));
                     success = true;
                 });
             }
@@ -631,9 +625,7 @@ namespace CityBankers.Shared
                     worker.ObservedUtc = DateTime.UtcNow;
                     state.UpdatedUtc = DateTime.UtcNow;
                     WriteJsonAtomicNoLock(GetStorageStatePath(settingsDir), state);
-                    WriteJsonAtomicNoLock(
-                        GetCurrentStockPath(settingsDir),
-                        BuildCurrentStock(settingsDir, state));
+                    SaveCurrentStock(BuildCurrentStock(settingsDir, state));
                 });
                 return true;
             }

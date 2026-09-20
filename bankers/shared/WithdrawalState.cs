@@ -491,13 +491,9 @@ namespace CityBankers.Shared
 
         private static bool RequestStillStored(string directory, WithdrawalState request)
         {
-            string path = Path.Combine(RuntimeStateStore.GetDataDirectory(directory), "ledger.json");
-            if (!File.Exists(path) || request.Item == null) return false;
-            // Shared read: a banker publishing the ledger at this instant is not
-            // evidence that the request's item left its recorded slot.
-            string document = RuntimeStateStore.ReadTextShared(path);
-            if (string.IsNullOrWhiteSpace(document)) return false;
-            var ledger = JObject.Parse(document);
+            if (request.Item == null) return false;
+            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<JObject>();
+            if (ledger == null) return false;
             var entries = (ledger["Items"] as JArray)?.Where(e => (string)e["Id"] == request.ActiveLedgerId).ToList();
             if (entries == null || entries.Count != 1) return false;
             var entry = entries[0];

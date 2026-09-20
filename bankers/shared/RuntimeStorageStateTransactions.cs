@@ -33,7 +33,7 @@ namespace CityBankers.Shared
                 if (replacement != null) worker.Bags.Add(replacement);
                 state.UpdatedUtc = DateTime.UtcNow;
                 RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetStorageStatePath(settingsDir), state);
-                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetCurrentStockPath(settingsDir), RuntimeStateStore.BuildCurrentStock(settingsDir, state));
+                RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
             });
         }
 
@@ -47,7 +47,7 @@ namespace CityBankers.Shared
                 state.Workers.Add(replacement);
                 state.UpdatedUtc = DateTime.UtcNow;
                 RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetStorageStatePath(settingsDir), state);
-                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetCurrentStockPath(settingsDir), RuntimeStateStore.BuildCurrentStock(settingsDir, state));
+                RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
             });
         }
 
@@ -78,7 +78,7 @@ namespace CityBankers.Shared
                 bag.OuterSlotInstance = finalOuterSlot;
                 state.UpdatedUtc = DateTime.UtcNow;
                 RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetStorageStatePath(settingsDir), state);
-                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetCurrentStockPath(settingsDir), RuntimeStateStore.BuildCurrentStock(settingsDir, state));
+                RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
             });
         }
 
@@ -246,9 +246,7 @@ namespace CityBankers.Shared
                     RuntimeStateStore.WriteJsonAtomic(
                         RuntimeStateStore.GetStorageStatePath(settingsDir),
                         state);
-                    RuntimeStateStore.WriteJsonAtomic(
-                        RuntimeStateStore.GetCurrentStockPath(settingsDir),
-                        RuntimeStateStore.BuildCurrentStock(settingsDir, state));
+                    RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
                 });
 
                 importedExtras = reconciledImportedExtras;
@@ -308,9 +306,7 @@ namespace CityBankers.Shared
                     RuntimeStateStore.WriteJsonAtomic(
                         RuntimeStateStore.GetStorageStatePath(settingsDir),
                         state);
-                    RuntimeStateStore.WriteJsonAtomic(
-                        RuntimeStateStore.GetCurrentStockPath(settingsDir),
-                        RuntimeStateStore.BuildCurrentStock(settingsDir, state));
+                    RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
                 });
                 return true;
             }

@@ -229,7 +229,7 @@ namespace CityBankers
             if (source.LedgerIds == null || source.LedgerIds.Count != source.PreparedItems.Count ||
                 source.LedgerIds.Any(string.IsNullOrWhiteSpace) || source.LedgerIds.Distinct().Count() != source.LedgerIds.Count)
                 return false;
-            var ledger = CensusApplication.ReadExisting<ActiveLedgerState>(ActiveLedgerStore.GetActiveLedgerPath(_settingsDir));
+            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
             var entries = ledger?.Items?.Where(i => source.LedgerIds.Contains(i.Id)).ToList();
             if (entries == null || entries.Count != source.LedgerIds.Count || entries.Any(i =>
                 !string.Equals(i.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase) ||

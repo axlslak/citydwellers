@@ -108,7 +108,7 @@ namespace CityDwellers.Shared
                             TakeLease();
                             SqlSchema.Create(connection);
                             string existing = Meta(connection, null, "schema_version");
-                            if (existing != null && existing != SqlSchema.Version.ToString(CultureInfo.InvariantCulture))
+                            if (existing != null && existing != "1" && existing != SqlSchema.Version.ToString(CultureInfo.InvariantCulture))
                                 throw new InvalidOperationException("The database schema version is incompatible with this executable.");
                             SetMeta(connection, null, "schema_version", SqlSchema.Version.ToString(CultureInfo.InvariantCulture));
                         }
@@ -150,8 +150,9 @@ namespace CityDwellers.Shared
         {
             if (System.IO.Directory.Exists(_dataRoot) || System.IO.File.Exists(_dataRoot))
                 throw new InvalidOperationException("The physical data folder still exists. Run DataMigration to verify the archive and remove the source before starting bots.");
-            if (Meta(connection, transaction, "schema_version") != SqlSchema.Version.ToString(CultureInfo.InvariantCulture))
-                throw new InvalidOperationException("MySQL schema is absent or incompatible. Run DataMigration first.");
+            string version = Meta(connection, transaction, "schema_version");
+            if (version != SqlSchema.Version.ToString(CultureInfo.InvariantCulture) && !(version == "1" && !IsRuntimeActive))
+                throw new InvalidOperationException("MySQL schema is absent or incompatible with this build.");
             string completed = Meta(connection, transaction, "completed_run_id");
             if (string.IsNullOrEmpty(completed)) throw new InvalidOperationException("MySQL migration has not completed. Run DataMigration first.");
             if (Meta(connection, transaction, "cleanup_completed_run_id") != completed)
@@ -168,7 +169,7 @@ namespace CityDwellers.Shared
                 if (_migration) throw new InvalidOperationException("The migration utility cannot start bot runtime.");
                 if (_lease != null) return;
                 TakeLease();
-                try { CheckRuntimeReady(_lease, null); }
+                try { CheckRuntimeReady(_lease, null); BankerSqlStore.Upgrade(); }
                 catch { _lease.Dispose(); _lease = null; throw; }
                 Environment.SetEnvironmentVariable(RuntimeFlag, "1", EnvironmentVariableTarget.Process);
                 StartHeartbeat();

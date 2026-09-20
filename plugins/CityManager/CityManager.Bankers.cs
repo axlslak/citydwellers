@@ -833,8 +833,7 @@ namespace CityManager
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
             var readyCharacters = WithdrawalStore.GetReadyCharacters(_settingsDir);
 
-            JObject ledger = RuntimeStateStore.ReadJson<JObject>(
-                Path.Combine(_dataDir, "ledger.json"));
+            JObject ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<JObject>();
             JObject selected = (ledger?["Items"] as JArray ?? new JArray())
                 .OfType<JObject>()
                 .Where(item => ParseDonationInt(item["AoId"]) == aoId &&
@@ -1134,8 +1133,7 @@ namespace CityManager
                 Path.Combine(_dataDir, "symbiant-index.json"));
             Dictionary<int, DonationItemMetadata> metadata = LoadDonationMetadata(index);
 
-            JObject ledger = RuntimeStateStore.ReadJson<JObject>(
-                Path.Combine(_dataDir, "ledger.json"));
+            JObject ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<JObject>();
             int ordinal = 0;
             // Donor history is not evidence of availability. Consume physical occurrences
             // once, so duplicate historical claims cannot create additional GET buttons.

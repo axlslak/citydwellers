@@ -33,14 +33,16 @@ namespace CityBankers
                 return;
             }
             if (_looseRecoveryStable.ElapsedMilliseconds < 500) return;
-            var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
+            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
             if (ledger == null) return;
             var withdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();
+            var rules = SymbiantCatalog.GetRulesFor(_settingsDir,
+                inventory.SelectMany(item => new[] { item.Id, item.HighId }));
             foreach (var item in inventory)
             {
-                string destination;
-                if (!SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.Id, out destination) &&
-                    !SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.HighId, out destination)) continue;
+                SymbiantCatalog.AcceptanceRule rule;
+                if (!rules.TryGetValue(item.Id, out rule) && !rules.TryGetValue(item.HighId, out rule)) continue;
+                string destination = rule.Role;
                 if (!string.Equals(destination, _role, StringComparison.OrdinalIgnoreCase)) continue;
                 var candidates = ledger.Items.Where(entry => entry.AoId == item.Id &&
                     (!entry.HighId.HasValue || entry.HighId == item.HighId) &&

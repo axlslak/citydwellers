@@ -1,3 +1,14 @@
+-- AUTHORITATIVE LIVE LEDGER / STOCK (schema v2)
+SELECT state_name,present,revision,format FROM cd_banker_state;
+SELECT character_name,location,COUNT(*) AS items FROM cd_ledger_items GROUP BY character_name,location;
+SELECT ledger_id,aoid,high_id,ql,donor,received_utc,character_name,location,bag_slot,item_slot,transaction_id
+FROM cd_ledger_items ORDER BY character_key,bag_slot,item_slot;
+SELECT character_name,physical_role,COUNT(*) AS items FROM cd_stock_items GROUP BY character_name,physical_role;
+SHOW INDEX FROM cd_ledger_items;
+SHOW INDEX FROM cd_stock_items;
+-- Older document queries below are retained diagnostics. ledger.json and current-stock.json
+-- in cd_documents are preserved upgrade source snapshots, NOT current live state.
+
 -- City Dwellers MySQL 8+ read-only diagnostics.
 -- Select the configured database in your SQL client before running this file.
 -- Values below are illustrative filters, not installation configuration.

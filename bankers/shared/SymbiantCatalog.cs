@@ -401,14 +401,14 @@ namespace CityBankers.Shared
                 lock (PolicySync)
                 {
                     var policy = LoadPhatzPolicy(settingsDirectory);
-                    string path = Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "ledger.json");
+                    long ledgerRevision = CityDwellers.Shared.BankerSqlStore.LedgerRevision;
                     string evidencePath = Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "items-pairs.json");
                     bool evidenceExists = File.Exists(evidencePath);
                     DateTime evidenceStamp = evidenceExists ? File.GetLastWriteTimeUtc(evidencePath) : DateTime.MinValue;
                     long evidenceLength = evidenceExists ? File.GetLength(evidencePath) : 0;
-                    bool ledgerExists = File.Exists(path);
-                    DateTime stamp = ledgerExists ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
-                    long length = ledgerExists ? File.GetLength(path) : 0;
+                    bool ledgerExists = ledgerRevision > 0;
+                    DateTime stamp = DateTime.MinValue;
+                    long length = ledgerRevision;
                     if (CachedFamilies != null && FamilyDirectory == settingsDirectory &&
                         ReferenceEquals(FamilyPolicy, policy) && FamilyLedgerWrite == stamp && FamilyLedgerLength == length &&
                         FamilyEvidenceWrite == evidenceStamp && FamilyEvidenceLength == evidenceLength)
@@ -419,13 +419,9 @@ namespace CityBankers.Shared
                     pairs.AddRange(policy.Items.Where(i => i != null).Select(i => new ItemTemplatePair { LowId = i.AoId, HighId = i.HighId }));
                     if (ledgerExists)
                     {
-                        // The SQL ledger document is already atomic. Never use item names as equivalence evidence.
-                        // Read the committed document: another banker publishing the ledger must not turn a
-                        // catalogue lookup into a failed banking tick. Acquire SQL before
-                        // PolicySync, including catalog reads that learn template pairs.
-                        string document = RuntimeStateStore.ReadTextShared(path);
-                        JObject ledger = string.IsNullOrWhiteSpace(document) ? new JObject() : JObject.Parse(document);
-                        foreach (JToken item in ledger["Items"] as JArray ?? new JArray())
+                        // Read distinct typed template pairs directly from the live ledger table.
+                        // Never use item names as equivalence evidence.
+                        foreach (JToken item in CityDwellers.Shared.BankerSqlStore.LedgerTemplatePairs())
                         {
                             int low = (int?)item["AoId"] ?? 0, high = (int?)item["HighId"] ?? 0;
                             if (low > 0 && high > 0 && low != high)

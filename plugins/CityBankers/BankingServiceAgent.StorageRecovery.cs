@@ -148,7 +148,7 @@ namespace CityBankers
                 ValidateStorageGrant(grant, request.RunId, request.Received.Character);
                 // Sender accounting must already have transferred these exact
                 // occurrence IDs; partial storage may have changed their slots.
-                var ledger = CensusApplication.ReadExisting<ActiveLedgerState>(ActiveLedgerStore.GetActiveLedgerPath(_settingsDir));
+                var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
                 var ids = sent.LedgerIds;
                 var owned = ledger?.Items?.Where(e => ids != null && ids.Contains(e.Id)).ToList();
                 if (ids == null || ids.Count != sent.Expected.Count || ids.Distinct().Count() != ids.Count ||

@@ -5,7 +5,7 @@ namespace CityDwellers.Shared
     /// <summary>The authoritative versioned MySQL schema. See docs/mysql-schema.sql for all indexes.</summary>
     public static class SqlSchema
     {
-        public const int Version = 1;
+        public const int Version = 2;
         public static readonly string[] Statements =
         {
             @"CREATE TABLE IF NOT EXISTS cd_meta (
@@ -109,6 +109,8 @@ namespace CityDwellers.Shared
         internal static void Create(MySqlConnection connection)
         {
             foreach (string statement in Statements)
+                using (var command = new MySqlCommand(statement, connection)) command.ExecuteNonQuery();
+            foreach (string statement in BankerSqlStore.SchemaStatements())
                 using (var command = new MySqlCommand(statement, connection)) command.ExecuteNonQuery();
         }
     }

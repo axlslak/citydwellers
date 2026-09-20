@@ -346,10 +346,13 @@ namespace CityBankers
                 _returnPoll.ElapsedMilliseconds < 1000) return;
             _returnPoll.Restart();
             if (CensusReservedHere()) return;
-            var ledger = ActiveLedgerStore.LoadLedger(_settingsDir);
+            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
             if (ledger == null) return;
             var withdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();
-            foreach (var item in Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory))
+            var inventory = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory).ToList();
+            var rules = SymbiantCatalog.GetRulesFor(_settingsDir,
+                inventory.SelectMany(item => new[] { item.Id, item.HighId }));
+            foreach (var item in inventory)
             {
                 var entries = ledger.Items.Where(e => e.AoId == item.Id &&
                     (!e.HighId.HasValue || e.HighId == item.HighId) && (!e.Ql.HasValue || e.Ql == item.Ql) &&
@@ -357,9 +360,9 @@ namespace CityBankers
                     e.Location == "inventory" && !e.Bag.HasValue && e.Slot.HasValue &&
                     (e.Slot.Value & 65535) == (item.Slot.Instance & 65535)).ToList();
                 if (entries.Count != 1) continue;
-                string destination;
-                if (!SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.Id, out destination) &&
-                    !SymbiantCatalog.TryGetDestinationRole(_settingsDir, item.HighId, out destination)) destination = "central";
+                SymbiantCatalog.AcceptanceRule rule;
+                string destination = rules.TryGetValue(item.Id, out rule) ||
+                    rules.TryGetValue(item.HighId, out rule) ? rule.Role : "central";
                 if (string.Equals(destination, _role, StringComparison.OrdinalIgnoreCase)) continue;
                 if (withdrawals.Any(w => w.ActiveLedgerId == entries[0].Id ||
                     (w.Item != null && w.Item.AoId == item.Id && w.Item.HighId == item.HighId && w.Item.Ql == item.Ql))) continue;

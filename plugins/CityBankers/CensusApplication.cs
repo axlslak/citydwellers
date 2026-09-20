@@ -46,7 +46,7 @@ namespace CityBankers
                 if (bundle == null)
                 {
                     var observations = censuses.SelectMany(c => PhysicalLedgerReconciliation.ReadCensus(settings, c)).ToList();
-                    var previous = ReadExisting<ActiveLedgerState>(ActiveLedgerStore.GetActiveLedgerPath(settings)) ?? new ActiveLedgerState();
+                    var previous = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>() ?? new ActiveLedgerState();
                     var previousStorage = ReadExisting<StorageState>(RuntimeStateStore.GetStorageStatePath(settings));
                     if (previous.Items == null) throw new InvalidOperationException("Existing ledger has no item collection.");
                     foreach (var observation in observations.Where(o => o.Bag.HasValue &&

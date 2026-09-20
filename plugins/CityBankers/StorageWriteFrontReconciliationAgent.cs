@@ -562,9 +562,7 @@ namespace CityBankers
             RuntimeStateStore.WriteJsonAtomic(
                 RuntimeStateStore.GetStorageStatePath(_settingsDir),
                 state);
-            RuntimeStateStore.WriteJsonAtomic(
-                RuntimeStateStore.GetCurrentStockPath(_settingsDir),
-                RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
+            RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
 
             if (importedLedgerItems.Count > 0)
             {
@@ -638,9 +636,7 @@ namespace CityBankers
             RuntimeStateStore.WriteJsonAtomic(
                 RuntimeStateStore.GetStorageStatePath(_settingsDir),
                 state);
-            RuntimeStateStore.WriteJsonAtomic(
-                RuntimeStateStore.GetCurrentStockPath(_settingsDir),
-                RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
+            RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(_settingsDir, state));
             return true;
         }
 

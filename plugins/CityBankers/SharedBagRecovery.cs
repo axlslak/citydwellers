@@ -664,7 +664,7 @@ namespace CityBankers
         }
         private static void FindAnchor(State s, Transfer transfer)
         {
-            var ledger = CensusApplication.ReadExisting<ActiveLedgerState>(ActiveLedgerStore.GetActiveLedgerPath(settings));
+            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
             var storage = CensusApplication.ReadExisting<StorageState>(RuntimeStateStore.GetStorageStatePath(settings));
             var bags = (storage?.Workers ?? new List<StorageWorkerState>()).Where(w =>
                 string.Equals(w.Character, s.Character, StringComparison.OrdinalIgnoreCase))
