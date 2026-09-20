@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 193,
-  "last_completed_session": 192,
-  "status": "in_progress",
+  "last_completed_session": 193,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-193-mysql-build-wiring",
-  "checkpoint_commit": "97ddcfad48315ba259fbc9e07f09ad0b8497eba5",
-  "task": "Fix owner-reported SQL source inclusion and migration dependency build errors",
-  "resume_instruction": "Make SQL source and package references explicit in project files; review solution restore/reload after LoginTry replacement. Owner build log reports missing SQL types and NuGet Project unavailable. No assistant compilation or tests; publish focused fix and seal.",
+  "checkpoint_commit": "087759a61ee92326af5e9aa2bc81942be5aab89c",
+  "task": "Resolved: SQL project source and dependency build wiring",
+  "resume_instruction": "No active task. Session 193 SQL project-reference fix is published. All seven projects explicitly include the four SQL sources and connector; migration restore style is local to its csproj. Owner should update source, close/reopen citydwellers.sln, restore NuGet and rebuild. Generic Project unavailable cause remains unconfirmed; docs/MYSQL_MIGRATION.md gives standalone MSBuild Restore to expose actual errors. No assistant build/restore/tests or live migration run. Preserve mandatory MySQL, verified migration cleanup and no-auto-audit policies.",
   "base_commit": "97ddcfad48315ba259fbc9e07f09ad0b8497eba5"
 }
