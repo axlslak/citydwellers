@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 193,
+  "current_session": 194,
   "last_completed_session": 193,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-193-mysql-build-wiring",
-  "checkpoint_commit": "087759a61ee92326af5e9aa2bc81942be5aab89c",
-  "task": "Resolved: SQL project source and dependency build wiring",
-  "resume_instruction": "No active task. Session 193 SQL project-reference fix is published. All seven projects explicitly include the four SQL sources and connector; migration restore style is local to its csproj. Owner should update source, close/reopen citydwellers.sln, restore NuGet and rebuild. Generic Project unavailable cause remains unconfirmed; docs/MYSQL_MIGRATION.md gives standalone MSBuild Restore to expose actual errors. No assistant build/restore/tests or live migration run. Preserve mandatory MySQL, verified migration cleanup and no-auto-audit policies.",
-  "base_commit": "97ddcfad48315ba259fbc9e07f09ad0b8497eba5"
+  "transaction": "session-194-migration-errors-only",
+  "checkpoint_commit": "1273033fa81e78cb724e10fe30daf59cca7ebd80",
+  "task": "Make DataMigration output failures only and document fresh offline import trials",
+  "resume_instruction": "Owner reports successful import and requests failures-only output. Remove routine migration/verification success output while preserving errors, nonzero exits, explicit schema/help output and all verification/cleanup safeguards. Document fresh trials after dropping all migration tables and restoring original source backup. No builds/live SQL execution.",
+  "base_commit": "1273033fa81e78cb724e10fe30daf59cca7ebd80"
 }
