@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 197,
+  "current_session": 198,
   "last_completed_session": 197,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-197-sql-readiness-snapshots",
-  "checkpoint_commit": "cc95844c43ebb2818e911afbc051305173948860",
-  "task": "Resolved SQL readiness read amplification and opaque rejection diagnostics",
-  "resume_instruction": "No active implementation task. Session197 SQL read amplification fixes published: single-statement exact small document reads and existence checks; batched consistent readiness snapshot; actor-owned 2s heartbeat writes with unchanged10s expiry; precise rejection reasons in Manager status. All nine reached ready in owner session196 log, but five later rejected; exact prior rejection and disconnect cause not proven. No build/tests/live SQL/AO performed. Rebuild/deploy matching assemblies and restart with existing migrated SQL; no schema reset or reimport. Preserve atomic custody, mandatory SQL and one initial/admin-only audits.",
-  "base_commit": "9820525a971c3a644fba43745ee096fb2d9a2dbe"
+  "transaction": "session-198-recovery-routing-stalls",
+  "checkpoint_commit": "5c79e8dac17bfd2c003aaa19a0c713c673c0a3d4",
+  "task": "Fix per-item recovery catalog writer contention and deletion-hold relog",
+  "resume_instruction": "Owner log has operational heartbeats stale80-100s and Central inventory-difference relog after deletion failure. Batch recurring extraction/storage/return routing; preserve unresolved donation hold instead of relog; focused source review only, no build/live tests.",
+  "base_commit": "5c79e8dac17bfd2c003aaa19a0c713c673c0a3d4"
 }
