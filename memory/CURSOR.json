@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 200,
-  "last_completed_session": 199,
-  "status": "in_progress",
+  "last_completed_session": 200,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-200-operational-cleanup",
-  "checkpoint_commit": "79157044ac07e80c44bbb381867bfbc9a3e4e32a",
-  "task": "Remove obsolete operational SQL storage; restore disk diagnostics/catalog",
-  "resume_instruction": "Preserve items, stock, custody/transactions, donors/takers, lost/found, histories and settings. Owner now permits disk logs/dumps and items.json. Remove old-host census, expired completed tells, diagnostic SQL copies and matching migration copies. Restore catalog to disk before removal. No live DB access; supplied dump is untouched. Owner builds.",
+  "checkpoint_commit": "dac436062cc063d888c0985672b61aa6a5066501",
+  "task": "Resolved operational cleanup and disk diagnostics/catalog",
+  "resume_instruction": "Published session200. Rebuild matching host/plugins then restart existing SQL; no reset/reimport. Host restores missing catalog/cache once to disk, then background allowlisted cleanup prunes obsolete prior-host census, diagnostic SQL copies and >24h completed tell receipts plus corresponding obsolete migration archives. Preserve business records, history/custody/lost/settings and pending tells/current census. Disk chat log data/citydweller.log; diagnostics and catalog disk; business SQL mandatory. DataMigration now preserves original sources. Supplied dump untouched; no live SQL access or build/tests. Other business documents remain current backend, not fully normalized.",
   "base_commit": "79157044ac07e80c44bbb381867bfbc9a3e4e32a"
 }
