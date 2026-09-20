@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using AOSharp.Clientless;
+using AOSharp.Common.GameData;
 using AOSharp.Clientless.Logging;
 using CityBankers.Shared;
 using Newtonsoft.Json;
@@ -18,6 +19,14 @@ namespace CityBankers
     {
         private sealed class DispatchProposal
         {
+            private int _claim; // 0 queued, 1 owned by AO thread, 2 cancelled before execution
+            public bool TryBegin() => Interlocked.CompareExchange(ref _claim, 1, 0) == 0;
+            public bool TryCancel()
+            {
+                if (Interlocked.CompareExchange(ref _claim, 2, 0) != 0) return false;
+                Reply.TrySetCanceled();
+                return true;
+            }
             public string Kind;
             public WithdrawalState CruRequest;
             public string BatchId;
@@ -36,6 +45,7 @@ namespace CityBankers
 
         private readonly ConcurrentQueue<DispatchProposal> _dispatchProposals =
             new ConcurrentQueue<DispatchProposal>();
+        private int _queuedProposals;
         private CancellationTokenSource _ipcLifetime;
         private Task _ipcServer;
         private DispatchCommand _reservedDispatch;
@@ -54,8 +64,12 @@ namespace CityBankers
         internal static DispatchCommand CurrentInboundDispatch =>
             _ipcOwner?._workerCommand ?? _ipcOwner?._reservedDispatch;
         internal static bool CentralTransferBusy => _ipcOwner != null &&
-            (_ipcOwner._reserveOperation != null || _ipcOwner._stackOperation != null || _ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null || _ipcOwner._extraction != null ||
+            (_ipcOwner._afterReceipt != null || _ipcOwner._reserveOperation != null || _ipcOwner._stackOperation != null || _ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null || _ipcOwner._extraction != null ||
              (_ipcOwner._receipt != null && !_ipcOwner._donationActive));
+
+        internal static bool OwnsDonationTrade(Identity partner) => _ipcOwner != null &&
+            _ipcOwner._donationActive && _ipcOwner._donationPartner == partner &&
+            _ipcOwner._receipt?.Kind == "donation" && _ipcOwner._afterReceipt == null;
 
         private static string BankerPipe(string character)
         {
@@ -86,6 +100,8 @@ namespace CityBankers
                         {
                             var proposal = JsonConvert.DeserializeObject<DispatchProposal>(line ?? "null");
                             if (proposal == null) return "busy";
+                            if (Interlocked.Increment(ref _queuedProposals) > 64)
+                            { Interlocked.Decrement(ref _queuedProposals); return "busy"; }
                             _dispatchProposals.Enqueue(proposal);
                             // The AO update thread evaluates readiness and reserves capacity.
                             // The pipe thread never reads inventory or calls an AO operation.
@@ -93,8 +109,9 @@ namespace CityBankers
                                 Task.Delay(3000, token)).ConfigureAwait(false);
                             if (done == proposal.Reply.Task)
                                 return await proposal.Reply.Task.ConfigureAwait(false);
-                            proposal.Reply.TrySetCanceled();
-                            return "busy";
+                            // Timeout may cancel only unclaimed work. A started admission
+                            // can still commit; never tell its caller it was rejected.
+                            return proposal.TryCancel() ? "busy" : "pending";
                         }, 5000, token).ConfigureAwait(false);
                     }
                 }
@@ -126,9 +143,11 @@ namespace CityBankers
             if (_reservedDispatch != null && !Trade.IsTrading && _reservationAge.ElapsedMilliseconds > 15000)
                 _reservedDispatch = null;
             DispatchProposal proposal;
-            while (_dispatchProposals.TryDequeue(out proposal))
+            int processed = 0;
+            while (processed++ < 32 && _dispatchProposals.TryDequeue(out proposal))
             {
-                if (proposal.Reply.Task.IsCompleted) continue;
+                Interlocked.Decrement(ref _queuedProposals);
+                if (!proposal.TryBegin()) continue;
                 try
                 {
                     if (proposal.Kind == "dispatch-census-request" || proposal.Kind == "dispatch-census-prepare" ||

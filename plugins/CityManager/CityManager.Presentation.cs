@@ -696,7 +696,7 @@ namespace CityManager
 
         private void BeginServiceStatus(ReplyTarget target)
         {
-            ThreadPool.QueueUserWorkItem(_ =>
+            QueuePublicWork(target, () =>
             {
                 bool raidFlipperBusy = IsRaidFlipperBusy();
                 bool recoveryFlipperBusy = CityRaidAutomation.IsFlipperBusy();

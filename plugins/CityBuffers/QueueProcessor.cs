@@ -67,7 +67,16 @@ namespace MalisBuffBots
             }
             catch (Exception ex)
             {
-                ResetBotQueue(); // Temporary until exceptions are handled
+                // One failed cast must not discard every other user's queue.
+                var failed = Queue.Current;
+                Queue.ClearCurrent();
+                try
+                {
+                    if (failed != null) CityBufferBridge.SendPrivateMessage((uint)failed.Requester.Instance,
+                        "This buff failed; please request it again. Other queued requests are retained.");
+                    Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+                }
+                catch { /* Preserve the remaining queue even if reporting fails. */ }
                 Logger.Error(ex.Message);
                 Logger.Error("QueueProcessorOnUpdate");
             }
@@ -103,20 +112,30 @@ namespace MalisBuffBots
             TeamTrackerId = 0;
         }
 
+        private readonly Dictionary<int, DateTime> _queueNoticeAfter = new Dictionary<int, DateTime>();
+        private void NotifyQueueLimit(Identity requester, string message)
+        {
+            DateTime now = DateTime.UtcNow, until;
+            lock (_queueNoticeAfter)
+            {
+                foreach (int id in _queueNoticeAfter.Where(p => p.Value <= now).Select(p => p.Key).ToArray())
+                    _queueNoticeAfter.Remove(id);
+                if (_queueNoticeAfter.TryGetValue(requester.Instance, out until) || _queueNoticeAfter.Count >= 1024) return;
+                _queueNoticeAfter[requester.Instance] = now.AddSeconds(10);
+            }
+            CityBufferBridge.SendPrivateMessage((uint)requester.Instance, message);
+        }
+
         public void LocalEnqueue(SimpleChar requester, IEnumerable<NanoEntry> entries)
         {
+            string rejection = null;
             foreach (var entry in entries.Where(x => DynelManager.LocalPlayer.SpellList.Any(y => x.ContainsId(y))))
             {
-                var buffEntry = new BuffEntry { Requester = requester.Identity, NanoEntry = entry };
-
-                if (Queue.AllEntries.Count() > 0 && Queue.AllEntries.Any(x => x.Equals(buffEntry)))
-                {
-                    CityBufferBridge.SendPrivateMessage((uint)requester.Identity.Instance, ScriptTemplate.AlreadyInQueue(entry.Name));
-                    return;
-                }
-
-                Queue.Enqueue(buffEntry);
+                string error;
+                if (!Queue.TryEnqueue(new BuffEntry { Requester = requester.Identity, NanoEntry = entry }, out error))
+                    rejection = error; // One duplicate must not skip later distinct buffs.
             }
+            if (rejection != null) NotifyQueueLimit(requester.Identity, rejection);
         }
 
         public void RequestBuffs(Dictionary<Profession, List<NanoEntry>> entries, PlayerChar requester)
@@ -203,7 +222,9 @@ namespace MalisBuffBots
 
                     if (prof.Key == (Profession)DynelManager.LocalPlayer.Profession)
                     {
-                        Queue.Enqueue(new BuffEntry { Requester = requester.Identity, NanoEntry = nextSpellToCast });
+                        string error;
+                        if (!Queue.TryEnqueue(new BuffEntry { Requester = requester.Identity, NanoEntry = nextSpellToCast }, out error))
+                            NotifyQueueLimit(requester.Identity, error);
                     }
                     else
                     {

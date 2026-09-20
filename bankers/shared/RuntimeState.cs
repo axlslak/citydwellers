@@ -21,6 +21,7 @@ namespace CityBankers.Shared
         public const int MaxStoredCopiesPerTemplate = 10;
         public const int DonationInactivitySeconds = 30;
         public const int EmptyTradeTimeoutSeconds = 30;
+        public const int PublicDonationTimeoutSeconds = 120;
         public const int TradeTimeoutSeconds = 20;
         public const int InternalAddItemRetryMilliseconds = 1200;
         public const int InternalAddItemMaxAttempts = 4;

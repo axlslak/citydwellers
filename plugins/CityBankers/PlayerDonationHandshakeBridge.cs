@@ -205,7 +205,8 @@ namespace CityBankers
 
             try
             {
-                if (!Trade.IsTrading || Trade.CurrentTarget != _partner)
+                if (!BankingServiceAgent.OwnsDonationTrade(_partner) ||
+                    !Trade.IsTrading || Trade.CurrentTarget != _partner)
                 {
                     Reset();
                     return;

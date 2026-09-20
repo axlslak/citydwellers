@@ -48,7 +48,7 @@ namespace CityManager
             if (catalog == null) { Reply(target, ItemCatalog.Status); return; }
             if (Interlocked.CompareExchange(ref _itemsSearchBusy, 1, 0) != 0)
             { Reply(target, "An item search is running; try again shortly."); return; }
-            ThreadPool.QueueUserWorkItem(_ =>
+            QueuePublicWork(target, () =>
             {
                 try
                 {

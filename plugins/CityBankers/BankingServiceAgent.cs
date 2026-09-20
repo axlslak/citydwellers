@@ -546,6 +546,8 @@ namespace CityBankers
             {
                 string targetName = FindPlayerName(target);
                 TraceTrade("trade.opened", new { Partner = target.ToString(), Name = targetName });
+                if (_afterReceipt != null)
+                { DeclineIncomingTrade(targetName, "The previous trade is still being verified. Please reopen shortly."); return; }
                 if (_stackOperation != null || _reserveOperation != null)
                 { DeclineIncomingTrade(targetName, "This banker is preparing supplies. Please reopen trade shortly."); return; }
                 if (_withdrawalCensus != null || _withdrawalDispute ||
@@ -654,13 +656,12 @@ namespace CityBankers
                 // Preserve the Finished receipt and its original verification
                 // deadline; only an exact settled delta may complete it. A real
                 // mismatch still follows the existing custody recovery path.
-                if (status == TradeStatus.Declined && _afterReceipt != null &&
-                    _receipt != null && _receipt.Direction != 0)
+                if (status == TradeStatus.Declined && _afterReceipt != null && _receipt != null)
                 {
                     if (!_lateReceiptDeclineReported)
                     {
                         _lateReceiptDeclineReported = true;
-                        Logger.Warning("[CityBankers] Late Declined while verifying Finished; " +
+                        Logger.Warning("[CityBankers] Late Declined while verifying the preceding trade; " +
                             "retaining physical verification for " + _receipt.Kind +
                             " transaction=" + _receipt.TransactionId + ".");
                     }
@@ -805,9 +806,20 @@ namespace CityBankers
         // Player -> Central donation
         // ---------------------------------------------------------------------
 
+        private readonly Stopwatch _publicDonationAge = new Stopwatch();
+        private readonly Dictionary<string, long> _donationTimeoutBackoff =
+            new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
         private void BeginDonation(Identity partner)
         {
             string partnerName = FindPlayerName(partner) ?? partner.ToString();
+            if (_receipt != null || _afterReceipt != null)
+            { DeclineIncomingTrade(partnerName, "The previous trade is still being verified. Please reopen shortly."); return; }
+            long now = Stopwatch.GetTimestamp(), retryAfter;
+            foreach (string name in _donationTimeoutBackoff.Where(p => p.Value <= now).Select(p => p.Key).ToArray())
+                _donationTimeoutBackoff.Remove(name);
+            if (_donationTimeoutBackoff.TryGetValue(partnerName, out retryAfter))
+            { DeclineIncomingTrade(partnerName, "Your last donation timed out. Please wait a few seconds so others can trade."); return; }
             if (Inventory.NumFreeSlots < ServicePolicy.MaxTradeItems)
             {
                 TellDirectPlayer(partnerName, "Central needs room for a full donation. Please try again after pending storage or pickups finish.");
@@ -841,6 +853,7 @@ namespace CityBankers
                 _donationTransactionId, Client.CharacterName, "donation.started", new { Player = partnerName }, false, new[] { _tradeTrace });
             PrepareReceipt("donation", _donationTransactionId, null, null, 1);
             _donationOpenedUtc = DateTime.UtcNow;
+            _publicDonationAge.Restart();
             _donationLastChangeUtc = _donationOpenedUtc;
             _donationPreviousOffer = new List<TransferItemState>();
             _donationSnapshot = new List<TransferItemState>();
@@ -851,7 +864,7 @@ namespace CityBankers
                     0,
                     ServicePolicy.MaxTradeItems) +
                 "Trade opened. Add up to " + ServicePolicy.MaxTradeItems +
-                " accepted bank items. Take your time: Central waits for " +
+                " accepted bank items. Please finish within two minutes; Central waits for " +
                 ServicePolicy.DonationInactivitySeconds +
                 " seconds of unchanged trade contents before proceeding.");
             AppendTradeLedger(
@@ -867,6 +880,14 @@ namespace CityBankers
         {
             if (!_donationActive || !Trade.IsTrading)
                 return;
+
+            if (_publicDonationAge.Elapsed.TotalSeconds >= ServicePolicy.PublicDonationTimeoutSeconds)
+            {
+                _donationTimeoutBackoff[_donationPartnerName] = Stopwatch.GetTimestamp() + Stopwatch.Frequency * 15;
+                RejectDonation("Donation exceeded two minutes. Please let other users trade, then reopen when ready.",
+                    SnapshotTradeItems(Trade.TargetWindowCache.Items));
+                return;
+            }
 
             if (HasQueuedDispatchWork())
             {

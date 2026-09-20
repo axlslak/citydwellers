@@ -10,7 +10,7 @@ namespace CityManager
     {
         private void BeginBufferStatus(ReplyTarget target)
         {
-            ThreadPool.QueueUserWorkItem(_ =>
+            QueuePublicWork(target, () =>
             {
                 try
                 {

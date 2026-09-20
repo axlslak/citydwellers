@@ -46,6 +46,7 @@
     <Compile Include="CityManager.Alts.cs" />
     <Compile Include="CityManager.Bans.cs" />
     <Compile Include="CityManager.Bankers.cs" />
+    <Compile Include="CityManager.PublicLoad.cs" />
     <Compile Include="CityManager.LostFound.cs" />
     <Compile Include="CityManager.Membership.cs" />
     <Compile Include="CityManager.Presentation.cs" />

@@ -387,6 +387,11 @@ namespace CityManager
                 return;
             }
 
+            QueuePublicWork(target, () => RenderBankerStock(rawCommand, parts, target, phatzCommand));
+        }
+
+        private void RenderBankerStock(string rawCommand, string[] parts, ReplyTarget target, bool phatzCommand)
+        {
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
             foreach (WithdrawalState row in WithdrawalStore.LoadAll(_settingsDir))
                 HideReservedWithdrawalCopy(stock, row);
@@ -764,7 +769,7 @@ namespace CityManager
             var request = new WithdrawalState { Id = "wd-" + Guid.NewGuid().ToString("N"),
                 CreatedUtc = DateTime.UtcNow, RequestedBy = senderName, RecipientMain = canonical,
                 AllowedCharacters = allowed.Where(n => !string.IsNullOrWhiteSpace(n)).Distinct(StringComparer.OrdinalIgnoreCase).ToList() };
-            ThreadPool.QueueUserWorkItem(async _ =>
+            QueuePublicWorkAsync(target, async () =>
             {
                 try
                 {
@@ -776,8 +781,9 @@ namespace CityManager
                     string pipe = "CityDwellers.Bankers." + Process.GetCurrentProcess().Id + "." + character.ToLowerInvariant();
                     string result = await LocalIpc.RequestLineAsync(pipe,
                         Newtonsoft.Json.JsonConvert.SerializeObject(new { Kind = "cru", CruRequest = request }), 1000, 5000).ConfigureAwait(false);
-                    Reply(target, result == "busy" || result == "pending" || string.IsNullOrWhiteSpace(result)
-                        ? "Central is busy. Please try #cru again shortly." : result);
+                    Reply(target, result == "pending" || string.IsNullOrWhiteSpace(result)
+                        ? "Central is processing your CRU request. Wait for the ready tell before requesting another."
+                        : result == "busy" ? "Central is busy; this request was not queued. Please try #cru again shortly." : result);
                 }
                 catch (Exception ex)
                 {
@@ -806,11 +812,12 @@ namespace CityManager
                 return;
             }
 
-            ThreadPool.QueueUserWorkItem(_ =>
+            if (CruPolicy.IsCru(aoId)) { ProcessCruCommand(senderName, new[] { "cru" }, target); return; }
+            QueuePublicWork(target, () =>
             {
                 try
                 {
-                    BeginBankerWithdrawal(senderName, aoId, target);
+                    lock (_withdrawalAdmissionSync) BeginBankerWithdrawal(senderName, aoId, target);
                 }
                 catch (Exception ex)
                 {
@@ -940,7 +947,7 @@ namespace CityManager
             }
 
             string[] commandParts = (string[])parts.Clone();
-            ThreadPool.QueueUserWorkItem(_ =>
+            QueuePublicWork(target, () =>
             {
                 try
                 {
@@ -1061,7 +1068,7 @@ namespace CityManager
             }
 
             string[] commandParts = (string[])parts.Clone();
-            ThreadPool.QueueUserWorkItem(_ =>
+            QueuePublicWork(target, () =>
             {
                 try
                 {

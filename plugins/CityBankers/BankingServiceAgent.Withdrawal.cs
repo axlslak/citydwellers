@@ -343,7 +343,7 @@ namespace CityBankers
                 _withdrawalTradePartner = target;
                 return true;
             }
-            if (!_isCentral || rows.Any(WithdrawalStore.OwnsCentralTrade) ||
+            if (!_isCentral || _receipt != null || _afterReceipt != null || rows.Any(WithdrawalStore.OwnsCentralTrade) ||
                 _activeBatch != null || _donationCleanup != null) return false;
 
             // A ready order belongs to this collector; everybody else can donate normally.

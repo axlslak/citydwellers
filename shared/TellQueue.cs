@@ -116,6 +116,13 @@ namespace CityDwellers.Shared
             }
         }
 
+        // Admission signal only: never discard durable service/transaction tells.
+        public static bool IsBacklogged(string dataDirectory, int limit = 256)
+        {
+            EnsureDirectories(dataDirectory);
+            return Directory.EnumerateFiles(PendingDirectory(dataDirectory), "*.json").Take(limit).Count() >= limit;
+        }
+
         public static List<TellQueueJob> ReadPending(string dataDirectory)
         {
             EnsureDirectories(dataDirectory);

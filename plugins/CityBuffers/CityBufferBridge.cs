@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Linq;
 using System.Threading;
@@ -20,6 +22,52 @@ namespace MalisBuffBots
         private static Task _server;
         private static volatile string _snapshot = "{}";
         public static bool Ready;
+
+        private sealed class RequestBudget
+        {
+            public double Tokens = 4, Updated, NoticeAfter;
+        }
+        private static readonly Dictionary<uint, RequestBudget> RequestBudgets = new Dictionary<uint, RequestBudget>();
+        private static double _backlogCheckAfter;
+        private static bool _backlogged;
+
+        internal static bool AdmitPublicRequest(uint sender)
+        {
+            bool notify = false, accepted = false;
+            lock (RequestBudgets)
+            {
+                double now = Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency;
+                RequestBudget budget;
+                if (!RequestBudgets.TryGetValue(sender, out budget))
+                {
+                    if (RequestBudgets.Count >= 1024)
+                    {
+                        foreach (uint old in RequestBudgets.Where(p => now - p.Value.Updated >= 600).Select(p => p.Key).ToArray())
+                            RequestBudgets.Remove(old);
+                        if (RequestBudgets.Count >= 1024) return false;
+                    }
+                    budget = new RequestBudget { Updated = now };
+                    RequestBudgets.Add(sender, budget);
+                }
+                budget.Tokens = Math.Min(4, budget.Tokens + (now - budget.Updated) / 2);
+                budget.Updated = now;
+                if (now >= _backlogCheckAfter)
+                {
+                    _backlogCheckAfter = now + 1;
+                    bool wasBacklogged = _backlogged;
+                    try { _backlogged = TellQueue.IsBacklogged(_dataDir, wasBacklogged ? 128 : 256); }
+                    catch { _backlogged = true; }
+                    if (wasBacklogged != _backlogged)
+                        Logger.Warning(_backlogged ? "Buffer request admission paused: tell backlog or queue storage unavailable."
+                            : "Buffer request admission resumed: tell backlog cleared.");
+                }
+                if (!_backlogged && budget.Tokens >= 1) { budget.Tokens--; accepted = true; }
+                else if (!_backlogged && now >= budget.NoticeAfter)
+                { budget.NoticeAfter = now + 10; notify = true; }
+            }
+            if (notify) SendPrivateMessage(sender, "Please slow down and let your queued buffs finish. Try again shortly.");
+            return accepted;
+        }
 
         public static void Start()
         {

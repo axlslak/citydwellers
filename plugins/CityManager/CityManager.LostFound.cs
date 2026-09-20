@@ -17,7 +17,7 @@ namespace CityManager
         {
             bool lost = string.Equals(parts[0], "lost", StringComparison.OrdinalIgnoreCase);
             string[] words = parts.Skip(1).Where(w => !string.IsNullOrWhiteSpace(w)).ToArray();
-            ThreadPool.QueueUserWorkItem(_ =>
+            QueuePublicWork(target, () =>
             {
                 try
                 {

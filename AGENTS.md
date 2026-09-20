@@ -136,3 +136,10 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
 - Retain disabled audit code in source. Do not reconnect/restart Manager as part of banker recovery. Do not interpret another banker's fault, missing heartbeat or recovery file as permission to scan/relog peers.
 - No relog during a trade; no fixed clientless relog/world-settling wait. Use fresh connection/bank state. Unresolved operation evidence remains local and is reported for administrator review instead of being silently reconciled or audited.
 - Explicit administrator audit access remains the separate console-admin bankers-bagaudit mode. There is no new runtime SC+ audit authority. First-startup admission is not permission for a second scan.
+
+## Public multiuser service — session 191
+
+- Preserve bounded public work, per-member spam budgets, receipt ownership and atomic queued/claimed/cancelled IPC decisions. Multiple users must not overwrite each other's recipient, order, donation or pending receipt.
+- Four active pickup orders (three items each) are staging capacity, not simultaneous Central trades. One Central trade window remains. Do not claim ten-user throughput without owner live evidence.
+- One buffer cast failure must not clear everybody's queue. Keep duplicate/capacity checks atomic and preserve the no-automatic-audit policy under spam and concurrency.
+- See docs/MULTIUSER_REVIEW.md for limits and repeatable owner live scenarios. Severe tell backlog pauses fresh public input rather than growing an unbounded rejection backlog; authenticated Manager administrative controls remain reachable.

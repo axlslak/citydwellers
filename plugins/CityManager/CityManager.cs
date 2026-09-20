@@ -246,6 +246,7 @@ namespace CityManager
 
         public override void Teardown()
         {
+            _publicWorkStopped = true;
             try
             {
                 ShutdownEventReporting();
@@ -601,9 +602,17 @@ namespace CityManager
                 return;
 
             string command = parts[0].ToLowerInvariant();
-            DevTrace($"COMMAND {replyTarget.Kind} {senderName}: {rawCommand}");
-
+            replyTarget.SenderName = senderName; // Preserve one principal across org/tell/guest work.
             bool isAdmin = IsAdministrator(senderName);
+            // Public commands, including the owner's load test, obey the same budget.
+            // Only authenticated admin controls bypass load limits; an unauthorized
+            // sender cannot flood denial replies by spelling an admin command.
+            bool adminControl = isAdmin && (AdminCommands.Contains(command) ||
+                command == "shutdown" || command == "leave" || command == "cancel");
+            if (!adminControl && !AdmitPublicCommand(senderName, replyTarget)) return;
+            if (rawCommand.Length > 2048)
+            { Reply(replyTarget, "That command is too long."); return; }
+            DevTrace($"COMMAND {replyTarget.Kind} {senderName}: {rawCommand}");
 
             if (!isAdmin &&
                 !string.Equals(command, "leave", StringComparison.OrdinalIgnoreCase) &&
@@ -996,7 +1005,7 @@ namespace CityManager
             if (TryReplyRaidFlipperReservation(target))
                 return;
 
-            ThreadPool.QueueUserWorkItem(_ =>
+            QueuePublicWork(target, () =>
             {
                 try
                 {

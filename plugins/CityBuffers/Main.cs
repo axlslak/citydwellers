@@ -75,11 +75,13 @@ namespace MalisBuffBots
 
         private void HandlePrivateGroupMessage(PrivateGroupMsg msg)
         {
+            if (!CityBufferBridge.AdmitPublicRequest(msg.SenderId)) return;
             ProcessMessage(new PrivateMessage { SenderId = msg.SenderId, SenderName = msg.SenderName, Message = msg.Message });
         }
 
         private void HandlePrivateMessage(PrivateMessage msg)
         {
+            if (!CityBufferBridge.AdmitPublicRequest(msg.SenderId)) return;
             if (SettingsJson.Data.PrivateChannelMode)
             {
                 CityBufferBridge.SendPrivateMessage(msg.SenderId, SettingsJson.Data.PrivateChannelInfoMsg);
