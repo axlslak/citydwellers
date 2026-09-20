@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 199,
+  "current_session": 200,
   "last_completed_session": 199,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-199-relational-ledger-stock",
-  "checkpoint_commit": "04c0d9098d4f8d7930df7364cd8529bfed789e81",
-  "task": "Resolved relational live ledger and stock conversion",
-  "resume_instruction": "Session199 relational ledger/stock implementation published. Host normal startup exclusively upgrades existing SQL sources into cd_ledger_items/cd_stock_items with typed indexed rows plus cd_banker_state, verifies canonical values/order/nulls/timestamps atomically, seals schema2 and banker_relational_version1, retains sources/archives and refuses stale reimport. All ledger/stock call sites moved; per-character recovery reads and batched catalog routing. Automatic old-event backfill removed per owner. Other state remains current backend for separate future work. Session198 superseded; owner priority startup delay, donation-only focus was sarcasm. Rebuild matching host/plugins and start against existing SQL; no reset/DataMigration rerun. CREATE permission needed. Static checks only, no assistant build/tests/live SQL/AO; no claim of measured startup performance. Cursor idle, no active implementation.",
-  "base_commit": "3185d567edd513609d8d783ddb16677951cc2636"
+  "transaction": "session-200-operational-cleanup",
+  "checkpoint_commit": "79157044ac07e80c44bbb381867bfbc9a3e4e32a",
+  "task": "Remove obsolete operational SQL storage; restore disk diagnostics/catalog",
+  "resume_instruction": "Preserve items, stock, custody/transactions, donors/takers, lost/found, histories and settings. Owner now permits disk logs/dumps and items.json. Remove old-host census, expired completed tells, diagnostic SQL copies and matching migration copies. Restore catalog to disk before removal. No live DB access; supplied dump is untouched. Owner builds.",
+  "base_commit": "79157044ac07e80c44bbb381867bfbc9a3e4e32a"
 }
