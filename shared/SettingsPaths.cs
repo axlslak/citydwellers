@@ -320,8 +320,7 @@ namespace CityDwellers.Shared
                 "citymanager-diagnostics.log.previous",
                 "citymanager-membership-state.json",
                 "citymanager-raid-state.json",
-                // Retired org-size experiment: tolerate the old file on upgrades.
-                // CityManager no longer reads or writes it.
+                // Manager's persistent adaptive organization blob budget/evidence.
                 "citymanager-org-size.json",
                 "citydwellers.log",
                 "citydwellers.log.previous",
