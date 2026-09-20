@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 189,
+  "current_session": 190,
   "last_completed_session": 189,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-189-relog-evidence",
+  "transaction": "session-190-no-automatic-audits",
   "checkpoint_commit": "ce05df7f0fde6101481b99d9834f5c581981c40f",
-  "task": "Resolved: immediate-relog evidence and probe accounting; next remove automatic audits",
-  "resume_instruction": "Owner measured nine successful in-play logins in18.184s, mean1.993s, next-login gaps21\u201323ms. Thirty-second avatar persistence/vulnerability is not a reconnect cooldown. Probe summary now separates login success from disconnect errors; SDK exception itself not fixed. Next implement pending session186 policy: one startup audit per banker/host, subsequent audits explicit admin-only, source retained; affected-only relog outside trades, no roster escalation. Production audit behavior is still unchanged. No assistant build/live test.",
-  "base_commit": "64aa3779e223e695e69c79cc6c97aecead7d5036"
+  "task": "Disable automatic physical audits; scoped banker relog outside trades",
+  "resume_instruction": "Implement scanner startup-once gate, comment out normal/paired/reconnect audit triggers, remove roster escalation, queue one affected-only relog outside trades; retain source and explicit console-admin audit mode. Manager unchanged. Static review only; owner builds/tests.",
+  "base_commit": "699ad775d1f12d5cf4ffbe2a326b884d1f84a72a"
 }
