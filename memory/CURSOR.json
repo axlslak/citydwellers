@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 198,
+  "current_session": 199,
   "last_completed_session": 197,
   "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-198-recovery-routing-stalls",
-  "checkpoint_commit": "5c79e8dac17bfd2c003aaa19a0c713c673c0a3d4",
-  "task": "Fix per-item recovery catalog writer contention and deletion-hold relog",
-  "resume_instruction": "Owner log has operational heartbeats stale80-100s and Central inventory-difference relog after deletion failure. Batch recurring extraction/storage/return routing; preserve unresolved donation hold instead of relog; focused source review only, no build/live tests.",
-  "base_commit": "5c79e8dac17bfd2c003aaa19a0c713c673c0a3d4"
+  "transaction": "session-199-relational-ledger-stock",
+  "checkpoint_commit": "3185d567edd513609d8d783ddb16677951cc2636",
+  "task": "Move live ledger and current stock to indexed relational SQL tables",
+  "resume_instruction": "Explicit owner direction: stop workaround changes; move ledger/live stock out of SQL filesystem. Import existing SQL documents once atomically with validation; wire all runtime readers/writers to relational tables; preserve original archives, custody transactions and owner build boundary.",
+  "base_commit": "3185d567edd513609d8d783ddb16677951cc2636"
 }
