@@ -132,8 +132,12 @@ namespace CityManager
 
         private string _orgBlobStatePath;
         private int _orgBlobCurrentPageSize = OrgBlobPageSize;
+        private int _orgBlobProvenSafePageSize;
+        private int _orgBlobFailedPageSize;
         private int _orgLastConfirmedBytes;
-        private int _orgLastFailedBytes;
+        private int _orgMaxConfirmedBytes;
+        private int _orgLastUnconfirmedBytes;
+        private int _orgLastFrontierFailedBytes;
         private readonly List<QueuedOrgRetry> _orgRetryQueue = new List<QueuedOrgRetry>();
         private DateTime _nextOrgRetrySendUtc = DateTime.MinValue;
 
@@ -148,6 +152,9 @@ namespace CityManager
             public int ExpectedChannelId;
             public uint ExpectedSenderId;
             public int OriginalLength;
+            public int OriginalBudget;
+            public bool OriginalGrowthProbe;
+            public bool OriginalIsRetry;
         }
 
         private sealed class OrgBlobBudgetState
@@ -155,7 +162,14 @@ namespace CityManager
             public int Version;
             public int DefaultPageSize;
             public int CurrentPageSize;
+            public int ProvenSafePageSize;
+            public int FailedPageSize;
             public int LastConfirmedBytes;
+            public int MaxConfirmedBytes;
+            public int LastUnconfirmedBytes;
+            public int LastFrontierFailedBytes;
+            // Version 3 compatibility only. In v3 every missing echo was called
+            // a failure, even when a much larger message had just delivered.
             public int LastFailedBytes;
             public DateTime UpdatedUtc;
         }
@@ -1888,8 +1902,9 @@ namespace CityManager
                 BudgetAtSend = budget,
                 GrowthProbe = retryPlan != null &&
                     retryPlan.IsBlob &&
-                    !isRetry &&
-                    length >= Math.Max(OrgBlobMinPageSize, budget - 512)
+                    length >= Math.Max(
+                        OrgBlobMinPageSize,
+                        budget - OrgBlobProbeEvidenceMargin)
             };
             lock (_orgOutputSync) _pendingOrgEchoes.Add(pending);
             return pending;
