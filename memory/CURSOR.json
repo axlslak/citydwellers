@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 188,
-  "last_completed_session": 187,
-  "status": "in_progress",
+  "last_completed_session": 188,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-188-build-wiring",
-  "checkpoint_commit": "751ea6ace227ad1ce637092d139583c88a52e6ba",
-  "task": "Fix missing ShutdownControl compile inclusion and skipped LoginTry configuration",
-  "resume_instruction": "Owner build fails CityManager and CityDwellers with ShutdownControl missing, LoginTry skipped. Explicitly include helper in both csproj files, remove conditional shared include, normalize probe solution Any CPU and declare Debug/Release AnyCPU project configurations. Static review only; owner builds.",
+  "checkpoint_commit": "161440baa591aade83c04b70683e9d65f20b4f59",
+  "task": "Resolved: shutdown helper compile links and LoginTry build configurations",
+  "resume_instruction": "Owner log contained missing ShutdownControl errors in Manager/host and skipped LoginTry, not timing results. Published direct Compile links in both consumers and removed conditional root include; normalized LoginTry solution Any CPU mappings and explicit Debug/Release AnyCPU project groups. Owner reload updated solution, rebuild Release, then run logintry and return timestamped log. No assistant build/live testing; audit behavior unchanged and deferred.",
   "base_commit": "e54fec6d7142adc8c319568327b438e535d49f8b"
 }
