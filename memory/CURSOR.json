@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 190,
+  "current_session": 191,
   "last_completed_session": 190,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-190-no-automatic-audits",
+  "transaction": "session-191-multiuser-review",
   "checkpoint_commit": "596d22333d876883274a09babc0e070e3a6d47bf",
-  "task": "Resolved: automatic recovery audits disabled; affected-only banker relog",
-  "resume_instruction": "Published no-automatic-audit policy. One startup scan per banker/host enforced by flushed marker and current gate run. Normal/paired/withdrawal/storage/reconnect scan workers and IPC triggers disabled with source retained; no roster recovery requests or global readiness block from their files. Banker fault queues one local relog outside trades with zero intentional reconnect delay; Manager untouched. Idle matching fresh bank/inventory resumes; unresolved operations/failures report and hold affected banker only, never authorize audit. Explicit console-admin bankers-bagaudit retained. Owner rebuild/restart; no assistant compilation/live test. Do not reintroduce auto audits.",
-  "base_commit": "699ad775d1f12d5cf4ffbe2a326b884d1f84a72a"
+  "task": "Public multiuser concurrency/spam review and concrete fixes",
+  "resume_instruction": "Review Manager command admission, banker IPC, withdrawal reservation identity/atomicity, trade ownership and recovery under simultaneous users; fix concrete races and unbounded intake. Preserve no-auto-audit policy. Owner builds/live tests; do not claim public load proven by source review.",
+  "base_commit": "0710ad0acfd64f39688c0168a59ee7561ffc9dcf"
 }
