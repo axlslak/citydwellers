@@ -231,6 +231,12 @@ namespace CityDwellers.Shared
                     if (exception != null)
                     {
                         writer.WriteLine("Failure type: " + exception.GetType().FullName);
+                        // These messages originate only from our fixed internal
+                        // guards, never from connector SQL/parameters or secrets.
+                        if (exception is DatabaseUnavailableException)
+                            writer.WriteLine("Failure reason: " + exception.Message);
+                        if (!string.IsNullOrEmpty(exception.StackTrace))
+                            writer.WriteLine("Failure stack: " + exception.StackTrace);
                         var sql = exception as MySqlException;
                         if (sql != null) writer.WriteLine("MySQL error number: " + sql.Number + "; SQLSTATE: " + sql.SqlState);
                         var socket = exception.InnerException as System.Net.Sockets.SocketException;

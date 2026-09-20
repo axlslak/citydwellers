@@ -1,3 +1,11 @@
+## Session 195 — SQL contention during banker startup
+
+- [OWNER LIVE] Owner reports migration completed and runtime reached banker-ready/deferred ledger startup before DatabaseUnavailableException stopped the host about30s later. The old fatal output omitted the internal reason, so writer timeout is strongly suggested by timing, not proven; rollback-only is another possible cause.
+- [FIX] Ledger index upsert resolves all distinct stock AOIDs against one catalog policy/family snapshot instead of remote metadata reads per item. Uses the same TryGetRuleCore as single-item lookups, retaining routing/disabled/family semantics.
+- [FIX] Removed whole-history scanning from the startup ledger writer transaction. Historical provenance is prepared outside the writer when ledger creation is needed, with ledger rechecked before creation. Legacy event scans now run outside the global writer; each departure retains one atomic deduplication/index/history transaction. Partial work remains retry-safe through existing departure counts. No historical record is dropped and no physical AO action added.
+- [DIAGNOSTICS] Fatal stderr now prints our internal DatabaseUnavailableException reason and stack trace; connector messages/connection strings/SQL parameters remain excluded. Timeout and fail-closed behavior are unchanged. A remaining failure can distinguish writer timeout, rollback-only and lease failure and locate its call path.
+- [VALIDATION / LIMIT] Focused source/interleaving review, batch-vs-single resolver semantics and transaction boundaries, lexical delimiters and git diff --check. No assistant compilation, tests, database connection or AO run. Owner should rebuild/deploy matching assemblies and restart using the already migrated database; do not drop tables or repeat migration for this startup issue. Audit policy unchanged.
+
 ## Session 194 — migration failures-only output
 
 - [OWNER REPORT] Owner reports the import went well and requests failures-only output for repeated offline trials. This is owner-reported success, not assistant-run database validation.

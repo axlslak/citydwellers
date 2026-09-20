@@ -317,6 +317,10 @@ namespace CityBankers
             string centralCharacter,
             CurrentStockState legacyStock)
         {
+            // Historical evidence can be large after import. Read it before
+            // taking the writer; recheck ledger existence inside the transaction.
+            Dictionary<string, LegacyProvenance> provenance = LoadLedger(settingsDir) == null
+                ? LoadLegacyProvenance(settingsDir) : null;
             CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
             {
                 EnsureIndexSeeded(settingsDir);
@@ -324,7 +328,9 @@ namespace CityBankers
                 ActiveLedgerState ledger = LoadLedger(settingsDir);
                 if (ledger == null)
                 {
-                    ledger = MigrateLegacyStock(settingsDir, legacyStock);
+                    if (provenance == null)
+                        throw new InvalidOperationException("Active ledger disappeared during initialization; refusing to recreate it without provenance.");
+                    ledger = MigrateLegacyStock(legacyStock, provenance);
                     SaveLedger(settingsDir, ledger);
                     RuntimeStateStore.AppendActivity(
                         settingsDir,
@@ -335,8 +341,10 @@ namespace CityBankers
                 }
 
                 UpsertIndexFromStock(settingsDir, legacyStock);
-                MigrateLegacyHistory(settingsDir, centralCharacter);
             });
+            // Scan old event streams without owning the global writer. Each
+            // departure commits its deduplication, index and history atomically.
+            MigrateLegacyHistory(settingsDir, centralCharacter);
         }
 
         public static ActiveLedgerState LoadLedger(string settingsDir)
@@ -802,11 +810,10 @@ namespace CityBankers
         }
 
         private static ActiveLedgerState MigrateLegacyStock(
-            string settingsDir,
-            CurrentStockState stock)
+            CurrentStockState stock,
+            Dictionary<string, LegacyProvenance> provenance)
         {
             var ledger = NewLedger();
-            Dictionary<string, LegacyProvenance> provenance = LoadLegacyProvenance(settingsDir);
             foreach (StockItemState item in stock?.Items ?? new List<StockItemState>())
             {
                 LegacyProvenance source;
@@ -862,66 +869,69 @@ namespace CityBankers
                         var occurrenceByAoid = new Dictionary<int, int>();
                         foreach (JObject sourceItem in sourceItems.OfType<JObject>())
                         {
-                            int aoId = IntTokenValue(sourceItem["AoId"]);
-                            if (aoId == 0)
-                                continue;
-
-                            int occurrence;
-                            occurrenceByAoid.TryGetValue(aoId, out occurrence);
-                            occurrence++;
-                            occurrenceByAoid[aoId] = occurrence;
-                            string historyId =
-                                "legacy-" + (transactionId ?? "unknown") + "-" +
-                                aoId + "-" + leftUtc.Ticks +
-                                (occurrence > 1 ? "-" + occurrence : string.Empty);
-                            if (HistoryDepartureCount(
-                                    settingsDir,
-                                    leftUtc,
-                                    transactionId,
-                                    aoId,
-                                    "deleted_overcap") >= occurrence)
+                            CityDwellers.Shared.SqlStore.WithLock("CityBankers.LegacyHistory.v1", () =>
                             {
-                                continue;
-                            }
+                                int aoId = IntTokenValue(sourceItem["AoId"]);
+                                if (aoId == 0)
+                                    return;
 
-                            var observed = new TransferItemState
-                            {
-                                AoId = aoId,
-                                HighId = IntTokenValue(sourceItem["HighId"]),
-                                Ql = IntTokenValue(sourceItem["Ql"]),
-                                Name = sourceItem["Name"]?.ToString() ?? string.Empty
-                            };
-                            UpsertIndex(settingsDir, new[] { observed });
-
-                            LegacyProvenance source;
-                            provenance.TryGetValue(transactionId ?? string.Empty, out source);
-                            string family;
-                            SymbiantCatalog.TryGetDestinationRole(settingsDir, aoId, out family);
-
-                            AppendHistory(
-                                settingsDir,
-                                new ActiveHistoryRecord
+                                int occurrence;
+                                occurrenceByAoid.TryGetValue(aoId, out occurrence);
+                                occurrence++;
+                                occurrenceByAoid[aoId] = occurrence;
+                                string historyId =
+                                    "legacy-" + (transactionId ?? "unknown") + "-" +
+                                    aoId + "-" + leftUtc.Ticks +
+                                    (occurrence > 1 ? "-" + occurrence : string.Empty);
+                                if (HistoryDepartureCount(
+                                        settingsDir,
+                                        leftUtc,
+                                        transactionId,
+                                        aoId,
+                                        "deleted_overcap") >= occurrence)
                                 {
-                                    LeftUtc = leftUtc,
-                                    Reason = "deleted_overcap",
-                                    Recipient = null,
-                                    Item = new ActiveLedgerItem
+                                    return;
+                                }
+
+                                var observed = new TransferItemState
+                                {
+                                    AoId = aoId,
+                                    HighId = IntTokenValue(sourceItem["HighId"]),
+                                    Ql = IntTokenValue(sourceItem["Ql"]),
+                                    Name = sourceItem["Name"]?.ToString() ?? string.Empty
+                                };
+                                UpsertIndex(settingsDir, new[] { observed });
+
+                                LegacyProvenance source;
+                                provenance.TryGetValue(transactionId ?? string.Empty, out source);
+                                string family;
+                                SymbiantCatalog.TryGetDestinationRole(settingsDir, aoId, out family);
+
+                                AppendHistory(
+                                    settingsDir,
+                                    new ActiveHistoryRecord
                                     {
-                                        Id = historyId,
-                                        AoId = aoId,
-                                        TransactionId = transactionId,
-                                        From = source?.Donor ?? TrustedOperators.BootstrapAdmin,
-                                        ReceivedUtc = source != null && source.Utc != DateTime.MinValue
-                                            ? source.Utc
-                                            : leftUtc,
-                                        Family = family,
-                                        Character = centralCharacter,
-                                        Location = "inventory",
-                                        Bag = null,
-                                        Slot = null
-                                    }
-                                });
-                            migrated++;
+                                        LeftUtc = leftUtc,
+                                        Reason = "deleted_overcap",
+                                        Recipient = null,
+                                        Item = new ActiveLedgerItem
+                                        {
+                                            Id = historyId,
+                                            AoId = aoId,
+                                            TransactionId = transactionId,
+                                            From = source?.Donor ?? TrustedOperators.BootstrapAdmin,
+                                            ReceivedUtc = source != null && source.Utc != DateTime.MinValue
+                                                ? source.Utc
+                                                : leftUtc,
+                                            Family = family,
+                                            Character = centralCharacter,
+                                            Location = "inventory",
+                                            Bag = null,
+                                            Slot = null
+                                        }
+                                    });
+                                migrated++;
+                            });
                         }
                     }
                 }
@@ -1110,6 +1120,7 @@ namespace CityBankers
                 .ToDictionary(group => group.Key, group => group.First());
             bool changed = false;
 
+            var rules = SymbiantCatalog.GetRulesFor(settingsDir, items.Select(item => item.AoId));
             foreach (TransferItemState item in items)
             {
                 SymbiantIndexItem entry;
@@ -1121,8 +1132,8 @@ namespace CityBankers
                     changed = true;
                 }
 
-                string family;
-                SymbiantCatalog.TryGetDestinationRole(settingsDir, item.AoId, out family);
+                SymbiantCatalog.AcceptanceRule rule;
+                string family = rules.TryGetValue(item.AoId, out rule) ? rule.Role : null;
                 string slot;
                 if (string.Equals(family, "spirit", StringComparison.OrdinalIgnoreCase))
                     SymbiantCatalog.TryGetSpiritSlot(item.AoId, out slot);

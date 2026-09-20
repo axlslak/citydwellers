@@ -137,6 +137,27 @@ namespace CityBankers.Shared
             return accepted;
         }
 
+        // Resolve only the requested IDs against one policy/family snapshot. A
+        // stock-sized loop must not make remote metadata queries for every item.
+        public static Dictionary<int, AcceptanceRule> GetRulesFor(string settingsDirectory, IEnumerable<int> aoids)
+        {
+            if (aoids == null) throw new ArgumentNullException(nameof(aoids));
+            int[] ids = aoids.Distinct().ToArray();
+            return CityDwellers.Shared.SqlStore.WithLock("CityBankers.Catalog.v1", () =>
+            {
+                JObject policy = LoadPolicy(settingsDirectory);
+                PhatzPolicyState phatz = LoadPhatzPolicy(settingsDirectory);
+                ItemFamilyIndex families = GetPhatzFamilies(settingsDirectory);
+                var result = new Dictionary<int, AcceptanceRule>();
+                foreach (int id in ids)
+                {
+                    AcceptanceRule rule;
+                    if (TryGetRuleCore(id, policy, phatz, families, out rule)) result.Add(id, rule);
+                }
+                return result;
+            });
+        }
+
         private static bool TryGetRuleCore(int aoid, JObject policy, PhatzPolicyState phatz,
             ItemFamilyIndex families, out AcceptanceRule rule)
         {
