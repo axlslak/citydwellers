@@ -2054,8 +2054,12 @@ namespace CityManager
             lock (_orgOutputSync)
             {
                 _orgBlobCurrentPageSize = OrgBlobPageSize;
+                _orgBlobProvenSafePageSize = 0;
+                _orgBlobFailedPageSize = 0;
                 _orgLastConfirmedBytes = 0;
-                _orgLastFailedBytes = 0;
+                _orgMaxConfirmedBytes = 0;
+                _orgLastUnconfirmedBytes = 0;
+                _orgLastFrontierFailedBytes = 0;
             }
 
             try
@@ -2067,29 +2071,73 @@ namespace CityManager
                 OrgBlobBudgetState saved = JsonConvert.DeserializeObject<OrgBlobBudgetState>(
                     File.ReadAllText(_orgBlobStatePath));
                 if (saved == null ||
-                    saved.Version != 3 ||
                     saved.DefaultPageSize != OrgBlobPageSize ||
                     saved.CurrentPageSize < OrgBlobMinPageSize ||
                     saved.CurrentPageSize > OrgBlobMaxPageSize)
                     return;
 
+                if (saved.Version == 3)
+                {
+                    // V3 treated every missed self-echo as a size failure. Preserve
+                    // only its current exploratory budget and positive evidence;
+                    // old negative evidence is downgraded to "unconfirmed".
+                    lock (_orgOutputSync)
+                    {
+                        _orgBlobCurrentPageSize = saved.CurrentPageSize;
+                        _orgLastConfirmedBytes = Math.Max(0, saved.LastConfirmedBytes);
+                        _orgMaxConfirmedBytes = Math.Max(0, saved.LastConfirmedBytes);
+                        _orgLastUnconfirmedBytes = Math.Max(0, saved.LastFailedBytes);
+                    }
+                    Logger.Information(
+                        "ORG BLOB BUDGET migrated v3 -> v4: current=" +
+                        saved.CurrentPageSize + "; default=" + OrgBlobPageSize +
+                        "; previous missing-echo evidence is untrusted.");
+                    return;
+                }
+
+                if (saved.Version != 4)
+                    return;
+
                 lock (_orgOutputSync)
                 {
                     _orgBlobCurrentPageSize = saved.CurrentPageSize;
+                    _orgBlobProvenSafePageSize =
+                        ValidOrgBudgetOrZero(saved.ProvenSafePageSize);
+                    _orgBlobFailedPageSize =
+                        ValidOrgBudgetOrZero(saved.FailedPageSize);
+                    if (_orgBlobFailedPageSize > 0 &&
+                        _orgBlobProvenSafePageSize > 0 &&
+                        _orgBlobFailedPageSize <= _orgBlobProvenSafePageSize)
+                    {
+                        _orgBlobFailedPageSize = 0;
+                    }
                     _orgLastConfirmedBytes = Math.Max(0, saved.LastConfirmedBytes);
-                    _orgLastFailedBytes = Math.Max(0, saved.LastFailedBytes);
+                    _orgMaxConfirmedBytes = Math.Max(
+                        _orgLastConfirmedBytes,
+                        Math.Max(0, saved.MaxConfirmedBytes));
+                    _orgLastUnconfirmedBytes = Math.Max(0, saved.LastUnconfirmedBytes);
+                    _orgLastFrontierFailedBytes =
+                        Math.Max(0, saved.LastFrontierFailedBytes);
                 }
 
                 Logger.Information(
                     "ORG BLOB BUDGET restored: current=" + saved.CurrentPageSize +
                     "; default=" + OrgBlobPageSize +
-                    "; lastConfirmed=" + Math.Max(0, saved.LastConfirmedBytes) +
-                    "; lastFailed=" + Math.Max(0, saved.LastFailedBytes) + ".");
+                    "; provenSafe=" + _orgBlobProvenSafePageSize +
+                    "; failed=" + _orgBlobFailedPageSize +
+                    "; maxConfirmed=" + _orgMaxConfirmedBytes + "B.");
             }
             catch (Exception ex)
             {
                 Logger.Warning("Org blob budget state could not be restored: " + ex.Message);
             }
+        }
+
+        private int ValidOrgBudgetOrZero(int value)
+        {
+            return value >= OrgBlobMinPageSize && value <= OrgBlobMaxPageSize
+                ? value
+                : 0;
         }
 
         private void SaveOrgBlobBudgetState()
@@ -2104,11 +2152,15 @@ namespace CityManager
                 {
                     snapshot = new OrgBlobBudgetState
                     {
-                        Version = 3,
+                        Version = 4,
                         DefaultPageSize = OrgBlobPageSize,
                         CurrentPageSize = _orgBlobCurrentPageSize,
+                        ProvenSafePageSize = _orgBlobProvenSafePageSize,
+                        FailedPageSize = _orgBlobFailedPageSize,
                         LastConfirmedBytes = _orgLastConfirmedBytes,
-                        LastFailedBytes = _orgLastFailedBytes,
+                        MaxConfirmedBytes = _orgMaxConfirmedBytes,
+                        LastUnconfirmedBytes = _orgLastUnconfirmedBytes,
+                        LastFrontierFailedBytes = _orgLastFrontierFailedBytes,
                         UpdatedUtc = DateTime.UtcNow
                     };
                 }
@@ -2123,6 +2175,67 @@ namespace CityManager
             }
         }
 
+        private int RoundOrgProbeBudget(int value)
+        {
+            int quantum = OrgBlobProbeQuantum;
+            int rounded = ((Math.Max(0, value) + (quantum / 2)) / quantum) * quantum;
+            return Math.Max(OrgBlobMinPageSize, Math.Min(OrgBlobMaxPageSize, rounded));
+        }
+
+        private int OrgExplorationStep(int budget)
+        {
+            int raw = Math.Max(OrgBlobMinProbeStep, Math.Max(1, budget) / 10);
+            return Math.Max(
+                OrgBlobProbeQuantum,
+                RoundOrgProbeBudget(raw));
+        }
+
+        private int NextOrgProbeBudgetLocked(int safeBudget)
+        {
+            int basis = Math.Max(safeBudget, _orgBlobCurrentPageSize);
+            if (_orgBlobFailedPageSize > safeBudget && safeBudget > 0)
+            {
+                int gap = _orgBlobFailedPageSize - safeBudget;
+                if (gap <= OrgBlobProbeQuantum)
+                    return safeBudget;
+
+                int candidate = RoundOrgProbeBudget(safeBudget + (gap / 2));
+                candidate = Math.Max(safeBudget + OrgBlobProbeQuantum, candidate);
+                candidate = Math.Min(
+                    _orgBlobFailedPageSize - OrgBlobProbeQuantum,
+                    candidate);
+                return candidate > safeBudget
+                    ? candidate
+                    : safeBudget;
+            }
+
+            return Math.Min(
+                OrgBlobMaxPageSize,
+                basis + OrgExplorationStep(basis));
+        }
+
+        private bool IsOrgSizeFailureCandidate(PendingOrgEcho pending)
+        {
+            if (pending == null || !pending.GrowthProbe)
+                return false;
+
+            lock (_orgOutputSync)
+            {
+                return _orgBlobProvenSafePageSize <= 0 ||
+                       pending.BudgetAtSend > _orgBlobProvenSafePageSize;
+            }
+        }
+
+        private void RecordOrgEchoUncertainty(PendingOrgEcho pending)
+        {
+            if (pending == null || pending.Length <= 0)
+                return;
+
+            lock (_orgOutputSync)
+                _orgLastUnconfirmedBytes = pending.Length;
+            SaveOrgBlobBudgetState();
+        }
+
         private void RecordOrgBlobDelivery(PendingOrgEcho pending, bool delivered)
         {
             if (pending == null || pending.Length <= 0)
@@ -2130,53 +2243,114 @@ namespace CityManager
 
             int before;
             int after;
-            bool changed = false;
+            int safe;
+            int failed;
             lock (_orgOutputSync)
             {
                 before = _orgBlobCurrentPageSize;
                 if (delivered)
                 {
                     _orgLastConfirmedBytes = pending.Length;
-                    // Several pages may have been rendered at one budget. The first
-                    // confirming page may advance that budget by one step; later
-                    // confirmations from the old budget are redundant evidence and
-                    // must not ratchet another +50 each.
-                    if (pending.GrowthProbe &&
-                        !pending.IsRetry &&
-                        _orgBlobCurrentPageSize == pending.BudgetAtSend)
+                    _orgMaxConfirmedBytes = Math.Max(
+                        _orgMaxConfirmedBytes,
+                        pending.Length);
+
+                    if (pending.GrowthProbe)
                     {
-                        _orgBlobCurrentPageSize = Math.Min(
-                            OrgBlobMaxPageSize,
-                            _orgBlobCurrentPageSize + OrgBlobPageStep);
+                        _orgBlobProvenSafePageSize = Math.Max(
+                            _orgBlobProvenSafePageSize,
+                            pending.BudgetAtSend);
+                        if (_orgBlobFailedPageSize > 0 &&
+                            _orgBlobFailedPageSize <= _orgBlobProvenSafePageSize)
+                        {
+                            _orgBlobFailedPageSize = 0;
+                        }
+
+                        // Retried pages establish a safe bound but do not immediately
+                        // launch another larger experiment. A normal large reply does.
+                        if (!pending.IsRetry &&
+                            _orgBlobCurrentPageSize == pending.BudgetAtSend)
+                        {
+                            _orgBlobCurrentPageSize =
+                                NextOrgProbeBudgetLocked(_orgBlobProvenSafePageSize);
+                        }
                     }
                 }
                 else
                 {
-                    _orgLastFailedBytes = pending.Length;
-                    // Likewise, back off once for the budget that actually failed.
-                    // Concurrent old-budget pages still retry, but do not compound
-                    // the reduction before the new smaller budget is exercised.
-                    if (_orgBlobCurrentPageSize >= pending.BudgetAtSend)
+                    _orgLastUnconfirmedBytes = pending.Length;
+                    _orgLastFrontierFailedBytes = pending.Length;
+                    if (_orgBlobFailedPageSize <= 0 ||
+                        pending.BudgetAtSend < _orgBlobFailedPageSize)
+                    {
+                        _orgBlobFailedPageSize = pending.BudgetAtSend;
+                    }
+
+                    if (_orgBlobProvenSafePageSize > 0 &&
+                        _orgBlobFailedPageSize > _orgBlobProvenSafePageSize)
+                    {
+                        _orgBlobCurrentPageSize =
+                            NextOrgProbeBudgetLocked(_orgBlobProvenSafePageSize);
+                    }
+                    else
                     {
                         _orgBlobCurrentPageSize = Math.Max(
                             OrgBlobMinPageSize,
-                            pending.BudgetAtSend - OrgBlobPageStep);
+                            pending.BudgetAtSend -
+                                OrgExplorationStep(pending.BudgetAtSend));
                     }
                 }
 
+                safe = _orgBlobProvenSafePageSize;
+                failed = _orgBlobFailedPageSize;
                 after = _orgBlobCurrentPageSize;
-                changed = before != after;
             }
 
-            if (changed)
+            if (before != after)
             {
                 Logger.Information(
-                    "ORG BLOB BUDGET " +
-                    (delivered ? "UP" : "DOWN") +
+                    "ORG BLOB PROBE " +
+                    (delivered ? "ADVANCE" : "BACKOFF") +
                     ": " + before + " -> " + after +
                     " (default " + OrgBlobPageSize +
-                    "); evidence=" + pending.Length + " bytes" +
+                    "; provenSafe=" + safe +
+                    "; failed=" + failed +
+                    "); evidence=" + pending.Length + "B" +
                     (pending.IsRetry ? "; retry=" + pending.RetryAttempt : string.Empty) + ".");
+            }
+
+            SaveOrgBlobBudgetState();
+        }
+
+        private void RecordLateOrgConfirmation(
+            int length,
+            int budget,
+            bool growthProbe,
+            bool wasRetry)
+        {
+            if (length <= 0)
+                return;
+
+            lock (_orgOutputSync)
+            {
+                _orgLastConfirmedBytes = length;
+                _orgMaxConfirmedBytes = Math.Max(_orgMaxConfirmedBytes, length);
+                if (growthProbe)
+                {
+                    _orgBlobProvenSafePageSize = Math.Max(
+                        _orgBlobProvenSafePageSize,
+                        budget);
+                    if (_orgBlobFailedPageSize > 0 &&
+                        _orgBlobFailedPageSize <= _orgBlobProvenSafePageSize)
+                    {
+                        _orgBlobFailedPageSize = 0;
+                    }
+                    // A late echo proves the backed-off budget was not actually
+                    // too large. Restore that proven point, but do not leap again.
+                    _orgBlobCurrentPageSize = Math.Max(
+                        _orgBlobCurrentPageSize,
+                        _orgBlobProvenSafePageSize);
+                }
             }
 
             SaveOrgBlobBudgetState();
