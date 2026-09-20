@@ -17,7 +17,9 @@ namespace CityManager
         // Runtime delivery feedback moves the current budget around this default;
         // changing 5200 here still changes the baseline after the next rebuild.
         private const int OrgBlobPageSize = 5200;
-        private const int OrgBlobPageStep = 50;
+        private const int OrgBlobProbeQuantum = 50;
+        private const int OrgBlobMinProbeStep = 250;
+        private const int OrgBlobProbeEvidenceMargin = 1024;
         private const int OrgBlobMinPageSize = 512;
         private const int OrgBlobMaxPageSize = 32768;
         private const int GuestBlobPageSize = 8000;
