@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 196,
-  "last_completed_session": 195,
-  "status": "in_progress",
+  "last_completed_session": 196,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-196-startup-latency-recovery",
-  "checkpoint_commit": "835b66eba81ba2708ff2c21a5f764fd03505a3bb",
-  "task": "Fix SQL census startup latency and preserve completed startup admission across verified reconnect",
-  "resume_instruction": "Owner asks to fix latest startup log: long ledger initialization, slow census applications, stale readiness and workers held after disconnect. Batch census routing; move historical backfill off AO update thread; preserve only complete idle startup evidence across unchanged reconnect. Keep 10s freshness and one initial audit policy; no builds/live tests.",
+  "checkpoint_commit": "8ba250b15eb8fa7253273f8b727825db892726d3",
+  "task": "Resolved SQL census startup latency and completed admission reconnect",
+  "resume_instruction": "No active implementation task. Session196 published: batched census routing, background SQL-only historical departure backfill, completed never-operational startup admission rebound only after unchanged fresh inventory/same released cycle, and disconnect-safe SDK probes with exception stacks. Keep existing migrated SQL; rebuild/deploy matching assemblies and restart. No reset or reimport. One initial audit/admin-only policy and 10s readiness unchanged. No assistant build/tests/live SQL/AO; network disconnect cause not established.",
   "base_commit": "835b66eba81ba2708ff2c21a5f764fd03505a3bb"
 }
