@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 182,
+  "current_session": 183,
   "last_completed_session": 182,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-182-pickups-count-build-fix",
-  "checkpoint_commit": "62d5f98a6427620f1e769b3fa1249bdec6b96b7f",
-  "task": "Pickup ranking compiler error resolved",
-  "resume_instruction": "Published group.Count() correction for sole reported CS1503 in top pickup recipients. Source reviewed and remote file verified; no builds/tests here. Owner may rebuild and use pickups/takers views.",
-  "base_commit": "c6c36692b5b4a11578020dea9e3698e0cd51d047"
+  "transaction": "session-183-adaptive-org-blob-budget",
+  "checkpoint_commit": "3a8bac6c63d8afd1d9ccb370d732a0f00dc6bc4f",
+  "task": "Adaptive organization blob budget with echo-driven retry and status visibility",
+  "resume_instruction": "Implement default 5200/current persistent org blob budget. Exact echo-confirmed budget-sized delivery may raise current by 50; missing echo lowers by 50 and queues the failed org reply for a 3-second delayed retry, rebuilding blob pages at the smaller budget where metadata is available. Show current(default), evidence and retry state in #status. Preserve exact echo proof, guest/tell limits and owner build/live-test boundary.",
+  "base_commit": "3a8bac6c63d8afd1d9ccb370d732a0f00dc6bc4f"
 }
