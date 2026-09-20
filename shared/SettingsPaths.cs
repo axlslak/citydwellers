@@ -81,10 +81,9 @@ namespace CityDwellers.Shared
 
         public static List<string> InspectRuntimeLayout(string runtimeDirectory, string dataDirectory)
         {
-            var warnings = new List<string>();
-            if (System.IO.Directory.Exists(dataDirectory))
-                warnings.Add("A legacy data folder remains. Finish the MySQL migration and remove that folder before starting City Dwellers.");
-            return warnings;
+            // The data directory is permitted for the item catalogue, logs and dumps.
+            // Its existence is not evidence of an incomplete SQL migration.
+            return new List<string>();
         }
 
         private static string GetRuntimeDirectory()

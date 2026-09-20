@@ -319,8 +319,6 @@ namespace CityDwellers.Host
             try
             {
                 settings = LoadOrCreateSettings(runtimeDirectory);
-                if (System.IO.Directory.Exists(dataDirectory))
-                    throw new InvalidDataException("The legacy data folder still exists. Run DataMigration to finish verified MySQL import and cleanup before starting City Dwellers.");
                 SqlStore.Initialize(runtimeDirectory);
                 SqlStore.StartRuntime();
                 RuntimeLog.Initialize(dataDirectory);
@@ -412,7 +410,7 @@ namespace CityDwellers.Host
 
             if (warnings.Count == 0)
             {
-                RuntimeLog.Write("MySQL runtime is ready; no legacy data folder remains.");
+                RuntimeLog.Write("MySQL runtime is ready; disk data is permitted for the item catalogue, logs and diagnostic dumps.");
                 return;
             }
 

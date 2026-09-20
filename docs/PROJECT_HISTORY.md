@@ -1,3 +1,13 @@
+## Session 201 — permit the intentional disk data folder at startup
+
+- Fixed the leftover coordinator guard that rejected any physical data directory,
+  contradicting session200's permitted items.json, logs and diagnostic dumps.
+- Removed the matching SettingsPaths migration/removal warning and corrected the
+  runtime layout message. SQL initialization and startup gates are unchanged.
+- No storage redesign, migration, queue changes, file movement or data deletion.
+- Validation: focused source/diff review and git diff --check only. No compilation,
+  test suite, SQL connection or live AO run; owner retains build/live validation.
+
 ## Session 200 — remove obsolete operational storage; preserve banking data
 
 - Owner explicitly permits disk logs/dumps and items.json; supersedes the session192
