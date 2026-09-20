@@ -162,3 +162,16 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
 - LoginTry was removed; the measured login evidence remains in history.
 - Schema, indexes, migration commands and SQL debugging queries are documented in
   docs/MYSQL_MIGRATION.md, docs/mysql-schema.sql and docs/mysql-diagnostics.sql.
+
+## Owner storage correction — session 200 (supersedes session 192 disk ban)
+
+- Preserve items, stock, transactions/custody, donors/takers, lost and found,
+  meaningful history and settings. Do not interpret cleanup as deleting business data.
+- Disk `data/citydweller.log`, diagnostic dumps and the existing `items.json`
+  catalogue/cache are explicitly permitted. Catalogue SQL conversion is deferred.
+- Remove obsolete previous-host census snapshots and completed tell acknowledgements;
+  retain pending messages and current-host coordination. No permanent diagnostic archive.
+- Do not delete original source/backup data on migration reruns. The supplied SQL dump
+  remains untouched. Cleanup is an explicit disposable-category allowlist.
+- Fast normal startup and working banking/trading are the priority; not historical
+  audit replay, checksums or catalogue redesign.

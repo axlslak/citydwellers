@@ -14,6 +14,7 @@ namespace CityDwellers.Shared
 
         public static void CreateDirectory(string path)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) { Directory.CreateDirectory(disk); return; }
             string key = SqlStore.Key(path);
             if (Confirmed.ContainsKey(key)) return;
             SqlStore.Execute(true, context => { Ensure(context, key); return 0; });
@@ -44,6 +45,7 @@ namespace CityDwellers.Shared
 
         public static bool Exists(string path)
         {
+            if (string.IsNullOrEmpty(path)) return false; string disk; if (SqlStore.DiskPath(path, out disk)) return Directory.Exists(disk);
             if (string.IsNullOrEmpty(path)) return false;
             string key; if (!SqlStore.TryKey(path, out key)) return Directory.Exists(path);
             if (key.Length == 0 || Confirmed.ContainsKey(key)) return true;
@@ -59,6 +61,7 @@ namespace CityDwellers.Shared
         public static string[] GetFiles(string path, string searchPattern) { return GetFiles(path, searchPattern, SearchOption.TopDirectoryOnly); }
         public static string[] GetFiles(string path, string searchPattern, SearchOption searchOption)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) return Directory.GetFiles(disk, searchPattern, searchOption);
             string key; if (!SqlStore.TryKey(path, out key)) return Directory.GetFiles(path, searchPattern, searchOption);
             Validate(searchPattern, searchOption);
             string prefix = key.Length == 0 ? "" : key + "/";
@@ -85,6 +88,7 @@ namespace CityDwellers.Shared
         public static string[] GetDirectories(string path, string searchPattern) { return GetDirectories(path, searchPattern, SearchOption.TopDirectoryOnly); }
         public static string[] GetDirectories(string path, string searchPattern, SearchOption searchOption)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) return Directory.GetDirectories(disk, searchPattern, searchOption);
             string key; if (!SqlStore.TryKey(path, out key)) return Directory.GetDirectories(path, searchPattern, searchOption);
             Validate(searchPattern, searchOption);
             string prefix = key.Length == 0 ? "" : key + "/";

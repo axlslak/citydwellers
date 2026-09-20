@@ -67,7 +67,7 @@ namespace CityDwellers.DataMigration
                     {
                         return 0;
                     }
-                    CleanupSource(runId, source, archived);
+                    PreserveSource(runId);
                     return 0;
                 }
 
@@ -109,7 +109,7 @@ namespace CityDwellers.DataMigration
                 CheckCancellation();
                 SqlStore.CompleteMigration(runId);
                 sealedRun = true;
-                CleanupSource(runId, source, manifest);
+                PreserveSource(runId);
                 return 0;
             }
             catch (Exception ex)
@@ -126,7 +126,7 @@ namespace CityDwellers.DataMigration
                 }
                 Console.Error.WriteLine(sealedRun
                     ? "SQL migration remains sealed. Fix the reported cleanup/verification issue and rerun; archived data is never replayed into live records."
-                    : "Migration is not complete; bot startup stays blocked. No source files were deleted before sealing. Fix the reported issue and rerun the same command.");
+                    : "Migration is not complete; bot startup stays blocked. Source files are preserved. Fix the reported issue and rerun the same command.");
                 return ex is OperationCanceledException ? 130 : 1;
             }
         }
@@ -254,45 +254,10 @@ namespace CityDwellers.DataMigration
             }
         }
 
-        private static void CleanupSource(string runId, string source, IList<SqlStore.MigrationFile> files)
+        private static void PreserveSource(string runId)
         {
-            // Reject unexpected or modified survivors before deleting any more
-            // files in this invocation. A sealed run never imports survivors.
-            ValidateSourceInventory(source, files, allowMissing: true, compareContents: true);
-            foreach (SqlStore.MigrationFile file in files.OrderBy(file => file.Path, StringComparer.Ordinal))
-            {
-                CheckCancellation();
-                string physical = SourcePath(source, file.OriginalPath);
-                if (!File.Exists(physical))
-                {
-                    if (Directory.Exists(physical)) throw new IOException("Source file path became a directory: " + physical);
-                    // Confirm absence without suppressing access-denied errors.
-                    try { File.GetAttributes(physical); }
-                    catch (FileNotFoundException) { SqlStore.MarkMigrationSourceDeleted(runId, file.Path); continue; }
-                    catch (DirectoryNotFoundException) { SqlStore.MarkMigrationSourceDeleted(runId, file.Path); continue; }
-                    throw new IOException("Cannot inspect source cleanup path: " + physical);
-                }
-                if (file.SourceDeleted)
-                    throw new IOException("A new file appeared after this path was cleaned; retained: " + physical);
-                if (!SameHash(SqlStore.ComputeMigrationFileSha256(runId, file.Path), file.Sha256))
-                    throw new IOException("SQL archive changed before source deletion; retained: " + physical);
-                VerifiedSource.DeleteVerified(physical, source, file.Length, file.Sha256);
-                SqlStore.MarkMigrationSourceDeleted(runId, file.Path);
-            }
-
-            List<string> directories;
-            List<string> remaining = EnumerateSource(source, out directories);
-            if (remaining.Count != 0)
-                throw new IOException("Source contains new files after cleanup; retained: " + remaining[0]);
-            foreach (string directory in directories.OrderByDescending(directory => directory.Length))
-            {
-                CheckCancellation();
-                VerifiedSource.RejectReparsePath(directory, source);
-                Directory.Delete(directory, recursive: false);
-            }
-            if (Directory.Exists(source) || File.Exists(source))
-                throw new IOException("The data path still exists; runtime startup remains blocked: " + source);
-            SqlStore.MarkMigrationCleanupComplete(runId);
+            // Owner correction: migration copies data; it must never delete the source.
+            SqlStore.MarkMigrationSourcePreserved(runId);
         }
 
         private static string SourcePath(string source, string relative)
@@ -368,7 +333,7 @@ namespace CityDwellers.DataMigration
         private static void PrintUsage()
         {
             Console.WriteLine("DataMigration.exe [migrate|verify|schema] [--root <runtime-directory>] [--empty]");
-            Console.WriteLine("  migrate (default)  Import all data recursively, verify SQL bytes, seal, remove verified source.");
+            Console.WriteLine("  migrate (default)  Import all data recursively, verify SQL bytes, seal, KEEP original source.");
             Console.WriteLine("  verify / --verify  Check a sealed immutable archive without importing or deleting source.");
             Console.WriteLine("  schema / --schema  Show every SQL table definition, column and index while bots are offline.");
             Console.WriteLine("  --root             Folder containing citydwellers.json and the old data directory; defaults to executable folder.");

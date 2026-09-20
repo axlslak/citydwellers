@@ -17,6 +17,7 @@ namespace CityDwellers.Shared
 
         public static bool Exists(string path)
         {
+            if (string.IsNullOrEmpty(path)) return false; string disk; if (SqlStore.DiskPath(path, out disk)) return File.Exists(disk);
             if (string.IsNullOrEmpty(path)) return false;
             string key; if (!SqlStore.TryKey(path, out key)) return File.Exists(path);
             return SqlStore.ReadStatement(context => FindId(context, key).HasValue);
@@ -30,6 +31,7 @@ namespace CityDwellers.Shared
         }
         private static Stream OpenTextRead(string path)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) return File.OpenRead(disk);
             string key;
             if (SqlStore.TryKey(path, out key))
             {
@@ -50,6 +52,7 @@ namespace CityDwellers.Shared
         }
         public static byte[] ReadAllBytes(string path)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) return File.ReadAllBytes(disk);
             string key;
             if (SqlStore.TryKey(path, out key))
             {
@@ -162,12 +165,14 @@ namespace CityDwellers.Shared
 
         public static Stream OpenRead(string path)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) return File.OpenRead(disk);
             string key; if (!SqlStore.TryKey(path, out key)) return File.OpenRead(path);
             return new DocumentStream(key);
         }
 
         public static long GetLength(string path)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) return new FileInfo(disk).Length;
             string key; if (!SqlStore.TryKey(path, out key)) return new FileInfo(path).Length;
             return SqlStore.Execute(false, context =>
             {
@@ -177,6 +182,7 @@ namespace CityDwellers.Shared
         }
         public static DateTime GetLastWriteTimeUtc(string path)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) return File.GetLastWriteTimeUtc(disk);
             string key; if (!SqlStore.TryKey(path, out key)) return File.GetLastWriteTimeUtc(path);
             return SqlStore.Execute(false, context =>
             {
@@ -197,6 +203,7 @@ namespace CityDwellers.Shared
 
         public static void WriteAllBytes(string path, byte[] bytes)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) { Directory.CreateDirectory(Path.GetDirectoryName(disk)); File.WriteAllBytes(disk, bytes); return; }
             if (bytes == null) throw new ArgumentNullException(nameof(bytes));
             string key = FileKey(path);
             SqlStore.RequireMutableDocument(key);
@@ -205,6 +212,7 @@ namespace CityDwellers.Shared
 
         public static void CreateNew(string path, byte[] bytes)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) { Directory.CreateDirectory(Path.GetDirectoryName(disk)); using (var stream = new FileStream(disk, FileMode.CreateNew, FileAccess.Write)) stream.Write(bytes, 0, bytes.Length); return; }
             if (bytes == null) throw new ArgumentNullException(nameof(bytes)); string key = FileKey(path);
             SqlStore.RequireMutableDocument(key);
             SqlStore.Execute(true, context =>
@@ -216,6 +224,7 @@ namespace CityDwellers.Shared
 
         public static bool TryCreateNew(string path, string text)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) { try { CreateNew(path, Utf8.GetBytes(text ?? "")); return true; } catch (IOException) { if (File.Exists(disk)) return false; throw; } }
             string key = FileKey(path);
             SqlStore.RequireMutableDocument(key);
             return SqlStore.Execute(true, context =>
@@ -228,6 +237,7 @@ namespace CityDwellers.Shared
         public static void AppendAllText(string path, string text) { AppendAllText(path, text, Utf8); }
         public static void AppendAllText(string path, string text, Encoding encoding)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) { SqlStore.AppendDiskText(disk, text, encoding); return; }
             if (encoding == null) throw new ArgumentNullException(nameof(encoding)); string key = FileKey(path);
             if (SqlStore.IsIndependentLog(key))
             {
@@ -282,6 +292,7 @@ namespace CityDwellers.Shared
 
         public static void Delete(string path)
         {
+            string disk; if (SqlStore.DiskPath(path, out disk)) { File.Delete(disk); return; }
             string key = FileKey(path);
             SqlStore.RequireMutableDocument(key);
             SqlStore.Execute(true, context => { using (var command = SqlStore.Command(context, "DELETE FROM cd_documents WHERE path=@path", "@path", key)) command.ExecuteNonQuery(); return 0; });
@@ -289,6 +300,8 @@ namespace CityDwellers.Shared
 
         public static void Move(string source, string destination)
         {
+            string fromDisk, toDisk; bool diskSource = SqlStore.DiskPath(source, out fromDisk), diskTarget = SqlStore.DiskPath(destination, out toDisk);
+            if (diskSource || diskTarget) { if (!diskSource || !diskTarget) throw new IOException("Cannot mix disk and SQL files."); Directory.CreateDirectory(Path.GetDirectoryName(toDisk)); File.Move(fromDisk, toDisk); return; }
             string from = FileKey(source), to = FileKey(destination);
             SqlStore.RequireMutableDocument(from); SqlStore.RequireMutableDocument(to);
             if (from == to) throw new IOException("Source and destination are the same SQL document.");
@@ -305,6 +318,8 @@ namespace CityDwellers.Shared
 
         public static void Copy(string source, string destination, bool overwrite = false)
         {
+            string fromDisk, toDisk; bool diskSource = SqlStore.DiskPath(source, out fromDisk), diskTarget = SqlStore.DiskPath(destination, out toDisk);
+            if (diskSource || diskTarget) { if (!diskSource || !diskTarget) throw new IOException("Cannot mix disk and SQL files."); Directory.CreateDirectory(Path.GetDirectoryName(toDisk)); File.Copy(fromDisk, toDisk, overwrite); return; }
             string from = FileKey(source), to = FileKey(destination);
             SqlStore.RequireMutableDocument(to);
             if (from == to) throw new IOException("Source and destination are the same SQL document.");
@@ -319,6 +334,8 @@ namespace CityDwellers.Shared
 
         public static void Replace(string source, string destination, string backup)
         {
+            string fromDisk, toDisk; bool diskSource = SqlStore.DiskPath(source, out fromDisk), diskTarget = SqlStore.DiskPath(destination, out toDisk);
+            if (diskSource || diskTarget) { if (!diskSource || !diskTarget) throw new IOException("Cannot mix disk and SQL files."); Directory.CreateDirectory(Path.GetDirectoryName(toDisk)); string savedDisk = null; if (backup != null && !SqlStore.DiskPath(backup, out savedDisk)) throw new IOException("Cannot mix disk and SQL replacement."); File.Replace(fromDisk, toDisk, savedDisk); return; }
             string from = FileKey(source), to = FileKey(destination), saved = backup == null ? null : FileKey(backup);
             SqlStore.RequireMutableDocument(from); SqlStore.RequireMutableDocument(to); if (saved != null) SqlStore.RequireMutableDocument(saved);
             if (from == to || saved == from || saved == to) throw new IOException("Replacement source, destination, and backup must be distinct SQL keys.");

@@ -133,7 +133,7 @@ namespace CityDwellers.Shared
             {
                 string root = Environment.GetEnvironmentVariable("CITYDWELLERS_RUNTIME_ROOT");
                 string path = Path.Combine(string.IsNullOrWhiteSpace(root) ? AppDomain.CurrentDomain.BaseDirectory : root, "data", "items.json");
-                if (!File.Exists(path)) throw new FileNotFoundException("The migrated items.json catalogue is absent from MySQL. Import it with DataMigration before starting.");
+                if (!File.Exists(path)) throw new FileNotFoundException("The items.json catalogue is absent. Place it in the data folder.");
                 ItemCatalogSnapshot result = WithCacheConstructionLock(() =>
                 {
                     long length = File.GetLength(path), stamp = File.GetLastWriteTimeUtc(path).Ticks;
@@ -143,7 +143,7 @@ namespace CityDwellers.Shared
                     {
                         found = ReadDump(path);
                         if (File.GetLength(path) != length || File.GetLastWriteTimeUtc(path).Ticks != stamp)
-                            throw new IOException("The SQL item catalogue changed while reading.");
+                            throw new IOException("The item catalogue changed while reading.");
                         WriteCache(cache, found, length, stamp);
                     }
                     return found;

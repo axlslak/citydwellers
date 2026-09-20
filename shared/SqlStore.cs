@@ -148,8 +148,6 @@ namespace CityDwellers.Shared
 
         private static void CheckRuntimeReady(MySqlConnection connection, MySqlTransaction transaction)
         {
-            if (System.IO.Directory.Exists(_dataRoot) || System.IO.File.Exists(_dataRoot))
-                throw new InvalidOperationException("The physical data folder still exists. Run DataMigration to verify the archive and remove the source before starting bots.");
             string version = Meta(connection, transaction, "schema_version");
             if (version != SqlSchema.Version.ToString(CultureInfo.InvariantCulture) && !(version == "1" && !IsRuntimeActive))
                 throw new InvalidOperationException("MySQL schema is absent or incompatible with this build.");
@@ -169,10 +167,137 @@ namespace CityDwellers.Shared
                 if (_migration) throw new InvalidOperationException("The migration utility cannot start bot runtime.");
                 if (_lease != null) return;
                 TakeLease();
-                try { CheckRuntimeReady(_lease, null); BankerSqlStore.Upgrade(); }
+                try { CheckRuntimeReady(_lease, null); BankerSqlStore.Upgrade(); RestoreDiskCatalog(); }
                 catch { _lease.Dispose(); _lease = null; throw; }
                 Environment.SetEnvironmentVariable(RuntimeFlag, "1", EnvironmentVariableTarget.Process);
                 StartHeartbeat();
+                StartOperationalCleanup();
+            }
+        }
+
+        // Disk is intentional for the static catalogue and disposable diagnostics.
+        // Business state continues to require MySQL; there is no database fallback.
+        internal static bool DiskPath(string path, out string physical)
+        {
+            physical = null;
+            string key;
+            if (_migration || !TryKey(path, out key)) return false;
+            if (!DiskKey(key)) return false;
+            physical = LogicalPath(key == "citydwellers.log" ? "citydweller.log" : key);
+            return true;
+        }
+
+        private static bool DiskKey(string key)
+        {
+            return key == "items.json" || key.StartsWith("items.json.", StringComparison.Ordinal) ||
+                key == "logs" || key.StartsWith("logs/", StringComparison.Ordinal) ||
+                key == "diagnostic-dumps" || key.StartsWith("diagnostic-dumps/", StringComparison.Ordinal) ||
+                key == "incident-dumps" || key.StartsWith("incident-dumps/", StringComparison.Ordinal) ||
+                key == "navigationtraces" || key.StartsWith("navigationtraces/", StringComparison.Ordinal) ||
+                key.IndexOf('/') < 0 && (key.EndsWith(".log", StringComparison.Ordinal) || key.Contains(".log."));
+        }
+
+        private static void RestoreDiskCatalog()
+        {
+            // Only the catalogue and its reusable index. Never overwrite an operator's file.
+            foreach (string key in new[] { "items.json", "items.json.index-v1.bin" })
+            {
+                string destination = LogicalPath(key);
+                if (System.IO.File.Exists(destination)) continue;
+                bool exists = ReadStatement(context => { using (var command = Command(context,
+                    "SELECT EXISTS(SELECT 1 FROM cd_documents WHERE path=@path)", "@path", key))
+                    return Convert.ToBoolean(command.ExecuteScalar()); });
+                if (!exists) continue;
+                System.IO.Directory.CreateDirectory(_dataRoot);
+                string temporary = destination + ".restoring";
+                DateTime modified = DateTime.UtcNow;
+                using (var connection = NewConnection())
+                using (var command = Command(connection, null,
+                    "SELECT c.content,d.modified_utc FROM cd_documents d JOIN cd_document_chunks c ON c.document_id=d.document_id WHERE d.path=@path ORDER BY c.chunk_no", "@path", key))
+                using (var reader = command.ExecuteReader())
+                using (var output = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    // One streaming SELECT, not one network round trip per chunk.
+                    while (reader.Read())
+                    {
+                        byte[] bytes = (byte[])reader.GetValue(0);
+                        output.Write(bytes, 0, bytes.Length);
+                        modified = DateTime.SpecifyKind(reader.GetDateTime(1), DateTimeKind.Utc);
+                    }
+                    output.Flush(true);
+                }
+                System.IO.File.SetLastWriteTimeUtc(temporary, modified);
+                System.IO.File.Move(temporary, destination);
+                using (var connection = NewConnection()) SetMeta(connection, null, "disk_restored_" + key, "1");
+            }
+        }
+
+        private static bool DiskCatalogRestored(string key)
+        {
+            if (!System.IO.File.Exists(LogicalPath(key))) return false;
+            using (var connection = NewConnection()) return Meta(connection, null, "disk_restored_" + key) == "1";
+        }
+
+        private static Timer _cleanupTimer;
+        private static int _cleanupRunning;
+        private static void StartOperationalCleanup()
+        {
+            // Do not make AO startup wait for gigabytes of obsolete snapshots to be removed.
+            _cleanupTimer = new Timer(_ =>
+            {
+                if (Interlocked.Exchange(ref _cleanupRunning, 1) != 0) return;
+                try { CleanupOperationalStorage(); }
+                catch (Exception ex) { Console.Error.WriteLine("Operational cleanup incomplete: " + ex.GetType().Name + "; will retry."); }
+                finally { Volatile.Write(ref _cleanupRunning, 0); }
+            }, null, TimeSpan.FromSeconds(10), TimeSpan.FromHours(1));
+        }
+
+        private static void CleanupOperationalStorage()
+        {
+            string generation = System.Diagnostics.Process.GetCurrentProcess().Id + "-" +
+                System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime().Ticks;
+            // An explicit allowlist: no history, custody, lost/found, settings, or pending messages.
+            string disposable = "(path LIKE 'startup-census/%' AND path NOT LIKE @current)" +
+                " OR path LIKE 'diagnostic-dumps/%' OR path LIKE 'incident-dumps/%'" +
+                " OR path LIKE 'navigationtraces/%' OR path LIKE 'logs/%'" +
+                " OR (path NOT LIKE '%/%' AND (path LIKE '%.log' OR path LIKE '%.log.%'))" +
+                " OR (path LIKE 'tell-queue/acknowledgements/%' AND modified_utc < @cutoff)";
+            if (DiskCatalogRestored("items.json")) disposable += " OR path='items.json'";
+            if (DiskCatalogRestored("items.json.index-v1.bin")) disposable += " OR path='items.json.index-v1.bin'";
+            object[] parameters = { "@current", "startup-census/" + generation + "/%", "@cutoff", DateTime.UtcNow.AddDays(-1) };
+            // Dedicated connection, short transactions, no global gameplay writer lock.
+            using (var connection = NewConnection())
+            {
+                for (int batch = 0; batch < 5000; batch++)
+                {
+                    int removed;
+                    using (var transaction = connection.BeginTransaction(System.Data.IsolationLevel.ReadCommitted))
+                    {
+                        using (var command = Command(connection, transaction, "DELETE FROM cd_documents WHERE " + disposable + " LIMIT 20", parameters))
+                            removed = command.ExecuteNonQuery();
+                        transaction.Commit();
+                    }
+                    if (removed == 0) break;
+                }
+                // Remove only matching obsolete archive entries, never the business archives.
+                for (int batch = 0; batch < 5000; batch++)
+                {
+                    var ids = new List<long>();
+                    using (var command = Command(connection, null,
+                        "SELECT migration_file_id FROM cd_migration_files WHERE archived=1 AND source_deleted=1 AND (" + disposable + ") LIMIT 20", parameters))
+                    using (var reader = command.ExecuteReader()) while (reader.Read()) ids.Add(reader.GetInt64(0));
+                    if (ids.Count == 0) break;
+                    string selected = string.Join(",", ids.Select(id => id.ToString(CultureInfo.InvariantCulture)));
+                    using (var transaction = connection.BeginTransaction())
+                    {
+                        using (var command = Command(connection, transaction, "DELETE FROM cd_migration_chunks WHERE migration_file_id IN (" + selected + ")")) command.ExecuteNonQuery();
+                        using (var command = Command(connection, transaction, "DELETE FROM cd_migration_files WHERE migration_file_id IN (" + selected + ")")) command.ExecuteNonQuery();
+                        transaction.Commit();
+                    }
+                }
+                using (var command = Command(connection, null,
+                    "DELETE FROM cd_directories WHERE path LIKE 'startup-census/%' AND path NOT LIKE @current AND path<>@root",
+                    "@current", "startup-census/" + generation + "/%", "@root", "startup-census/" + generation)) command.ExecuteNonQuery();
             }
         }
 
@@ -285,9 +410,30 @@ namespace CityDwellers.Shared
                 throw new InvalidOperationException("Runtime evidence is append-only: mysql:" + key);
         }
 
+        internal static void AppendDiskText(string path, string text, Encoding encoding)
+        {
+            // Linked plugins have separate statics; use a process-wide disk-only lock.
+            using (var mutex = new Mutex(false, "Local\\CityDwellers.DiskLogs." + System.Diagnostics.Process.GetCurrentProcess().Id))
+            {
+                try { mutex.WaitOne(); } catch (AbandonedMutexException) { }
+                try
+                {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                    System.IO.File.AppendAllText(path, text ?? "", encoding);
+                }
+                finally { mutex.ReleaseMutex(); }
+            }
+        }
+
         /// <summary>Append-only evidence is outside gameplay transactions, including cross-AppDomain console calls.</summary>
         public static void AppendRuntimeLog(string path, string text)
         {
+            string disk;
+            if (DiskPath(path, out disk))
+            {
+                AppendDiskText(disk, text, new UTF8Encoding(false));
+                return;
+            }
             string key = Key(path);
             if (!IsIndependentLog(key)) throw new ArgumentException("Independent log append requires citydwellers.log or service-events/source-*.jsonl.", nameof(path));
             try
@@ -477,7 +623,7 @@ namespace CityDwellers.Shared
         }
 
         internal static string LogicalPath(string key) { EnsureInitialized(); return System.IO.Path.Combine(_dataRoot, key.Replace('/', System.IO.Path.DirectorySeparatorChar)); }
-        public static string DescribePath(string path) { return "mysql:" + Key(path); }
+        public static string DescribePath(string path) { string disk; return DiskPath(path, out disk) ? disk : "mysql:" + Key(path); }
         internal static string OriginalRelativePath(string path)
         {
             Key(path);
@@ -707,16 +853,17 @@ namespace CityDwellers.Shared
             });
         }
 
-        public static void MarkMigrationCleanupComplete(string runId)
+        public static void MarkMigrationSourcePreserved(string runId)
         {
             RequireMigration();
             Execute(true, context =>
             {
-                if (Meta(context.Connection, context.Transaction, "completed_run_id") != runId) throw new InvalidOperationException("Source cleanup must follow a sealed migration.");
-                using (var command = Command(context, "SELECT COUNT(*) FROM cd_migration_files WHERE run_id=@run AND (archived=0 OR source_deleted=0)", "@run", runId))
-                    if (Convert.ToInt64(command.ExecuteScalar()) != 0) throw new InvalidOperationException("Migration source cleanup still has undeleted files.");
-                string source = GetMigrationSourceRoot(runId);
-                if (string.IsNullOrEmpty(source) || System.IO.Directory.Exists(source) || System.IO.File.Exists(source)) throw new InvalidOperationException("The physical migration source directory still exists or is unknown.");
+                if (Meta(context.Connection, context.Transaction, "completed_run_id") != runId)
+                    throw new InvalidOperationException("Source preservation must follow a sealed migration.");
+                using (var command = Command(context, "SELECT COUNT(*) FROM cd_migration_files WHERE run_id=@run AND archived=0", "@run", runId))
+                    if (Convert.ToInt64(command.ExecuteScalar()) != 0) throw new InvalidOperationException("Migration has unarchived files.");
+                SetMeta(context.Connection, context.Transaction, "source_preserved_run_id", runId);
+                // Compatibility key now means migration is ready, not permission to delete disk data.
                 SetMeta(context.Connection, context.Transaction, "cleanup_completed_run_id", runId);
                 using (var command = Command(context, "UPDATE cd_migration_runs SET last_error=NULL WHERE run_id=@run", "@run", runId)) command.ExecuteNonQuery();
                 return 0;

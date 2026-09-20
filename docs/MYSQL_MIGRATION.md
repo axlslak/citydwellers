@@ -1,3 +1,19 @@
+# Current storage correction (session 200)
+
+Rebuild matching host/plugins and restart against the existing database. **Do not reset
+or rerun DataMigration for this update.** The host restores the catalogue to disk once
+and prunes obsolete operational records in the background. Banking data is preserved.
+Chat logs use `data/citydweller.log`; diagnostics and `items.json` use disk. MySQL remains
+mandatory for business state. Completed tell receipts expire after24 hours; pending tells
+and current-host census remain. Previous-host census and SQL diagnostic copies are removed,
+including their corresponding migration archive entries. Business archives remain.
+The supplied original SQL dump remains an external recovery copy, untouched by this code.
+
+DataMigration now keeps the original source directory after sealing; older instructions
+below describing source deletion or banning the disk data folder are superseded.
+Existing archive verification covers retained entries, not the pre-cleanup full inventory.
+Cleanup releases database pages for reuse, without a blocking physical table rebuild.
+
 ## Existing installation: relational ledger and stock upgrade (session199)
 
 Rebuild/deploy matching host and plugin assemblies, then start CityDwellers normally.

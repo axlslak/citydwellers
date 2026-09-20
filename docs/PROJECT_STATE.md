@@ -1,3 +1,34 @@
+## Session 200 — remove obsolete operational storage; preserve banking data
+
+- Owner explicitly permits disk logs/dumps and items.json; supersedes the session192
+  no-data-folder rule. Normal startup/trading and preservation of transactions,
+  donors/takers, lost/found, stock and history are the priorities.
+- Host restores missing items.json and its binary cache from existing SQL using one
+  streaming SELECT per file, without hashing, preserving timestamps. Atomic file move;
+  existing operator files are not overwritten. SQL catalogue copies are pruned only
+  after this build recorded successful restoration and the disk file still exists.
+- Chat log goes to data/citydweller.log. Diagnostic/incident dumps, navigation traces,
+  daily logs and root .log files use disk. Business/event history remains SQL.
+- Ten seconds after startup, background cleanup removes previous-host startup-census
+  snapshots, SQL diagnostic logs/dumps, restored catalogue copies, and tell acknowledgements
+  older than24 hours. Deletes matching archived copies only; business archives remain.
+  Short batches use a dedicated connection without the global gameplay writer. Hourly
+  retention prevents renewed accumulation. Current-host census and pending/assigned tells
+  are excluded. No automatic audit or historical event replay added.
+- DataMigration now preserves source files, including on sealed reruns. Existing schema2
+  and migration seal remain compatible; no reset/reimport required. Deploy matching host
+  and plugins and restart. First restoration copies the catalogue once; subsequent starts
+  read disk directly. Cleanup runs in background and may take time on the first run.
+- Offline inspection of supplied dump found3821 census documents (~1.597GB source bytes).
+  Cleanup/catalog selection matched13718 documents (~2.091GB source bytes, using conservative
+  Sept19 midnight receipt cutoff) plus matching archive copies.5427 history/custody/ledger/
+  lost documents (~74.49MB) were excluded, as are relational item tables and other business
+  records. SQL INSERT sizes differ from source-byte totals and physical InnoDB allocation.
+- Validation: focused source review, exact dump-inventory selection and git diff --check.
+  No assistant compilation/test suite/live SQL/AO. Supplied dump untouched. This removes
+  operational bulk; remaining business document storage has not been fully normalized.
+  InnoDB can reuse freed pages; no blocking OPTIMIZE/rebuild is run during startup.
+
 ## Session 199 — relational live ledger and stock; session198 superseded
 
 - [OWNER DIRECTION] Startup/runtime delays are the priority; comments about focusing on donation were sarcasm. Owner then explicitly stopped further document-store workarounds and directed moving ledger/live state into actual SQL tables. Old event replay is unwanted. Uncommitted session198 workaround changes were discarded and its BEGIN was SUPERSEDEd. No source/archive data was deleted.
