@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 197,
-  "last_completed_session": 196,
-  "status": "in_progress",
+  "last_completed_session": 197,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-197-sql-readiness-snapshots",
-  "checkpoint_commit": "9820525a971c3a644fba43745ee096fb2d9a2dbe",
-  "task": "Fix repeated SQL document reads and diagnose banker readiness rejection",
-  "resume_instruction": "Owner reports all bankers reach ready then several unavailable. Replace multi-roundtrip small document/readiness reads with bounded SQL snapshots; preserve heartbeat freshness and atomic mutations; expose actual rejection. No build/live tests.",
+  "checkpoint_commit": "cc95844c43ebb2818e911afbc051305173948860",
+  "task": "Resolved SQL readiness read amplification and opaque rejection diagnostics",
+  "resume_instruction": "No active implementation task. Session197 SQL read amplification fixes published: single-statement exact small document reads and existence checks; batched consistent readiness snapshot; actor-owned 2s heartbeat writes with unchanged10s expiry; precise rejection reasons in Manager status. All nine reached ready in owner session196 log, but five later rejected; exact prior rejection and disconnect cause not proven. No build/tests/live SQL/AO performed. Rebuild/deploy matching assemblies and restart with existing migrated SQL; no schema reset or reimport. Preserve atomic custody, mandatory SQL and one initial/admin-only audits.",
   "base_commit": "9820525a971c3a644fba43745ee096fb2d9a2dbe"
 }
