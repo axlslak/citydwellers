@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 191,
-  "last_completed_session": 190,
-  "status": "in_progress",
+  "last_completed_session": 191,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-191-multiuser-review",
-  "checkpoint_commit": "596d22333d876883274a09babc0e070e3a6d47bf",
-  "task": "Public multiuser concurrency/spam review and concrete fixes",
-  "resume_instruction": "Review Manager command admission, banker IPC, withdrawal reservation identity/atomicity, trade ownership and recovery under simultaneous users; fix concrete races and unbounded intake. Preserve no-auto-audit policy. Owner builds/live tests; do not claim public load proven by source review.",
+  "checkpoint_commit": "8dd523a8d9ea6432057be11b9934b4bf000c7811",
+  "task": "Resolved: public multiuser review and concrete concurrency/overload fixes",
+  "resume_instruction": "Published bounded Manager public jobs/per-member command budgets, tell-backlog input pause, serialized stock selection/admission, atomic IPC queued/claimed/cancelled ownership, pending CRU reply semantics, prior-receipt trade guards, two-minute donation deadline and15s timeout backoff, bounded atomic buff queue/direct-buffer throttling and per-request cast failure isolation. Four orders/three items each and one Central physical trade unchanged. No automatic audits restored. See docs/MULTIUSER_REVIEW.md for evidence, limits and owner live scenarios. Static source/delimiter/XML/diff review only; owner rebuild and staged multiuser tests. Do not claim ten-user throughput tested.",
   "base_commit": "0710ad0acfd64f39688c0168a59ee7561ffc9dcf"
 }
