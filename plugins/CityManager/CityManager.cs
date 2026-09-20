@@ -143,6 +143,11 @@ namespace CityManager
             public string RawText;
             public int Attempt;
             public DateTime DueUtc;
+            public string GroupId;
+            public string ExpectedEchoText;
+            public int ExpectedChannelId;
+            public uint ExpectedSenderId;
+            public int OriginalLength;
         }
 
         private sealed class OrgBlobBudgetState
@@ -1903,6 +1908,9 @@ namespace CityManager
         {
             PendingOrgEcho confirmed = null;
             List<PendingOrgEcho> expired;
+            string lateRetryGroup = null;
+            int lateRetryLength = 0;
+            int lateRetryCancelled = 0;
             lock (_orgOutputSync)
             {
                 if (observed != null)
@@ -1910,12 +1918,45 @@ namespace CityManager
                     confirmed = _pendingOrgEchoes.FirstOrDefault(p => p.SenderId != 0 &&
                         p.SenderId == observed.SenderId && p.ChannelId == observed.ChannelId &&
                         string.Equals(p.Text, observed.Message, StringComparison.Ordinal));
-                    if (confirmed != null) _pendingOrgEchoes.Remove(confirmed);
+                    if (confirmed != null)
+                    {
+                        _pendingOrgEchoes.Remove(confirmed);
+                    }
+                    else
+                    {
+                        QueuedOrgRetry late = _orgRetryQueue.FirstOrDefault(q =>
+                            q.ExpectedSenderId != 0 &&
+                            q.ExpectedSenderId == observed.SenderId &&
+                            q.ExpectedChannelId == observed.ChannelId &&
+                            string.Equals(q.ExpectedEchoText, observed.Message, StringComparison.Ordinal));
+                        if (late != null)
+                        {
+                            lateRetryGroup = late.GroupId;
+                            lateRetryLength = late.OriginalLength;
+                            lateRetryCancelled = _orgRetryQueue.RemoveAll(q =>
+                                string.Equals(q.GroupId, lateRetryGroup, StringComparison.Ordinal));
+                        }
+                    }
                 }
                 long now = Stopwatch.GetTimestamp();
                 expired = _pendingOrgEchoes.Where(p => now - p.Stamp > Stopwatch.Frequency * 15).ToList();
                 foreach (var pending in expired) _pendingOrgEchoes.Remove(pending);
             }
+            if (lateRetryCancelled > 0)
+            {
+                lock (_orgOutputSync)
+                    _orgLastConfirmedBytes = Math.Max(0, lateRetryLength);
+                SaveOrgBlobBudgetState();
+                SetOrgOutboundHealth(false, "late exact echo arrived during org retry grace");
+                Logger.Information(
+                    "ORG RETRY CANCELLED: late exact echo arrived before resend; " +
+                    "cancelled=" + lateRetryCancelled +
+                    "; bytes=" + lateRetryLength + ".");
+                DevTrace(
+                    "ORG RETRY CANCELLED late echo bytes=" + lateRetryLength +
+                    " cancelled=" + lateRetryCancelled);
+            }
+
             foreach (var pending in expired)
             {
                 SetOrgOutboundHealth(true, "no observed echo within 15s via " + pending.Route);
@@ -2157,6 +2198,7 @@ namespace CityManager
             DateTime now = DateTime.UtcNow;
             int queueCount;
             DateTime firstDue;
+            string retryGroup = Guid.NewGuid().ToString("N");
             lock (_orgOutputSync)
             {
                 DateTime due = now.AddSeconds(3);
@@ -2177,7 +2219,12 @@ namespace CityManager
                         Target = pending.RetryPlan.Target,
                         RawText = raw ?? string.Empty,
                         Attempt = pending.RetryAttempt + 1,
-                        DueUtc = due
+                        DueUtc = due,
+                        GroupId = retryGroup,
+                        ExpectedEchoText = pending.Text,
+                        ExpectedChannelId = pending.ChannelId,
+                        ExpectedSenderId = pending.SenderId,
+                        OriginalLength = pending.Length
                     });
                     due = due.AddSeconds(3);
                 }
