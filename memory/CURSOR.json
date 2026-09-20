@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 194,
-  "last_completed_session": 193,
-  "status": "in_progress",
+  "last_completed_session": 194,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-194-migration-errors-only",
-  "checkpoint_commit": "1273033fa81e78cb724e10fe30daf59cca7ebd80",
-  "task": "Make DataMigration output failures only and document fresh offline import trials",
-  "resume_instruction": "Owner reports successful import and requests failures-only output. Remove routine migration/verification success output while preserving errors, nonzero exits, explicit schema/help output and all verification/cleanup safeguards. Document fresh trials after dropping all migration tables and restoring original source backup. No builds/live SQL execution.",
+  "checkpoint_commit": "5678750dada03fc1e3e72e34c2ae3531ba8d7762",
+  "task": "Resolved: failures-only migration output and fresh-trial instructions",
+  "resume_instruction": "No active task. Owner reports successful import. Session194 failures-only DataMigration output is published: successful migrate/verify exits0 silently; failures retain stderr and nonzero exit, explicit schema/help remain visible. Hash verification, immutable archive, seal, cleanup and runtime SQL gates unchanged. For fresh trials, bots/importer stopped, restore original complete data backup before dropping all eight tables; next normal run recreates schema. See docs/MYSQL_MIGRATION.md. No assistant build, tests, live database reset/import or AO run. Preserve backup across trials and no-auto-audit policy.",
   "base_commit": "1273033fa81e78cb724e10fe30daf59cca7ebd80"
 }
