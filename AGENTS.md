@@ -208,32 +208,17 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
   heartbeat table patch was explicitly discarded; do not revive incremental polling
   changes as a substitute for the requested architecture.
 
-## Owner rule — duplicate container identities are a cheat, not an ambiguity (session 215)
+## Owner rule — duplicate container identities (session 215, revised 216)
 
-- `[INVARIANT]` A container identity is unique **by Anarchy Online's design**. This is Funcom's
-  rule, not a project convention. Two bags reporting the same container identity is not an
-  ambiguous layout, an addressing quirk, or a bookkeeping nuisance. It is a duplication state.
-- `[OWNER-DIRECTION]` Players call these dupe bags and they are a cheat. Avoid them like the
-  plague. Never tolerate one, never deduplicate-and-continue, never trade, store, withdraw or
-  reconcile against one. Hold the affected banker, name the condition, and report it to the
-  administrator.
-- `[DECISION]` Severity, without a recipe: a duplicate pair can be used to duplicate **items**,
-  which is why players treat it as a cheat and why this bot must never operate with one present.
-  The procedure is deliberately **not** recorded in this public repository. Sessions 153-158 set
-  that discipline and stated it in `docs/PROJECT_HISTORY.md`; session 215 broke it and session 216
-  restored it. If a future session needs the mechanic to reason about a recurrence, ask the owner
-  for the encrypted conversation memory password. Do not re-derive it here.
-- `[OPEN]` **Our case does not match that pattern and is still unexplained.** Kbarty and Kbsupp
-  each held a duplicate pair on a *single* character inside a sealed bot environment, with no
-  second player involved. Session 154 decoded the raw incoming packets: the duplicate was in
-  what the server sent, with ordinary bag flags. One container, two references, same handle,
-  zero new item IDs. The producer remains unproven. `BagOriginTrace` is armed for a recurrence;
-  do not clear `data/diagnostic-dumps`.
-- `[HAZARD]` In session 147 the assistant **removed the duplicate-identity hold** so the census
-  could keep running, reasoning that "one bag listed twice is still one bag," and built
-  deduplication to tolerate it. That is the wrong response to a duplication state: it kept a
-  cheat condition in normal operation and continued trading. Session 153 restored the hold.
-  Do not repeat this. A tripwire that is inconvenient is still a tripwire.
-- `[DECISION]` Naming carries the severity. Language like "ambiguous bag", "unresolved layout"
-  or "repeated records" reads as a nuisance to route around, and did. Call it what it is: a
-  duplicate container identity, a duplication state, halt.
+- `[INVARIANT]` A container identity is unique by Anarchy Online's design. Two bags reporting the
+  same identity is never an addressing quirk, an ambiguous layout, or a bookkeeping matter.
+- `[OWNER-DIRECTION]` Never tolerate one. Never deduplicate-and-continue. Never trade, store,
+  withdraw, reconcile or account against one. Halt the affected banker only, name the condition,
+  and report it to the administrator. The detection and recovery path already exists in code.
+- `[DECISION]` Detail does not belong in this repository. Background, the single prior occurrence,
+  the evidence, the unresolved cause and the reasoning are in **encrypted conversation memory #5**;
+  ask the owner for the password. Public files carry hints and rules; memories carry narrative.
+- `[HAZARD]` Session 147 weakened this check so a process could keep running; session 153 restored
+  it. A tripwire that is inconvenient is still a tripwire.
+- `[DECISION]` Name the condition for what it is. Neutral vocabulary understated it and is what
+  made the session 147 error feel reasonable.
