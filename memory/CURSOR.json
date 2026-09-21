@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 216,
+  "current_session": 217,
   "last_completed_session": 216,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-216-redact-exploit-mechanic",
+  "transaction": "session-217-encrypted-memory-5-and-boundary-findings",
   "checkpoint_commit": "9160a6ebed50efb2dbf7ba0e2477b231ea263bb8",
-  "task": "Redacted: duplication mechanic removed from the public tree",
-  "resume_instruction": "Mechanic removed from AGENTS.md and the withholding discipline written down as a rule. Still open: it remains in Git history since 2026-09-20 and cannot be rewritten under the no-force-push rule; and the encrypted conversation store stops at #4 (August), so sessions 5-216 are public-only and need the owner's password to archive. Next journal seq490.",
-  "base_commit": "f9c9c2c46a5ac2196e0cdbfae1dd9817618f616b"
+  "task": "Write encrypted memory #5; record three storage-boundary findings",
+  "resume_instruction": "Session 216 left an AGENTS.md pointer to encrypted conversation memory #5 that did not exist yet. Creating it boot-required, and recording three findings: WriteJsonAtomic is a bare File.WriteAllText with 37 callers; ReadTextShared assumes atomic publication that no longer happens; BagOriginTrace and AmbiguousBagReport still write data/diagnostic-dumps. Next journal seq491.",
+  "base_commit": "a25bd27c19467b97ca37e4818035b84d12082269"
 }
