@@ -56,6 +56,9 @@ namespace CityBankers
 
             // Accounting is committed by the physically verified action path.
             // Diagnostic logs are never replayed as a second accounting writer.
+            // Keep the reconciler available, but only exercise it around real
+            // activity rather than four times per second forever.
+            BankerActivityGovernor.Wake();
             _nextTickUtc = DateTime.UtcNow;
             Client.OnUpdate += Tick;
 
@@ -77,7 +80,8 @@ namespace CityBankers
             if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
                 return;
 
-            if (!_isCentral || !Client.InPlay || DateTime.UtcNow < _nextTickUtc)
+            if (!_isCentral || !Client.InPlay || !BankerActivityGovernor.IsActive ||
+                DateTime.UtcNow < _nextTickUtc)
                 return;
 
             _nextTickUtc = DateTime.UtcNow.AddMilliseconds(250);
