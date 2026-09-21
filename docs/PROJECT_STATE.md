@@ -1,3 +1,36 @@
+## Session 202 — dispatch acknowledgement starvation and false inventory hold
+
+- Owner log confirms session201 startup fix: all nine bankers completed initial
+  audits and reached READY. A later four-item donation completed; the Central-to-worker
+  dispatch then timed out waiting for the sender offer acknowledgement. Central
+  relogged after a stable loose-inventory mismatch and remained on administrator hold,
+  making dependent workers unavailable for over two hours. No proof of item loss.
+- Verified source contradiction: RecordDonation deliberately leaves inventory Slot
+  null; DetectLocalInventoryDifference compared that null with a concrete SDK slot.
+  It now compares exact low/high AOID and QL occurrence counts, preserving duplicate
+  counts. This does not rewrite slots, item identities, provenance or donor records.
+  Genuine differences log both expected/observed lists before the existing local relog.
+- Cancellation outbox now excludes the inventory detector while the existing paired
+  unchanged-inventory proofs converge. Otherwise a relog closes the IPC gate needed
+  to finish cancellation. Both peers still require exact physical cancellation proof,
+  matching attempt/manifest, retained sender ledger IDs and present source items before
+  the existing new-attempt retry is queued. No automatic audit has been re-enabled.
+- Attempt-bound opened/accepted acknowledgements no longer expire after1.5s while
+  actors persist state. These stages are monotonic within one immutable live attempt;
+  every use still checks the current target, receipt, attempt, direction and manifest.
+  New receipts clear the stage cache. Contradictory windows still fail; physical
+  receipts remain authoritative. Log round-trip times and stage/window counts at timeout.
+  Log alone cannot prove which handshake predicate caused this particular timeout.
+- Active dispatch ticks run before unrelated state scans/accounting. Sender stages
+  each next item after the prior server acknowledgement, settles the complete offer
+  once rather than pausing on every partial offer, and starts its open timeout after
+  preparation persistence. Receiver relies on the exact accepted sender manifest rather
+  than an additional partial-cache settling delay. No timeout increase or SQL redesign.
+- Validation: focused source/interleaving review and git diff --check. No assistant
+  compilation, tests, SQL connection or live AO run. Owner rebuilds matching components
+  and restarts the host; existing held binaries cannot repair themselves from a source
+  update. No migration, data reset, deletion or storage relocation is required.
+
 ## Session 201 — permit the intentional disk data folder at startup
 
 - Fixed the leftover coordinator guard that rejected any physical data directory,

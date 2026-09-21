@@ -397,6 +397,9 @@ namespace CityBankers
         {
             if (_extraction != null || !CanStartLocalCensus() || _localCensusScan.ElapsedMilliseconds < 5000) return;
             _localCensusScan.Restart();
+            // Cancellation receipts own this inventory until both peers have
+            // agreed. A relog here would close the IPC gate that completes them.
+            if (_cancellationOutbox.Count != 0) return;
             if (_isCentral && RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b =>
                 b.Status == "cancelled" && !string.IsNullOrWhiteSpace(b.LastCancelledAttempt)))
             {
@@ -408,15 +411,21 @@ namespace CityBankers
             var expected = ledger.Items.Where(e => string.Equals(e.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                 e.Location == "inventory" && !e.Bag.HasValue && !CruPolicy.IsCru(e.AoId) &&
                 !BankerPersonalItems.IsPersonal(e.AoId, e.HighId ?? e.AoId)).Select(e =>
-                (e.Slot.HasValue ? (e.Slot.Value & 65535).ToString() : "?") + "/" + e.AoId + "/" + e.HighId + "/" + e.Ql).OrderBy(k => k);
+                e.AoId + "/" + e.HighId + "/" + e.Ql).OrderBy(k => k).ToList();
             var actual = Inventory.Items.Where(i => StorageBagPolicy.IsNormalInventory(i) &&
                 i.UniqueIdentity.Type != IdentityType.Container && !CruPolicy.IsCru(i.Id) &&
                 !BankerPersonalItems.IsPersonal(i.Id, i.HighId)).Select(i =>
-                (i.Slot.Instance & 65535) + "/" + i.Id + "/" + i.HighId + "/" + i.Ql).OrderBy(k => k);
+                i.Id + "/" + i.HighId + "/" + i.Ql).OrderBy(k => k).ToList();
+            // Donation ledger slots are intentionally null, and cancellation can
+            // return an item to a different slot. Compare custody multiplicities,
+            // not optional addresses; this does not reassign any donor or ledger ID.
             string difference = string.Join(";", expected) + "|" + string.Join(";", actual);
             if (expected.SequenceEqual(actual)) { _localCensusMismatch = null; return; }
             if (_localCensusMismatch != difference) { _localCensusMismatch = difference; return; }
-            StartLocalCensus("Stable loose-inventory difference; refreshing this banker's complete physical inventory.");
+            Logger.Error("[CityBankers] LOOSE INVENTORY MISMATCH character=" + Client.CharacterName +
+                "; expected=" + string.Join(";", expected) + "; observed=" + string.Join(";", actual) +
+                "; entries are AOID/highID/QL, including duplicate occurrences; slots are not custody evidence.");
+            StartLocalCensus("Stable loose-inventory item-count/template difference; refreshing this banker's inventory by relog.");
         }
     }
 }

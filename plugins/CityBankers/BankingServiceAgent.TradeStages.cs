@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using AOSharp.Clientless;
+using AOSharp.Clientless.Logging;
 using CityBankers.Shared;
 using Newtonsoft.Json;
 
@@ -152,8 +153,7 @@ namespace CityBankers
             bool current = SameDispatchAttempt(command, proposal.Command) && DispatchTradeIsCurrent(command);
             bool ready = false;
             if (current && proposal.Stage == "opened")
-                ready = (IsManagedReturnOrWithdrawal() ? _internalOpenedAge :
-                    _isCentral ? _dispatchTradeAge : _workerTradeAge).ElapsedMilliseconds >= 500;
+                ready = true; // The matching AO trade-open callback is the evidence.
             else if (current && proposal.Stage == "accepted")
                 ready = LocalInternalAccepted() && DispatchWindowsConsistent(command);
             // This handler only reports state from the AO update thread. It
@@ -175,24 +175,46 @@ namespace CityBankers
                 query.Request = AskDispatchStage(command, stage);
                 return false;
             }
+            // Opened/accepted are monotonic for this immutable attempt. A peer
+            // can only abandon it by closing the trade; it cannot edit and reuse
+            // its acceptance. Current target, receipt and manifest are checked
+            // above on every call, and PrepareReceipt clears all stage evidence.
+            // Do not expire a valid reply while this actor is persisting state.
+            if (query.Ready) return true;
             if (query.Request != null && query.Request.IsCompleted)
             {
                 query.Ready = query.Request.Status == TaskStatus.RanToCompletion &&
-                    query.Request.Result == "ready:" + key && query.Age.ElapsedMilliseconds <= 1500;
+                    query.Request.Result == "ready:" + key;
                 query.Request = null;
                 if (query.Ready && _recordedTradeStages.Add(key))
+                {
+                    Logger.Information("[CityBankers] DISPATCH PEER " + stage +
+                        " acknowledged; attempt=" + command.AttemptId +
+                        "; roundTripMs=" + query.Age.ElapsedMilliseconds);
                     PersistReceipt("peer-" + stage + "-acknowledged");
+                }
             }
-            bool ready = query.Ready && query.Age.ElapsedMilliseconds <= 1500;
-            if (query.Request == null && query.Age.ElapsedMilliseconds >= 500)
+            if (query.Ready) return true;
+            if (query.Request == null && query.Age.ElapsedMilliseconds >= 250)
             {
-                // Age measures request departure, not delayed reply arrival.
-                // Keep an acknowledgement only until this refresh begins.
-                query.Ready = false;
                 query.Age.Restart();
                 query.Request = AskDispatchStage(command, stage);
             }
-            return ready;
+            return false;
+        }
+
+        private string DispatchStageDiagnostic()
+        {
+            var command = CurrentInternalCommand();
+            if (command == null) return "no current attempt";
+            string prefix = command.AttemptId + ":";
+            return "attempt=" + command.AttemptId + "; localAccepted=" + LocalInternalAccepted() +
+                "; localItems=" + (Trade.PlayerWindowCache?.Items?.Count ?? -1) +
+                "; remoteItems=" + (Trade.TargetWindowCache?.Items?.Count ?? -1) +
+                "; peerStages=" + string.Join(",", _tradeStages.Where(p => p.Key.StartsWith(prefix, StringComparison.Ordinal))
+                    .Select(p => p.Key.Substring(prefix.Length) + "=" + (p.Value.Ready ? "acknowledged" :
+                        p.Value.Request == null ? "pending" : p.Value.Request.Status.ToString()) +
+                        " ageMs=" + p.Value.Age.ElapsedMilliseconds));
         }
 
         private async Task<string> AskDispatchStage(DispatchCommand command, string stage)

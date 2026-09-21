@@ -311,10 +311,16 @@ namespace CityBankers
                     _operationalHeartbeatAge.Restart();
                 }
                 if (_localCensus != null || !StartupCensusGate.IsOpen) return;
-                TickCancellationOutbox();
-                // Disabled by owner: no automatic recovery audits. if (TickStorageRecovery()) return;
+                // Live trade progress precedes unrelated queue/stock scans and
+                // cancellation accounting. IPC above still services both peers.
                 TickInternalConfirmation();
                 if (TickPhysicalReceipt()) return;
+                if (_activeBatch != null && _activeBatch.Status != "transferred")
+                { TickDispatch(); return; }
+                if (_workerCommand != null && _storageJob == null)
+                { TickWorkerTrade(); return; }
+                TickCancellationOutbox();
+                // Disabled by owner: no automatic recovery audits. if (TickStorageRecovery()) return;
                 if (TickReserveOperation()) return;
                 if (TickRecoveryExtraction()) return;
                 if (TickReturnTransfer()) return;
@@ -1358,6 +1364,7 @@ namespace CityBankers
                 if (_dispatchTradeAge.Elapsed.TotalSeconds >=
                     ServicePolicy.TradeTimeoutSeconds)
                 {
+                    Logger.Warning("[CityBankers] DISPATCH TIMEOUT " + DispatchStageDiagnostic());
                     FailActiveBatch(
                         "Internal worker trade timed out. Any incomplete outgoing AO trade is declined so offered items return to Central inventory.");
                     return;
@@ -1467,6 +1474,8 @@ namespace CityBankers
                 "Central opening serialized internal trade to " + next.Character + ".",
                 next.Items);
             PrepareReceipt("dispatch-send", next.TransactionId, next.BatchId, next.Items, -1);
+            // Persistence/reporting above is preparation, not time spent trading.
+            _dispatchTradeAge.Restart();
             Trade.Open(worker.Identity);
         }
 
@@ -1484,9 +1493,11 @@ namespace CityBankers
 
             List<Item> liveOffered = Trade.PlayerWindowCache?.Items ?? new List<Item>();
             List<TransferItemState> offered = SnapshotTradeItems(liveOffered);
-            if (!InternalOfferSettled(offered)) return;
             if (MatchesExpected(offered, _activeBatch.Items) && offered.Count > 0)
             {
+                // Settle the complete offer once; incremental AddItem already
+                // waits for each server acknowledgement before advancing.
+                if (!InternalOfferSettled(offered)) return;
                 if (!_outgoingAccepted)
                 {
                     _outgoingAccepted = true;
@@ -1778,6 +1789,7 @@ namespace CityBankers
             }
             if (_workerTradeAge.Elapsed.TotalSeconds >= ServicePolicy.TradeTimeoutSeconds)
             {
+                Logger.Warning("[CityBankers] DISPATCH RECEIVE TIMEOUT " + DispatchStageDiagnostic());
                 FailWorkerCommand("Timed out waiting for Central's attempt-bound offer acknowledgement.");
                 return;
             }
@@ -1789,7 +1801,7 @@ namespace CityBankers
                 return;
             }
             if (_workerAccepted) return;
-            if (!InternalOfferSettled(offered) || !DispatchPeerReady("accepted")) return;
+            if (!DispatchPeerReady("accepted")) return;
             // An incomplete receiver cache is permitted only after live IPC
             // confirms Central accepted its exact complete local offer.
             _workerAccepted = true;

@@ -58,6 +58,9 @@ namespace CityBankers
             // directory. Keep retrying its IPC acknowledgement without reserving
             // unrelated transfers on this banker.
             _cancellationOutbox[proof.AttemptId] = new CancellationPending { Proof = proof };
+            Logger.Information("[CityBankers] DISPATCH CANCELLATION VERIFIED character=" + proof.Character +
+                "; batch=" + proof.BatchId + "; attempt=" + proof.AttemptId +
+                "; inventory unchanged; exchanging peer evidence for automatic retry.");
         }
 
         private string CancellationDirectory(string attempt) => Path.Combine(
