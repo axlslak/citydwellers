@@ -3229,3 +3229,42 @@ Both findings come from a 112-agent adversarial sweep over six lenses; 21 findin
   build warnings were changed.
 - Validation was source/diff only; owner rebuilds and confirms the remap warning
   is gone.
+
+## Session 214 — SQL alt state and evidence-strength cleanup
+
+- Moved Manager alt durability from runtime `config/alts.json` writes into the
+  existing Manager-owned relational SQL/accounting state. Host startup loads the
+  complete alt graph into Manager RAM once; CityManager continues to use its
+  existing in-memory dictionaries and parsers.
+- Added relational schema version 5 with `cd_alts`, `cd_alt_groups`,
+  `cd_alt_observed`, `cd_alt_added`, and `cd_alt_removed`. The existing
+  BusinessTables row diff writes only inserted/changed/deleted alt rows; an
+  unchanged observation causes no SQL statement.
+- Existing schema-4 installations upgrade in place. The host creates the new
+  tables, imports `config/alts.json` once, commits the alt state and version 5
+  in the same SQL transaction, and thereafter never uses the file as a runtime
+  backend. Fresh legacy conversion exports that file first if needed, then
+  imports it into schema 5. The old file is retained as legacy evidence.
+- `online` and incomplete passive observations are positive evidence only:
+  characters actually seen may be added or re-parented, but absence never
+  deletes an older alt. Re-parenting moves only the observed character, never
+  its whole previous family. A known main is not dissolved by partial evidence.
+- A valid complete passive `alts <main>` response remains authoritative for
+  that main and may add/remove/re-parent as before. A paged passive alt response
+  that times out retains its positive observations and queues exactly one forced
+  private verification for the exact observed main; ordinary silence does not.
+- Manager's notify-off startup no longer depends on another org member issuing
+  `!online`. After the existing 15-second quiet period, if no complete Bobsan
+  online snapshot arrived, Manager queues one private `online` request through
+  the existing tell queue. The existing private Bobsan parser handles the reply.
+  A complete online snapshot no longer fans out into automatic per-main private
+  refreshes.
+- Partial online pages now contribute positive mappings/presence immediately,
+  while only a valid complete online snapshot may replace the online-presence
+  set. An incomplete online snapshot never fans out into per-main tells.
+- Existing explicit/authorization alt lookups, raid consumers, canonical-main
+  logic, admin/ban integration, parser formats, and alt mutation commands remain
+  intact.
+- Validation was source/diff/call-path review only. No assistant build, live SQL
+  migration, AO run, or automated tests; owner rebuilds and performs the first
+  schema-4 -> 5 startup/live verification.
