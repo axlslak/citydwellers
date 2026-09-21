@@ -1,4 +1,4 @@
-# Business storage (schema 4)
+# Business storage (schema 5)
 
 The host Manager service owns one MySQL connection with pooling disabled. Client
 plugins do not contain the connector. Manager loads all durable business state at
@@ -15,7 +15,7 @@ unfinished custody. It preserves donor/taker and location metadata; it never
 reconstructs ownership from inventory. Settings are exported to native config/
 without overwriting existing files. The catalogue remains data/items.json.
 
-Business rows and schema version 4 commit together before cleanup. Only then does
+Business rows and schema version 5 commit together before cleanup. Existing schema-4 installations are upgraded in place: the host creates the alt tables, imports legacy `config/alts.json` once, commits that state with the version change, and never uses the file as a runtime backend again. Only then does
 startup drop cd_event_lines, cd_document_chunks, cd_documents, cd_directories,
 cd_migration_chunks, cd_migration_files, cd_migration_runs, cd_ledger_items,
 cd_stock_items, cd_banker_state and cd_meta. Interrupted cleanup can repeat without
@@ -26,8 +26,8 @@ are transient thereafter, as are health, availability and coordination.
 ## Contents and ownership
 
 SQL retains relational ledger/stock and storage locations, transaction/item
-history (including lost/found), cloak state/events and the minimal state needed
-for unfinished transfers/withdrawals. Completed custody snapshots are removed;
+history (including lost/found), cloak state/events, Manager alt identity state,
+and the minimal state needed for unfinished transfers/withdrawals. Completed custody snapshots are removed;
 meaningful history is retained. Runtime logs, requested dumps, tell queues,
 positions and service control are not SQL entities.
 
