@@ -970,13 +970,14 @@ namespace CityManager
                 if (!force && IsAltGroupFreshLocked(target, DateTime.UtcNow))
                     return false;
 
-                AltLookupRequest existing = FindAltRequestLocked(target);
+                AltLookupRequest existing = FindAltRequestLocked(target, exactTarget);
                 if (existing != null)
                 {
                     if (waiter != null)
                         existing.Waiters.Add(waiter);
                     existing.Force = existing.Force || force;
                     existing.KeepRetrying = existing.KeepRetrying || keepRetrying;
+                    existing.ExactTarget = existing.ExactTarget || exactTarget;
 
                     if (force || existing.NotBeforeUtc > notBeforeUtc)
                         existing.NotBeforeUtc = notBeforeUtc;
@@ -997,6 +998,7 @@ namespace CityManager
                     KeepRetrying = keepRetrying,
                     Reason = reason,
                     NotBeforeUtc = notBeforeUtc,
+                    ExactTarget = exactTarget,
                     Waiters = new List<AltLookupWaiter>()
                 };
                 if (waiter != null)
@@ -1014,11 +1016,18 @@ namespace CityManager
             }
         }
 
-        private AltLookupRequest FindAltRequestLocked(string target)
+        private AltLookupRequest FindAltRequestLocked(
+            string target,
+            bool exactTarget = false)
         {
+            Func<AltLookupRequest, string> effective = request =>
+                request.ExactTarget || exactTarget
+                    ? request.Target
+                    : ResolveCanonicalAltMainLocked(request.Target);
+
             if (_pendingAltLookup != null &&
                 string.Equals(
-                    ResolveCanonicalAltMainLocked(_pendingAltLookup.Target),
+                    effective(_pendingAltLookup),
                     target,
                     StringComparison.OrdinalIgnoreCase))
             {
@@ -1027,7 +1036,7 @@ namespace CityManager
 
             return _altQueue.FirstOrDefault(request =>
                 string.Equals(
-                    ResolveCanonicalAltMainLocked(request.Target),
+                    effective(request),
                     target,
                     StringComparison.OrdinalIgnoreCase));
         }
@@ -2011,7 +2020,8 @@ namespace CityManager
             var kept = new List<AltLookupRequest>();
             foreach (AltLookupRequest request in _altQueue)
             {
-                request.Target = ResolveCanonicalAltMainLocked(request.Target);
+                if (!request.ExactTarget)
+                    request.Target = ResolveCanonicalAltMainLocked(request.Target);
                 if (!request.Force &&
                     (request.Waiters == null || request.Waiters.Count == 0) &&
                     IsAltGroupFreshLocked(request.Target, DateTime.UtcNow))
@@ -2161,6 +2171,7 @@ namespace CityManager
             public string Reason;
             public bool Force;
             public bool KeepRetrying;
+            public bool ExactTarget;
             public DateTime NotBeforeUtc;
             public DateTime SentUtc;
             public DateTime DeadlineUtc;
