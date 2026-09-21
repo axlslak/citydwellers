@@ -31,6 +31,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="BankerActivityGovernor.cs" />
     <Compile Include="StackableItems.cs" />
     <Compile Include="ClientlessSessionGuard.cs" />
     <Compile Include="BankingServiceAgent.Cru.cs" />
