@@ -202,7 +202,7 @@ namespace CityBankers
             if (!_inPlay)
                 return;
 
-            bool startupWork = !_snapshotWritten || _pendingResult != null || _diagnosticStarted;
+            bool startupWork = !_snapshotWritten;
             if (!BankerActivityGovernor.Due(
                     ref _governedTickStamp,
                     startupWork,
