@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 213,
+  "current_session": 214,
   "last_completed_session": 213,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-213-unsafe-binding-redirect",
-  "checkpoint_commit": "3f3e93dff50a3a947e322fe675e5b306a6584f41",
-  "task": "Completed: Unsafe binding redirect correction",
-  "resume_instruction": "Session213 corrected plugins/CityManager/app.config to redirect System.Runtime.CompilerServices.Unsafe 0.0.0.0-6.0.3.0 -> 6.0.3.0, matching the resolved assembly from package 6.1.2. No runtime logic or package versions changed. Owner rebuilds and verifies the remap warning is gone.",
-  "base_commit": "7acdd8dfabdc04e3a3000f5e1effa8371c6ea5e0"
+  "transaction": "session-214-sql-alts-observation",
+  "checkpoint_commit": "75bc90f28f2a4ec5e39d867cc5d7990f2975dfd7",
+  "task": "Move Manager alt state to SQL/RAM and tighten Bobsan evidence handling",
+  "resume_instruction": "Same building blocks, rearranged: SQL durability, Manager RAM working set, existing Bobsan parsers. One-time legacy alts.json import only; online additive only; complete alts authoritative; incomplete org pages force private verification; startup one-time private online after quiet period if needed. No rewrite.",
+  "base_commit": "75bc90f28f2a4ec5e39d867cc5d7990f2975dfd7"
 }
