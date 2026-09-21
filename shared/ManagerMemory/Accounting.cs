@@ -37,6 +37,7 @@ namespace CityDwellers.Shared
         public BankTerminalState BankTerminal = new BankTerminalState();
         public CloakState Cloak;
         public List<CloakEvent> CloakEvents = new List<CloakEvent>();
+        public AltState Alts = new AltState();
         internal long LedgerVersion = 1, PolicyVersion = 1;
         internal AccountingState Fork() => (AccountingState)MemberwiseClone();
         internal bool BusinessChanged(AccountingState other) =>
@@ -48,7 +49,8 @@ namespace CityDwellers.Shared
             !ReferenceEquals(Returns, other.Returns) || !ReferenceEquals(Cloak, other.Cloak) ||
             !ReferenceEquals(CloakEvents, other.CloakEvents) || !ReferenceEquals(PhatzPolicy, other.PhatzPolicy) ||
             !ReferenceEquals(ItemPairs, other.ItemPairs) || !ReferenceEquals(Reserve, other.Reserve) ||
-            !ReferenceEquals(ReserveOperations, other.ReserveOperations) || !ReferenceEquals(BagHistory, other.BagHistory) || !ReferenceEquals(BankTerminal, other.BankTerminal);
+            !ReferenceEquals(ReserveOperations, other.ReserveOperations) || !ReferenceEquals(BagHistory, other.BagHistory) ||
+            !ReferenceEquals(BankTerminal, other.BankTerminal) || !ReferenceEquals(Alts, other.Alts);
     }
 
     public interface IAccountingPersistence
@@ -348,6 +350,10 @@ namespace CityDwellers.Shared
         { lock (_accountingSync) return Accounting(transaction).BankTerminal.Copy(); }
         public void ChangeBankTerminal(string transaction, BankTerminalState value)
         { lock (_accountingSync) Writing(transaction).BankTerminal = value.Copy(); }
+        public AltState ReadAlts(string transaction)
+        { lock (_accountingSync) return Accounting(transaction).Alts?.Copy() ?? new AltState(); }
+        public void ChangeAlts(string transaction, AltState value)
+        { lock (_accountingSync) Writing(transaction).Alts = (value ?? new AltState()).Copy(); }
         private AccountingState Writing(string transaction)
         {
             if (transaction == null) throw new InvalidOperationException("Accounting changes require a transaction.");
