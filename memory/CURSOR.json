@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 202,
+  "current_session": 203,
   "last_completed_session": 202,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-202-dispatch-handshake-recovery",
+  "transaction": "session-203-remove-storage-bloat",
   "checkpoint_commit": "f0b88488b997ef93c16943bb19d2e91ef6a222d9",
-  "task": "No active task",
-  "resume_instruction": "Session202 published: fix null-slot false inventory mismatch, preserve attempt-bound trade-stage acknowledgements, prioritize dispatch, remove repeated item settling, allow paired cancellation evidence to complete before detector relog. Retained physical proof/new-attempt retry and no-auto-audit policy. Source/interleaving review and diff checks only; no builds/tests. Owner rebuilds matching components and restarts existing held host; no migration/data deletion. Live performance unverified; stage RTT/window counts and exact inventory differences now logged.",
-  "base_commit": "01f35aff9309a61e08647fc54e1b69c604a5ee15"
+  "task": "Remove redundant migration copies and automatic SQL diagnostic amplification",
+  "resume_instruction": "Database still exists: owner explicitly corrected deletion statement. Preserve all live business state. Remove redundant archives and diagnostic amplification, no replacement archive or storage layer; inspect dependencies before cleanup. Owner authorizes fix/publication; no builds/live SQL. Do not claim full filesystem removal while state still uses document APIs.",
+  "base_commit": "304fa0faf7870d4be9c055bbc1c4ae55bf0444d5"
 }
