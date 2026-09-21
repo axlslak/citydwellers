@@ -254,9 +254,8 @@ namespace CityBankers
             if (row?.Item == null || string.IsNullOrWhiteSpace(row.SourceCharacter))
                 return null;
             string token = CityDwellers.Shared.CharacterNames.FileToken(row.SourceCharacter);
-            JObject heartbeat = RuntimeStateStore.ReadJson<JObject>(System.IO.Path.Combine(
-                RuntimeStateStore.GetDataDirectory(_settingsDir),
-                "citybankers-health-" + token + ".json"));
+            var health = CityDwellers.Shared.ManagerMemory.Current.BankerHealth(row.SourceCharacter);
+            JObject heartbeat = health == null ? null : JObject.FromObject(health);
             JArray items = heartbeat?["InventoryItems"] as JArray;
             if (items == null)
                 return null;

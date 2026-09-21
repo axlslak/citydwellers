@@ -33,6 +33,28 @@ public class ManagerHost
     //  "Bot": "Bobsan"
     //}
 
+    public static void InitializeMemory() => ManagerMemory.Start();
+
+    // One-time transition of old outstanding messages. Live queues are RAM only.
+    // No history, custody, ledger or settings records are touched here.
+    public static void ImportLegacyMessages(string dataDirectory)
+    {
+        SqlStore.WithLock("Manager.ImportLegacyMessages", () =>
+        {
+            string root = Path.Combine(dataDirectory, "tell-queue");
+            var paths = new[] { "pending", "assigned" }.SelectMany(name =>
+                SqlDirectory.GetFiles(Path.Combine(root, name), "*.json")).ToArray();
+            var jobs = paths.Select(path => Newtonsoft.Json.JsonConvert.DeserializeObject<TellQueueJob>(
+                SqlFile.ReadAllText(path))).ToArray();
+            var channels = SqlDirectory.GetFiles(Path.Combine(root, "manager-channel"), "*.json");
+            var messages = channels.Select(path => Newtonsoft.Json.JsonConvert.DeserializeObject<ManagerChannelJob>(
+                SqlFile.ReadAllText(path))).OrderBy(job => job?.Sequence ?? 0).ToArray();
+            ManagerMemory.Current.ImportPendingTells(jobs);
+            ManagerMemory.Current.ImportChannelMessages(messages);
+            foreach (string path in paths.Concat(channels)) SqlFile.Delete(path);
+        });
+    }
+
     private static List<ClientDomain> BotDomains = new List<ClientDomain>();
     private static bool _interactive;
 

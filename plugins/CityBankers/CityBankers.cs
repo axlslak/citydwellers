@@ -101,8 +101,7 @@ namespace CityBankers
             DeleteIfExists(_reportCommandPath + ".tmp");
             DeleteIfExists(_reportAckPath);
             DeleteIfExists(_reportAckPath + ".tmp");
-            DeleteIfExists(_healthPath);
-            DeleteIfExists(_healthPath + ".tmp");
+            CityDwellers.Shared.ManagerMemory.Current.ClearBankerHealth(Client.CharacterName);
 
             Logger.Information(
                 $"CityBankers diagnostic plugin initialized. Runtime state root='{pluginDir}'.");
@@ -128,8 +127,7 @@ namespace CityBankers
             Client.MessageReceived -= MessageReceived;
             Client.OnUpdate -= Tick;
             Client.Disconnected -= Disconnected;
-            DeleteIfExists(_healthPath);
-            DeleteIfExists(_healthPath + ".tmp");
+            CityDwellers.Shared.ManagerMemory.Current.ClearBankerHealth(Client.CharacterName);
             Logger.Information("CityBankers diagnostic plugin teardown.");
         }
 
@@ -258,8 +256,7 @@ namespace CityBankers
             _snapshotDueUtc = DateTime.MaxValue;
             _legacyDiagnosticActive = false;
             _bankDeadlineUtc = DateTime.MaxValue;
-            DeleteIfExists(_healthPath);
-            DeleteIfExists(_healthPath + ".tmp");
+            CityDwellers.Shared.ManagerMemory.Current.ClearBankerHealth(Client.CharacterName);
             Logger.Warning(
                 $"CityBankers observed {Client.CharacterName} disconnect; " +
                 "AutoReconnect remains enabled.");
@@ -312,7 +309,7 @@ namespace CityBankers
                 return;
 
             _nextHealthUtc = DateTime.UtcNow.AddSeconds(5);
-            WriteAtomicJson(_healthPath, new BankerHealthHeartbeat
+            CityDwellers.Shared.ManagerMemory.Current.ReportBankerHealth(new BankerHealthHeartbeat
             {
                 ProcessId = Process.GetCurrentProcess().Id,
                 ObservedUtc = DateTime.UtcNow,
@@ -908,32 +905,6 @@ namespace CityBankers
             public int BankBagCount;
             public int TotalBagCount;
             public string BankError;
-        }
-
-        public class BankerHealthHeartbeat
-        {
-            public int ProcessId;
-            public DateTime ObservedUtc;
-            public string Character;
-            public bool InPlay;
-            public bool BankOpen;
-            public bool BankNeedsId;
-            public int BankTerminalInstance;
-            public int InventoryFreeSlots;
-            public List<InventoryItemSnapshot> InventoryItems;
-        }
-
-        public class InventoryItemSnapshot
-        {
-            public int Slot;
-            public string UniqueIdentity;
-            public int AoId;
-            public int HighId;
-            public int Ql;
-            public string Name;
-            public bool IsContainer;
-            public bool? IsStackable;
-            public int? Quantity;
         }
 
         public class PlayerSnapshot

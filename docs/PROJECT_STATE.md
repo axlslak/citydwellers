@@ -1,3 +1,31 @@
+## Session 207 — Manager memory replacement in progress
+
+- Owner authorized the full architecture replacement. The required endpoint is one
+  Manager SQL connection, startup hydration, relational business changes only, and
+  removal of all four live filesystem tables after preserving business records.
+- Current source checkpoint is NOT that completed endpoint. SqlStore/SqlFile and
+  business transaction callers still exist; no claim of one connection or SQL
+  filesystem removal is valid yet. No live database changes have been performed.
+- Added a shared ManagerMemory assembly, owned by ManagerHost in the host AppDomain
+  and attached to each client AppDomain before plugin loading. It survives Manager
+  AO login restarts; child domains cannot instantiate their own owner. Typed models
+  cross the in-process boundary; no generic path/document cache was introduced.
+- Tell queue, channel queue, assignment/acknowledgement state, banker readiness,
+  health, admission, initial audit allowance/commands/results now use Manager RAM.
+  Existing public tell APIs temporarily retain ignored dataDirectory arguments.
+  Outstanding old tells/channel messages transfer into memory once before login;
+  only transferred queue entries are removed by that transition.
+- One initial physical audit per banker per host remains enforced across child
+  reloads. No additional automatic audit authorization. Readiness uses a single
+  typed memory snapshot; unload clears availability and relinquishes pending tells.
+- Next: convert business state and transaction ownership together, including
+  storage/dispatch/withdrawal/custody, ledger/history/lost-found and cloak state;
+  preserve settings; hydrate business records once; remove per-client SQL sources
+  and legacy tables only after their business records have proper relational rows.
+  Do not introduce a generic RAM filesystem or a SQL JSON archive as a shortcut.
+- Validation so far: source/reference review, project XML parsing and diff whitespace
+  check only. No compilation, tests, live AO or live SQL per owner boundary.
+
 ## Session 205 — eliminate per-item SQL under the stock writer transaction
 
 - Owner live log: database gate passed, all nine bankers reached InPlay/open bank,

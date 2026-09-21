@@ -1,5 +1,5 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
+using Cycle = CityDwellers.Shared.CensusCycle;
+using Admission = CityDwellers.Shared.CensusAdmission;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -27,7 +27,7 @@ namespace CityBankers
         private bool _startupFailed, _awaitingUnresolvedRelog, _heldForAdmin;
 
         private static bool InitialAuditUsed => _directory != null &&
-            File.Exists(MemberPath(MemberCharacter, ".initial-audit-used"));
+            Manager.InitialAuditUsed(MemberCharacter);
 
         internal static bool TryAuthorizeInitialAudit(string run)
         {
@@ -35,7 +35,7 @@ namespace CityBankers
             // The one attempt is consumed BEFORE the scanner opens/moves a bag.
             if (_owner == null || _owner._startupFailed || !_owner._issued ||
                 _owner._finished || run != _owner._auditRun || InitialAuditUsed) return false;
-            return File.TryCreateNew(MemberPath(MemberCharacter, ".initial-audit-used"), run);
+            return Manager.ConsumeInitialAudit(MemberCharacter);
         }
 
         private static string _traceData;
@@ -81,32 +81,14 @@ namespace CityBankers
         private Admission _completedAdmissionReconnect;
         private string _completedAdmissionInventory;
 
-        internal sealed class Admission
-        {
-            public string Cycle, Connection, Character, Run;
-            public BagAuditAgent.BagAuditResult Result;
-        }
-
-        internal sealed class Presence
-        {
-            public string Connection;
-            public long Stamp;
-        }
-        internal sealed class Cycle
-        {
-            public string Id;
-            public string Phase;
-            public Dictionary<string, string> Participants;
-        }
+        private static CityDwellers.Shared.ManagerMemory Manager => CityDwellers.Shared.ManagerMemory.Current;
 
         public static bool UsesPhysicalRecovery => !ServicePolicy.IsBagAuditMode();
         public static string CensusDirectory(string settings) => Path.Combine(
             RuntimeStateStore.GetDataDirectory(settings), "startup-census", Generation);
         private static string MemberPath(string character, string suffix) => Path.Combine(_directory, character.ToLowerInvariant() + suffix);
-        private static string CyclePath => Path.Combine(_directory, "cycle.json");
         private static string CycleDirectory(Cycle cycle) => Path.Combine(_directory, "cycle-" + cycle.Id);
-        private static T Read<T>(string path) where T : class => CensusApplication.ReadExisting<T>(path);
-        private static Cycle Current() => Read<Cycle>(CyclePath);
+        private static Cycle Current() => Manager.CurrentCensus();
         // A fault on one banker never requests a roster audit.
         private static bool Requested() => false;
         // Legacy: _characters.Any(c => File.Exists(MemberPath(c, ".recovery.json")));
@@ -115,13 +97,18 @@ namespace CityBankers
                 string.Equals(p.Key, character, StringComparison.OrdinalIgnoreCase) && p.Value == connection);
         private static bool Present(string character, string connection)
         {
-            var presence = Read<Presence>(MemberPath(character, ".presence.json"));
+            var presence = Manager.BankerPresence(character);
             long age = presence == null ? -1 : Stopwatch.GetTimestamp() - presence.Stamp;
             return presence?.Connection == connection && age >= 0 && age < Stopwatch.Frequency * 10;
         }
         private static void Locked(Action action)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Census." + Generation, action);
+            using (var mutex = new Mutex(false, "Local\\CityDwellers.Census." + Generation))
+            {
+                try { mutex.WaitOne(); } catch (AbandonedMutexException) { }
+                try { action(); }
+                finally { mutex.ReleaseMutex(); }
+            }
         }
 
         public static bool IsOpen
@@ -136,7 +123,7 @@ namespace CityBankers
                         _invalidated || _directory == null || !Client.InPlay) return false;
                     var cycle = Current();
                     return cycle?.Phase == "released" && Includes(cycle, MemberCharacter, _connection) &&
-                        !Requested() && RuntimeStateStore.ReadTextStrict(MemberPath(MemberCharacter, ".ready")) == cycle.Id + "/" + _connection;
+                        !Requested() && Manager.BankerHasReadyToken(MemberCharacter, cycle.Id, _connection);
                 }
                 catch (Exception) { return false; }
             }
@@ -148,14 +135,13 @@ namespace CityBankers
             var cycle = Current();
             if (cycle?.Phase != "released" || !Includes(cycle, MemberCharacter, _connection) || !IsOpen) return;
             _idleInventory = BankingServiceAgent.CanResumeIdleConnection() ? ReconnectInventory() : null;
-            RuntimeStateStore.WriteJsonAtomic(MemberPath(MemberCharacter, ".operational.json"),
-                new { Cycle = cycle.Id, Connection = _connection, Stamp = Stopwatch.GetTimestamp() });
+            Manager.ReportBankerOperational(MemberCharacter, _connection, cycle.Id, Stopwatch.GetTimestamp());
         }
 
         internal static void ClearOperational()
         {
             if (_directory != null)
-                RuntimeStateStore.DeleteIfExists(MemberPath(MemberCharacter, ".operational.json"));
+                Manager.ClearBankerOperational(MemberCharacter);
         }
 
         public static bool Defer(Action initialize)
@@ -192,8 +178,7 @@ namespace CityBankers
             _invalidated = true;
             if (_directory == null) return;
             _holdCycle = Current()?.Id;
-            RuntimeStateStore.WriteJsonAtomic(MemberPath(MemberCharacter, ".blocked"), new { Reason = reason });
-            RuntimeStateStore.DeleteIfExists(MemberPath(MemberCharacter, ".ready"));
+            Manager.HoldBanker(MemberCharacter, reason);
         }
 
         public static void Block(string reason)
@@ -288,8 +273,7 @@ namespace CityBankers
             if (!OwnsLocalPause(version) || !Client.InPlay || Requested()) return false;
             var cycle = Current();
             if (cycle?.Phase != "released" || !Includes(cycle, MemberCharacter, _connection)) return false;
-            RuntimeStateStore.DeleteIfExists(MemberPath(MemberCharacter, ".blocked"));
-            File.WriteAllText(MemberPath(MemberCharacter, ".ready"), cycle.Id + "/" + _connection);
+            Manager.ReadyBanker(MemberCharacter, cycle.Id, _connection);
             _invalidated = false;
             return true;
         }
@@ -311,7 +295,8 @@ namespace CityBankers
                 _character, StringComparison.OrdinalIgnoreCase)).Name;
             _directory = CensusDirectory(_settings);
             _traceData = RuntimeStateStore.GetDataDirectory(_settings);
-            Directory.CreateDirectory(_directory);
+            Manager.ConfigureBankers(_roles.Properties().ToDictionary(p => (string)p.Value["Character"],
+                p => p.Name, StringComparer.OrdinalIgnoreCase));
             _connection = Guid.NewGuid().ToString("N");
             _presenceAge.Reset();
             Client.OnUpdate += Tick;
@@ -356,14 +341,14 @@ namespace CityBankers
                     _reconnectSettled.Reset();
                     Hold("Banker disconnected; refresh this connection only. No automatic audit.");
                     ClearOperational();
-                    RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                    Manager.ClearBankerPresence(_character);
                     if (!initialUsed)
                     {
                         // Pre-scan reconnect keeps the initial cycle; nobody repeats a scan.
                         if (cycle?.Phase == "collecting" && Includes(cycle, _character, retiredConnection))
                         {
                             cycle.Participants[_character] = _connection;
-                            RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                            Manager.SetCensus(cycle);
                         }
                         _auditCycle = null;
                         _issued = _finished = _quiesced = false;
@@ -425,7 +410,7 @@ namespace CityBankers
                     _reconnectSettled.Reset();
                     Hold(reason);
                     ClearOperational();
-                    RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                    Manager.ClearBankerPresence(_character);
                     // Compare the retired epoch, not the newly allocated one.
                     // Coordinate uses this same mutex: it either already excluded
                     // us or must reconcile the participant it still depends on.
@@ -472,7 +457,7 @@ namespace CityBankers
             ClearOperational();
             _localRelogPending = false;
             if (_owner == this) _owner = null;
-            RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+            Manager.ClearBankerPresence(_character);
         }
 
         private void Tick(object sender, double delta)
@@ -542,8 +527,7 @@ namespace CityBankers
                 }
                 if (!_presenceAge.IsRunning || _presenceAge.ElapsedMilliseconds >= 2000)
                 {
-                    RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".presence.json"),
-                        new Presence { Connection = _connection, Stamp = Stopwatch.GetTimestamp() });
+                    Manager.ReportBankerPresence(_character, _connection, Stopwatch.GetTimestamp());
                     _presenceAge.Restart();
                 }
                 // Disabled: faults never publish roster recovery requests.
@@ -572,8 +556,8 @@ namespace CityBankers
                         // Release only our reservation, then the ordinary local
                         // pause handoff below publishes the worker's ready token.
                         WithdrawalStore.ReleaseRecovery(_settings, _admission.Run);
-                        RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".admission.json"));
-                        RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".admission-grant.json"));
+                        Manager.SetAdmission(_character, null);
+                        Manager.SetAdmission(_character, null, true);
                         _admission = null;
                         _censusRejections = 0;
                     }
@@ -627,7 +611,6 @@ namespace CityBankers
                     _quiesced = true;
                 }
                 if (Trade.IsTrading) { Trade.Decline(); _settled.Restart(); return; }
-                string resultPath = Path.Combine(_directory, _character + ".result.json");
                 if (!_issued)
                 {
                     // Allow outstanding AO moves/closure to settle before the collector
@@ -641,21 +624,21 @@ namespace CityBankers
                     ReportSmallBackpackCapacity();
                     ReportDuplicateBagRecords();
                     if (!PrepareAuditStagingSlot()) return;
-                    RuntimeStateStore.DeleteIfExists(resultPath);
-                    RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, _character + ".command.json"),
-                        new BagAuditAgent.BagAuditCommand { RunId = _auditRun, Role = _role, BagMoveTimeoutMs = 15000 });
+
+                    Manager.IssueInitialAudit(_character,
+                        new BagAuditCommand { RunId = _auditRun, Role = _role, BagMoveTimeoutMs = 15000 });
                     _issued = true;
                     return;
                 }
-                var result = Read<BagAuditAgent.BagAuditResult>(resultPath);
+                var result = Manager.InitialAuditResult(_character);
                 if (result == null || result.RunId != _auditRun) return;
                 if (result.Character != _character || result.Role != _role) throw new InvalidOperationException("Mismatched census result.");
                 try { PhysicalLedgerReconciliation.ReadCensus(_settings, result); }
                 catch
                 {
-                    RuntimeStateStore.WriteJsonAtomic(Path.Combine(CycleDirectory(cycle), _character + ".failed-" + _auditRun + ".json"), result);
+                    Manager.ReportInitialAudit(result);
                     _startupFailed = true;
-                    RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                    Manager.ClearBankerPresence(_character);
                     Block("Initial audit result was rejected; no automatic repeat. Relog and report this banker only.");
 #if false // Retained legacy repeated startup audits.
                     _issued = false; _auditRun = Guid.NewGuid().ToString("N"); _retry.Restart();
@@ -673,12 +656,12 @@ namespace CityBankers
                         Logger.Warning("[CityBankers] Census rejected for " + _character +
                             "; retrying in " + backoff + "s (consecutive rejections=" + _censusRejections + ").");
                         _presenceRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * backoff;
-                        RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                        Manager.ClearBankerPresence(_character);
                     }
 #endif
                     throw;
                 }
-                RuntimeStateStore.WriteJsonAtomic(Path.Combine(CycleDirectory(cycle), _character.ToLowerInvariant() + ".json"), result);
+                Manager.AcceptInitialCensus(_character, result);
                 _censusRejections = 0;
                 _finished = true;
             }
@@ -741,10 +724,9 @@ namespace CityBankers
                     return;
                 }
                 cycle.Participants[_character] = _connection;
-                RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                Manager.SetCensus(cycle);
                 PublishReadyRoster(cycle);
-                RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".blocked"));
-                File.WriteAllText(MemberPath(_character, ".ready"), cycle.Id + "/" + _connection);
+                Manager.ReadyBanker(_character, cycle.Id, _connection);
                 _invalidated = false;
                 _auditPause = _holdVersion;
                 _localFaultReason = null;
@@ -789,11 +771,10 @@ namespace CityBankers
                 // Rebind only this member. Other members retain their current
                 // cycle, ready tokens and physical evidence, even while offline.
                 cycle.Participants[_character] = _connection;
-                RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                Manager.SetCensus(cycle);
                 _idleReconnectConnection = _connection;
                 PublishReadyRoster(cycle);
-                RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".blocked"));
-                File.WriteAllText(MemberPath(_character, ".ready"), cycle.Id + "/" + _connection);
+                Manager.ReadyBanker(_character, cycle.Id, _connection);
                 _invalidated = false;
                 if (observed != _idleReconnectInventory)
                 {
@@ -804,7 +785,7 @@ namespace CityBankers
                     catch
                     {
                         _invalidated = true;
-                        RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".ready"));
+                        Manager.HoldBanker(_character, "Reconnect reconciliation pending.");
                         throw;
                     }
                     if (!acquired)
@@ -829,14 +810,7 @@ namespace CityBankers
 
         private void PublishReadyRoster(Cycle cycle)
         {
-            RuntimeStateStore.WriteJsonAtomic(Path.Combine(RuntimeStateStore.GetDataDirectory(_settings),
-                TrustedOperators.AllBankersReadyMarkerFileName), new
-            {
-                format = "citybankers-all-bankers-ready-v2", generation = Generation, cycle = cycle.Id,
-                readyUtc = DateTime.UtcNow,
-                characters = cycle.Participants.Select(p => new { character = p.Key, connection = p.Value,
-                    role = _roles.Properties().Single(r => string.Equals((string)r.Value["Character"], p.Key, StringComparison.OrdinalIgnoreCase)).Name }).ToList()
-            });
+            Manager.SetCensus(cycle);
         }
 
         private bool WaitForStagingChange(string reason)
@@ -846,7 +820,7 @@ namespace CityBankers
             if (_stagingHolds < 5) _stagingHolds++;
             long cooloff = 60L << (_stagingHolds - 1);
             _stagingRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * cooloff;
-            RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".blocked"), new { Reason = reason });
+            Manager.HoldBanker(_character, reason);
             // Withdrawing presence lets the running cycle drop this member and
             // finish instead of waiting for a result it will not produce. The
             // cool-off above is what brings the member back: without it the hold
@@ -854,7 +828,7 @@ namespace CityBankers
             // check clears and the roster of every later cycle is built from
             // presence files alone.
             if (!string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
-                RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                Manager.ClearBankerPresence(_character);
             Logger.Error("[CityBankers] Census staging waiting: " + reason +
                 " Retrying in " + cooloff + "s, or sooner if the observed layout changes.");
 
@@ -1065,8 +1039,8 @@ namespace CityBankers
             // partially applied local bundle remains immutable evidence. Only
             // ResumeCompletedAdmission may rebind a proven idle startup result;
             // other uncertainty remains held for explicit administrator review.
-            RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".admission.json"));
-            RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".admission-grant.json"));
+            Manager.SetAdmission(_character, null);
+            Manager.SetAdmission(_character, null, true);
             WithdrawalStore.ReleaseRecovery(_settings, _admission.Run);
             _admission = null;
             _admissionPublished = false;
@@ -1098,11 +1072,11 @@ namespace CityBankers
             // the run or losing a completed snapshot awaiting Central.
             if (!_admissionPublished)
             {
-                RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".admission.json"), _admission);
+                Manager.SetAdmission(_character, _admission);
                 _admissionPublished = true;
             }
             if (_finished) return;
-            var grant = Read<Admission>(MemberPath(_character, ".admission-grant.json"));
+            var grant = Manager.Admission(_character, true);
             if (grant == null || grant.Cycle != cycle.Id || grant.Connection != _connection ||
                 grant.Character != _character || grant.Run != _admission.Run) return;
             if (!WithdrawalStore.OwnsCensus(_settings, _admission.Run, _character)) return;
@@ -1112,7 +1086,6 @@ namespace CityBankers
                 _quiesced = true;
             }
             if (Trade.IsTrading) { Trade.Decline(); _settled.Restart(); return; }
-            string resultPath = Path.Combine(_directory, _character + ".result.json");
             if (!_issued)
             {
                 string signature = InventoryLayout();
@@ -1124,31 +1097,30 @@ namespace CityBankers
                 ReportSmallBackpackCapacity();
                 ReportDuplicateBagRecords();
                 if (!PrepareAuditStagingSlot()) return;
-                RuntimeStateStore.DeleteIfExists(resultPath);
-                RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, _character + ".command.json"),
-                    new BagAuditAgent.BagAuditCommand { RunId = _admission.Run, Role = _role, BagMoveTimeoutMs = 15000 });
+
+                Manager.IssueInitialAudit(_character,
+                    new BagAuditCommand { RunId = _admission.Run, Role = _role, BagMoveTimeoutMs = 15000 });
                 _issued = true;
                 return;
             }
-            var result = Read<BagAuditAgent.BagAuditResult>(resultPath);
+            var result = Manager.InitialAuditResult(_character);
             if (result == null || result.RunId != _admission.Run) return;
             if (result.Character != _character || result.Role != _role)
                 throw new InvalidOperationException("Mismatched local admission census result.");
             try { PhysicalLedgerReconciliation.ReadCensus(_settings, result); }
             catch
             {
-                RuntimeStateStore.WriteJsonAtomic(Path.Combine(_directory, "local-" + _admission.Run,
-                    "failed.json"), result);
+                Manager.ReportInitialAudit(result);
                 RetireAdmission();
                 _startupFailed = true;
-                RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                Manager.ClearBankerPresence(_character);
                 Block("Initial admission audit failed; no automatic repeat. Relog and report this banker only.");
 #if false // Retained legacy repeated admission audits.
                 RetireAdmission();
                 if (_censusRejections < 5) _censusRejections++;
                 long backoff = 60L << (_censusRejections - 1);
                 _presenceRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * backoff;
-                RuntimeStateStore.DeleteIfExists(MemberPath(_character, ".presence.json"));
+                Manager.ClearBankerPresence(_character);
                 Logger.Warning("[CityBankers] CENSUS READMISSION rejected for " + _character +
                     "; retrying only this banker in " + backoff + "s; healthy cycle retained.");
 #endif
@@ -1163,7 +1135,7 @@ namespace CityBankers
             _completedAdmissionInventory = inventory;
             completedAdmission.Result = result;
             _admissionPublished = false;
-            RuntimeStateStore.WriteJsonAtomic(MemberPath(_character, ".admission.json"), completedAdmission);
+            Manager.SetAdmission(_character, completedAdmission);
             if (!ReferenceEquals(_admission, completedAdmission) || completedAdmission.Connection != _connection) return;
             _admissionPublished = true;
             _finished = true;
@@ -1175,23 +1147,23 @@ namespace CityBankers
         {
             foreach (var member in online.Where(p => !Includes(cycle, p.Key, p.Value)))
             {
-                var request = Read<Admission>(MemberPath(member.Key, ".admission.json"));
+                var request = Manager.Admission(member.Key);
                 Guid run;
                 if (request == null || request.Cycle != cycle.Id || request.Connection != member.Value ||
                     !string.Equals(request.Character, member.Key, StringComparison.OrdinalIgnoreCase) ||
                     !Guid.TryParseExact(request.Run, "N", out run)) continue;
                 if (Requested()) return;
                 if (!BankingServiceAgent.ReserveStartupAdmission(request.Run, member.Key)) continue;
-                RuntimeStateStore.WriteJsonAtomic(MemberPath(member.Key, ".admission-grant.json"),
+                Manager.SetAdmission(member.Key,
                     new Admission { Cycle = cycle.Id, Connection = member.Value,
-                        Character = request.Character, Run = request.Run });
+                        Character = request.Character, Run = request.Run }, true);
                 if (request.Result == null) continue;
                 if (request.Result.RunId != request.Run || request.Result.Character != request.Character)
                     throw new InvalidOperationException("Admission result does not match its grant.");
                 if (!BankingServiceAgent.ApplyStartupAdmission(request.Result)) continue;
                 if (!Present(member.Key, member.Value) || Requested()) continue;
                 cycle.Participants[member.Key] = member.Value;
-                RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                Manager.SetCensus(cycle);
                 PublishReadyRoster(cycle);
                 Logger.Information("[CityBankers] CENSUS READMISSION applied for " + member.Key +
                     "; cycle=" + cycle.Id + "; other bankers retained their ready state.");
@@ -1208,7 +1180,7 @@ namespace CityBankers
                 if (Requested())
                 {
                     cycle.Phase = "superseded";
-                    RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                    Manager.SetCensus(cycle);
                 }
                 else
                 {
@@ -1222,8 +1194,7 @@ namespace CityBankers
                     // the same condition as those members having been offline when
                     // the cycle was created.
                     var withdrawn = cycle.Participants.Where(p => !Present(p.Key, p.Value) &&
-                        Read<BagAuditAgent.BagAuditResult>(Path.Combine(CycleDirectory(cycle),
-                            p.Key.ToLowerInvariant() + ".json")) == null).Select(p => p.Key).ToList();
+                        Manager.CompletedInitialCensus(p.Key) == null).Select(p => p.Key).ToList();
                     if (withdrawn.Count != 0)
                     {
                         var remaining = cycle.Participants
@@ -1243,19 +1214,18 @@ namespace CityBankers
                                 string.Join(", ", withdrawn) + "; " + remaining.Count +
                                 " participants continue without restarting their audits.");
                         }
-                        RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                        Manager.SetCensus(cycle);
                     }
                 }
             }
             if (cycle?.Phase == "collecting" || cycle?.Phase == "applying")
             {
-                var censuses = cycle.Participants.Keys.Select(c => Read<BagAuditAgent.BagAuditResult>(
-                    Path.Combine(CycleDirectory(cycle), c.ToLowerInvariant() + ".json"))).ToList();
+                var censuses = cycle.Participants.Keys.Select(c => Manager.CompletedInitialCensus(c)).ToList();
                 if (censuses.Any(c => c == null)) return;
                 // Finish an interrupted fixed application even if a peer disappeared.
                 // That snapshot is never released; a fresh cycle follows it.
                 cycle.Phase = "applying";
-                RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                Manager.SetCensus(cycle);
                 var application = CensusApplication.Apply(_settings, CycleDirectory(cycle), cycle.Id, censuses,
                     _roles.Properties().ToDictionary(p => p.Name, p => (string)p.Value["Character"], StringComparer.OrdinalIgnoreCase));
                 // Completed initial evidence can release healthy members even if
@@ -1263,11 +1233,11 @@ namespace CityBankers
                 bool release = !Requested();
                 cycle.Phase = release ? "released" : "superseded";
                 if (release) PublishReadyRoster(cycle);
-                RuntimeStateStore.WriteJsonAtomic(CyclePath, cycle);
+                Manager.SetCensus(cycle);
                 Logger.Information("[CityBankers] Census " + cycle.Id + " " + cycle.Phase + "; audited bankers=" + censuses.Count + "; queued routes=" + application.Queue.Batches.Count);
                 return;
             }
-            var online = _characters.Select(c => new { Character = c, Presence = Read<Presence>(MemberPath(c, ".presence.json")) })
+            var online = _characters.Select(c => new { Character = c, Presence = Manager.BankerPresence(c) })
                 .Where(p => p.Presence != null && Present(p.Character, p.Presence.Connection))
                 .ToDictionary(p => p.Character, p => p.Presence.Connection, StringComparer.OrdinalIgnoreCase);
             if (!online.ContainsKey(_character)) return;
@@ -1282,28 +1252,7 @@ namespace CityBankers
             // Late first-startup workers use scoped admission above.
             if (cycle != null) return;
             var next = new Cycle { Id = Guid.NewGuid().ToString("N"), Phase = "collecting", Participants = online };
-            var requests = _characters.Select(c => Read<JObject>(MemberPath(c, ".recovery.json"))).Where(r => r != null).ToList();
-            CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settings),
-                "recovery:history/census-" + next.Id + ".json", _character, "recovery.started",
-                new { Participants = online.Keys.ToList(), Requests = requests, Reason = requests.Count == 0 ? "Startup or roster admission" : "Explicit recovery requests" },
-                requests.Count > 0, requests.Select(r => "recovery-request:" + (string)r["Id"]));
-            foreach (var request in requests)
-                CityDwellers.Shared.IncidentJournal.Record(_traceData, "recovery-request:" + (string)request["Id"],
-                    _character, "recovery.assigned", new { Cycle = next.Id }, false,
-                    new[] { "recovery:history/census-" + next.Id + ".json" });
-            RuntimeStateStore.WriteJsonAtomic(Path.Combine(CycleDirectory(next), "participants.json"), next);
-            // Close admission before consuming requests. A failed publication
-            // must never expose the previous released cycle in between writes.
-            RuntimeStateStore.WriteJsonAtomic(CyclePath, next);
-            foreach (string character in _characters)
-            {
-                string request = MemberPath(character, ".recovery.json");
-                if (File.Exists(request))
-                {
-                    File.Copy(request, Path.Combine(CycleDirectory(next), character + ".recovery.json"), true);
-                    File.Delete(request);
-                }
-            }
+            Manager.SetCensus(next);
         }
     }
 }

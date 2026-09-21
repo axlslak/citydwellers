@@ -52,12 +52,10 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\LoggingDefaults.cs">
       <Link>LoggingDefaults.cs</Link>
     </Compile>
-    <Compile Include="$(MSBuildThisFileDirectory)shared\TellQueue.cs">
-      <Link>TellQueue.cs</Link>
-    </Compile>
-    <Compile Include="$(MSBuildThisFileDirectory)shared\ManagerChannelQueue.cs">
-      <Link>ManagerChannelQueue.cs</Link>
-    </Compile>
+    <ProjectReference Include="$(MSBuildThisFileDirectory)shared\ManagerMemory\ManagerMemory.csproj">
+      <Project>{369065B6-8F49-4F32-AD96-771DCB67E2F0}</Project>
+      <Name>CityDwellers.ManagerMemory</Name>
+    </ProjectReference>
   </ItemGroup>
 
   <!-- Host also references Scriban so its dependency closure and binding redirects

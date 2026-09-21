@@ -17,7 +17,7 @@ namespace CityBankers
     {
         private sealed class LocalCensusBundle
         {
-            public BagAuditAgent.BagAuditResult Census;
+            public BagAuditResult Census;
             public List<ActiveLedgerItem> Previous;
             public StorageWorkerState PreviousStorage;
             public PhysicalLedgerReconciliation.Plan Plan;
@@ -34,7 +34,7 @@ namespace CityBankers
         private bool _localCensusIssued;
         private int _localCensusAttempt;
         private readonly Stopwatch _localCensusRetry = Stopwatch.StartNew();
-        private BagAuditAgent.BagAuditResult _localCensusResult;
+        private BagAuditResult _localCensusResult;
         private Task<string> _localCensusCommit;
         private readonly Stopwatch _localCensusPoll = Stopwatch.StartNew();
         private readonly Stopwatch _localCensusScan = Stopwatch.StartNew();
@@ -75,7 +75,7 @@ namespace CityBankers
                 WithdrawalStore.TryReserveCensus(actor._settingsDir, run, character);
         }
 
-        internal static bool ApplyStartupAdmission(BagAuditAgent.BagAuditResult census)
+        internal static bool ApplyStartupAdmission(BagAuditResult census)
         {
             var actor = _ipcOwner;
             if (actor == null || !actor._enabled || !actor._isCentral || !StartupCensusGate.IsOpen)
@@ -174,7 +174,7 @@ namespace CityBankers
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "intent.json"), new
                     { RunId = _localCensus, Character = Client.CharacterName, Reason = _localCensusReason, Extraction = _extraction });
                     RuntimeStateStore.DeleteIfExists(resultPath);
-                    var command = new BagAuditAgent.BagAuditCommand { RunId = _localCensus, Role = _role, BagMoveTimeoutMs = 15000 };
+                    var command = new BagAuditCommand { RunId = _localCensus, Role = _role, BagMoveTimeoutMs = 15000 };
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "request.json"), command);
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(collector, Client.CharacterName + ".command.json"), command);
                     _localCensusIssued = true;
@@ -183,7 +183,7 @@ namespace CityBankers
                 if (_localCensusResult == null)
                 {
                     if (!File.Exists(resultPath)) return true;
-                    var result = CensusApplication.ReadExisting<BagAuditAgent.BagAuditResult>(resultPath);
+                    var result = CensusApplication.ReadExisting<BagAuditResult>(resultPath);
                     if (result == null || result.RunId != _localCensus || result.Character != Client.CharacterName || result.Role != _role)
                         throw new InvalidOperationException("Local census result does not match its request.");
                     RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "evidence-" + _localCensusAttempt + ".json"), result);
@@ -250,7 +250,7 @@ namespace CityBankers
         #endif
         }
 
-        private async Task<string> SendLocalCensus(BagAuditAgent.BagAuditResult census)
+        private async Task<string> SendLocalCensus(BagAuditResult census)
         {
             try
             {
@@ -276,7 +276,7 @@ namespace CityBankers
                 string completed = Path.Combine(directory, "completed.json");
                 if (File.Exists(completed))
                 {
-                    var old = CensusApplication.ReadExisting<BagAuditAgent.BagAuditResult>(completed);
+                    var old = CensusApplication.ReadExisting<BagAuditResult>(completed);
                     if (JsonConvert.SerializeObject(old) != JsonConvert.SerializeObject(census))
                         throw new InvalidOperationException("Local census run was reused with different evidence.");
                 }
@@ -313,7 +313,7 @@ namespace CityBankers
             return true;
         }
 
-        private void ApplyLocalCensus(string directory, BagAuditAgent.BagAuditResult census)
+        private void ApplyLocalCensus(string directory, BagAuditResult census)
         {
             var observations = PhysicalLedgerReconciliation.ReadCensus(_settingsDir, census);
             string path = Path.Combine(directory, "application.json");

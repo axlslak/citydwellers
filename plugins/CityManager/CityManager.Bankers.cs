@@ -28,8 +28,7 @@ namespace CityManager
                 StorageState storage = RuntimeStateStore.LoadStorageState(_settingsDir);
                 DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
                 List<WithdrawalState> withdrawals = WithdrawalStore.LoadAll(_settingsDir);
-                bool allReady = SqlFile.Exists(Path.Combine(
-                    _dataDir, "citybankers-all-bankers-ready.json"));
+                bool allReady = ManagerMemory.Current.CurrentCensus()?.Phase == "released";
                 int processId = Process.GetCurrentProcess().Id;
                 int totalUsed = 0;
                 int totalCapacity = 0;
@@ -59,15 +58,12 @@ namespace CityManager
                     }
 
                     string token = CityDwellers.Shared.CharacterNames.FileToken(character);
-                    JObject heartbeat = RuntimeStateStore.ReadJson<JObject>(Path.Combine(
-                        _dataDir, "citybankers-health-" + token + ".json"));
+                    var health = ManagerMemory.Current.BankerHealth(character);
+                    JObject heartbeat = health == null ? null : JObject.FromObject(health);
                     bool sameProcess = ParseDonationInt(heartbeat?["ProcessId"]) == processId;
                     bool online = sameProcess && ParseBool(heartbeat?["InPlay"]);
                     bool bankOpen = online && ParseBool(heartbeat?["BankOpen"]);
-                    bool roleReady = string.Equals(role, "central", StringComparison.OrdinalIgnoreCase)
-                        ? allReady
-                        : SqlFile.Exists(Path.Combine(
-                            _dataDir, "citybankers-storage-writefront-ready-" + token + ".json"));
+                    bool roleReady = allReady && operationalCharacters.Contains(character);
 
                     List<DispatchBatchState> roleBatches = (queue?.Batches ?? new List<DispatchBatchState>())
                         .Where(batch => batch != null &&

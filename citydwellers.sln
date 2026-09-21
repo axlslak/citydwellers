@@ -19,12 +19,18 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CityDwellers", "executables
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CityBuffers", "plugins\CityBuffers\CityBuffers.csproj", "{FB7792AC-2714-45BE-832D-BBDBFF8CB001}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CityDwellers.ManagerMemory", "shared\ManagerMemory\ManagerMemory.csproj", "{369065B6-8F49-4F32-AD96-771DCB67E2F0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{369065B6-8F49-4F32-AD96-771DCB67E2F0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{369065B6-8F49-4F32-AD96-771DCB67E2F0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{369065B6-8F49-4F32-AD96-771DCB67E2F0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{369065B6-8F49-4F32-AD96-771DCB67E2F0}.Release|Any CPU.Build.0 = Release|Any CPU
 		{FB7792AC-2714-45BE-832D-BBDBFF8CB001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{FB7792AC-2714-45BE-832D-BBDBFF8CB001}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FB7792AC-2714-45BE-832D-BBDBFF8CB001}.Release|Any CPU.ActiveCfg = Release|Any CPU

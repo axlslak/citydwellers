@@ -35,7 +35,7 @@ namespace CityBankers
             public DispatchCommand Command;
             public ReturnOffer Return;
             public ExtractionProof Extraction;
-            public BagAuditAgent.BagAuditResult Census;
+            public BagAuditResult Census;
             public ReceiptEvidence Cancellation;
             public StorageRecoveryRequest StorageRecovery;
             [JsonIgnore]

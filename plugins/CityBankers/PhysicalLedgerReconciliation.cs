@@ -21,7 +21,7 @@ namespace CityBankers
             public int? PreviousBag;
             public string PreviousLocation;
             public string RecoveryLedgerId;
-            public BagAuditAgent.BagInnerItem Item;
+            public BagInnerItem Item;
             public string DestinationRole;
             public DateTime ObservedUtc;
         }
@@ -43,7 +43,7 @@ namespace CityBankers
         }
 
         internal static List<Observation> ReadCensus(string settings,
-            BagAuditAgent.BagAuditResult census)
+            BagAuditResult census)
         {
             if (census == null || string.IsNullOrWhiteSpace(census.Character) ||
                 string.IsNullOrWhiteSpace(census.Role) ||
@@ -60,7 +60,7 @@ namespace CityBankers
                 throw new InvalidOperationException("Complete physical census required.");
 
             var observed = new List<Observation>();
-            Action<BagAuditAgent.BagInnerItem, string, int?, string> add = (item, location, bag, identity) =>
+            Action<BagInnerItem, string, int?, string> add = (item, location, bag, identity) =>
             {
                 if (item == null || item.LowId == 0 || item.SlotInstance < 0)
                     throw new InvalidOperationException("Census contains an unreadable item.");

@@ -3051,3 +3051,13 @@ Both findings come from a 112-agent adversarial sweep over six lenses; 21 findin
 - Prefer a local relog to refresh distrusted client state. There is no clientless 30-second relog rule. Never relog during a trade. Relogging must not implicitly launch an audit or manufacture proof of container contents.
 - Hold only affected uncertain operations and explain the bug; administrator decides whether to authorize a physical audit. Evidence first, not blanket reconciliation.
 
+
+## Session 207 checkpoint — Manager memory ownership foundation
+
+- Replaces SQL-backed tells and banker availability/census coordination with typed
+  Manager-owned collections shared through in-process AppDomain calls. Shared DTOs
+  retain the same audit fields; copies prevent callers mutating Manager collections.
+- ManagerHost starts the service before clients and keeps it across Manager-only
+  restarts. SQL business persistence remains unfinished and unchanged at this checkpoint.
+- Full task stays OPEN: one SQL connection, business transaction conversion, startup
+  business import and removal of the old filesystem tables are not implemented yet.

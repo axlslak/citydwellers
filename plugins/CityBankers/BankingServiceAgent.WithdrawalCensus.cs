@@ -27,7 +27,7 @@ namespace CityBankers
         private sealed class WithdrawalCensusBundle
         {
             public WithdrawalCensusGrant Grant;
-            public List<BagAuditAgent.BagAuditResult> Censuses;
+            public List<BagAuditResult> Censuses;
             public List<ActiveLedgerItem> Previous;
             public List<ActiveLedgerItem> MatchingAnchors;
             public StorageState PreviousStorage;
@@ -262,7 +262,7 @@ namespace CityBankers
         #endif
         }
 
-        private bool HandleWithdrawalCensusResult(BagAuditAgent.BagAuditResult census)
+        private bool HandleWithdrawalCensusResult(BagAuditResult census)
         {
             var grant = CensusApplication.ReadExisting<WithdrawalCensusGrant>(
                 Path.Combine(LocalCensusDirectory(census.RunId), "withdrawal-group.json"));
@@ -274,7 +274,7 @@ namespace CityBankers
             string directory = WithdrawalCensusDirectory(grant.Id);
             string completed = Path.Combine(directory, "completed.json");
             string path = Path.Combine(directory, census.RunId + ".json");
-            var old = CensusApplication.ReadExisting<BagAuditAgent.BagAuditResult>(path);
+            var old = CensusApplication.ReadExisting<BagAuditResult>(path);
             if (old != null && JsonConvert.SerializeObject(old) != JsonConvert.SerializeObject(census))
                 throw new InvalidOperationException("Withdrawal census evidence changed during retry.");
             var done = CensusApplication.ReadExisting<WithdrawalCensusGrant>(completed);
@@ -292,7 +292,7 @@ namespace CityBankers
                 RuntimeStateStore.WriteJsonAtomic(path, census);
             }
             var censuses = grant.Runs.OrderBy(r => r.Key, StringComparer.OrdinalIgnoreCase).Select(r =>
-                CensusApplication.ReadExisting<BagAuditAgent.BagAuditResult>(Path.Combine(directory, r.Value + ".json"))).ToList();
+                CensusApplication.ReadExisting<BagAuditResult>(Path.Combine(directory, r.Value + ".json"))).ToList();
             if (censuses.Any(c => c == null)) throw new InvalidOperationException("Waiting for all affected withdrawal inventories.");
             ApplyWithdrawalCensus(directory, grant, censuses);
             RuntimeStateStore.WriteJsonAtomic(completed, grant);
@@ -333,7 +333,7 @@ namespace CityBankers
             return row;
         }
 
-        private void ApplyWithdrawalCensus(string directory, WithdrawalCensusGrant grant, List<BagAuditAgent.BagAuditResult> censuses)
+        private void ApplyWithdrawalCensus(string directory, WithdrawalCensusGrant grant, List<BagAuditResult> censuses)
         {
             if (censuses.Count != grant.Runs.Count || censuses.Any(c => !grant.Runs.ContainsKey(c.Character) ||
                 grant.Runs[c.Character] != c.RunId || !_config.Roles.Any(p => p.Key == c.Role &&

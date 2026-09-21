@@ -27,7 +27,7 @@ namespace CityBankers
         private sealed class DispatchCensusBundle
         {
             public DispatchCensusGrant Grant;
-            public List<BagAuditAgent.BagAuditResult> Censuses;
+            public List<BagAuditResult> Censuses;
             public List<ActiveLedgerItem> Previous;
             public StorageState PreviousStorage;
             public DispatchQueueState PreviousQueue;
@@ -356,7 +356,7 @@ namespace CityBankers
             catch (Exception) { return "pending"; }
         }
 
-        private bool HandlePairedCensusResult(BagAuditAgent.BagAuditResult census)
+        private bool HandlePairedCensusResult(BagAuditResult census)
         {
             var grant = CensusApplication.ReadExisting<DispatchCensusGrant>(
                 Path.Combine(LocalCensusDirectory(census.RunId), "dispatch-pair.json"));
@@ -370,7 +370,7 @@ namespace CityBankers
             string directory = DispatchCensusDirectory(grant.Batch.AttemptId);
             string completed = Path.Combine(directory, "completed.json");
             string evidencePath = Path.Combine(directory, census.RunId + ".json");
-            var old = CensusApplication.ReadExisting<BagAuditAgent.BagAuditResult>(evidencePath);
+            var old = CensusApplication.ReadExisting<BagAuditResult>(evidencePath);
             if (old != null && JsonConvert.SerializeObject(old) != JsonConvert.SerializeObject(census))
                 throw new InvalidOperationException("Paired census evidence changed during retry.");
             if (old == null)
@@ -388,15 +388,15 @@ namespace CityBankers
             if (!WithdrawalStore.OwnsCensus(_settingsDir, grant.CentralRun, _centralCharacter) ||
                 !WithdrawalStore.OwnsCensus(_settingsDir, grant.WorkerRun, grant.Batch.Character))
                 throw new InvalidOperationException("Both participants must remain reserved during paired application.");
-            var central = CensusApplication.ReadExisting<BagAuditAgent.BagAuditResult>(Path.Combine(directory, grant.CentralRun + ".json"));
-            var worker = CensusApplication.ReadExisting<BagAuditAgent.BagAuditResult>(Path.Combine(directory, grant.WorkerRun + ".json"));
+            var central = CensusApplication.ReadExisting<BagAuditResult>(Path.Combine(directory, grant.CentralRun + ".json"));
+            var worker = CensusApplication.ReadExisting<BagAuditResult>(Path.Combine(directory, grant.WorkerRun + ".json"));
             if (central == null || worker == null) throw new InvalidOperationException("Waiting for the other participant's complete physical audit.");
-            ApplyDispatchCensus(directory, grant, new List<BagAuditAgent.BagAuditResult> { central, worker });
+            ApplyDispatchCensus(directory, grant, new List<BagAuditResult> { central, worker });
             RuntimeStateStore.WriteJsonAtomic(completed, grant);
             return true;
         }
 
-        private void ApplyDispatchCensus(string directory, DispatchCensusGrant grant, List<BagAuditAgent.BagAuditResult> censuses)
+        private void ApplyDispatchCensus(string directory, DispatchCensusGrant grant, List<BagAuditResult> censuses)
         {
             if (censuses.Count != 2 || censuses[0].RunId != grant.CentralRun || censuses[1].RunId != grant.WorkerRun ||
                 !string.Equals(censuses[0].Character, _centralCharacter, StringComparison.OrdinalIgnoreCase) ||

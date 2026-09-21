@@ -21,7 +21,7 @@ namespace CityBankers
         {
             if (_owner == null) return;
             _owner.FinishWithFatalError("Census superseded or client disconnected; cached handles retired.");
-            if (_owner._startupCommandPath != null) DeleteIfExists(_owner._startupCommandPath);
+            if (_owner._startupCommandPath != null) _owner.DeleteIfExists(_owner._startupCommandPath);
         }
 
         private const int DefaultBagOpenTimeoutMs = 15000;
@@ -140,7 +140,7 @@ namespace CityBankers
                 return;
             }
 
-            if (!ServicePolicy.IsBagAuditMode() && File.Exists(_startupCommandPath))
+            if (!ServicePolicy.IsBagAuditMode() && CityDwellers.Shared.ManagerMemory.Current.InitialAuditCommand(Client.CharacterName) != null)
             {
                 _activeCommandPath = _startupCommandPath;
                 _activeResultPath = _startupResultPath;
@@ -165,8 +165,9 @@ namespace CityBankers
             BagAuditCommand command;
             try
             {
-                command = JsonConvert.DeserializeObject<BagAuditCommand>(
-                    File.ReadAllText(_activeCommandPath));
+                command = _activeCommandPath == _startupCommandPath
+                    ? CityDwellers.Shared.ManagerMemory.Current.InitialAuditCommand(Client.CharacterName)
+                    : JsonConvert.DeserializeObject<BagAuditCommand>(File.ReadAllText(_activeCommandPath));
             }
             catch (Exception ex)
             {
@@ -860,7 +861,9 @@ namespace CityBankers
                     Bags = _entries ?? new List<BagAuditEntry>()
                 };
 
-                WriteAtomicJson(_activeResultPath, result);
+                if (_activeResultPath == _startupResultPath)
+                    CityDwellers.Shared.ManagerMemory.Current.ReportInitialAudit(result);
+                else WriteAtomicJson(_activeResultPath, result);
 
                 bool complete = result.BankOpened && result.FatalError == null && result.FailedCount == 0 &&
                     result.Bags.Count == result.TotalBagCount && result.OpenedCount == result.TotalBagCount &&
@@ -908,8 +911,14 @@ namespace CityBankers
             return token;
         }
 
-        private static void DeleteIfExists(string path)
+        private void DeleteIfExists(string path)
         {
+            if (string.IsNullOrWhiteSpace(path) || path == _startupResultPath || path == _startupResultPath + ".tmp") return;
+            if (path == _startupCommandPath)
+            {
+                CityDwellers.Shared.ManagerMemory.Current.ClearInitialAuditCommand(Client.CharacterName);
+                return;
+            }
             try
             {
                 if (File.Exists(path))
@@ -936,87 +945,5 @@ namespace CityBankers
             public int Ql;
         }
 
-        public class BagAuditCommand
-        {
-            public string RunId;
-            public string Role;
-            public int BagOpenTimeoutMs = DefaultBagOpenTimeoutMs;
-            public int BagMoveTimeoutMs = DefaultBagMoveTimeoutMs;
-        }
-
-        public class BagAuditResult
-        {
-            public List<BagInnerItem> LooseInventoryItems;
-            public List<BagInnerItem> LooseBankItems;
-            public string RunId;
-            public string Role;
-            public string Character;
-            public DateTime ObservedUtc;
-            public int PlayfieldModelId;
-            public bool BankOpened;
-            public int BankOuterItemCount;
-            public int BankBagCount;
-            public int InventoryBagCount;
-            public int TotalBagCount;
-            public int OpenedCount;
-            public int FailedCount;
-            public int EmptyCount;
-            public int NonEmptyCount;
-            public int BankStagedCount;
-            public int BankReturnedCount;
-            public int BankReturnFailureCount;
-            public string FatalError;
-            public List<BagAuditEntry> Bags;
-        }
-
-        public class BagAuditEntry
-        {
-            public int Ordinal;
-            public string Source;
-            public string OuterSlot;
-            public string OuterSlotType;
-            public int OuterSlotInstance;
-            public string UniqueIdentity;
-            public string UniqueIdentityType;
-            public int UniqueIdentityInstance;
-            public string Name;
-            public int LowId;
-            public int HighId;
-            public int Ql;
-            public bool MoveToInventoryAttempted;
-            public bool MoveToInventoryCompleted;
-            public string StagedInventorySlot;
-            public string StagedInventorySlotType;
-            public int StagedInventorySlotInstance;
-            public int MoveToInventoryElapsedMs;
-            public int PreOpenHandle;
-            public bool Opened;
-            public int Handle;
-            public string ContainerIdentity;
-            public int ItemCount;
-            public int FreeSlots;
-            public int OpenElapsedMs;
-            public bool ReturnToBankAttempted;
-            public bool ReturnedToBank;
-            public string ReturnedOuterSlot;
-            public string ReturnedOuterSlotType;
-            public int ReturnedOuterSlotInstance;
-            public bool ReturnedToOriginalOuterSlot;
-            public int ReturnToBankElapsedMs;
-            public string Error;
-            public List<BagInnerItem> Items;
-        }
-
-        public class BagInnerItem
-        {
-            public string Slot;
-            public string SlotType;
-            public int SlotInstance;
-            public string UniqueIdentity;
-            public string Name;
-            public int LowId;
-            public int HighId;
-            public int Ql;
-        }
     }
 }

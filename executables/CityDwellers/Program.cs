@@ -177,10 +177,6 @@ namespace CityDwellers.Host
                 components.Add(new ComponentRunner("Bankers", () => BankerLoader.RunAll(stop, false)));
             else
             {
-                string readyMarker = Path.Combine(_dataDirectory, "citybankers-all-bankers-ready.json");
-                try { if (File.Exists(readyMarker)) File.Delete(readyMarker); }
-                catch (IOException ex) { RuntimeLog.Write("Could not clear old banker readiness: " + ex.Message); }
-                catch (UnauthorizedAccessException ex) { RuntimeLog.Write("Could not clear old banker readiness: " + ex.Message); }
                 RuntimeLog.Write("Bankers disabled by configuration; Manager, Flipper and Buddies remain enabled.");
             }
 
@@ -319,8 +315,10 @@ namespace CityDwellers.Host
             try
             {
                 settings = LoadOrCreateSettings(runtimeDirectory);
+                ManagerHost.InitializeMemory();
                 SqlStore.Initialize(runtimeDirectory);
                 SqlStore.StartRuntime();
+                ManagerHost.ImportLegacyMessages(dataDirectory);
                 RuntimeLog.Initialize(dataDirectory);
                 BuildIdentity.StartHost(runtimeDirectory);
                 RuntimeLog.Write("BUILD " + BuildIdentity.Label + " | revision=" + BuildIdentity.Revision);

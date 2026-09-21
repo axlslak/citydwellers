@@ -29,7 +29,7 @@ namespace CityBankers
         }
 
         internal static Bundle Apply(string settings, string directory, string generation,
-            IList<BagAuditAgent.BagAuditResult> censuses, IDictionary<string, string> roles)
+            IList<BagAuditResult> censuses, IDictionary<string, string> roles)
         {
             return CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
             {
@@ -179,7 +179,7 @@ namespace CityBankers
             return queue;
         }
 
-        internal static StorageState BuildStorage(IEnumerable<BagAuditAgent.BagAuditResult> censuses,
+        internal static StorageState BuildStorage(IEnumerable<BagAuditResult> censuses,
             PhysicalLedgerReconciliation.Plan plan, string generation)
         {
             var state = new StorageState { BaselineRunId = "census-" + generation, UpdatedUtc = DateTime.UtcNow };

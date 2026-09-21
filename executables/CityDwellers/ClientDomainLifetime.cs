@@ -35,6 +35,9 @@ internal static class ClientDomainLifetime
     internal static void Track(ClientDomain domain, string character)
     {
         if (domain == null) return;
+        var child = DomainField?.GetValue(domain) as AppDomain;
+        if (child == null) throw new InvalidOperationException("Client AppDomain is unavailable for Manager attachment.");
+        CityDwellers.Shared.ManagerMemory.Attach(child);
         lock (Sync)
         {
             if (Domains.ContainsKey(domain)) return;
@@ -104,6 +107,7 @@ internal static class ClientDomainLifetime
             try { RemotingServices.Disconnect(registration.Sponsor); }
             catch { /* Disposal succeeded; the sponsor may never have been marshaled. */ }
         }
+        CityDwellers.Shared.ManagerMemory.Current.DisconnectClient(character);
         lock (Sync) Domains.Remove(domain);
         return true;
     }

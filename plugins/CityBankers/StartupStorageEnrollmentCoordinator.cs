@@ -258,7 +258,7 @@ namespace CityBankers
             DeleteIfExists(commandPath);
             DeleteIfExists(resultPath);
 
-            WriteAtomicJson(commandPath, new BagAuditAgent.BagAuditCommand
+            WriteAtomicJson(commandPath, new BagAuditCommand
             {
                 RunId = runId,
                 Role = target.Role,
@@ -310,10 +310,10 @@ namespace CityBankers
                 return;
             }
 
-            BagAuditAgent.BagAuditResult result;
+            BagAuditResult result;
             try
             {
-                result = JsonConvert.DeserializeObject<BagAuditAgent.BagAuditResult>(
+                result = JsonConvert.DeserializeObject<BagAuditResult>(
                     File.ReadAllText(_active.ResultPath));
             }
             catch
@@ -359,7 +359,7 @@ namespace CityBankers
         }
 
         private static StorageWorkerState BuildWorker(
-            BagAuditAgent.BagAuditResult result,
+            BagAuditResult result,
             string runId)
         {
             var worker = new StorageWorkerState
@@ -370,7 +370,7 @@ namespace CityBankers
                 Bags = new List<StorageBagState>()
             };
 
-            foreach (BagAuditAgent.BagAuditEntry source in result.Bags)
+            foreach (BagAuditEntry source in result.Bags)
             {
                 bool bank = string.Equals(
                     source.Source,
@@ -397,8 +397,8 @@ namespace CityBankers
                     Items = new List<StoredItemState>()
                 };
 
-                foreach (BagAuditAgent.BagInnerItem item in
-                    source.Items ?? new List<BagAuditAgent.BagInnerItem>())
+                foreach (BagInnerItem item in
+                    source.Items ?? new List<BagInnerItem>())
                 {
                     bag.Items.Add(new StoredItemState
                     {
@@ -427,7 +427,7 @@ namespace CityBankers
         }
 
         private static bool ValidateResult(
-            BagAuditAgent.BagAuditResult result,
+            BagAuditResult result,
             ActiveEnrollment expected,
             out string error)
         {
