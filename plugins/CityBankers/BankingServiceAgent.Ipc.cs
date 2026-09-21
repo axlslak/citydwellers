@@ -103,6 +103,7 @@ namespace CityBankers
                             if (Interlocked.Increment(ref _queuedProposals) > 64)
                             { Interlocked.Decrement(ref _queuedProposals); return "busy"; }
                             _dispatchProposals.Enqueue(proposal);
+                            BankerActivityGovernor.Wake();
                             // The AO update thread evaluates readiness and reserves capacity.
                             // The pipe thread never reads inventory or calls an AO operation.
                             Task done = await Task.WhenAny(proposal.Reply.Task,
@@ -150,6 +151,11 @@ namespace CityBankers
                 if (!proposal.TryBegin()) continue;
                 try
                 {
+                    if (proposal.Kind == "wake")
+                    {
+                        proposal.Reply.TrySetResult("awake");
+                        continue;
+                    }
                     if (proposal.Kind == "dispatch-census-request" || proposal.Kind == "dispatch-census-prepare" ||
                         proposal.Kind == "storage-recovery" || proposal.Kind == "local-census")
                     {
