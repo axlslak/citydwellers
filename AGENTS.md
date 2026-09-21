@@ -217,10 +217,12 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
   plague. Never tolerate one, never deduplicate-and-continue, never trade, store, withdraw or
   reconcile against one. Hold the affected banker, name the condition, and report it to the
   administrator.
-- The known player exploit, for severity context: two players each hold one bag of a duplicate
-  pair, kept in bank. Player 1 withdraws their bag, places an item inside, banks it, withdraws
-  it again. Player 2 can then withdraw their bag and find the same item inside. The pair also
-  cannot coexist in one zone — take both out of the bank in the same zone and one vanishes.
+- `[DECISION]` Severity, without a recipe: a duplicate pair can be used to duplicate **items**,
+  which is why players treat it as a cheat and why this bot must never operate with one present.
+  The procedure is deliberately **not** recorded in this public repository. Sessions 153-158 set
+  that discipline and stated it in `docs/PROJECT_HISTORY.md`; session 215 broke it and session 216
+  restored it. If a future session needs the mechanic to reason about a recurrence, ask the owner
+  for the encrypted conversation memory password. Do not re-derive it here.
 - `[OPEN]` **Our case does not match that pattern and is still unexplained.** Kbarty and Kbsupp
   each held a duplicate pair on a *single* character inside a sealed bot environment, with no
   second player involved. Session 154 decoded the raw incoming packets: the duplicate was in

@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 216,
-  "last_completed_session": 215,
-  "status": "in_progress",
+  "last_completed_session": 216,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-216-redact-exploit-mechanic",
   "checkpoint_commit": "9160a6ebed50efb2dbf7ba0e2477b231ea263bb8",
-  "task": "Redact the duplication mechanic session 215 published publicly",
-  "resume_instruction": "Session 215 (assistant) published the two-player duplication mechanic in AGENTS.md on a public repository, breaking the withholding discipline sessions 153-158 had maintained. Removing it, keeping the invariant and rule, and superseding the seq486 detail. Next journal seq488.",
+  "task": "Redacted: duplication mechanic removed from the public tree",
+  "resume_instruction": "Mechanic removed from AGENTS.md and the withholding discipline written down as a rule. Still open: it remains in Git history since 2026-09-20 and cannot be rewritten under the no-force-push rule; and the encrypted conversation store stops at #4 (August), so sessions 5-216 are public-only and need the owner's password to archive. Next journal seq490.",
   "base_commit": "f9c9c2c46a5ac2196e0cdbfae1dd9817618f616b"
 }
