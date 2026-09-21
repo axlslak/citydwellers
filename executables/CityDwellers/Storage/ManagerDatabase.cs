@@ -69,7 +69,7 @@ namespace CityDwellers.Host
                 state = importer.ReadBusiness();
                 state.Alts = ReadLegacyAlts() ?? new AltState();
                 RuntimeLog.Write("Legacy records read; committing relational business data.");
-                _tables.Commit(_connection, new AccountingState { Reserve = null }, state, transaction =>
+                _tables.Commit(_connection, new AccountingState { Reserve = null, Alts = null }, state, transaction =>
                 {
                     using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(5)", _connection, transaction)) command.ExecuteNonQuery();
                 });
