@@ -885,7 +885,9 @@ namespace CityManager
 
         private void ExpirePassiveAltResponses(DateTime now)
         {
-            List<string> startupMains = null;
+            var verifyMains = new HashSet<string>(
+                StringComparer.OrdinalIgnoreCase);
+
             lock (_altsSync)
             {
                 foreach (string main in _passiveAltResponses
@@ -896,30 +898,50 @@ namespace CityManager
                     .ToList())
                 {
                     _passiveAltResponses.Remove(main);
+                    verifyMains.Add(main);
                     DevTrace(
                         $"ALTS PASSIVE {_altsBotName} response for {main} expired; " +
-                        "received names remain merged without replacing the prior full group.");
+                        "received names remain additive only; forcing one private verification.");
                 }
 
                 if (_onlineSnapshotResponse != null &&
                     now >= _onlineSnapshotResponse.UpdatedUtc.AddSeconds(
                         PassiveAltResponseTimeoutSeconds))
                 {
-                    if (_startupOnlineSnapshotPending)
-                    {
-                        startupMains = _onlineSnapshotResponse.Groups.Keys.ToList();
-                        _startupOnlineSnapshotPending = false;
-                    }
+                    foreach (string main in _onlineSnapshotResponse.Groups.Keys)
+                        verifyMains.Add(main);
 
                     DevTrace(
                         $"ALTS ONLINE {_altsBotName} snapshot expired after " +
                         $"{_onlineSnapshotResponse.Pages.Count}/" +
-                        $"{_onlineSnapshotResponse.PageCount} pages; visible mains retained.");
+                        $"{_onlineSnapshotResponse.PageCount} pages; visible mappings retained additively.");
+
                     _onlineSnapshotResponse = null;
+
+                    // If the incomplete snapshot came from org chat during startup,
+                    // the planned one-time private online request is still warranted.
+                    // If that private request itself was already queued, do not spam
+                    // another online request; targeted main verification below is enough.
+                    if (_startupOnlineSnapshotPending)
+                    {
+                        if (_startupOnlineRequestQueued)
+                            _startupOnlineSnapshotPending = false;
+                        else
+                            _startupOnlineRequestDueUtc = now;
+                    }
                 }
             }
 
-            QueueStartupOnlineLookups(startupMains);
+            foreach (string main in verifyMains.OrderBy(
+                value => value, StringComparer.OrdinalIgnoreCase))
+            {
+                QueueAltLookup(
+                    main,
+                    null,
+                    true,
+                    false,
+                    "passive-page-gap");
+            }
         }
 
         private bool QueueAltLookup(
