@@ -360,6 +360,15 @@ namespace CityDwellers.Shared
         [ThreadStatic] private static string _transaction;
         [ThreadStatic] private static bool _failed;
         public static string TransactionId => _transaction;
+
+        // FriendlyName is descriptive, not an identity: AOSharp creates many
+        // client AppDomains with the same name. Teardown must only be able to
+        // abandon work owned by the exact AppDomain being unloaded.
+        public static string ClientIdentityFor(AppDomain domain)
+        {
+            if (domain == null) throw new ArgumentNullException(nameof(domain));
+            return "appdomain:" + domain.Id;
+        }
         public static T Transaction<T>(string description, Func<T> action)
         {
             if (action == null) throw new ArgumentNullException(nameof(action));
@@ -370,7 +379,7 @@ namespace CityDwellers.Shared
             }
             var owner = ManagerMemory.Current;
             string id = Guid.NewGuid().ToString("N");
-            owner.BeginAccounting(id, AppDomain.CurrentDomain.FriendlyName);
+            owner.BeginAccounting(id, ClientIdentityFor(AppDomain.CurrentDomain));
             _transaction = id;
             _failed = false;
             bool ended = false;
