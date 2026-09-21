@@ -939,7 +939,9 @@ namespace CityManager
                     null,
                     true,
                     false,
-                    "passive-page-gap");
+                    "passive-page-gap",
+                    0,
+                    true);
             }
         }
 
@@ -949,7 +951,8 @@ namespace CityManager
             bool force,
             bool keepRetrying,
             string reason,
-            int delaySeconds = 0)
+            int delaySeconds = 0,
+            bool exactTarget = false)
         {
             string normalized;
             string error;
@@ -958,7 +961,9 @@ namespace CityManager
 
             lock (_altsSync)
             {
-                string target = ResolveCanonicalAltMainLocked(normalized);
+                string target = exactTarget
+                    ? normalized
+                    : ResolveCanonicalAltMainLocked(normalized);
                 DateTime notBeforeUtc = DateTime.UtcNow.AddSeconds(
                     Math.Max(0, delaySeconds));
 
