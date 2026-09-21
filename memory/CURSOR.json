@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 214,
-  "last_completed_session": 213,
-  "status": "in_progress",
+  "last_completed_session": 214,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-214-sql-alts-observation",
-  "checkpoint_commit": "75bc90f28f2a4ec5e39d867cc5d7990f2975dfd7",
-  "task": "Move Manager alt state to SQL/RAM and tighten Bobsan evidence handling",
-  "resume_instruction": "Same building blocks, rearranged: SQL durability, Manager RAM working set, existing Bobsan parsers. One-time legacy alts.json import only; online additive only; complete alts authoritative; incomplete org pages force private verification; startup one-time private online after quiet period if needed. No rewrite.",
+  "checkpoint_commit": "9160a6ebed50efb2dbf7ba0e2477b231ea263bb8",
+  "task": "Completed: SQL-backed Manager alt state and evidence-strength cleanup",
+  "resume_instruction": "Session214: schema5 adds relational cd_alt* tables. Host loads all alts into Manager RAM once; schema4 imports config/alts.json once, then runtime no longer reads/writes it. SQL row diff persists only changed alt rows. Online and partial online are positive-only and move only observed characters; absence never deletes. Complete passive/private alts remains authoritative. Missing passive paged alts force one exact private verification. Manager queues one private online request after the 15s InPlay quiet period if no complete snapshot arrived. Existing consumers/authorization/manual overrides remain intact. Owner builds and performs first schema4->5 live migration.",
   "base_commit": "75bc90f28f2a4ec5e39d867cc5d7990f2975dfd7"
 }
