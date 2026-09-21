@@ -151,6 +151,7 @@ namespace CityBankers
 
             _isCentral = string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase);
             _enabled = true;
+            BankerActivityGovernor.Wake();
             _nextSlowTickUtc = DateTime.UtcNow;
 
             Trade.TradeOpened += OnTradeOpened;
