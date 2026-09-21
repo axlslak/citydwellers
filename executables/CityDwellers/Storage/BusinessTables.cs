@@ -65,6 +65,15 @@ namespace CityDwellers.Host
                 .Child("cd_bag_disposal_items", "Item", null);
             Root("cd_cloak", "Cloak");
             Root("cd_cloak_events", "CloakEvents", o => ((CloakEvent)o).Id);
+            var alts = Root("cd_alts", "Alts");
+            var altGroups = alts.Child("cd_alt_groups", "Groups", o =>
+                Part(((AltGroupState)o).Main));
+            altGroups.Child("cd_alt_observed", "ObservedCharacters", o =>
+                ((string)o).ToLowerInvariant());
+            altGroups.Child("cd_alt_added", "AddedCharacters", o =>
+                ((string)o).ToLowerInvariant());
+            altGroups.Child("cd_alt_removed", "RemovedCharacters", o =>
+                ((string)o).ToLowerInvariant());
             var ledger = Root("cd_ledger", "Ledger");
             ledger.Child("cd_ledger_entries", "Items", o => ((ActiveLedgerItem)o).Id);
             var stock = Root("cd_stock", "Stock");
