@@ -336,6 +336,12 @@ namespace CityBankers
                     StartRecoveryExtraction();
                 }
             }
+            catch (System.Threading.ThreadAbortException)
+            {
+                // AppDomain.Unload intentionally aborts an in-flight update thread.
+                // Do not convert host teardown into a banking fault or relog request.
+                throw;
+            }
             catch (StateContentionException contention)
             {
                 // This fault is raised only by a read that waited out another
