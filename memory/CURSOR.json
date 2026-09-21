@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 205,
+  "current_session": 206,
   "last_completed_session": 205,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
+  "transaction": "session-206-idle-writer-contention",
   "checkpoint_commit": "30c42701bc95388a47294f15dda48965286386d7",
-  "task": "Stock rebuild SQL amplification fixed; owner startup validation pending",
-  "resume_instruction": "Session205 batches BuildCurrentStock routing using one GetRulesFor snapshot instead of per-item metadata SQL under global writer. Preserves low-ID precedence/high-ID fallback, counts/provenance and atomic commits. Owner log has writer timeout after Central audit; holder identity absent, so no claim fully proven live cause. Source review only; no builds/tests/live SQL. Await owner runtime result, continue fixing if blocked. Database exists, preserve business data, remaining live SQL filesystem removal still outstanding.",
-  "base_commit": "648dd5dad508d56d21c56f2104d7b186e821b110"
+  "task": "Remove idle tell writer transactions and heartbeat document churn",
+  "resume_instruction": "Owner log reaches READY but internal trades repeatedly time out and retry; process list queues own clients on global writer. Replace tell heartbeat filesystem with fixed typed sender rows, remove empty relinquish/stale-sweep writer transactions, stop settled census coordination acquiring writer. Preserve business data and pending tells. No builds/live SQL; no claim entire fs gone or disk size fixed.",
+  "base_commit": "a421d6060b908e86351c81501fb2aeeacd8d454b"
 }
