@@ -401,6 +401,7 @@ namespace CityManager
             _nextAltTickUtc = now.AddSeconds(1);
 
             ExpirePassiveAltResponses(now);
+            TryQueueStartupOnlineRequest(now);
 
             AltLookupRequest timedOut = null;
             AltLookupRequest toSend = null;
@@ -459,6 +460,51 @@ namespace CityManager
 
             if (toSend != null)
                 BeginSendAltLookup(toSend);
+        }
+
+        private void TryQueueStartupOnlineRequest(DateTime now)
+        {
+            bool queue = false;
+            lock (_altsSync)
+            {
+                if (_altsShuttingDown ||
+                    !_startupOnlineSnapshotPending ||
+                    _startupOnlineRequestQueued ||
+                    now < _startupOnlineRequestDueUtc ||
+                    _onlineSnapshotResponse != null)
+                {
+                    return;
+                }
+
+                _startupOnlineRequestQueued = true;
+                queue = true;
+            }
+
+            if (!queue)
+                return;
+
+            try
+            {
+                QueueTell(
+                    _altsBotName,
+                    null,
+                    "online",
+                    Client.CharacterName);
+                Logger.Information($"ALTS startup -> {_altsBotName}: online");
+                DevTrace(
+                    $"ALTS startup requested one private online snapshot from {_altsBotName}; " +
+                    "notify-off prevented the normal login-triggered snapshot.");
+            }
+            catch (Exception ex)
+            {
+                lock (_altsSync)
+                {
+                    _startupOnlineRequestQueued = false;
+                    _startupOnlineRequestDueUtc = DateTime.UtcNow.AddSeconds(
+                        AltRequestSpacingSeconds);
+                }
+                Logger.Warning($"ALTS startup online request could not be queued: {ex.Message}");
+            }
         }
 
         private void QueueStaleAdministratorAlts()
