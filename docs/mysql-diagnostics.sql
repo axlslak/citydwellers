@@ -1,4 +1,4 @@
--- Read-only schema-4 diagnostics. Run in the City Dwellers database.
+-- Read-only schema-5 diagnostics. Run in the City Dwellers database.
 SELECT version FROM cd_storage_version;
 SELECT table_name, table_rows, data_length, index_length
 FROM information_schema.tables WHERE table_schema = DATABASE()
@@ -13,6 +13,8 @@ SELECT * FROM cd_transactions ORDER BY utc DESC LIMIT 100;
 SELECT * FROM cd_lost_claims LIMIT 100;
 SELECT * FROM cd_cloak_events LIMIT 100;
 SELECT * FROM cd_pending_custody LIMIT 100;
+SELECT * FROM cd_alt_groups ORDER BY main LIMIT 100;
+SELECT * FROM cd_alt_observed ORDER BY parent_id, value LIMIT 200;
 -- Expected empty after successful conversion and cleanup.
 SELECT table_name FROM information_schema.tables
 WHERE table_schema = DATABASE() AND table_name IN
