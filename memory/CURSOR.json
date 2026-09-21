@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 203,
+  "current_session": 204,
   "last_completed_session": 203,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
+  "transaction": "session-204-database-compatibility",
   "checkpoint_commit": "b961f4263850fac9851a62db094046b9c9928549",
-  "task": "Storage simplification: archive/diagnostic removal published; remaining live document backend outstanding",
-  "resume_instruction": "Database exists; preserve business data. Session203 removes DataMigration and redundant migration tables after completed upgrade, incident scan/export/duplicate writes and source/Manager service-event persistence. No replacement archive. Live document/chunk backend still serves other business state: full removal is outstanding, do not claim done. Owner wants simplification and working bots, not reset/reconstruction. Session201 startup guard and session202 dispatch/recovery fixes published. Owner rebuilds matching components; no assistant build/test/live SQL. Runtime and storage improvements unverified.",
-  "base_commit": "304fa0faf7870d4be9c055bbc1c4ae55bf0444d5"
+  "task": "Fix blanket MariaDB startup rejection",
+  "resume_instruction": "Owner requests startup repair. Check current SQL dialect and admit compatible MariaDB without changing business storage. Report older deployed Initialize(string,bool) signature. No builds/live SQL per owner boundary.",
+  "base_commit": "dd55f19d91c492acca77a61864b3e2e436950ca1"
 }
