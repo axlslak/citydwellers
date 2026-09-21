@@ -27,7 +27,7 @@ internal static class ClientDomainLifetime
     private sealed class Registration
     {
         internal string Character;
-        internal string DomainName;
+        internal string AccountingClient;
         internal AppDomain Child;
         internal ILease Lease;
         internal Sponsor Sponsor;
@@ -42,7 +42,11 @@ internal static class ClientDomainLifetime
         lock (Sync)
         {
             if (Domains.ContainsKey(domain)) return;
-            var registration = new Registration { Character = character, DomainName = child.FriendlyName };
+            var registration = new Registration
+            {
+                Character = character,
+                AccountingClient = CityDwellers.Shared.ManagerAccounting.ClientIdentityFor(child)
+            };
             Domains.Add(domain, registration);
             try
             {
@@ -108,7 +112,8 @@ internal static class ClientDomainLifetime
             try { RemotingServices.Disconnect(registration.Sponsor); }
             catch { /* Disposal succeeded; the sponsor may never have been marshaled. */ }
         }
-        CityDwellers.Shared.ManagerMemory.Current.AbandonAccounting(registration?.DomainName);
+        if (!string.IsNullOrEmpty(registration?.AccountingClient))
+            CityDwellers.Shared.ManagerMemory.Current.AbandonAccounting(registration.AccountingClient);
         CityDwellers.Shared.ManagerMemory.Current.DisconnectClient(character);
         lock (Sync) Domains.Remove(domain);
         return true;
