@@ -3061,3 +3061,8 @@ Both findings come from a 112-agent adversarial sweep over six lenses; 21 findin
   restarts. SQL business persistence remains unfinished and unchanged at this checkpoint.
 - Full task stays OPEN: one SQL connection, business transaction conversion, startup
   business import and removal of the old filesystem tables are not implemented yet.
+
+- Follow-up within session207: Manager restart/shutdown control and Flipper cache
+  moved from SQL records to typed Manager memory; shutdown audit uses native disk
+  logging. Legacy channel-message import now deduplicates on retry. Full business
+  persistence conversion remains OPEN; these are checkpoints, not a completion seal.

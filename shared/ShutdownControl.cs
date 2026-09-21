@@ -1,5 +1,3 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.IO;
 using System.Text;
@@ -7,11 +5,10 @@ using Newtonsoft.Json;
 
 namespace CityDwellers.Shared
 {
-    // SQL control records cross the Manager AppDomain boundary, like Manager restart.
+    // Control requests live in Manager memory; the operator audit is an ordinary disk log.
     internal static class ShutdownControl
     {
-        internal const string RequestFile = "citydwellers-shutdown.request";
-        internal const string AuditFile = "citydwellers-shutdown-audit.jsonl";
+        internal const string AuditFile = "citydwellers-shutdown-audit.log";
 
         internal sealed class Request
         {
@@ -23,7 +20,7 @@ namespace CityDwellers.Shared
             public DateTime RequestedUtc;
         }
 
-        internal static void Audit(string dataDirectory, Request request, string phase)
+        internal static void Audit(string dataDirectory, object request, string phase)
         {
             string line = JsonConvert.SerializeObject(new
             {
@@ -34,26 +31,28 @@ namespace CityDwellers.Shared
                 build = BuildIdentity.Label
             }) + Environment.NewLine;
             // Failure propagates: an unaudited shutdown must never be published/consumed.
-            WriteDurable(Path.Combine(dataDirectory, AuditFile), line, FileMode.Append);
+            WriteDurable(Path.Combine(dataDirectory, AuditFile), line);
         }
 
         internal static void Publish(string dataDirectory, Request request)
         {
-            string path = Path.Combine(dataDirectory, RequestFile);
-            File.CreateNew(path, new UTF8Encoding(false).GetBytes(JsonConvert.SerializeObject(request)));
+            ManagerMemory.Current.RequestShutdown(request.Id, request.Actor, request.SenderId,
+                request.Authority, request.Channel, request.RequestedUtc);
         }
 
-        internal static void Clear(string dataDirectory)
-        {
-            string path = Path.Combine(dataDirectory, RequestFile);
-            if (File.Exists(path)) File.Delete(path);
-            if (File.Exists(path + ".tmp")) File.Delete(path + ".tmp");
-        }
+        internal static bool IsRequested => ManagerMemory.Current.ShutdownRequest() != null;
+        internal static HostShutdownRequest Read() => ManagerMemory.Current.ShutdownRequest();
+        internal static void Clear(string dataDirectory) => ManagerMemory.Current.ClearShutdownRequest();
 
-        private static void WriteDurable(string path, string text, FileMode mode)
+        private static void WriteDurable(string path, string text)
         {
-            if (mode == FileMode.Append) File.AppendAllText(path, text, new UTF8Encoding(false));
-            else File.WriteAllText(path, text, new UTF8Encoding(false));
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read))
+            {
+                byte[] bytes = new UTF8Encoding(false).GetBytes(text);
+                stream.Write(bytes, 0, bytes.Length);
+                stream.Flush(true);
+            }
         }
     }
 }

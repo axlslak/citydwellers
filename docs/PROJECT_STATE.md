@@ -10,6 +10,8 @@
   and attached to each client AppDomain before plugin loading. It survives Manager
   AO login restarts; child domains cannot instantiate their own owner. Typed models
   cross the in-process boundary; no generic path/document cache was introduced.
+- Host restart/shutdown commands and Flipper cache now live in Manager RAM too.
+  Shutdown operator audit appends to a native disk log. No SQL control marker polling.
 - Tell queue, channel queue, assignment/acknowledgement state, banker readiness,
   health, admission, initial audit allowance/commands/results now use Manager RAM.
   Existing public tell APIs temporarily retain ignored dataDirectory arguments.

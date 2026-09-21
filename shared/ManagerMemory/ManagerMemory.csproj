@@ -23,6 +23,8 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Compile Include="ManagerMemory.cs" />
+    <Compile Include="FlipperObservation.cs" />
+    <Compile Include="HostControl.cs" />
     <Compile Include="BagAuditModels.cs" />
     <Compile Include="BankerCoordination.cs" />
     <Compile Include="BankerHealth.cs" />

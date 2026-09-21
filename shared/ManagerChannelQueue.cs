@@ -32,6 +32,7 @@ namespace CityDwellers.Shared
     {
         private readonly object _channelSync = new object();
         private readonly Queue<ManagerChannelJob> _channelMessages = new Queue<ManagerChannelJob>();
+        private readonly HashSet<string> _channelMessageIds = new HashSet<string>(StringComparer.Ordinal);
         private long _channelSequence;
         public void ImportChannelMessages(ManagerChannelJob[] jobs)
         {
@@ -42,6 +43,7 @@ namespace CityDwellers.Shared
                         throw new InvalidOperationException("Legacy Manager channel message is invalid.");
                 foreach (var job in jobs)
                 {
+                    if (!_channelMessageIds.Add(job.Id)) continue;
                     _channelMessages.Enqueue(job.Copy());
                     _channelSequence = Math.Max(_channelSequence, job.Sequence);
                 }
@@ -55,6 +57,7 @@ namespace CityDwellers.Shared
                 var job = new ManagerChannelJob { Format = "citydwellers-manager-channel-v1",
                     Id = Guid.NewGuid().ToString("N"), Sequence = checked(++_channelSequence),
                     CreatedUtc = DateTime.UtcNow, SourceCharacter = source, Message = message };
+                _channelMessageIds.Add(job.Id);
                 _channelMessages.Enqueue(job);
                 return job.Id;
             }
@@ -64,7 +67,11 @@ namespace CityDwellers.Shared
         public void CompleteChannelMessage(string id)
         {
             lock (_channelSync)
-                if (_channelMessages.Count != 0 && _channelMessages.Peek().Id == id) _channelMessages.Dequeue();
+                if (_channelMessages.Count != 0 && _channelMessages.Peek().Id == id)
+                {
+                    _channelMessages.Dequeue();
+                    _channelMessageIds.Remove(id);
+                }
         }
     }
 }

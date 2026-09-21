@@ -1,5 +1,3 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -148,8 +146,6 @@ namespace CityDwellers.Host
 
     internal static class CityDwellersCoordinator
     {
-        private const string ManagerRestartRequestFile =
-            "citydwellers-manager-restart.request";
         private static string _dataDirectory;
         internal static bool OperatorShutdownRequested { get; private set; }
 
@@ -326,14 +322,9 @@ namespace CityDwellers.Host
                     RuntimeLog.Write("BUILD " + build);
                 _dataDirectory = dataDirectory;
                 // Never replay a terminal command from a previous process.
-                if (File.Exists(Path.Combine(dataDirectory, ShutdownControl.RequestFile)))
-                    RuntimeLog.Write("Discarding stale AO shutdown request on explicit startup; audit retained.");
                 ShutdownControl.Clear(dataDirectory);
                 ReportRuntimeLayout(runtimeDirectory, dataDirectory);
                 DeleteManagerRestartRequest();
-                if (IsManagerRestartRequested())
-                    throw new IOException(
-                        "A stale Manager restart request could not be removed from MySQL.");
             }
             catch (Exception ex)
             {
@@ -342,7 +333,7 @@ namespace CityDwellers.Host
             }
 
             RuntimeLog.Write("Portable runtime: " + runtimeDirectory);
-            RuntimeLog.Write("Mutable state, logs, queues and diagnostics: mandatory MySQL backend.");
+            RuntimeLog.Write("Manager memory initialized for queues, availability, control and Flipper cache; business persistence remains in MySQL.");
 
             if (!settings.RequireTrustedTime)
             {
@@ -469,11 +460,10 @@ namespace CityDwellers.Host
 
         private static bool TryAcceptShutdown()
         {
-            string path = Path.Combine(_dataDirectory, ShutdownControl.RequestFile);
-            if (!File.Exists(path)) return false;
+            if (!ShutdownControl.IsRequested) return false;
             try
             {
-                var request = JsonConvert.DeserializeObject<ShutdownControl.Request>(File.ReadAllText(path));
+                var request = ShutdownControl.Read();
                 if (request == null || string.IsNullOrWhiteSpace(request.Id) ||
                     string.IsNullOrWhiteSpace(request.Actor) || string.IsNullOrWhiteSpace(request.Authority))
                     throw new InvalidDataException("Missing shutdown actor, authority or request ID.");
@@ -494,44 +484,9 @@ namespace CityDwellers.Host
             }
         }
 
-        private static bool IsManagerRestartRequested()
-        {
-            try
-            {
-                return !string.IsNullOrWhiteSpace(_dataDirectory) &&
-                       File.Exists(Path.Combine(
-                           _dataDirectory,
-                           ManagerRestartRequestFile));
-            }
-            catch (Exception ex)
-            {
-                RuntimeLog.Write("Unable to inspect Manager restart request: " + ex.Message);
-                return false;
-            }
-        }
+        private static bool IsManagerRestartRequested() => ManagerMemory.Current.ManagerRestartRequested();
+        private static void DeleteManagerRestartRequest() => ManagerMemory.Current.ClearManagerRestart();
 
-        private static void DeleteManagerRestartRequest()
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(_dataDirectory))
-                    return;
-
-                string path = Path.Combine(
-                    _dataDirectory,
-                    ManagerRestartRequestFile);
-                if (File.Exists(path))
-                    File.Delete(path);
-
-                string temporaryPath = path + ".tmp";
-                if (File.Exists(temporaryPath))
-                    File.Delete(temporaryPath);
-            }
-            catch (Exception ex)
-            {
-                RuntimeLog.Write("Unable to clear Manager restart request: " + ex.Message);
-            }
-        }
     }
 
     internal sealed class ComponentRunner

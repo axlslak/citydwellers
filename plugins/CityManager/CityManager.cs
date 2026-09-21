@@ -2602,9 +2602,6 @@ namespace CityManager
                 return;
             }
 
-            string restartRequestPath = Path.Combine(
-                _dataDir,
-                "citydwellers-manager-restart.request");
             Reply(
                 target,
                 "<font color='#F79410'>Manager restart accepted.</font> " +
@@ -2616,8 +2613,7 @@ namespace CityManager
 
             try
             {
-                SqlFile.WriteAllText(restartRequestPath,
-                    senderName + "|" + DateTime.UtcNow.ToString("O"));
+                ManagerMemory.Current.RequestManagerRestart();
             }
             catch (Exception ex)
             {
