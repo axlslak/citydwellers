@@ -677,6 +677,22 @@ namespace CityBankers.Shared
             if (storageState == null || storageState.Workers == null)
                 return result;
 
+            // SaveStorageBaseline/MergeAuditedStorageWorker hold the writer for
+            // the complete atomic update. Resolve policy once, not once per item:
+            // each single-item lookup otherwise repeats SQL metadata queries for
+            // every worker, including unchanged workers retained after a census.
+            int[] templateIds = storageState.Workers
+                .Where(worker => worker != null && worker.Bags != null &&
+                    !string.Equals(worker.Role, "central", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(worker => worker.Bags)
+                .Where(bag => bag != null && bag.Items != null)
+                .SelectMany(bag => bag.Items)
+                .Where(item => item != null && !CruPolicy.IsCru(item.AoId))
+                .SelectMany(item => new[] { item.AoId, item.HighId }).Distinct().ToArray();
+            var rules = templateIds.Length == 0
+                ? new Dictionary<int, SymbiantCatalog.AcceptanceRule>()
+                : SymbiantCatalog.GetRulesFor(settingsDir, templateIds);
+
             foreach (StorageWorkerState worker in storageState.Workers)
             {
                 if (worker == null || worker.Bags == null)
@@ -695,10 +711,11 @@ namespace CityBankers.Shared
                         if (item == null || CruPolicy.IsCru(item.AoId))
                             continue;
 
-                        string routedRole = null;
-                        bool managed = SymbiantCatalog.TryGetDestinationRole(settingsDir, item.AoId, out routedRole);
+                        SymbiantCatalog.AcceptanceRule route;
+                        bool managed = rules.TryGetValue(item.AoId, out route);
                         if (!managed && item.HighId != item.AoId)
-                            managed = SymbiantCatalog.TryGetDestinationRole(settingsDir, item.HighId, out routedRole);
+                            managed = rules.TryGetValue(item.HighId, out route);
+                        string routedRole = managed ? route.Role : null;
 
                         result.Items.Add(new StockItemState
                         {

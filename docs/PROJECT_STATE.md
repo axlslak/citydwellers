@@ -1,3 +1,27 @@
+## Session 205 — eliminate per-item SQL under the stock writer transaction
+
+- Owner live log: database gate passed, all nine bankers reached InPlay/open bank,
+  Central completed initial 20-bag audit, then global persistence writer acquisition
+  timed out about30 seconds later and terminated host. No successful banking readiness.
+- Found concrete amplification in BuildCurrentStock: every stored item calls
+  TryGetDestinationRole, which reacquires the reentrant catalog scope and repeatedly
+  queries policy timestamps, ledger revision and pair-evidence metadata. Cache hits
+  still perform those queries. SaveStorageBaseline holds the global writer across
+  the whole rebuild; Central-only census retains other workers and rebuilds their
+  stock too. This can perform thousands of SQL reads while every other writer waits.
+- BuildCurrentStock now obtains one GetRulesFor snapshot for distinct low/high IDs;
+  per-item routing becomes dictionary lookups. Empty eligible stock skips policy SQL.
+  Low-ID precedence, high-ID fallback, physical-role fallback, Central/CRU exclusion,
+  duplicate occurrences, provenance/locations and atomic stock/ledger commits retained.
+- No timeout increase, lock removal, new persistence, data reset or automatic audit.
+  Background cleanup concurrency and broader read-lock design were inspected but not
+  changed without evidence tying them to this failure. Full SQL filesystem removal
+  remains outstanding.
+- Validation: source call-path/semantic comparison and git diff --check. No builds,
+  automated tests, live SQL or AO per owner boundary. This fixes demonstrated query
+  amplification; log lacks holder/query identity, so exact live cause and successful
+  startup after the fix still require owner runtime evidence.
+
 ## Session 204 — database capability check replaces blanket MariaDB rejection
 
 - Owner reported startup blocked by the explicit MySQL8/MariaDB brand gate.
