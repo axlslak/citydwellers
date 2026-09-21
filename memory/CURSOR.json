@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 215,
-  "last_completed_session": 214,
-  "status": "in_progress",
+  "last_completed_session": 215,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-215-duplicate-container-is-a-cheat",
   "checkpoint_commit": "9160a6ebed50efb2dbf7ba0e2477b231ea263bb8",
-  "task": "Record that duplicate container identities are a cheat state, not a layout ambiguity",
-  "resume_instruction": "Owner correction: container identity uniqueness is a Funcom game invariant. Duplicate ids are dupe bags, a known player cheat. Capturing the invariant, the exploit mechanic, the unexplained variance in our sealed case, and the never-tolerate rule. Next journal seq486.",
+  "task": "Recorded: duplicate container identities are a cheat state",
+  "resume_instruction": "AGENTS.md now carries the standing rule that container identity uniqueness is a Funcom invariant and duplicate ids are a cheat to hold and report, never tolerate. Four unimplemented proposals recorded in the seq486 open list: persistence backstop, automatic load-time check, vocabulary rename, and the outstanding BuildCurrentStock/FindNextFreeBag/CensusApplication double-count fixes. Next journal seq487.",
   "base_commit": "8d3534810a43abbb0c481ea224bc6c300af294e1"
 }
