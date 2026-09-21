@@ -83,10 +83,20 @@ namespace CityDwellers.Shared
                     {
                         string version;
                         using (var command = new MySqlCommand("SELECT VERSION()", connection)) version = Convert.ToString(command.ExecuteScalar(), CultureInfo.InvariantCulture);
-                        Version parsed;
-                        string numeric = new string(version.TakeWhile(c => char.IsDigit(c) || c == '.').ToArray());
-                        if (version.IndexOf("MariaDB", StringComparison.OrdinalIgnoreCase) >= 0 || !Version.TryParse(numeric, out parsed) || parsed.Major < 8)
-                            throw new InvalidOperationException("City Dwellers requires MySQL 8.0 or later; MariaDB is not supported by this schema.");
+                        // Server branding/version strings are not a capability check.
+                        // MariaDB supports the JSON validation used by our writes;
+                        // the existing schema and relational upgrade check the tables.
+                        try
+                        {
+                            using (var command = new MySqlCommand("SELECT JSON_VALID('{\"citydwellers\":true}')=1 AND JSON_VALID('invalid')=0", connection))
+                                if (!Convert.ToBoolean(command.ExecuteScalar(), CultureInfo.InvariantCulture))
+                                    throw new InvalidOperationException("JSON_VALID returned an unexpected result.");
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new InvalidOperationException("Database server " + version +
+                                " cannot provide the JSON_VALID function required by City Dwellers.", ex);
+                        }
                         using (var packet = new MySqlCommand("SELECT @@max_allowed_packet", connection))
                             if (Convert.ToInt64(packet.ExecuteScalar()) < 32L * 1024 * 1024)
                                 throw new InvalidOperationException("MySQL max_allowed_packet must be at least 33554432 (32 MiB) for bounded state JSON projections.");

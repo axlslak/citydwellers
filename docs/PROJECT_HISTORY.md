@@ -1,3 +1,19 @@
+## Session 204 — database capability check replaces blanket MariaDB rejection
+
+- Owner reported startup blocked by the explicit MySQL8/MariaDB brand gate.
+  The supplied stack uses Initialize(string,bool), which predates session203;
+  current source uses Initialize(string). Rebuild/deploy host and plugins together.
+- Removed the version/brand rejection. Startup checks JSON_VALID on a valid and
+  invalid literal, with the actual server version in a capability failure message.
+  Existing schema, packet-size, exclusive lease and relational-upgrade checks remain.
+  No version-string parsing (including MariaDB compatibility prefixes) is needed.
+- Reviewed runtime SQL: no JSON_TABLE, CAST AS JSON or MySQL8-only collation.
+  MariaDB documentation supports JSON/JSON_VALID, indexed STORED generated columns
+  and GET_LOCK/RELEASE_LOCK. Existing MySqlConnector already supports MariaDB.
+- No schema/data conversion, new archive or driver change. Source/diff review only;
+  no compilation, test suites, live SQL or AO operations. Actual server version and
+  successful runtime remain unverified. Remaining live SQL filesystem work unchanged.
+
 ## Session 203 — remove redundant import archives and diagnostic amplification
 
 - Owner clarified the database has NOT been deleted. Preserve live business data;

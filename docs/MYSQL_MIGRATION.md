@@ -40,3 +40,17 @@ tables removes those tables; deleting rows in surviving InnoDB tables may leave
 allocated space available for reuse rather than immediately shrink their files.
 No blocking table rebuild or live SQL operation is performed by this source change.
 Compilation and live runtime validation remain owner-run.
+
+## Server compatibility
+
+Startup accepts MySQL-compatible servers, including MariaDB, based on the required
+JSON_VALID capability and existing schema checks rather than a server-name ban.
+The packet-size and exclusive-lease checks still apply. Keep the existing `MySql`
+configuration section for either server. No database move or recreation is needed.
+Deploy a matching rebuilt host and all plugins: the old Initialize(string,bool)
+stack signature identifies a build from before session203.
+
+Compatibility references: [MariaDB JSON](https://mariadb.com/docs/server/reference/data-types/string-data-types/json),
+[generated columns](https://mariadb.com/docs/server/reference/sql-statements/data-definition/create/generated-columns),
+[named locks](https://mariadb.com/docs/server/reference/sql-functions/secondary-functions/miscellaneous-functions/get_lock),
+and [MySqlConnector](https://mysqlconnector.net/).
