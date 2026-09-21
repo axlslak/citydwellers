@@ -88,6 +88,11 @@ namespace CityBankers
                     _settingsDir,
                     RuntimeStateStore.LoadCurrentStock(_settingsDir));
             }
+            catch (System.Threading.ThreadAbortException)
+            {
+                // AppDomain.Unload is teardown, not a failed accounting operation.
+                throw;
+            }
             catch (Exception ex)
             {
                 StartupCensusGate.Block("Active ledger persistence failed: " + ex.Message);
