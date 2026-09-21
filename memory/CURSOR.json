@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 208,
+  "current_session": 209,
   "last_completed_session": 208,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-208-import-json-null",
+  "transaction": "session-209-worker-admission-transaction",
   "checkpoint_commit": "f1b8df08708f86d6dbf0b6903c4c336f78d14ab8",
-  "task": "Completed: legacy import JSON-null handling",
-  "resume_instruction": "Session208 published optional JObject handling for Pending and history Plan/Physical/Item. Owner startup exception fixed in source; no build/live run per boundary. No pending implementation; reopen on owner issue. Preserve session207 Manager RAM/single SQL connection architecture.",
-  "base_commit": "593c8ca214448d5a9928693d3fb7e64c31f5c9c7"
+  "task": "Fix worker admission accounting and expose pre-BUILD startup timing",
+  "resume_instruction": "Owner log: completed worker audits fail Local census commit retry: Accounting changes require a transaction. MarkReconciled is reached without outer transaction in ApplyLocalCensus. Convert active local admission to atomic Manager accounting with RAM completion and relational differences, remove active file snapshots. Instrument startup before SQL open/load to measure pre-BUILD delay; do not speculate antivirus. No build/live tests.",
+  "base_commit": "3856cba8ede3c8204d91db409850d23b9e7d1f28"
 }
