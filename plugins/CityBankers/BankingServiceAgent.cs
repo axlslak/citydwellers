@@ -248,6 +248,27 @@ namespace CityBankers
         private const int StateContentionQuietSeconds = 60;
         private int _stateContentionFaults;
         private readonly Stopwatch _stateContentionAge = new Stopwatch();
+        private long _governedTickStamp;
+
+        private bool HasLiveBankingWork()
+        {
+            return Trade.IsTrading ||
+                _queuedProposals > 0 ||
+                _receipt != null || _afterReceipt != null ||
+                _activeBatch != null || _workerCommand != null || _storageJob != null ||
+                _reservedDispatch != null || _dispatchPreparation != null ||
+                _storageInquiries.Count != 0 ||
+                _donationActive || _donationCleanup != null ||
+                _stackOperation != null || _reserveOperation != null ||
+                _withdrawal != null || _withdrawalPreparation != null ||
+                _returnOffer != null || _returnRequest != null ||
+                _extraction != null || _extractionCommit != null ||
+                _storageRecovery != null || _storageRecoveryReply != null ||
+                _dispatchDispute != null || _dispatchCensus != null || _dispatchCensusMessage != null ||
+                _withdrawalDispute || _withdrawalCensus != null ||
+                _localCensus != null || _localCensusCommit != null ||
+                _cancellationOutbox.Count != 0;
+        }
 
         private bool TickRecoveryOwnership()
         {
@@ -268,15 +289,22 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
+            if (!_enabled || !Client.InPlay)
+                return;
+
+            bool liveWork = HasLiveBankingWork();
+            if (!BankerActivityGovernor.Due(
+                    ref _governedTickStamp,
+                    liveWork,
+                    BankerActivityGovernor.VegetativeBankingMilliseconds))
+                return;
+
             if (StartupCensusGate.RosterRecoveryActive || !StartupCensusGate.IsCurrentParticipant) return;
             if (TickRecoveryOwnership()) return;
             // Disabled by owner: no automatic recovery audits. if (TickWithdrawalCensus()) return;
             // Disabled by owner: no automatic recovery audits. if (TickDispatchCensus()) return;
             // Disabled by owner: no automatic recovery audits. if (TickLocalCensus()) return;
             if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
-                return;
-
-            if (!_enabled || !Client.InPlay)
                 return;
 
             try
@@ -289,6 +317,22 @@ namespace CityBankers
                     StartupCensusGate.PublishOperational();
                     _operationalHeartbeatAge.Restart();
                 }
+
+                // Vegetative mode deliberately stops here. IPC is still serviced,
+                // readiness stays published, and the 2s fallback below detects the
+                // one pull-only work source (a Manager-created withdrawal) even if
+                // its explicit wake message was lost.
+                if (!BankerActivityGovernor.IsActive && !liveWork)
+                {
+                    if (WithdrawalStore.LoadAll(_settingsDir).Any(row =>
+                        WithdrawalStore.IsActive(row) &&
+                        string.Equals(row.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        BankerActivityGovernor.Wake();
+                    }
+                    return;
+                }
+
                 if (_localCensus != null || !StartupCensusGate.IsOpen) return;
                 // Live trade progress precedes unrelated queue/stock scans and
                 // cancellation accounting. IPC above still services both peers.
@@ -532,6 +576,7 @@ namespace CityBankers
 
         private void OnTradeOpened(Identity target)
         {
+            BankerActivityGovernor.Wake();
             if (!StartupCensusGate.IsOpen) return;
             if (!_enabled || !Client.InPlay)
                 return;
@@ -628,6 +673,7 @@ namespace CityBankers
 
         private void OnTradeStatusChanged(Identity target, TradeStatus status)
         {
+            BankerActivityGovernor.Wake();
             if (!StartupCensusGate.IsOpen) return;
             if (!_enabled)
                 return;
