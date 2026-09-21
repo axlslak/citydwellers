@@ -112,9 +112,11 @@ paths are not represented in `citydwellers.json`.
 
 `Manager.Bot` belongs in `citydwellers.json`. Set it to the character name of the bot that
 answers `alts <character>` tells, or leave it `null` to disable external alt
-lookups. Manager stores the last good answers in the SQL document `alts.json`,
-refreshes administrator identities after 24 hours, and keeps using the cache if
-the alt bot is unavailable.
+lookups. Manager loads durable alt identity state from relational SQL into RAM at
+startup and writes only changed alt rows. Passive Bobsan observations remain the
+normal discovery path; a known missing paged response may trigger one private
+verification, and Manager queues one startup private `online` request when its
+notify-off login did not produce a complete snapshot.
 
 ## Unified host and Windows service
 
