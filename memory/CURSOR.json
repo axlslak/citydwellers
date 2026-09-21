@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 217,
-  "last_completed_session": 216,
-  "status": "in_progress",
+  "last_completed_session": 217,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-217-encrypted-memory-5-and-boundary-findings",
   "checkpoint_commit": "9160a6ebed50efb2dbf7ba0e2477b231ea263bb8",
-  "task": "Write encrypted memory #5; record three storage-boundary findings",
-  "resume_instruction": "Session 216 left an AGENTS.md pointer to encrypted conversation memory #5 that did not exist yet. Creating it boot-required, and recording three findings: WriteJsonAtomic is a bare File.WriteAllText with 37 callers; ReadTextShared assumes atomic publication that no longer happens; BagOriginTrace and AmbiguousBagReport still write data/diagnostic-dumps. Next journal seq491.",
+  "task": "Completed: encrypted memory #5 plus three storage-boundary findings",
+  "resume_instruction": "Memory #5 is boot-required and verified; the AGENTS.md pointer resolves. Three unfixed OPEN findings in seq491: WriteJsonAtomic is no longer atomic (37 callers), ReadTextShared's safety premise is void, and BagOriginTrace/AmbiguousBagReport still write a physical data/diagnostic-dumps that the session 192 boundary forbids. Next journal seq492.",
   "base_commit": "a25bd27c19467b97ca37e4818035b84d12082269"
 }

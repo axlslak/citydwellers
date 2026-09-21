@@ -56,6 +56,21 @@
       "role": "fourth City Dwellers session; proved the inherited recovery archive and added the durable recovery protocol",
       "recovery_tier": "boot-required",
       "password_stored_in_repo": false
+    },
+    {
+      "alias": "conversation #5",
+      "title": "Duplicate container incident and persistence rationale",
+      "approximate_start_date": "2026-09-18",
+      "approximate_end_date": "2026-09-21",
+      "path": "memory/conversations/005-duplicate-container-and-persistence-rationale/envelope.json",
+      "encryption": "AES-256-GCM + scrypt",
+      "plaintext_sha256": "210a2fc6098b6da0406e95e3535b1ce66db95cecacff5d0863fd4c7cc7f7ad90",
+      "plaintext_bytes": 18117,
+      "source_quality": "written by Claude from the live owner conversation, verified against Git, the journal and deployed source; not a verbatim transcript; unproven items are explicitly marked as hypotheses",
+      "recovery_tier": "boot-required",
+      "password_stored_in_repo": false,
+      "why_encrypted": "the duplication procedure and the incident narrative read badly out of context in a public repository; rules and defensive lessons stay public in AGENTS.md",
+      "referenced_by": "AGENTS.md duplicate-container section"
     }
   ]
 }
