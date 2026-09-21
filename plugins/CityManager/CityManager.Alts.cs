@@ -662,6 +662,22 @@ namespace CityManager
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .Count();
 
+                // Every received online page is positive evidence. Apply only
+                // the characters actually visible so a missing page can never
+                // delete an older mapping.
+                foreach (KeyValuePair<string, HashSet<string>> group in
+                    _onlineSnapshotResponse.Groups)
+                {
+                    MergeAltGroupObservationLocked(group.Key, group.Value);
+                }
+                foreach (string name in _onlineSnapshotResponse.Groups.Values
+                    .SelectMany(names => names))
+                {
+                    _onlineCharacters.Add(name);
+                }
+                TrySaveAltsLocked();
+                PruneAndCanonicalizeAltQueueLocked();
+
                 // Online(N) counts main groups, not character rows. Page receipt
                 // alone cannot authorize replacing presence or caching mappings.
                 bool validSnapshot = mainCount == declaredCount &&
@@ -680,14 +696,6 @@ namespace CityManager
 
                 if (complete)
                 {
-                    foreach (KeyValuePair<string, HashSet<string>> group in
-                        _onlineSnapshotResponse.Groups)
-                    {
-                        MergeAltGroupObservationLocked(group.Key, group.Value);
-                    }
-
-                    TrySaveAltsLocked();
-                    PruneAndCanonicalizeAltQueueLocked();
                     _orgOnlineSnapshotReceived = true;
                     _onlineCharacters.Clear();
                     foreach (string name in _onlineSnapshotResponse.Groups.Values
