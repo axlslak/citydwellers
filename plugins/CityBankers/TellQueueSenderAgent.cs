@@ -17,6 +17,7 @@ namespace CityBankers
         private string _dataDir;
         private DateTime _nextHeartbeatUtc = DateTime.MinValue;
         private DateTime? _lastSentUtc;
+        private long _governedTickStamp;
 
         public override void Init(string pluginDir)
         {
@@ -45,8 +46,14 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
-            DateTime now = DateTime.UtcNow;
             bool busy = Trade.IsTrading;
+            if (!BankerActivityGovernor.Due(
+                    ref _governedTickStamp,
+                    busy,
+                    BankerActivityGovernor.VegetativeTellMilliseconds))
+                return;
+
+            DateTime now = DateTime.UtcNow;
             if (_lastSentUtc.HasValue && _lastSentUtc.Value > now.AddSeconds(5))
             {
                 Logger.Warning(
@@ -100,6 +107,8 @@ namespace CityBankers
             {
                 return;
             }
+
+            BankerActivityGovernor.Wake();
 
             bool success = false;
             string failure = null;
