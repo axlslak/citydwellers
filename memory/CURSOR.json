@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 208,
-  "last_completed_session": 207,
-  "status": "in_progress",
+  "last_completed_session": 208,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-208-import-json-null",
-  "checkpoint_commit": "c60d52665f01a7eff86d921e7142136d23aa2ba0",
-  "task": "Fix optional JSON-null objects in legacy business import",
-  "resume_instruction": "Owner startup failed indexing Pending null JValue at LegacyBusinessImport line164. Fix optional nested object reads and adjacent same-pattern reads. Preserve import-before-cleanup. Source review only, no build/live tests.",
+  "checkpoint_commit": "f1b8df08708f86d6dbf0b6903c4c336f78d14ab8",
+  "task": "Completed: legacy import JSON-null handling",
+  "resume_instruction": "Session208 published optional JObject handling for Pending and history Plan/Physical/Item. Owner startup exception fixed in source; no build/live run per boundary. No pending implementation; reopen on owner issue. Preserve session207 Manager RAM/single SQL connection architecture.",
   "base_commit": "593c8ca214448d5a9928693d3fb7e64c31f5c9c7"
 }
