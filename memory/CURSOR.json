@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 207,
+  "current_session": 208,
   "last_completed_session": 207,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-207-manager-memory-relational-storage",
+  "transaction": "session-208-import-json-null",
   "checkpoint_commit": "c60d52665f01a7eff86d921e7142136d23aa2ba0",
-  "task": "Completed: Manager memory ownership and relational business persistence",
-  "resume_instruction": "Session207 implemented and published. Manager host owns one unpooled SQL connection; clients use typed RAM/IPC. Startup imports existing business data into relational entities, commits version4, then drops retired filesystem/archive tables. Settings exported to config; original disk sources preserved. Read current PROJECT_STATE and MYSQL_MIGRATION. Source/project/diff review only; no build, test suite, live SQL or AO per owner boundary. No unfinished implementation task; reopen on owner issue. Preserve one initial audit per banker/host and explicit-admin-only subsequent audits.",
-  "base_commit": "772e4bdf960ea1c2fcc4f7ba672644fef0f20e77"
+  "task": "Fix optional JSON-null objects in legacy business import",
+  "resume_instruction": "Owner startup failed indexing Pending null JValue at LegacyBusinessImport line164. Fix optional nested object reads and adjacent same-pattern reads. Preserve import-before-cleanup. Source review only, no build/live tests.",
+  "base_commit": "593c8ca214448d5a9928693d3fb7e64c31f5c9c7"
 }
