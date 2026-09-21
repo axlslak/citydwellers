@@ -898,6 +898,11 @@ namespace CityManager
                 Reply(target, admissionError);
                 return;
             }
+
+            // Withdrawal state is durable in Manager RAM; this is only a latency
+            // hint so a vegetative source banker enters its fast path immediately.
+            WakeBankerActivity(request.SourceCharacter);
+
             Reply(target,
                 "Withdrawal " + request.Id.Substring(request.Id.Length - 8) +
                 " started for " + CityBankersChatPalette.ItemLabel(physical.AoId, physical.HighId, physical.Ql, physical.Name) +
