@@ -161,8 +161,10 @@ namespace CityDwellers.Host
                     if ((string)value?["Format"] == "citybankers-shared-bag-recovery-v1")
                     {
                         var record = value.ToObject<BagHistoryRecord>();
-                        record.PendingActionId = (string)value["Pending"]?["Id"];
-                        record.PendingActionKind = (string)value["Pending"]?["Kind"];
+                        // JSON null is a JValue, not a null C# reference.
+                        var pending = value["Pending"] as JObject;
+                        record.PendingActionId = (string)pending?["Id"];
+                        record.PendingActionKind = (string)pending?["Kind"];
                         var previous = state.BagHistory.SingleOrDefault(row => row.Run == record.Run);
                         if (previous == null || previous.UpdatedUtc <= record.UpdatedUtc)
                         { state.BagHistory.Remove(previous); state.BagHistory.Add(record); }
@@ -188,13 +190,15 @@ namespace CityDwellers.Host
         }
         private static void ImportDifferences(AccountingState state, string name, JObject value)
         {
-            foreach (var difference in (value?["Differences"] ?? value?["Plan"]?["Differences"]) as JArray ?? new JArray())
+            var plan = value?["Plan"] as JObject;
+            var differences = value?["Differences"] as JArray ?? plan?["Differences"] as JArray;
+            foreach (var difference in differences ?? new JArray())
                 state.ItemHistory.Add(new ActiveHistoryRecord
                 {
                     Id = Guid.NewGuid().ToString("N"), Reason = "census-" + (string)difference["Kind"],
                     LeftUtc = (DateTime?)value["RecordedUtc"] ?? DateTime.MinValue, Source = (string)value["Generation"] ?? name,
                     Item = difference["Previous"]?.ToObject<ActiveLedgerItem>(), CurrentItem = difference["Current"]?.ToObject<ActiveLedgerItem>(),
-                    ItemName = (string)difference["Physical"]?["Item"]?["Name"], EventTimeKnown = false
+                    ItemName = (string)((difference["Physical"] as JObject)?["Item"] as JObject)?["Name"], EventTimeKnown = false
                 });
         }
         private void ImportReceipt(AccountingState state, string name)

@@ -1,3 +1,15 @@
+## Session 208 — optional JSON objects during legacy import
+
+- Fixed the owner-reported startup exception at LegacyBusinessImport.ReadBusiness:
+  Pending may be explicit JSON null (a Newtonsoft JValue). Null-conditional C#
+  indexing does not protect against that value; cast optional objects to JObject
+  before reading children. Applied the same correction to history Plan and
+  Physical/Item reads, including a null Differences array fallback.
+- Import/commit/cleanup order is unchanged. This reported failure occurs before
+  business import commit and retired-table cleanup, so conversion remains retryable.
+- Validation: focused source review and git diff --check. No build, test suite,
+  live SQL or AO run, following the standing owner boundary.
+
 ## Session 207 — Manager RAM and sole SQL owner
 
 - Implemented the owner-requested architecture: the host Manager service owns one
