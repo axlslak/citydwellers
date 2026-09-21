@@ -3090,3 +3090,16 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Validation was source-only; owner rebuilds. Expected build output includes
   `Build revision obtained from ...git.exe` and `City Dwellers build: <SHA>`
   instead of the source-fingerprint warning.
+
+## Session 213 — Unsafe binding redirect correction
+
+- Updated `plugins/CityManager/app.config` so the
+  `System.Runtime.CompilerServices.Unsafe` binding redirect matches the assembly
+  version MSBuild actually resolved from package 6.1.2: `6.0.3.0`.
+- The redirect range is now `0.0.0.0-6.0.3.0` with
+  `newVersion="6.0.3.0"`, replacing the stale `6.0.0.0` target that produced
+  the build remap warning.
+- No runtime logic, package versions, host binding-redirect generation, or other
+  build warnings were changed.
+- Validation was source/diff only; owner rebuilds and confirms the remap warning
+  is gone.
