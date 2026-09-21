@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 209,
+  "current_session": 210,
   "last_completed_session": 209,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-209-worker-admission-transaction",
-  "checkpoint_commit": "b5c5b136c5df1313d87f6fd15a5d9d31b5f3ef37",
-  "task": "Completed: worker admission transaction and early startup phase logging",
-  "resume_instruction": "Session209 fixes missing outer transaction in local census admission; RAM completion marker and relational difference history, ack after commit. Early Main/SQL phase logs now expose pre-BUILD delay; precise delay cause remains unmeasured until new owner evidence. Source review only; no builds/tests/live SQL/AO. Preserve Manager RAM/single SQL ownership and initial-audit-only policy. Reopen on owner issue.",
-  "base_commit": "3856cba8ede3c8204d91db409850d23b9e7d1f28"
+  "transaction": "session-210-appdomain-accounting-owner",
+  "checkpoint_commit": "053e145d0ca33aadb71e4cd1bde7c772c9402bdb",
+  "task": "Fix cross-AppDomain accounting ownership and shutdown abort noise",
+  "resume_instruction": "Owner full log proves unrelated Buddies/Flipper domain unloads cancel live banker Manager transactions because accounting ownership uses FriendlyName. Change ownership to a unique AppDomain instance identity shared by ManagerAccounting and ClientDomainLifetime; prevent intentional ThreadAbort shutdown from becoming banker faults. No builds/tests/live AO. Preserve Manager RAM/single SQL ownership and initial-audit-only policy.",
+  "base_commit": "053e145d0ca33aadb71e4cd1bde7c772c9402bdb"
 }
