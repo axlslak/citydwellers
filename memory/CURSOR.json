@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 215,
+  "current_session": 216,
   "last_completed_session": 215,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-215-duplicate-container-is-a-cheat",
+  "transaction": "session-216-redact-exploit-mechanic",
   "checkpoint_commit": "9160a6ebed50efb2dbf7ba0e2477b231ea263bb8",
-  "task": "Recorded: duplicate container identities are a cheat state",
-  "resume_instruction": "AGENTS.md now carries the standing rule that container identity uniqueness is a Funcom invariant and duplicate ids are a cheat to hold and report, never tolerate. Four unimplemented proposals recorded in the seq486 open list: persistence backstop, automatic load-time check, vocabulary rename, and the outstanding BuildCurrentStock/FindNextFreeBag/CensusApplication double-count fixes. Next journal seq487.",
-  "base_commit": "8d3534810a43abbb0c481ea224bc6c300af294e1"
+  "task": "Redact the duplication mechanic session 215 published publicly",
+  "resume_instruction": "Session 215 (assistant) published the two-player duplication mechanic in AGENTS.md on a public repository, breaking the withholding discipline sessions 153-158 had maintained. Removing it, keeping the invariant and rule, and superseding the seq486 detail. Next journal seq488.",
+  "base_commit": "f9c9c2c46a5ac2196e0cdbfae1dd9817618f616b"
 }
