@@ -139,6 +139,7 @@ namespace CityBankers
                 var n3Message = (N3Message)e.Body;
                 if (n3Message.N3MessageType == N3MessageType.Trade)
                 {
+                    BankerActivityGovernor.Wake();
                     CorrectRemoteOfferRemoval((TradeMessage)e.Body);
                     return;
                 }
@@ -149,6 +150,7 @@ namespace CityBankers
                 if (charInPlay.Identity.Instance != Client.LocalDynelId)
                     return;
 
+                BankerActivityGovernor.Wake();
                 _inPlay = true;
                 _diagnosticStarted = false;
                 _usedCityOfficeBankFallback = false;
@@ -191,11 +193,20 @@ namespace CityBankers
                 "; local inventory unchanged.");
         }
 
+        private long _governedTickStamp;
+
         private void Tick(object sender, double deltaTime)
         {
             _inPlay = Client.InPlay;
 
             if (!_inPlay)
+                return;
+
+            bool startupWork = !_snapshotWritten || _pendingResult != null || _diagnosticStarted;
+            if (!BankerActivityGovernor.Due(
+                    ref _governedTickStamp,
+                    startupWork,
+                    BankerActivityGovernor.VegetativeUtilityMilliseconds))
                 return;
 
             PollBankTerminal();
@@ -244,6 +255,7 @@ namespace CityBankers
 
         private void Disconnected()
         {
+            BankerActivityGovernor.Wake();
             _inPlay = false;
             _diagnosticStarted = false;
             _usedCityOfficeBankFallback = false;
