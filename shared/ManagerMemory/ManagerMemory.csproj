@@ -24,6 +24,7 @@
     <Reference Include="System.Core" />
     <Compile Include="ManagerMemory.cs" />
     <Compile Include="BankingModels.cs" />
+    <Compile Include="AltModels.cs" />
     <Compile Include="BankingOperations.cs" />
     <Compile Include="Accounting.cs" />
     <Compile Include="BagHistory.cs" />
