@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 204,
+  "current_session": 205,
   "last_completed_session": 204,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": null,
+  "transaction": "session-205-stock-writer-starvation",
   "checkpoint_commit": "9b632144ead658b6efe96141f7d7318194e5ea3f",
-  "task": "Database compatibility fix published; owner runtime validation and remaining storage simplification",
-  "resume_instruction": "Session204 removes blanket MariaDB/MySQL-version rejection in favor of JSON_VALID capability check. Existing schema/packet/lease checks remain. Source-reviewed only; no builds/live SQL. Owner stack had older Initialize(string,bool); rebuild/deploy matching host and plugins. Database exists; no reset/reconstruction. Session203 archive cleanup published; remaining live SQL document backend still outstanding.",
-  "base_commit": "dd55f19d91c492acca77a61864b3e2e436950ca1"
+  "task": "Eliminate per-item SQL routing queries during stock rebuild under global writer",
+  "resume_instruction": "Owner authorizes repair of self-inflicted writer timeout. BuildCurrentStock calls TryGetDestinationRole for every persisted worker item while SaveStorageBaseline holds global writer; Central-only startup retains all other workers. Batch routing once using existing GetRulesFor and preserve atomic update/low-ID precedence. No builds/live SQL. Do not claim log proves holder identity.",
+  "base_commit": "648dd5dad508d56d21c56f2104d7b186e821b110"
 }
