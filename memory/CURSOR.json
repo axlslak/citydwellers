@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 210,
-  "last_completed_session": 209,
-  "status": "in_progress",
+  "last_completed_session": 210,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-210-appdomain-accounting-owner",
-  "checkpoint_commit": "053e145d0ca33aadb71e4cd1bde7c772c9402bdb",
-  "task": "Fix cross-AppDomain accounting ownership and shutdown abort noise",
-  "resume_instruction": "Owner full log proves unrelated Buddies/Flipper domain unloads cancel live banker Manager transactions because accounting ownership uses FriendlyName. Change ownership to a unique AppDomain instance identity shared by ManagerAccounting and ClientDomainLifetime; prevent intentional ThreadAbort shutdown from becoming banker faults. No builds/tests/live AO. Preserve Manager RAM/single SQL ownership and initial-audit-only policy.",
+  "checkpoint_commit": "7e8dfdf344b7479ab1948d8e54c074626b20934a",
+  "task": "Completed: AppDomain-safe accounting ownership and shutdown abort handling",
+  "resume_instruction": "Session210 fixes the owner-log-proven cross-AppDomain accounting cancellation: transaction ownership/abandonment now uses unique AppDomain.Id, not FriendlyName. Intentional AppDomain ThreadAbort no longer becomes banker fault/relog noise in banking/ledger/update guard paths. Owner rebuilds/live tests; no data reset or audit required. Independent bounded PlayfieldDynelInfo rejection remains intentionally fail-safe. Session209 timing showed BUILD at +3.724s in this run.",
   "base_commit": "053e145d0ca33aadb71e4cd1bde7c772c9402bdb"
 }
