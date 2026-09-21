@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 211,
-  "last_completed_session": 210,
-  "status": "in_progress",
+  "last_completed_session": 211,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-211-activity-governor",
-  "checkpoint_commit": "5c5824fd4e4d2e7c1e508af105ea861b0a2f7ef1",
-  "task": "Add non-destructive on-demand activity governor for idle bankers",
-  "resume_instruction": "Keep all existing safety/recovery/audit code. AOSharp 64Hz remains. Gate heavy banker work: active ~16Hz, vegetative when provably idle; IPC/trade/reconnect wake immediately; no idle 250ms full ledger reconciliation; throttle idle report/tell polling. Source-only validation; owner builds/tests.",
+  "checkpoint_commit": "8093bdd3ac3051c0871cc7410cd9aab82d71d5ca",
+  "task": "Completed: non-destructive on-demand banker activity governor",
+  "resume_instruction": "Session211 preserves all safety/recovery/audit machinery but stops exercising heavy paths while idle. AOSharp 64Hz is unchanged; banking heavy work ~16Hz active with 5s lease, vegetative BankingService 2s minimal pulse, diagnostics 1Hz, banker tell poll 2Hz. Active ledger full reconciliation is retained and runs only while the banker governor is active. IPC/trade/in-play/disconnect and Manager withdrawal/tell assignment wake the banker. StartupCensusGate 500ms guardian unchanged. Owner rebuilds/live-tests and measures CPU.",
   "base_commit": "5c5824fd4e4d2e7c1e508af105ea861b0a2f7ef1"
 }
