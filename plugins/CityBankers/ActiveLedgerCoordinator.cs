@@ -77,11 +77,11 @@ namespace CityBankers
 
         private void Tick(object sender, double deltaTime)
         {
-            if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
-                return;
-
             if (!_isCentral || !Client.InPlay || !BankerActivityGovernor.IsActive ||
                 DateTime.UtcNow < _nextTickUtc)
+                return;
+
+            if (!ServicePolicy.IsBagAuditMode() && !StartupCensusGate.IsOpen)
                 return;
 
             _nextTickUtc = DateTime.UtcNow.AddMilliseconds(250);
