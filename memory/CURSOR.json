@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 205,
-  "last_completed_session": 204,
-  "status": "in_progress",
+  "last_completed_session": 205,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-205-stock-writer-starvation",
-  "checkpoint_commit": "9b632144ead658b6efe96141f7d7318194e5ea3f",
-  "task": "Eliminate per-item SQL routing queries during stock rebuild under global writer",
-  "resume_instruction": "Owner authorizes repair of self-inflicted writer timeout. BuildCurrentStock calls TryGetDestinationRole for every persisted worker item while SaveStorageBaseline holds global writer; Central-only startup retains all other workers. Batch routing once using existing GetRulesFor and preserve atomic update/low-ID precedence. No builds/live SQL. Do not claim log proves holder identity.",
+  "transaction": null,
+  "checkpoint_commit": "30c42701bc95388a47294f15dda48965286386d7",
+  "task": "Stock rebuild SQL amplification fixed; owner startup validation pending",
+  "resume_instruction": "Session205 batches BuildCurrentStock routing using one GetRulesFor snapshot instead of per-item metadata SQL under global writer. Preserves low-ID precedence/high-ID fallback, counts/provenance and atomic commits. Owner log has writer timeout after Central audit; holder identity absent, so no claim fully proven live cause. Source review only; no builds/tests/live SQL. Await owner runtime result, continue fixing if blocked. Database exists, preserve business data, remaining live SQL filesystem removal still outstanding.",
   "base_commit": "648dd5dad508d56d21c56f2104d7b186e821b110"
 }
