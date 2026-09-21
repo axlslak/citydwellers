@@ -61,7 +61,6 @@ namespace CityManager
         private readonly HashSet<string> _onlineCharacters =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        private string _altsPath;
         private string _altsBotName;
         private AltLookupRequest _pendingAltLookup;
         private bool _altSendInFlight;
@@ -70,12 +69,13 @@ namespace CityManager
         private DateTime _nextAltTickUtc = DateTime.MinValue;
         private OnlineSnapshotResponse _onlineSnapshotResponse;
         private bool _startupOnlineSnapshotPending;
+        private bool _startupOnlineRequestQueued;
+        private DateTime _startupOnlineRequestDueUtc = DateTime.MaxValue;
 
         private void InitializeAlts()
         {
             lock (_altsSync)
             {
-                _altsPath = Path.Combine(_settingsDir, "config", "alts.json");
                 _altsBotName = LoadAltBotName();
                 _altGroups.Clear();
                 _altToMain.Clear();
@@ -91,24 +91,18 @@ namespace CityManager
                 _nextAltTickUtc = DateTime.MinValue;
                 _onlineSnapshotResponse = null;
                 _startupOnlineSnapshotPending = false;
+                _startupOnlineRequestQueued = false;
+                _startupOnlineRequestDueUtc = DateTime.MaxValue;
 
-                if (DiskFiles.Exists(_altsPath))
+                try
                 {
-                    try
-                    {
-                        LoadAltsLocked();
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Error($"Unable to load alt cache: {ex.Message}");
-                        // Never discard authoritative imported identities.
-                        HostFailure.Stop("The alt cache is invalid; repair it before starting Manager.", ex);
-                        throw;
-                    }
+                    LoadAltsLocked();
                 }
-                else
+                catch (Exception ex)
                 {
-                    TrySaveAltsLocked();
+                    Logger.Error($"Unable to load SQL alt state: {ex.Message}");
+                    HostFailure.Stop("The SQL alt state is invalid; repair it before starting Manager.", ex);
+                    throw;
                 }
             }
 
@@ -118,7 +112,7 @@ namespace CityManager
                 $"Alt cache initialized: groups={GetAltGroupCount()}, " +
                 $"bot={_altsBotName ?? "disabled"}.");
             DevTrace(
-                $"ALTS initialized sql-key=alts.json groups={GetAltGroupCount()} " +
+                $"ALTS initialized sql=cd_alts groups={GetAltGroupCount()} " +
                 $"bot={_altsBotName ?? "disabled"}.");
         }
 
@@ -126,14 +120,17 @@ namespace CityManager
         {
             lock (_altsSync)
             {
+                DateTime due = DateTime.UtcNow.AddSeconds(AltStartupQuietSeconds);
                 _startupOnlineSnapshotPending = true;
-                _nextAltRequestUtc = DateTime.UtcNow.AddSeconds(
-                    AltStartupQuietSeconds);
+                _startupOnlineRequestQueued = false;
+                _startupOnlineRequestDueUtc = due;
+                _nextAltRequestUtc = due;
             }
 
             DevTrace(
                 $"ALTS startup listening for {_altsBotName ?? "configured bot"} " +
-                $"online state; outbound lookups quiet for {AltStartupQuietSeconds}s.");
+                $"online state; if none arrives, one private online request is queued after " +
+                $"{AltStartupQuietSeconds}s.");
         }
 
         private void ShutdownAlts()
