@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 213,
-  "last_completed_session": 212,
-  "status": "in_progress",
+  "last_completed_session": 213,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-213-unsafe-binding-redirect",
-  "checkpoint_commit": "7acdd8dfabdc04e3a3000f5e1effa8371c6ea5e0",
-  "task": "Update stale Unsafe binding redirect",
-  "resume_instruction": "Update only plugins/CityManager/app.config binding redirect to assembly version 6.0.3.0, matching resolved System.Runtime.CompilerServices.Unsafe 6.1.2. Owner rebuilds.",
+  "checkpoint_commit": "3f3e93dff50a3a947e322fe675e5b306a6584f41",
+  "task": "Completed: Unsafe binding redirect correction",
+  "resume_instruction": "Session213 corrected plugins/CityManager/app.config to redirect System.Runtime.CompilerServices.Unsafe 0.0.0.0-6.0.3.0 -> 6.0.3.0, matching the resolved assembly from package 6.1.2. No runtime logic or package versions changed. Owner rebuilds and verifies the remap warning is gone.",
   "base_commit": "7acdd8dfabdc04e3a3000f5e1effa8371c6ea5e0"
 }
