@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 210,
+  "current_session": 211,
   "last_completed_session": 210,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-210-appdomain-accounting-owner",
-  "checkpoint_commit": "7e8dfdf344b7479ab1948d8e54c074626b20934a",
-  "task": "Completed: AppDomain-safe accounting ownership and shutdown abort handling",
-  "resume_instruction": "Session210 fixes the owner-log-proven cross-AppDomain accounting cancellation: transaction ownership/abandonment now uses unique AppDomain.Id, not FriendlyName. Intentional AppDomain ThreadAbort no longer becomes banker fault/relog noise in banking/ledger/update guard paths. Owner rebuilds/live tests; no data reset or audit required. Independent bounded PlayfieldDynelInfo rejection remains intentionally fail-safe. Session209 timing showed BUILD at +3.724s in this run.",
-  "base_commit": "053e145d0ca33aadb71e4cd1bde7c772c9402bdb"
+  "transaction": "session-211-activity-governor",
+  "checkpoint_commit": "5c5824fd4e4d2e7c1e508af105ea861b0a2f7ef1",
+  "task": "Add non-destructive on-demand activity governor for idle bankers",
+  "resume_instruction": "Keep all existing safety/recovery/audit code. AOSharp 64Hz remains. Gate heavy banker work: active ~16Hz, vegetative when provably idle; IPC/trade/reconnect wake immediately; no idle 250ms full ledger reconciliation; throttle idle report/tell polling. Source-only validation; owner builds/tests.",
+  "base_commit": "5c5824fd4e4d2e7c1e508af105ea861b0a2f7ef1"
 }
