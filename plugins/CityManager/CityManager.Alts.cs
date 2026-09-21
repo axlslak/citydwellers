@@ -1542,7 +1542,9 @@ namespace CityManager
                     RemoveName(group.RemovedCharacters, character);
                 }
 
-                RemoveName(target.RemovedCharacters, character);
+                // Preserve explicit manual removals. Observation updates the
+                // bot-seen set, while the existing override layer still decides
+                // the effective membership.
                 AddUnique(target.ObservedCharacters, character);
             }
 
