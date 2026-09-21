@@ -39,14 +39,13 @@ namespace CityDwellers.Shared
     public static class ServiceEvents
     {
         private static Router _router;
-        private static string _character, _role, _sourceStream;
+        private static string _character, _role;
         private static Func<int> _identity;
         public static void Start(string settings, string character, Func<int> identity,
             Action<string> warning, Action<ServiceEvent> managerSink = null)
         {
             var root = JObject.Parse(File.ReadAllText(Path.Combine(settings, "citydwellers.json")));
-            // MySQL event evidence is mandatory; Syslog.Enabled controls only
-            // the optional external forwarding performed by Manager.
+            // Events are bounded in-memory telemetry for optional external forwarding.
             var roles = (root["Bankers"]?["Roles"] as JObject)?.Properties().ToDictionary(
                 p => (string)p.Value["Character"], p => p.Name, StringComparer.OrdinalIgnoreCase)
                 ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -56,8 +55,6 @@ namespace CityDwellers.Shared
             if (managerSink != null) role = "manager";
             else if (!roles.TryGetValue(character, out role)) throw new InvalidDataException("Unknown banker event source.");
             _character = character; _role = role; _identity = identity;
-            string token = new string((character ?? "unknown").Select(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' ? c : '_').ToArray());
-            _sourceStream = Path.Combine(SettingsPaths.GetDataDirectory(settings), "service-events", "source-" + token + ".jsonl");
             _router = new Router(role, central, roles, warning, managerSink);
         }
 
@@ -72,12 +69,9 @@ namespace CityDwellers.Shared
                 var report = new ServiceEvent { Id = Guid.NewGuid().ToString("N"), TimeUtc = DateTime.UtcNow,
                     Character = _character, CharacterId = id, Role = _role, Event = name,
                     Severity = severity, Message = message, Data = data == null ? null : JObject.FromObject(data) };
-                // Preserve source evidence before bounded/optional relay. The same
-                // Id links the source record and Manager's eventual relayed copy.
-                SqlStore.AppendRuntimeLog(_sourceStream, JsonConvert.SerializeObject(report) + "\n");
                 router.Add(report);
             }
-            catch { /* Serialization/relay errors do not retry game effects; SQL loss is process-fatal. */ }
+            catch { /* Diagnostic logging/relay errors do not retry game effects. */ }
         }
 
         public static void Stop() { var router = _router; _router = null; router?.Dispose(); }
@@ -164,7 +158,7 @@ namespace CityDwellers.Shared
                         if (interval.ElapsedMilliseconds >= 30000)
                         {
                             long dropped = Interlocked.Exchange(ref _dropped, 0);
-                            if (dropped > 0) _warning("Event reporting queue full or report too large: " + dropped + " reports not queued; source SQL events retained.");
+                            if (dropped > 0) _warning("Event reporting queue full or report too large: " + dropped + " reports not queued.");
                             interval.Restart();
                         }
                         if (pending == null && !_queue.TryTake(out pending, 250, _stop.Token))
@@ -196,7 +190,7 @@ namespace CityDwellers.Shared
                         }
                         catch (Exception) when (!_stop.IsCancellationRequested)
                         {
-                            if (!failed) _warning("Event reporting waiting for " + (_role == "manager" ? "event log" : _role == "central" ? "Manager" : "Central") + "; source SQL events continue.");
+                            if (!failed) _warning("Event reporting waiting for " + (_role == "manager" ? "event log" : _role == "central" ? "Manager" : "Central") + ".");
                             failed = true;
                             await Task.Delay(2000, _stop.Token).ConfigureAwait(false);
                         }

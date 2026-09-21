@@ -1,21 +1,14 @@
-> Session 192 storage update: the catalogue and its binary index now live in
-> mandatory MySQL. The offline migration utility streams existing `items.json`
-> and every related file into SQL without changing their bytes. Names below are
-> logical SQL keys, not filesystem paths. No runtime data folder is used. See
-> [migration](MYSQL_MIGRATION.md).
+# Items catalogue on disk
 
-# Items catalogue in MySQL
-
-Before the first migration, ensure the original data directory contains the
-extracted `items.json` from the owner's tinkerparser `items.zip`. DataMigration
-imports it as the SQL document `items.json`; the running bot reads that document.
-Keep its bytes unchanged and do not commit the private dump. The supplied dump contains
+The catalogue is `data/items.json`, with its reusable binary index beside it.
+Keep the existing catalogue. If only its previous SQL copy exists, startup
+restores it without overwriting an existing disk file. DataMigration is retired.
+Do not commit the private catalogue dump. The supplied dump contains
 120,842 unique AOIDs in 445,001,349 bytes.
 
 The Manager loads in the background. Until ready, requests report loading or a
 useful error. Missing/invalid input is retried on demand after 30 seconds. After
-replacing a successfully loaded SQL source, restart the runtime. MySQL is the
-required backend; item lookups do not call an external item service.
+replacing a successfully loaded catalogue, restart the runtime. Item lookups do not call an external item service.
 
 ## Commands
 

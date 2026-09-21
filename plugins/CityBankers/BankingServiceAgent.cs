@@ -180,20 +180,8 @@ namespace CityBankers
         internal static void TraceRecovery(string reason, string recovery) =>
             _ipcOwner?.TraceTrade("recovery.requested", new { Reason = reason }, true, recovery);
 
-        private void TraceTrade(string stage, object detail, bool problem = false, string recovery = null)
-        {
-            try
-            {
-                var ids = new[] { _tradeTrace, _donationTransactionId, _activeBatch?.TransactionId,
-                    _workerCommand?.TransactionId, _withdrawal?.Id, _returnOffer?.Id,
-                    _storageJob?.Command?.TransactionId, _reservedDispatch?.TransactionId, _receipt?.TransactionId }
-                    .Concat(_pickupItems.Select(p => p.Id)).Where(id => !string.IsNullOrWhiteSpace(id)).Distinct();
-                foreach (string id in ids)
-                    CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
-                        id, Client.CharacterName, stage, detail, problem, new[] { recovery });
-            }
-            catch { /* Incident recording must not interrupt a trade. */ }
-        }
+        [System.Diagnostics.Conditional("CITYDWELLERS_RETIRED_INCIDENT_TRACING")]
+        private void TraceTrade(string stage, object detail, bool problem = false, string recovery = null) { }
 
         internal static bool QuiesceForCensus(string directory)
         {

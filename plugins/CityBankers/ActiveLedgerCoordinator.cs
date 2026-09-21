@@ -1022,31 +1022,8 @@ namespace CityBankers
                     .ToList();
                 CityDwellers.Shared.BankerSqlStore.SaveLedger(ledger);
                 LostItemsStore.ConfirmRemovals(settingsDir, remaining);
-                // Evidence describes the committed transition, including exact old
-                // and new locations. Unknown provenance is not an inferred loss time.
-                try
-                {
-                    var old = (previous?.Items ?? new List<ActiveLedgerItem>()).ToDictionary(i => i.Id);
-                    foreach (var missing in removed)
-                        CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(settingsDir),
-                            "ledger:" + missing.Id, "ledger", "ledger.claim-unmatched", new {
-                                Previous = missing, Reason = removalReason, Evidence = evidence,
-                                SameTemplateClaims = ledger.Items.Where(i => i.AoId == missing.AoId && i.HighId == missing.HighId && i.Ql == missing.Ql).ToList(),
-                                Note = "Same-template claims are comparison candidates, not proof that this occurrence was found." },
-                            true, new[] { missing.TransactionId, "recovery:" + evidence });
-                    foreach (var item in ledger.Items)
-                    {
-                        ActiveLedgerItem before;
-                        old.TryGetValue(item.Id, out before);
-                        if (JsonConvert.SerializeObject(before) == JsonConvert.SerializeObject(item)) continue;
-                        bool found = before == null && string.IsNullOrWhiteSpace(item.From);
-                        CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(settingsDir),
-                            "ledger:" + item.Id, "ledger", found ? "found.committed" : "ledger.committed",
-                            new { Before = before, After = item, Reason = removalReason, Evidence = evidence, CauseKnown = false },
-                            found, new[] { item.TransactionId, "recovery:" + evidence });
-                    }
-                }
-                catch { /* Observability cannot change a committed ledger. */ }
+                // Business history and lost/found above are authoritative.
+                // Do not serialize the whole ledger again for duplicate diagnostics.
             });
         }
 

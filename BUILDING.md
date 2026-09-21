@@ -13,7 +13,7 @@ AOSharp or AOSharp.Clientless source checkout.
 
 Open `citydwellers.sln`, select the `Release` configuration, and build the
 solution. Visual Studio restores the pinned dependencies from NuGet before it
-compiles the projects. The unified host, five plugins, and DataMigration utility build into one
+compiles the projects. The unified host and five plugins build into one
 portable runtime root:
 
 - `release` for a Release build;
@@ -30,8 +30,7 @@ msbuild citydwellers.sln -restore -property:Configuration=Release
 If automatic restore has been disabled, right-click the solution and select
 **Restore NuGet Packages** before building.
 
-Runtime dependency versions are maintained in `Directory.Build.props`; the standalone
-DataMigration project pins the same MySQL dependency versions without loading AO. Restored packages live in the developer's global NuGet
+Runtime dependency versions are maintained in `Directory.Build.props`. Restored packages live in the developer's global NuGet
 cache rather than in this repository or at a hard-coded filesystem path.
 
 ### AOSharp.Clientless GameData
@@ -51,8 +50,8 @@ external helper is used.
 The build copies GameData to `release\GameData` or `debug\GameData`. The
 `.dependencies` cache and compiled/static files in the runtime root are
 reproducible. Keep the administrator settings file when cleaning the runtime. Mutable state
-lives in MySQL. Before upgrading an existing installation, run the verified
-[one-time migration](docs/MYSQL_MIGRATION.md); do not delete its old `data` manually.
+lives in MySQL. Existing completed databases upgrade at startup; see
+[storage operations](docs/MYSQL_MIGRATION.md). Preserve existing data.
 
 ## Portable runtime layout
 
@@ -60,25 +59,23 @@ The output directory is the complete City Dwellers runtime and is independent
 of the Git checkout after it has been built. It may be a normal directory or a
 Windows directory link to durable storage.
 
-The deployed files are `CityDwellers.exe`, `DataMigration.exe`, the five plugin
+The deployed files are `CityDwellers.exe`, the five plugin
 DLLs, their dependencies, `citydwellers.json`, and immutable `GameData`,
-`NavMeshes`, and `Buffers` assets. **There is no runtime `data` directory.**
+`NavMeshes`, and `Buffers` assets. The `data` directory holds the catalogue, runtime log and requested diagnostic dumps.
 
 `citydwellers.json` is the administrator bootstrap configuration, including
 MySQL connection settings and the Manager, Flipper, Buddies, Bankers, Buffers,
 and time-gate settings. It remains beside the executable because connecting to
 SQL and signing bots in must be possible before reading mutable runtime state.
 
-Every mutable cache, generated list, queue, receipt, state snapshot, log,
-diagnostic dump and navigation trace is stored in MySQL. Legacy relative names
-such as `alts.json` identify SQL documents; they are no longer disk files.
-The runtime does not fall back to local storage. A completed migration is a
-startup requirement, and a lost SQL connection stops the host.
+Inventory and ledger items use relational MySQL tables. Other business state
+still uses the existing SQL document APIs. SQL loss stops the host.
+`data/items.json`, its index, `data/citydweller.log`, and requested dumps stay
+on disk. The presence of `data` is not a startup error.
 
-The host binds the runtime root before creating AOSharp child AppDomains so
-all components share the same configuration and database. Immutable game
-assets still load from the deployed installation. The old automatic file-layout
-migration has been removed; only DataMigration imports old runtime data.
+The host binds the runtime root before creating AOSharp child AppDomains.
+The old DataMigration utility is retired; do not run an old copy against the
+current database. No database reset or reimport is required.
 
 For an interactive Windows account that already has `Y:` connected, the
 runtime directory can be redirected before building:
@@ -102,11 +99,10 @@ the placeholder shared password and nine role mappings in `Bankers`, then start
 the program again. The host rejects unchanged examples before attempting to
 log in.
 
-Before starting bots, add the `MySql` section and run `DataMigration.exe` while
-the old bots are stopped. See [migration and SQL operations](docs/MYSQL_MIGRATION.md)
-for the exact commands, restart behavior, source cleanup, schema and indexes.
-A fresh installation also needs the utility to initialize and seal an empty
-store. LoginTry is retired; its measured result remains in project history.
+Keep the existing `MySql` configuration and completed database. Startup upgrades
+the schema and schedules cleanup of redundant import archives and disposable
+SQL diagnostics. See [storage operations](docs/MYSQL_MIGRATION.md). This build
+does not initialize a missing database or reconstruct donor history from inventory.
 
 Plugin DLLs are fixed parts of the unified runtime and are not administrator
 settings. Manager always loads `CityManager.dll`, Flipper always loads
@@ -130,10 +126,9 @@ character in until it receives an operation; Buddies starts zero helper AO
 sessions until Manager requests them. Press ENTER or CTRL+C to stop every
 component.
 
-Complete runtime diagnostics are written to SQL before console filtering,
-including when the executable runs without a visible desktop. There is no
-local log or rotation fallback. The SQL diagnostics guide provides indexed
-queries for streams, times, actors, events and transactions.
+Runtime diagnostics are written to `data/citydweller.log` before console
+filtering. Explicit `#dump` output is also on disk. Automatic incident archives
+and duplicate service-event persistence are removed; optional syslog remains.
 
 From an elevated console in the durable runtime directory:
 
@@ -157,7 +152,7 @@ the service path or settings; mapped drives belong to interactive logon
 sessions.
 
 Before starting Manager, Flipper, Buddies, or Bankers, the host verifies the
-mandatory MySQL schema, completed migration and exclusive runtime lease, then obtains independent UTC from the NTP servers in
+mandatory MySQL schema and exclusive runtime lease, then obtains independent UTC from the NTP servers in
 `citydwellers.json`. If the system clock differs by more than the configured
 limit, it asks Windows Time to rediscover/resynchronize and continues waiting
 with monotonic retry timing. AO components never see the pre-gate untrusted

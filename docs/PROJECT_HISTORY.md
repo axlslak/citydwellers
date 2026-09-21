@@ -1,3 +1,28 @@
+## Session 203 — remove redundant import archives and diagnostic amplification
+
+- Owner clarified the database has NOT been deleted. Preserve live business data;
+  no reconstruction/reset and no replacement archive or storage layer.
+- Retired DataMigration project, archive writer/readback/hash APIs and archive table
+  creation. Schema 3 admits completed older imports without requiring source deletion.
+  After successful relational upgrade, deferred cleanup drops the three redundant
+  migration tables and their old completion markers. Restart/partial cleanup retries
+  no longer depend on those tables. No original disk sources/backups are removed.
+- Removed automatic Manager incident scan/export every 30 seconds, incident snapshot
+  writes and per-ledger-item diagnostic serialization. Conditional tracing calls omit
+  argument construction. Duplicate service-event persistence is removed outright;
+  bounded telemetry relay/syslog and ordinary runtime logs remain.
+- Explicit disposable cleanup now includes transaction traces, service-event copies
+  and obsolete ledger/stock source documents. Live relational inventory, donors,
+  meaningful history, custody/unresolved receipts, lost/found, settings, pending tells
+  and current-host census coordination remain. No audit/recovery policy changes.
+- Updated deployment/schema/storage docs. No importer, reimport or DB reset required.
+- Limitation: other business state STILL uses live SQL documents/chunks. This is
+  removal of redundant archives and amplification, not a completed removal of the
+  entire live filesystem abstraction. That broader owner goal remains outstanding.
+- Validation: source/dependency review, project XML and Git whitespace checks only.
+  No compilation, test suite, live SQL or AO operation; owner-run build/runtime proof
+  and measured storage/latency improvement remain unverified.
+
 ## Session 202 — dispatch acknowledgement starvation and false inventory hold
 
 - Owner log confirms session201 startup fix: all nine bankers completed initial

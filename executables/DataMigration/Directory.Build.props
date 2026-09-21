@@ -1,4 +1,0 @@
-<Project>
-  <!-- Offline utility: do not inherit AO/gameplay sources or dependencies.
-       PackageReference restore is declared explicitly in DataMigration.csproj. -->
-</Project>

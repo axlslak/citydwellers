@@ -20,11 +20,10 @@ namespace CityDwellers.Shared
         private const string RuntimeFlag = "CITYDWELLERS_MYSQL_RUNTIME_ACTIVE";
         private static readonly object InitializationSync = new object();
         private static string _connectionString, _runtimeRoot, _dataRoot, _leaseName, _writerName;
-        private static bool _initialized, _migration;
+        private static bool _initialized;
         private static MySqlConnection _lease;
         private static Timer _heartbeat;
         private static int _heartbeatBusy;
-        private static Exception _leaseFailure;
         [ThreadStatic] private static DbContext _context;
 
         internal sealed class DbContext
@@ -35,31 +34,20 @@ namespace CityDwellers.Shared
             internal readonly List<Action> AfterCommit = new List<Action>();
         }
 
-        public sealed class MigrationFile
-        {
-            public string Path { get; set; }
-            public string OriginalPath { get; set; }
-            public long Length { get; set; }
-            public DateTime ModifiedUtc { get; set; }
-            public string Sha256 { get; set; }
-            public bool Archived { get; set; }
-            public bool SourceDeleted { get; set; }
-        }
-
         public static string GetDataDirectory(string runtimeRoot)
         {
             if (string.IsNullOrWhiteSpace(runtimeRoot)) throw new ArgumentException("Runtime root is required.", nameof(runtimeRoot));
             return System.IO.Path.Combine(System.IO.Path.GetFullPath(runtimeRoot), "data");
         }
 
-        public static void Initialize(string runtimeRoot, bool migration = false)
+        public static void Initialize(string runtimeRoot)
         {
             lock (InitializationSync)
             {
                 string root = System.IO.Path.GetFullPath(runtimeRoot).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
                 if (_initialized)
                 {
-                    if (!string.Equals(_runtimeRoot, root, StringComparison.OrdinalIgnoreCase) || migration != _migration)
+                    if (!string.Equals(_runtimeRoot, root, StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException("A database boundary cannot change runtime root or mode after initialization.");
                     return;
                 }
@@ -88,7 +76,6 @@ namespace CityDwellers.Shared
                         DateTimeKind = MySqlDateTimeKind.Utc
                     };
                     _runtimeRoot = root; _dataRoot = GetDataDirectory(root); _connectionString = builder.ConnectionString;
-                    _migration = migration;
                     string identity = HashText(database.ToLowerInvariant()).Substring(0, 40);
                     _leaseName = "citydwellers.host." + identity;
                     _writerName = "citydwellers.write." + identity;
@@ -103,19 +90,9 @@ namespace CityDwellers.Shared
                         using (var packet = new MySqlCommand("SELECT @@max_allowed_packet", connection))
                             if (Convert.ToInt64(packet.ExecuteScalar()) < 32L * 1024 * 1024)
                                 throw new InvalidOperationException("MySQL max_allowed_packet must be at least 33554432 (32 MiB) for bounded state JSON projections.");
-                        if (migration)
-                        {
-                            TakeLease();
-                            SqlSchema.Create(connection);
-                            string existing = Meta(connection, null, "schema_version");
-                            if (existing != null && existing != "1" && existing != SqlSchema.Version.ToString(CultureInfo.InvariantCulture))
-                                throw new InvalidOperationException("The database schema version is incompatible with this executable.");
-                            SetMeta(connection, null, "schema_version", SqlSchema.Version.ToString(CultureInfo.InvariantCulture));
-                        }
-                        else CheckRuntimeReady(connection, null);
+                        CheckRuntimeReady(connection, null);
                     }
                     _initialized = true;
-                    if (migration) StartHeartbeat();
                 }
                 catch (Exception ex)
                 {
@@ -139,7 +116,6 @@ namespace CityDwellers.Shared
         {
             if (_initialized)
             {
-                if (_leaseFailure != null) throw new DatabaseUnavailableException("The migration process lost its MySQL lease; rerun DataMigration.");
                 return;
             }
             string root = Environment.GetEnvironmentVariable("CITYDWELLERS_RUNTIME_ROOT");
@@ -149,12 +125,14 @@ namespace CityDwellers.Shared
         private static void CheckRuntimeReady(MySqlConnection connection, MySqlTransaction transaction)
         {
             string version = Meta(connection, transaction, "schema_version");
-            if (version != SqlSchema.Version.ToString(CultureInfo.InvariantCulture) && !(version == "1" && !IsRuntimeActive))
+            if (version != SqlSchema.Version.ToString(CultureInfo.InvariantCulture) &&
+                !((version == "1" || version == "2") && !IsRuntimeActive))
                 throw new InvalidOperationException("MySQL schema is absent or incompatible with this build.");
+            if (version == SqlSchema.Version.ToString(CultureInfo.InvariantCulture)) return;
+            // Older installations must have finished their original import. The
+            // current schema has no archive dependency and never recreates one.
             string completed = Meta(connection, transaction, "completed_run_id");
-            if (string.IsNullOrEmpty(completed)) throw new InvalidOperationException("MySQL migration has not completed. Run DataMigration first.");
-            if (Meta(connection, transaction, "cleanup_completed_run_id") != completed)
-                throw new InvalidOperationException("MySQL migration source cleanup is not complete. Rerun DataMigration before starting bots.");
+            if (string.IsNullOrEmpty(completed)) throw new InvalidOperationException("The existing database has no completed import; refusing to discard an incomplete source archive.");
             using (var command = Command(connection, transaction, "SELECT COUNT(*) FROM cd_migration_runs WHERE run_id=@id AND completed_utc IS NOT NULL AND inventory_staged=1", "@id", completed))
                 if (Convert.ToInt64(command.ExecuteScalar()) != 1) throw new InvalidDataException("MySQL migration seal is inconsistent.");
         }
@@ -164,7 +142,6 @@ namespace CityDwellers.Shared
             EnsureInitialized();
             lock (InitializationSync)
             {
-                if (_migration) throw new InvalidOperationException("The migration utility cannot start bot runtime.");
                 if (_lease != null) return;
                 TakeLease();
                 try { CheckRuntimeReady(_lease, null); BankerSqlStore.Upgrade(); RestoreDiskCatalog(); }
@@ -181,7 +158,7 @@ namespace CityDwellers.Shared
         {
             physical = null;
             string key;
-            if (_migration || !TryKey(path, out key)) return false;
+            if (!TryKey(path, out key)) return false;
             if (!DiskKey(key)) return false;
             physical = LogicalPath(key == "citydwellers.log" ? "citydweller.log" : key);
             return true;
@@ -260,10 +237,15 @@ namespace CityDwellers.Shared
             string disposable = "(path LIKE 'startup-census/%' AND path NOT LIKE @current)" +
                 " OR path LIKE 'diagnostic-dumps/%' OR path LIKE 'incident-dumps/%'" +
                 " OR path LIKE 'navigationtraces/%' OR path LIKE 'logs/%'" +
+                " OR path LIKE 'transaction-traces/%' OR path LIKE 'service-events/%'" +
+                " OR path='citydwellers-events.jsonl'" +
                 " OR (path NOT LIKE '%/%' AND (path LIKE '%.log' OR path LIKE '%.log.%'))" +
                 " OR (path LIKE 'tell-queue/acknowledgements/%' AND modified_utc < @cutoff)";
             if (DiskCatalogRestored("items.json")) disposable += " OR path='items.json'";
             if (DiskCatalogRestored("items.json.index-v1.bin")) disposable += " OR path='items.json.index-v1.bin'";
+            // The relational upgrade has already completed before this timer starts.
+            // These are obsolete source copies, never the current item rows.
+            disposable += " OR path='ledger.json' OR path='current-stock.json'";
             object[] parameters = { "@current", "startup-census/" + generation + "/%", "@cutoff", DateTime.UtcNow.AddDays(-1) };
             // Dedicated connection, short transactions, no global gameplay writer lock.
             using (var connection = NewConnection())
@@ -279,22 +261,16 @@ namespace CityDwellers.Shared
                     }
                     if (removed == 0) break;
                 }
-                // Remove only matching obsolete archive entries, never the business archives.
-                for (int batch = 0; batch < 5000; batch++)
-                {
-                    var ids = new List<long>();
-                    using (var command = Command(connection, null,
-                        "SELECT migration_file_id FROM cd_migration_files WHERE archived=1 AND source_deleted=1 AND (" + disposable + ") LIMIT 20", parameters))
-                    using (var reader = command.ExecuteReader()) while (reader.Read()) ids.Add(reader.GetInt64(0));
-                    if (ids.Count == 0) break;
-                    string selected = string.Join(",", ids.Select(id => id.ToString(CultureInfo.InvariantCulture)));
-                    using (var transaction = connection.BeginTransaction())
-                    {
-                        using (var command = Command(connection, transaction, "DELETE FROM cd_migration_chunks WHERE migration_file_id IN (" + selected + ")")) command.ExecuteNonQuery();
-                        using (var command = Command(connection, transaction, "DELETE FROM cd_migration_files WHERE migration_file_id IN (" + selected + ")")) command.ExecuteNonQuery();
-                        transaction.Commit();
-                    }
-                }
+                // The completed import already produced the live records. Drop
+                // its duplicate byte store outright; no copy, replay or rehash.
+                // Child first for the legacy foreign keys. These tables have no
+                // runtime readers in schema 3. IF EXISTS makes retries harmless.
+                foreach (string table in new[] { "cd_migration_chunks", "cd_migration_files", "cd_migration_runs" })
+                    using (var command = Command(connection, null, "DROP TABLE IF EXISTS " + table))
+                        command.ExecuteNonQuery();
+                using (var command = Command(connection, null,
+                    "DELETE FROM cd_meta WHERE meta_key IN ('completed_run_id','cleanup_completed_run_id','source_preserved_run_id','active_run_id')"))
+                    command.ExecuteNonQuery();
                 using (var command = Command(connection, null,
                     "DELETE FROM cd_directories WHERE path LIKE 'startup-census/%' AND path NOT LIKE @current AND path<>@root",
                     "@current", "startup-census/" + generation + "/%", "@root", "startup-census/" + generation)) command.ExecuteNonQuery();
@@ -313,7 +289,7 @@ namespace CityDwellers.Shared
                     command.Parameters.AddWithValue("@name", _leaseName);
                     object result = command.ExecuteScalar();
                     if (result == null || result == DBNull.Value || Convert.ToInt32(result) != 1)
-                        throw new InvalidOperationException("This MySQL database is already in use by a bot host or migration utility. Stop that process first.");
+                        throw new InvalidOperationException("This MySQL database is already in use by a bot host. Stop that process first.");
                 }
                 _lease = connection;
             }
@@ -338,8 +314,7 @@ namespace CityDwellers.Shared
                 }
                 catch (Exception ex)
                 {
-                    if (_migration) Interlocked.CompareExchange(ref _leaseFailure, ex, null);
-                    else FailClosed("MySQL heartbeat or exclusive process lease failed.", ex);
+                    FailClosed("MySQL heartbeat or exclusive process lease failed.", ex);
                 }
                 finally { Volatile.Write(ref _heartbeatBusy, 0); }
             }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
@@ -518,7 +493,6 @@ namespace CityDwellers.Shared
                 context.Transaction = context.Connection.BeginTransaction(System.Data.IsolationLevel.ReadCommitted);
                 _context = context;
                 T result = action(context);
-                if (_leaseFailure != null) throw new DatabaseUnavailableException("The migration process lost its MySQL lease before commit.");
                 if (context.RollbackOnly) throw new DatabaseUnavailableException("The persistence transaction was marked rollback-only by a failed nested operation.");
                 context.Transaction.Commit();
                 foreach (Action committed in context.AfterCommit) committed();
@@ -624,257 +598,11 @@ namespace CityDwellers.Shared
 
         internal static string LogicalPath(string key) { EnsureInitialized(); return System.IO.Path.Combine(_dataRoot, key.Replace('/', System.IO.Path.DirectorySeparatorChar)); }
         public static string DescribePath(string path) { string disk; return DiskPath(path, out disk) ? disk : "mysql:" + Key(path); }
-        internal static string OriginalRelativePath(string path)
-        {
-            Key(path);
-            return (System.IO.Path.IsPathRooted(path) ? System.IO.Path.GetFullPath(path).Substring(_dataRoot.Length).TrimStart('\\', '/') : path).Replace('\\', '/');
-        }
-
         internal static string HashText(string value)
         {
             using (var hash = SHA256.Create()) return Hex(hash.ComputeHash(Encoding.UTF8.GetBytes(value)));
         }
         internal static string Hex(byte[] hash) { return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant(); }
-
-        public static string ComputeDocumentSha256(string path)
-        {
-            using (Stream stream = SqlFile.OpenRead(path))
-            using (var hash = SHA256.Create()) return Hex(hash.ComputeHash(stream));
-        }
-
-        private static void RequireMigration() { EnsureInitialized(); if (!_migration) throw new InvalidOperationException("This operation is only available to the offline migration utility."); }
-
-        public static string BeginMigration()
-        {
-            RequireMigration();
-            return Execute(true, context =>
-            {
-                string completed = Meta(context.Connection, context.Transaction, "completed_run_id");
-                if (!string.IsNullOrEmpty(completed)) return completed;
-                string active = Meta(context.Connection, context.Transaction, "active_run_id");
-                if (!string.IsNullOrEmpty(active)) return active;
-                string id = Guid.NewGuid().ToString("N");
-                using (var command = Command(context, "INSERT INTO cd_migration_runs(run_id,started_utc) VALUES(@id,UTC_TIMESTAMP(6))", "@id", id)) command.ExecuteNonQuery();
-                SetMeta(context.Connection, context.Transaction, "active_run_id", id);
-                return id;
-            });
-        }
-
-        public static bool GetMigrationCompleted() { return !string.IsNullOrEmpty(GetCompletedMigrationRunId()); }
-        public static string GetCompletedMigrationRunId()
-        {
-            return Execute(false, context => Meta(context.Connection, context.Transaction, "completed_run_id"));
-        }
-
-        private static void RequireUnsealed(DbContext context, string runId)
-        {
-            if (!string.IsNullOrEmpty(Meta(context.Connection, context.Transaction, "completed_run_id")))
-                throw new InvalidOperationException("The migration is already sealed; live state and original archives cannot be imported again.");
-            using (var command = Command(context, "SELECT COUNT(*) FROM cd_migration_runs WHERE run_id=@id AND completed_utc IS NULL", "@id", runId))
-                if (Convert.ToInt64(command.ExecuteScalar()) != 1) throw new InvalidOperationException("The migration run does not exist or is sealed.");
-        }
-
-        public static void BindMigrationSource(string runId, string canonicalFullSourceRoot)
-        {
-            RequireMigration();
-            string root = System.IO.Path.GetFullPath(canonicalFullSourceRoot).TrimEnd('\\', '/');
-            Execute(true, context =>
-            {
-                using (var select = Command(context, "SELECT source_root FROM cd_migration_runs WHERE run_id=@id", "@id", runId))
-                {
-                    object existing = select.ExecuteScalar();
-                    if (existing == null) throw new InvalidOperationException("Migration run is missing.");
-                    if (existing != DBNull.Value)
-                    {
-                        if (!string.Equals((string)existing, root, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("The migration is bound to a different physical source root.");
-                        return 0;
-                    }
-                }
-                RequireUnsealed(context, runId);
-                using (var command = Command(context, "UPDATE cd_migration_runs SET source_root=@root WHERE run_id=@id", "@id", runId, "@root", root)) command.ExecuteNonQuery();
-                return 0;
-            });
-        }
-
-        public static string GetMigrationSourceRoot(string runId)
-        {
-            return Execute(false, context => { using (var command = Command(context, "SELECT source_root FROM cd_migration_runs WHERE run_id=@id", "@id", runId)) { object value = command.ExecuteScalar(); return value == null || value == DBNull.Value ? null : (string)value; } });
-        }
-
-        public static bool HasMigrationInventory(string runId)
-        {
-            return Execute(false, context => { using (var command = Command(context, "SELECT inventory_staged FROM cd_migration_runs WHERE run_id=@id", "@id", runId)) return Convert.ToBoolean(command.ExecuteScalar()); });
-        }
-
-        public static void StageMigrationInventory(string runId, IEnumerable<MigrationFile> files)
-        {
-            RequireMigration();
-            if (files == null) throw new ArgumentNullException(nameof(files));
-            var inventory = files.ToList();
-            Execute(true, context =>
-            {
-                RequireUnsealed(context, runId);
-                if (HasMigrationInventory(runId)) throw new InvalidOperationException("The immutable migration inventory is already staged.");
-                if (string.IsNullOrEmpty(GetMigrationSourceRoot(runId))) throw new InvalidOperationException("Bind the physical source root before staging inventory.");
-                var seen = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var file in inventory)
-                {
-                    string key = Key(file.Path ?? file.OriginalPath);
-                    if (key.Length == 0 || !seen.Add(key) || file.Length < 0 || file.Sha256 == null || file.Sha256.Length != 64 || file.Sha256.Any(c => !Uri.IsHexDigit(c)))
-                        throw new InvalidDataException("Migration inventory contains invalid metadata or colliding case-insensitive paths.");
-                    string original = file.OriginalPath ?? OriginalRelativePath(file.Path);
-                    if (Key(original) != key) throw new InvalidDataException("Original migration path does not match its canonical key.");
-                    using (var command = Command(context, "INSERT INTO cd_migration_files(run_id,path,original_path,byte_length,modified_utc,sha256) VALUES(@run,@path,@original,@length,@modified,@hash)",
-                        "@run", runId, "@path", key, "@original", original, "@length", file.Length, "@modified", file.ModifiedUtc.ToUniversalTime(), "@hash", file.Sha256.ToLowerInvariant())) command.ExecuteNonQuery();
-                }
-                using (var command = Command(context, "UPDATE cd_migration_runs SET inventory_staged=1,last_error=NULL WHERE run_id=@id", "@id", runId)) command.ExecuteNonQuery();
-                return 0;
-            });
-        }
-
-        public static List<MigrationFile> GetMigrationInventory(string runId) { return GetMigrationFiles(runId); }
-        public static List<MigrationFile> GetMigrationFiles(string runId)
-        {
-            return Execute(false, context =>
-            {
-                var files = new List<MigrationFile>();
-                using (var command = Command(context, "SELECT path,original_path,byte_length,modified_utc,sha256,archived,source_deleted FROM cd_migration_files WHERE run_id=@id ORDER BY path", "@id", runId))
-                using (var reader = command.ExecuteReader()) while (reader.Read()) files.Add(new MigrationFile {
-                    Path = reader.GetString(0), OriginalPath = reader.GetString(1), Length = reader.GetInt64(2), ModifiedUtc = DateTime.SpecifyKind(reader.GetDateTime(3), DateTimeKind.Utc),
-                    Sha256 = reader.GetString(4), Archived = reader.GetBoolean(5), SourceDeleted = reader.GetBoolean(6) });
-                return files;
-            });
-        }
-
-        public static MigrationFile ImportMigrationFile(string runId, string path, Stream source, DateTime modifiedUtc)
-        {
-            RequireMigration();
-            if (source == null || !source.CanRead) throw new ArgumentException("A readable migration source stream is required.", nameof(source));
-            string key = Key(path);
-            return Execute(true, context =>
-            {
-                RequireUnsealed(context, runId);
-                long archiveId; MigrationFile expected;
-                using (var command = Command(context, "SELECT migration_file_id,original_path,byte_length,modified_utc,sha256,archived FROM cd_migration_files WHERE run_id=@run AND path=@path", "@run", runId, "@path", key))
-                using (var reader = command.ExecuteReader())
-                {
-                    if (!reader.Read()) throw new InvalidDataException("The source file is not in the immutable staged migration inventory: " + key);
-                    archiveId = reader.GetInt64(0);
-                    expected = new MigrationFile { Path = key, OriginalPath = reader.GetString(1), Length = reader.GetInt64(2), ModifiedUtc = DateTime.SpecifyKind(reader.GetDateTime(3), DateTimeKind.Utc), Sha256 = reader.GetString(4), Archived = reader.GetBoolean(5) };
-                }
-                if (expected.Archived)
-                {
-                    using (var hash = SHA256.Create())
-                    {
-                        long count = 0; var buffer = new byte[ChunkSize]; int read;
-                        while ((read = source.Read(buffer, 0, buffer.Length)) != 0) { hash.TransformBlock(buffer, 0, read, null, 0); count += read; }
-                        hash.TransformFinalBlock(new byte[0], 0, 0);
-                        if (count != expected.Length || Hex(hash.Hash) != expected.Sha256) throw new InvalidDataException("Source content changed since the immutable inventory was staged: " + key);
-                    }
-                    return expected;
-                }
-                long document = SqlFile.CreateEmpty(context, key, expected.ModifiedUtc, true);
-                var bytes = new byte[ChunkSize]; long length = 0, chunk = 0;
-                using (var hash = SHA256.Create())
-                using (var projection = new SqlFile.ProjectionWriter(context, document, key))
-                {
-                    int read;
-                    while ((read = source.Read(bytes, 0, bytes.Length)) != 0)
-                    {
-                        hash.TransformBlock(bytes, 0, read, null, 0);
-                        byte[] part = read == bytes.Length ? bytes : bytes.Take(read).ToArray();
-                        SqlFile.InsertChunk(context, document, chunk, length, part);
-                        using (var command = Command(context, "INSERT INTO cd_migration_chunks(migration_file_id,chunk_no,byte_offset,content) VALUES(@id,@chunk,@offset,@bytes)",
-                            "@id", archiveId, "@chunk", chunk, "@offset", length, "@bytes", part)) command.ExecuteNonQuery();
-                        projection.Feed(part, 0, read);
-                        length += read; chunk++;
-                    }
-                    hash.TransformFinalBlock(new byte[0], 0, 0);
-                    if (length != expected.Length || Hex(hash.Hash) != expected.Sha256) throw new InvalidDataException("Source content changed since the immutable inventory was staged: " + key);
-                    projection.Complete(length, chunk, expected.ModifiedUtc);
-                }
-                using (var command = Command(context, "UPDATE cd_migration_files SET archived=1 WHERE migration_file_id=@id", "@id", archiveId)) command.ExecuteNonQuery();
-                expected.Archived = true;
-                return expected;
-            });
-        }
-
-        public static string ComputeMigrationFileSha256(string runId, string path)
-        {
-            RequireMigration(); string key = Key(path);
-            return Execute(false, context =>
-            {
-                long id;
-                using (var command = Command(context, "SELECT migration_file_id FROM cd_migration_files WHERE run_id=@run AND path=@path AND archived=1", "@run", runId, "@path", key))
-                {
-                    object value = command.ExecuteScalar(); if (value == null) throw new FileNotFoundException("The source archive is not complete: " + key); id = Convert.ToInt64(value);
-                }
-                using (var hash = SHA256.Create())
-                using (var command = Command(context, "SELECT content FROM cd_migration_chunks WHERE migration_file_id=@id ORDER BY chunk_no", "@id", id))
-                using (var reader = command.ExecuteReader(System.Data.CommandBehavior.SequentialAccess))
-                {
-                    var buffer = new byte[ChunkSize];
-                    while (reader.Read())
-                    {
-                        long offset = 0; long count;
-                        while ((count = reader.GetBytes(0, offset, buffer, 0, buffer.Length)) > 0) { hash.TransformBlock(buffer, 0, (int)count, null, 0); offset += count; }
-                    }
-                    hash.TransformFinalBlock(new byte[0], 0, 0); return Hex(hash.Hash);
-                }
-            });
-        }
-
-        public static void CompleteMigration(string runId)
-        {
-            RequireMigration();
-            Execute(true, context =>
-            {
-                string complete = Meta(context.Connection, context.Transaction, "completed_run_id");
-                if (complete == runId) return 0;
-                RequireUnsealed(context, runId);
-                if (!HasMigrationInventory(runId)) throw new InvalidOperationException("The source inventory was never staged.");
-                using (var command = Command(context, "SELECT COUNT(*) FROM cd_migration_files WHERE run_id=@run AND archived=0", "@run", runId))
-                    if (Convert.ToInt64(command.ExecuteScalar()) != 0) throw new InvalidOperationException("Migration cannot seal while source files remain unarchived.");
-                using (var command = Command(context, "UPDATE cd_migration_runs SET completed_utc=UTC_TIMESTAMP(6),last_error=NULL WHERE run_id=@run", "@run", runId)) command.ExecuteNonQuery();
-                SetMeta(context.Connection, context.Transaction, "completed_run_id", runId);
-                return 0;
-            });
-        }
-
-        public static void MarkMigrationSourceDeleted(string runId, string path)
-        {
-            RequireMigration(); string key = Key(path);
-            Execute(true, context =>
-            {
-                if (Meta(context.Connection, context.Transaction, "completed_run_id") != runId) throw new InvalidOperationException("Source deletion must follow a sealed migration.");
-                using (var command = Command(context, "UPDATE cd_migration_files SET source_deleted=1 WHERE run_id=@run AND path=@path AND archived=1", "@run", runId, "@path", key))
-                    if (command.ExecuteNonQuery() != 1) throw new InvalidDataException("Cannot mark an absent or unarchived source as deleted.");
-                return 0;
-            });
-        }
-
-        public static void MarkMigrationSourcePreserved(string runId)
-        {
-            RequireMigration();
-            Execute(true, context =>
-            {
-                if (Meta(context.Connection, context.Transaction, "completed_run_id") != runId)
-                    throw new InvalidOperationException("Source preservation must follow a sealed migration.");
-                using (var command = Command(context, "SELECT COUNT(*) FROM cd_migration_files WHERE run_id=@run AND archived=0", "@run", runId))
-                    if (Convert.ToInt64(command.ExecuteScalar()) != 0) throw new InvalidOperationException("Migration has unarchived files.");
-                SetMeta(context.Connection, context.Transaction, "source_preserved_run_id", runId);
-                // Compatibility key now means migration is ready, not permission to delete disk data.
-                SetMeta(context.Connection, context.Transaction, "cleanup_completed_run_id", runId);
-                using (var command = Command(context, "UPDATE cd_migration_runs SET last_error=NULL WHERE run_id=@run", "@run", runId)) command.ExecuteNonQuery();
-                return 0;
-            });
-        }
-
-        public static void AbortMigration(string runId, string error)
-        {
-            RequireMigration();
-            Execute(true, context => { using (var command = Command(context, "UPDATE cd_migration_runs SET last_error=@error WHERE run_id=@run", "@run", runId, "@error", error == null ? null : error.Substring(0, Math.Min(error.Length, 16000)))) command.ExecuteNonQuery(); return 0; });
-        }
 
         internal static DbContext CurrentContext { get { return _context; } }
     }

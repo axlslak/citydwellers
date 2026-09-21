@@ -98,10 +98,6 @@ namespace CityManager
                                 " · Transaction " + (item["TransactionId"]?.ToString() ?? "unknown"), "#AAB8C5")).Append("\n");
                         if (lost && !string.IsNullOrWhiteSpace(row.Item2.Evidence))
                             body.Append("  ").Append(BookkeepingColor(row.Item2.Evidence, "#AAB8C5")).Append("\n");
-                        string incident = CityDwellers.Shared.IncidentJournal.Id(lost ?
-                            "lost:" + row.Item2.IncidentId : "ledger:" + (string)item["Id"]);
-                        body.Append("  ").Append(HelpMenuLine(target, "dump " + incident, "Incident evidence",
-                            "Available for events recorded after incident tracing was installed.")).Append("\n");
                         body.Append("\n");
                     }
                     Reply(target, BuildBlobLinks(target, title, "View " + title.ToLowerInvariant(), body.ToString())

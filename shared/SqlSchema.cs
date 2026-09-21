@@ -5,7 +5,7 @@ namespace CityDwellers.Shared
     /// <summary>The authoritative versioned MySQL schema. See docs/mysql-schema.sql for all indexes.</summary>
     public static class SqlSchema
     {
-        public const int Version = 2;
+        public const int Version = 3;
         public static readonly string[] Statements =
         {
             @"CREATE TABLE IF NOT EXISTS cd_meta (
@@ -68,41 +68,6 @@ namespace CityDwellers.Shared
                 KEY ix_event_lines_problem (problem,occurred_utc),
                 CONSTRAINT fk_event_lines_document FOREIGN KEY (document_id)
                     REFERENCES cd_documents(document_id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin",
-            @"CREATE TABLE IF NOT EXISTS cd_migration_runs (
-                run_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
-                source_root TEXT NULL,
-                inventory_staged TINYINT(1) NOT NULL DEFAULT 0,
-                started_utc DATETIME(6) NOT NULL,
-                completed_utc DATETIME(6) NULL,
-                last_error TEXT NULL,
-                KEY ix_migration_runs_completed (completed_utc,started_utc)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin",
-            @"CREATE TABLE IF NOT EXISTS cd_migration_files (
-                migration_file_id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                run_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-                path VARCHAR(640) NOT NULL,
-                original_path TEXT NOT NULL,
-                byte_length BIGINT NOT NULL,
-                modified_utc DATETIME(6) NOT NULL,
-                sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-                archived TINYINT(1) NOT NULL DEFAULT 0,
-                source_deleted TINYINT(1) NOT NULL DEFAULT 0,
-                UNIQUE KEY ux_migration_files_run_path (run_id,path),
-                KEY ix_migration_files_progress (run_id,archived,source_deleted),
-                KEY ix_migration_files_sha256 (sha256),
-                CONSTRAINT fk_migration_files_run FOREIGN KEY (run_id)
-                    REFERENCES cd_migration_runs(run_id)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin",
-            @"CREATE TABLE IF NOT EXISTS cd_migration_chunks (
-                migration_file_id BIGINT NOT NULL,
-                chunk_no BIGINT NOT NULL,
-                byte_offset BIGINT NOT NULL,
-                content MEDIUMBLOB NOT NULL,
-                PRIMARY KEY (migration_file_id,chunk_no),
-                UNIQUE KEY ux_migration_chunks_offset (migration_file_id,byte_offset),
-                CONSTRAINT fk_migration_chunks_file FOREIGN KEY (migration_file_id)
-                    REFERENCES cd_migration_files(migration_file_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin"
         };
 

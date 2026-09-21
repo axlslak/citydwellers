@@ -998,29 +998,7 @@ namespace CityManager
         {
             if (parts.Length == 2)
             {
-                ThreadPool.QueueUserWorkItem(_ =>
-                {
-                    try
-                    {
-                        if (string.Equals(parts[1], "incidents", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var incidents = CityDwellers.Shared.IncidentJournal.Recent(_dataDir);
-                            var body = new StringBuilder("Recent transaction incidents (UTC)\n\n");
-                            foreach (var incident in incidents)
-                                body.Append(EscapeBlobText(incident.UpdatedUtc.ToString("O") + " " + incident.Trace))
-                                    .Append("\n").Append(HelpMenuLine(target, "dump " + incident.Id, incident.Id, "Export this incident and related evidence.")).Append("\n");
-                            if (incidents.Count == 0) body.Append("No incidents recorded yet.");
-                            Reply(target, BuildBlobLinks(target, "Transaction incidents", "View incidents", body.ToString()));
-                        }
-                        else
-                        {
-                            string path = CityDwellers.Shared.IncidentJournal.Export(_dataDir, parts[1]);
-                            Reply(target, BuildBlobLinks(target, "Incident dump", "SQL snapshot ready",
-                                "Transaction evidence saved in MySQL under key:\n" + EscapeBlobText(path)));
-                        }
-                    }
-                    catch (Exception ex) { Reply(target, "Incident dump unavailable: " + ex.Message); }
-                });
+                Reply(target, "Automatic incident archives were removed. Use #dump or the runtime log.");
                 return;
             }
             if (parts.Length != 1)

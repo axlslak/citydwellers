@@ -175,3 +175,17 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
   remains untouched. Cleanup is an explicit disposable-category allowlist.
 - Fast normal startup and working banking/trading are the priority; not historical
   audit replay, checksums or catalogue redesign.
+
+## Owner simplification correction — session 203
+
+- Database still exists; owner explicitly corrected the earlier deletion statement.
+  Preserve business state. Do not reset or reconstruct it from inventory.
+- Remove redundant import archives, not move them into another chunk store or
+  disk archive. DataMigration is retired; schema 3 no longer needs its tables.
+- No automatic incident snapshot/export loop or duplicate service-event persistence.
+  Normal disk runtime logs and explicit dumps remain permitted. Optional syslog remains.
+- Existing relational ledger/stock and history, custody, lost/found, settings and
+  pending messages remain intact. Cleanup uses an explicit disposable allowlist.
+- Live SQL document/chunk APIs still exist for other business state. Do not claim
+  the entire SQL filesystem has been removed. Continue simplification by replacing
+  concrete domain dependencies, never by deleting required state or adding archives.
