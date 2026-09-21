@@ -907,9 +907,6 @@ namespace CityManager
                     now >= _onlineSnapshotResponse.UpdatedUtc.AddSeconds(
                         PassiveAltResponseTimeoutSeconds))
                 {
-                    foreach (string main in _onlineSnapshotResponse.Groups.Keys)
-                        verifyMains.Add(main);
-
                     DevTrace(
                         $"ALTS ONLINE {_altsBotName} snapshot expired after " +
                         $"{_onlineSnapshotResponse.Pages.Count}/" +
@@ -917,10 +914,10 @@ namespace CityManager
 
                     _onlineSnapshotResponse = null;
 
-                    // If the incomplete snapshot came from org chat during startup,
-                    // the planned one-time private online request is still warranted.
-                    // If that private request itself was already queued, do not spam
-                    // another online request; targeted main verification below is enough.
+                    // A broken online snapshot does not fan out into per-main
+                    // tells. During startup, the single planned private online
+                    // request is enough; if that request was already sent, keep
+                    // the partial positive evidence and stop there.
                     if (_startupOnlineSnapshotPending)
                     {
                         if (_startupOnlineRequestQueued)
