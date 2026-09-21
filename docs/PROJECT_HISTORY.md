@@ -3164,3 +3164,35 @@ Both findings come from a 112-agent adversarial sweep over six lenses; 21 findin
 - Validation: owner full-log correlation, exact transaction begin/abandon call
   search, changed-source delimiter checks and source/call-path review. No
   assistant compilation, test suite, live SQL or AO run; owner rebuilds/tests.
+
+## Session 211 — on-demand banker activity governor
+
+- Added a per-banker AppDomain activity governor without changing AOSharp's own
+  64 Hz network/update pump. CityBankers business polling runs at about 16 Hz
+  while active, keeps a five-second activity lease after real work, then returns
+  to a vegetative cadence.
+- BankingService enters vegetative mode only when local state proves there is no
+  live trade, receipt, dispatch, storage job, withdrawal, return, extraction,
+  recovery, census, queued IPC proposal or cancellation work. Vegetative mode
+  services IPC/operational heartbeat and performs one two-second fallback lookup
+  for a Manager-created withdrawal; it does not enter the normal recovery,
+  inventory-difference, dispatch, donation or extraction scans.
+- Banker IPC and AO trade/in-play/disconnect events wake the governor immediately.
+  Manager now sends a harmless `{"Kind":"wake"}` banker IPC after creating a
+  withdrawal and after assigning a banker tell. A missed wake cannot lose work:
+  durable Manager RAM remains authoritative and the vegetative withdrawal poll
+  is retained as fallback.
+- ActiveLedgerStore.SyncStoredLocations remains intact. Central no longer invokes
+  the full stock/ledger reconciliation while vegetative; it retains the existing
+  250 ms cadence only during an activity lease. Startup explicitly wakes the
+  governor so the existing post-census/startup reconciliation behavior remains.
+- The banker diagnostic/report poll is reduced to 1 Hz while vegetative and the
+  banker tell-assignment poll to 2 Hz. Both return to the active cadence when the
+  governor is awake. Startup diagnostics remain active until the initial bank
+  snapshot is complete.
+- StartupCensusGate's existing 500 ms safety/readiness loop was intentionally left
+  unchanged. No audit, custody, recovery, ledger, withdrawal, donation or trade
+  mechanism was deleted or weakened.
+- Validation was source-only: focused diff/call-path review, explicit wake/fallback
+  review and changed-file delimiter checks. No assistant build, test suite, live
+  SQL or AO run; owner rebuilds and measures idle CPU/live behavior.
