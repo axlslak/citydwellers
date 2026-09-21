@@ -3127,3 +3127,40 @@ Both findings come from a 112-agent adversarial sweep over six lenses; 21 findin
   moved from SQL records to typed Manager memory; shutdown audit uses native disk
   logging. Legacy channel-message import now deduplicates on retry. Full business
   persistence conversion remains OPEN; these are checkpoints, not a completion seal.
+
+## Session 210 — AppDomain-safe accounting ownership
+
+- [VERIFIED-LIVE 2026-09-21] The owner full host log proves Manager accounting
+  transactions were being invalidated by unrelated client-domain teardown. The
+  first Central ledger failure follows Apcr20009 unload, Kbexte loses an
+  independent policy transaction while the remaining buddies unload, and the
+  same Central ledger failure follows Apcflipper probe unload. Bankers themselves
+  were still online until the resulting fault policy relogged them.
+- [VERIFIED] ManagerAccounting previously registered transaction ownership with
+  AppDomain.CurrentDomain.FriendlyName, while ClientDomainLifetime used the
+  unloaded child's FriendlyName to call AbandonAccounting. FriendlyName is not
+  an instance identity, so one client domain could abandon another domain's
+  active transaction. FinishAccounting then reported "Accounting transaction is
+  no longer active." Nested accounting helpers were not the cause.
+- [FIXED-SOURCE] Accounting ownership and teardown now share
+  ManagerAccounting.ClientIdentityFor(AppDomain), based on the process-unique
+  AppDomain.Id. An unload can abandon only the exact domain's unfinished
+  transaction; normal game-session relog remains in-domain and unchanged.
+- [FIXED-SOURCE] Intentional AppDomain.Unload ThreadAbortException now unwinds
+  through BankingServiceAgent, ActiveLedgerCoordinator and the Clientless update
+  guard without being converted into a banker fault/relog or contained-update
+  error. This removes shutdown-only false fault noise without suppressing real
+  operational exceptions.
+- [VERIFIED-LIVE] Session209 early timing instrumentation measured this startup:
+  Manager SQL opened at +0.269s, relational business load ran roughly
+  +0.305s to +3.326s, retired cleanup completed by +3.723s, and BUILD appeared
+  at +3.724s. The previously reported roughly 30-second pre-BUILD stall did not
+  reproduce in this run.
+- [OBSERVED] One Manager PlayfieldAnarchyF packet was rejected by the existing
+  bounded PlayfieldDynelInfo allocation guard because the declared array could
+  not fit in the remaining packet. Manager immediately reached InPlay and
+  continued. The guard is deliberately retained; this evidence does not justify
+  weakening the bound or inventing the unsupported packet variant.
+- Validation: owner full-log correlation, exact transaction begin/abandon call
+  search, changed-source delimiter checks and source/call-path review. No
+  assistant compilation, test suite, live SQL or AO run; owner rebuilds/tests.
