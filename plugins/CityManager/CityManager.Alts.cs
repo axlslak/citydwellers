@@ -1474,6 +1474,10 @@ namespace CityManager
             string main,
             IEnumerable<string> characters)
         {
+            // Online and incomplete passive observations are positive evidence
+            // only. Move only the characters we actually saw; absence never
+            // removes an older alt and one observed alt never drags its whole
+            // previous family under a new main.
             var observed = new HashSet<string>(
                 characters ?? Enumerable.Empty<string>(),
                 StringComparer.OrdinalIgnoreCase)
@@ -1481,56 +1485,49 @@ namespace CityManager
                 main
             };
 
-            string resolvedMain = ResolveCanonicalAltMainLocked(main);
-            var matching = _altGroups.Values
-                .Where(group =>
-                    string.Equals(
-                        group.Main,
-                        resolvedMain,
-                        StringComparison.OrdinalIgnoreCase) ||
-                    GetEffectiveAltCharactersLocked(group).Any(observed.Contains))
-                .ToList();
-
-            var carriedObserved = new HashSet<string>(
-                observed,
-                StringComparer.OrdinalIgnoreCase);
-            var carriedAdds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var carriedRemovals = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            DateTime? lastUpdatedUtc = null;
-
-            foreach (AltGroup group in matching)
+            AltGroup target;
+            if (!_altGroups.TryGetValue(main, out target))
             {
-                carriedObserved.UnionWith(
-                    group.ObservedCharacters ?? new List<string>());
-                carriedAdds.UnionWith(group.AddedCharacters ?? new List<string>());
-                carriedRemovals.UnionWith(
-                    group.RemovedCharacters ?? new List<string>());
-                if (group.LastUpdatedUtc.HasValue &&
-                    (!lastUpdatedUtc.HasValue ||
-                     group.LastUpdatedUtc.Value > lastUpdatedUtc.Value))
+                target = new AltGroup
                 {
-                    lastUpdatedUtc = group.LastUpdatedUtc;
+                    Main = main,
+                    ObservedCharacters = new List<string>(),
+                    AddedCharacters = new List<string>(),
+                    RemovedCharacters = new List<string>()
+                };
+                _altGroups[main] = target;
+            }
+
+            var protectedMains = new HashSet<string>(
+                _altGroups.Keys.Where(name =>
+                    !string.Equals(name, main, StringComparison.OrdinalIgnoreCase)),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (string character in observed)
+            {
+                // A partial/online observation is not enough evidence to dissolve
+                // another known main group. Complete alt-list reconciliation
+                // remains the authoritative path for that case.
+                if (!string.Equals(character, main, StringComparison.OrdinalIgnoreCase) &&
+                    protectedMains.Contains(character))
+                {
+                    continue;
                 }
-                _altGroups.Remove(group.Main);
+
+                foreach (AltGroup group in _altGroups.Values)
+                {
+                    if (ReferenceEquals(group, target))
+                        continue;
+                    RemoveName(group.ObservedCharacters, character);
+                    RemoveName(group.AddedCharacters, character);
+                    RemoveName(group.RemovedCharacters, character);
+                }
+
+                RemoveName(target.RemovedCharacters, character);
+                AddUnique(target.ObservedCharacters, character);
             }
 
-            foreach (AltGroup group in _altGroups.Values)
-            {
-                RemoveNames(group.ObservedCharacters, observed);
-                RemoveNames(group.AddedCharacters, observed);
-                RemoveNames(group.RemovedCharacters, observed);
-            }
-
-            var target = new AltGroup
-            {
-                Main = main,
-                ObservedCharacters = SortedAltNames(carriedObserved),
-                AddedCharacters = SortedAltNames(carriedAdds),
-                RemovedCharacters = SortedAltNames(carriedRemovals),
-                LastUpdatedUtc = lastUpdatedUtc
-            };
             NormalizeAltGroupLocked(target);
-            _altGroups[main] = target;
             RebuildAltLookupLocked();
         }
 
