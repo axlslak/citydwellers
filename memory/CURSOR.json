@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 211,
+  "current_session": 212,
   "last_completed_session": 211,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-211-activity-governor",
-  "checkpoint_commit": "8093bdd3ac3051c0871cc7410cd9aab82d71d5ca",
-  "task": "Completed: non-destructive on-demand banker activity governor",
-  "resume_instruction": "Session211 preserves all safety/recovery/audit machinery but stops exercising heavy paths while idle. AOSharp 64Hz is unchanged; banking heavy work ~16Hz active with 5s lease, vegetative BankingService 2s minimal pulse, diagnostics 1Hz, banker tell poll 2Hz. Active ledger full reconciliation is retained and runs only while the banker governor is active. IPC/trade/in-play/disconnect and Manager withdrawal/tell assignment wake the banker. StartupCensusGate 500ms guardian unchanged. Owner rebuilds/live-tests and measures CPU.",
-  "base_commit": "5c5824fd4e4d2e7c1e508af105ea861b0a2f7ef1"
+  "transaction": "session-212-build-identity-root",
+  "checkpoint_commit": "d2e0d63129c7ec2f12e400ab042b509b88fc4b6d",
+  "task": "Fix Git build identity repository-root detection",
+  "resume_instruction": "Use Git --show-prefix instead of comparing textual root paths. Preserve safe rejection of enclosing parent repositories and preserve source-fingerprint fallback. Owner rebuilds; no runtime behavior change.",
+  "base_commit": "d2e0d63129c7ec2f12e400ab042b509b88fc4b6d"
 }
