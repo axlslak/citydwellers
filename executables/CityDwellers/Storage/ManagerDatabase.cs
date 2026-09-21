@@ -67,15 +67,27 @@ namespace CityDwellers.Host
                 importer = new LegacyBusinessImport(_connection, _root);
                 RuntimeLog.Write("Importing legacy business records and settings once.");
                 state = importer.ReadBusiness();
+                state.Alts = ReadLegacyAlts() ?? new AltState();
                 RuntimeLog.Write("Legacy records read; committing relational business data.");
                 _tables.Commit(_connection, new AccountingState { Reserve = null }, state, transaction =>
                 {
-                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(4)", _connection, transaction)) command.ExecuteNonQuery();
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(5)", _connection, transaction)) command.ExecuteNonQuery();
+                });
+            }
+            else if (version == 4)
+            {
+                RuntimeLog.Write("Upgrading relational schema 4 -> 5 for Manager alt state.");
+                _tables.Create(_connection);
+                state = _tables.Load(_connection);
+                state.Alts = ReadLegacyAlts() ?? new AltState();
+                _tables.Commit(_connection, state, state, transaction =>
+                {
+                    using (var command = new MySqlCommand("UPDATE cd_storage_version SET version=5 WHERE version=4", _connection, transaction)) command.ExecuteNonQuery();
                 });
             }
             else
             {
-                if (version != 4) throw new InvalidOperationException("Unsupported business schema version.");
+                if (version != 5) throw new InvalidOperationException("Unsupported business schema version.");
                 RuntimeLog.Write("Loading relational business rows into Manager RAM.");
                 state = _tables.Load(_connection);
             }
@@ -96,6 +108,8 @@ namespace CityDwellers.Host
                     return new SymbiantIndexItem { AoId = item.AoId, HighId = item.HighId, Ql = item.Ql, Family = item.Family, Name = item.Name };
                 }).ToList() };
             }
+            state.Alts = state.Alts ?? new AltState();
+            state.Alts.Groups = state.Alts.Groups ?? new List<AltGroupState>();
             ManagerMemory.InitializeAccounting(state, this);
             if (importer != null)
             {
@@ -111,6 +125,16 @@ namespace CityDwellers.Host
                 "cd_migration_chunks", "cd_migration_files", "cd_migration_runs", "cd_ledger_items", "cd_stock_items", "cd_banker_state", "cd_meta" })
                 using (var command = new MySqlCommand("DROP TABLE IF EXISTS " + table, _connection)) command.ExecuteNonQuery();
         }
+        private AltState ReadLegacyAlts()
+        {
+            string path = Path.Combine(_root, "config", "alts.json");
+            if (!File.Exists(path)) return null;
+            var state = JsonConvert.DeserializeObject<AltState>(File.ReadAllText(path));
+            if (state == null || (state.Version != 1 && state.Version != 2) || state.Groups == null)
+                throw new InvalidDataException("Unsupported legacy alt-cache file.");
+            return state;
+        }
+
         private T Configuration<T>(string name) where T : class
         {
             string path = Path.Combine(_root, "config", name);
