@@ -627,7 +627,6 @@ namespace CityManager
                 return true;
             }
 
-            List<string> startupMains = null;
             int mainCount;
             int onlineCount;
             int receivedPages;
@@ -699,8 +698,8 @@ namespace CityManager
 
                     if (_startupOnlineSnapshotPending)
                     {
-                        startupMains = _onlineSnapshotResponse.Groups.Keys.ToList();
                         _startupOnlineSnapshotPending = false;
+                        _startupOnlineRequestDueUtc = DateTime.MaxValue;
                     }
 
                     _onlineSnapshotResponse = null;
@@ -716,8 +715,8 @@ namespace CityManager
                     $"online-characters={onlineCount}, pages={pageCount}.");
                 DevTrace(
                     $"ALTS ONLINE <- {_altsBotName} complete mains={mainCount} " +
-                    $"online={onlineCount} pages={pageCount}; partial mappings cached.");
-                QueueStartupOnlineLookups(startupMains);
+                    $"online={onlineCount} pages={pageCount}; positive mappings cached; " +
+                    "no per-main private refresh queued.");
             }
             else
             {
