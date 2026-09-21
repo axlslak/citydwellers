@@ -1886,20 +1886,29 @@ namespace CityManager
 
         private void LoadAltsLocked()
         {
-            PersistedAltState state = JsonConvert.DeserializeObject<PersistedAltState>(
-                DiskFiles.ReadAllText(_altsPath));
+            AltState state = ManagerMemory.Current.ReadAlts(
+                ManagerAccounting.TransactionId);
 
             if (state == null ||
                 (state.Version != 1 && state.Version != AltStateVersion) ||
                 state.Groups == null)
-                throw new InvalidDataException("Unsupported alt-cache file.");
+                throw new InvalidDataException("Unsupported SQL alt state.");
 
             bool invalidateLegacyFreshness = state.Version < AltStateVersion;
             _altGroups.Clear();
-            foreach (AltGroup group in state.Groups)
+            foreach (AltGroupState persisted in state.Groups)
             {
-                if (group == null)
+                if (persisted == null)
                     continue;
+
+                var group = new AltGroup
+                {
+                    Main = persisted.Main,
+                    ObservedCharacters = (persisted.ObservedCharacters ?? new List<string>()).ToList(),
+                    AddedCharacters = (persisted.AddedCharacters ?? new List<string>()).ToList(),
+                    RemovedCharacters = (persisted.RemovedCharacters ?? new List<string>()).ToList(),
+                    LastUpdatedUtc = persisted.LastUpdatedUtc
+                };
 
                 string normalized;
                 string error;
@@ -1930,7 +1939,7 @@ namespace CityManager
             if (invalidateLegacyFreshness)
             {
                 Logger.Warning(
-                    "Migrating alt cache to multi-page-safe format; " +
+                    "Migrating SQL alt state to multi-page-safe format; " +
                     "existing names are preserved and bot-read groups will be refreshed.");
                 TrySaveAltsLocked();
             }
@@ -1938,19 +1947,27 @@ namespace CityManager
 
         private void SaveAltsLocked()
         {
-            if (string.IsNullOrWhiteSpace(_altsPath))
-                throw new InvalidOperationException("Alt storage is not initialized.");
-
-            var state = new PersistedAltState
+            var state = new AltState
             {
                 Version = AltStateVersion,
                 Groups = _altGroups.Values
                     .OrderBy(group => group.Main, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => new AltGroupState
+                    {
+                        Main = group.Main,
+                        ObservedCharacters = (group.ObservedCharacters ?? new List<string>()).ToList(),
+                        AddedCharacters = (group.AddedCharacters ?? new List<string>()).ToList(),
+                        RemovedCharacters = (group.RemovedCharacters ?? new List<string>()).ToList(),
+                        LastUpdatedUtc = group.LastUpdatedUtc
+                    })
                     .ToList()
             };
 
-            DiskFiles.WriteAllText(_altsPath,
-                JsonConvert.SerializeObject(state, Formatting.Indented));
+            ManagerAccounting.Transaction(
+                "CityManager.Alts",
+                () => ManagerMemory.Current.ChangeAlts(
+                    ManagerAccounting.TransactionId,
+                    state));
         }
 
         private void TrySaveAltsLocked()
@@ -1961,7 +1978,7 @@ namespace CityManager
             }
             catch (Exception ex)
             {
-                Logger.Error($"Unable to save alt cache {_altsPath}: {ex.Message}");
+                Logger.Error($"Unable to save SQL alt state: {ex.Message}");
             }
         }
 
@@ -2123,12 +2140,6 @@ namespace CityManager
         private sealed class AltBotConfig
         {
             public string Bot;
-        }
-
-        private sealed class PersistedAltState
-        {
-            public int Version;
-            public List<AltGroup> Groups;
         }
 
         private sealed class AltGroup
