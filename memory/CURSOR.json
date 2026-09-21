@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 206,
+  "current_session": 207,
   "last_completed_session": 205,
   "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-206-idle-writer-contention",
+  "transaction": "session-207-manager-memory-relational-storage",
   "checkpoint_commit": "30c42701bc95388a47294f15dda48965286386d7",
-  "task": "Remove idle tell writer transactions and heartbeat document churn",
-  "resume_instruction": "Owner log reaches READY but internal trades repeatedly time out and retry; process list queues own clients on global writer. Replace tell heartbeat filesystem with fixed typed sender rows, remove empty relinquish/stale-sweep writer transactions, stop settled census coordination acquiring writer. Preserve business data and pending tells. No builds/live SQL; no claim entire fs gone or disk size fixed.",
-  "base_commit": "a421d6060b908e86351c81501fb2aeeacd8d454b"
+  "task": "Manager memory ownership and relational business persistence",
+  "resume_instruction": "Owner explicitly resumed and authorizes full architecture replacement. Manager owns all live shared state in RAM and exactly one SQL connection; bankers IPC, no SQL. Load all at startup, persist meaningful business changes only. SQL ledger/history/cloak/lost-found plus minimal unfinished transaction recovery; no filesystem/chunks/logs/dumps/tells/semaphores/heartbeat storage. Remove hash gates, allow phpMyAdmin edits to business rows and reload at startup. Preserve existing business data before dropping all four legacy fs tables. Session206 local patches discarded and journal superseded. No builds/tests/live AO or live SQL per standing owner boundary. Do not substitute another generic document/blob store or claim done with adapters remaining.",
+  "base_commit": "772e4bdf960ea1c2fcc4f7ba672644fef0f20e77"
 }

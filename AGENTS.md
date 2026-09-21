@@ -189,3 +189,21 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
 - Live SQL document/chunk APIs still exist for other business state. Do not claim
   the entire SQL filesystem has been removed. Continue simplification by replacing
   concrete domain dependencies, never by deleting required state or adding archives.
+
+## Owner architecture correction — session 207
+
+- Manager owns the complete working state in RAM and the ONE database connection.
+  Bankers/other clients have no SQL connections. IPC carries requests/events; ordinary
+  live decisions and coordination use memory, never SQL/file/network polling loops.
+- Load persisted business data once at startup. Write only actual business changes
+  and minimal interrupted-transaction recovery. SQL contains relational ledger,
+  item/transaction history (including lost/found), and cloak events.
+- Remove cd_directories, cd_documents, cd_document_chunks and cd_event_lines after
+  preserving business records into their proper relational entities. No replacement
+  filesystem, generic JSON/blob store, archive, chunks or checksum/hash gates.
+- Tell queues, heartbeat/availability and coordination belong in Manager memory.
+  Logs and requested dumps stay outside SQL. Operator edits in phpMyAdmin are valid
+  business input on next startup; do not reject records because a stored hash differs.
+- User authorized this full change after stopping session206. Its unfinished typed
+  heartbeat table patch was explicitly discarded; do not revive incremental polling
+  changes as a substitute for the requested architecture.
