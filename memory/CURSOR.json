@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 201,
+  "current_session": 202,
   "last_completed_session": 201,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-201-remove-stale-folder-guard",
+  "transaction": "session-202-dispatch-handshake-recovery",
   "checkpoint_commit": "39bbf9b141bee262088d5735b8f689ec5c9402b8",
-  "task": "No active task",
-  "resume_instruction": "Session201 published: obsolete startup data-folder rejection and migration warning removed; runtime message corrected. Disk items.json/logs/dumps permitted; SQL gates unchanged. No data movement/deletion/storage redesign. Source review and diff checks only; owner builds and live-tests.",
-  "base_commit": "fdab5d8f780afac80f67f3bbde33f3947ce10580"
+  "task": "Fix internal dispatch handshake latency and cancelled-transfer recovery",
+  "resume_instruction": "Trace missing offer acknowledgement and slot-sensitive inventory mismatch after failed Central-to-worker trade. Fix with exact custody evidence, no automatic audits or data redesign. Owner authorizes repair/publication; no builds/tests per standing boundary.",
+  "base_commit": "01f35aff9309a61e08647fc54e1b69c604a5ee15"
 }
