@@ -2042,6 +2042,8 @@ namespace CityManager
                 existing.Force = existing.Force || request.Force;
                 existing.KeepRetrying =
                     existing.KeepRetrying || request.KeepRetrying;
+                existing.ExactTarget =
+                    existing.ExactTarget || request.ExactTarget;
             }
 
             _altQueue.Clear();
