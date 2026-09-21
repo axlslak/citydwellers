@@ -32,10 +32,14 @@ function Invoke-RevisionGit([string[]]$GitArguments) {
 }
 if ($gitPath) {
     try {
-        $top = (Invoke-RevisionGit -GitArguments @('rev-parse', '--show-toplevel')) -join ''
-        $top = (Resolve-Path -LiteralPath $top).ProviderPath.TrimEnd([char[]]'\/')
-        if (-not [string]::Equals($top, $root, [StringComparison]::OrdinalIgnoreCase)) {
-            throw 'Source directory is not the Git repository root'
+        # Ask Git whether -C $root itself is the worktree root. Comparing
+        # --show-toplevel path strings is unreliable when the same directory is
+        # reached through a junction, subst drive or other Windows path alias.
+        # An empty prefix is Git's own proof that $root is the repository root;
+        # a non-empty prefix still safely rejects an enclosing parent repository.
+        $prefix = ((Invoke-RevisionGit -GitArguments @('rev-parse', '--show-prefix')) -join '').Trim()
+        if ($prefix.Length -ne 0) {
+            throw "Source directory is inside a parent Git repository (prefix '$prefix'), not its root"
         }
         $revision = ((Invoke-RevisionGit -GitArguments @('rev-parse', '--verify', 'HEAD')) -join '').Trim()
         if ($revision -notmatch '^[0-9a-f]{40,64}$') { throw 'Git returned an invalid HEAD revision' }
