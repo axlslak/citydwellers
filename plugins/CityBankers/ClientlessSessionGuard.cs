@@ -118,6 +118,12 @@ namespace CityBankers
                 Action<double> guarded = delta =>
                 {
                     try { original(delta); }
+                    catch (System.Threading.ThreadAbortException)
+                    {
+                        // AppDomain.Unload owns this abort. Let teardown unwind
+                        // without reporting a contained runtime-update failure.
+                        throw;
+                    }
                     catch (Exception ex)
                     {
                         // The SDK otherwise faults an unobserved Task forever:
