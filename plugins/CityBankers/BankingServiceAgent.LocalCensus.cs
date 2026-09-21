@@ -80,7 +80,7 @@ namespace CityBankers
             var actor = _ipcOwner;
             if (actor == null || !actor._enabled || !actor._isCentral || !StartupCensusGate.IsOpen)
                 return false;
-            // Use the same immutable application bundle, reservation checks and
+            // Use the same atomic accounting scope, reservation checks and
             // character-scoped ledger/storage merge as operational local censuses.
             var proposal = new DispatchProposal { Kind = "local-census", Census = census };
             actor.HandleLocalCensusProposal(proposal);
@@ -265,41 +265,37 @@ namespace CityBankers
             if (proposal.Kind != "local-census") return false;
             try
             {
-                var census = proposal.Census;
-                Guid run;
-                if (!_isCentral || census == null || !Guid.TryParseExact(census.RunId, "N", out run) ||
-                    !_config.Roles.Any(p => p.Key == census.Role &&
-                        (p.Key != "central" || census.RunId == _localCensus) &&
-                        string.Equals(p.Value?.Character, census.Character, StringComparison.OrdinalIgnoreCase)))
-                    throw new InvalidOperationException("Invalid local census source.");
-                string directory = LocalCensusDirectory(census.RunId);
-                string completed = Path.Combine(directory, "completed.json");
-                if (File.Exists(completed))
+                string reply = CityDwellers.Shared.ManagerAccounting.Transaction("Local census admission", () =>
                 {
-                    var old = CensusApplication.ReadExisting<BagAuditResult>(completed);
-                    if (JsonConvert.SerializeObject(old) != JsonConvert.SerializeObject(census))
-                        throw new InvalidOperationException("Local census run was reused with different evidence.");
-                }
-                else
-                {
-                    if (HandleWithdrawalCensusResult(census))
+                    var census = proposal.Census;
+                    Guid run;
+                    if (!_isCentral || census == null || !Guid.TryParseExact(census.RunId, "N", out run) ||
+                        !_config.Roles.Any(p => p.Key == census.Role &&
+                            (p.Key != "central" || census.RunId == _localCensus) &&
+                            string.Equals(p.Value?.Character, census.Character, StringComparison.OrdinalIgnoreCase)))
+                        throw new InvalidOperationException("Invalid local census source.");
+                    var owner = CityDwellers.Shared.ManagerMemory.Current;
+                    string transaction = CityDwellers.Shared.ManagerAccounting.TransactionId;
+                    var old = owner.ReadAppliedCensus(transaction, census.RunId);
+                    if (old != null)
                     {
-                        RuntimeStateStore.WriteJsonAtomic(completed, census);
-                        proposal.Reply.TrySetResult("complete:" + census.RunId);
-                        return true;
+                        if (JsonConvert.SerializeObject(old) != JsonConvert.SerializeObject(census))
+                            throw new InvalidOperationException("Local census run was reused with different evidence.");
                     }
-                    if (HandlePairedCensusResult(census))
+                    else
                     {
-                        RuntimeStateStore.WriteJsonAtomic(completed, census);
-                        proposal.Reply.TrySetResult("complete:" + census.RunId);
-                        return true;
+                        if (!HandleWithdrawalCensusResult(census) && !HandlePairedCensusResult(census))
+                        {
+                            if (!WithdrawalStore.OwnsCensus(_settingsDir, census.RunId, census.Character) ||
+                                HasPendingPeerWork(census.Character, census.RunId)) return "pending";
+                            ApplyLocalCensus(census);
+                        }
+                        owner.CompleteCensus(transaction, census);
                     }
-                    if (!WithdrawalStore.OwnsCensus(_settingsDir, census.RunId, census.Character) || HasPendingPeerWork(census.Character, census.RunId))
-                    { proposal.Reply.TrySetResult("pending"); return true; }
-                    ApplyLocalCensus(directory, census);
-                    RuntimeStateStore.WriteJsonAtomic(completed, census);
-                }
-                proposal.Reply.TrySetResult("complete:" + census.RunId);
+                    return "complete:" + census.RunId;
+                });
+                // Admission is acknowledged only after the complete accounting commit.
+                proposal.Reply.TrySetResult(reply);
             }
             catch (Exception ex)
             {
@@ -313,12 +309,10 @@ namespace CityBankers
             return true;
         }
 
-        private void ApplyLocalCensus(string directory, BagAuditResult census)
+        private void ApplyLocalCensus(BagAuditResult census)
         {
             var observations = PhysicalLedgerReconciliation.ReadCensus(_settingsDir, census);
-            string path = Path.Combine(directory, "application.json");
-            var bundle = CensusApplication.ReadExisting<LocalCensusBundle>(path);
-            if (bundle == null)
+            LocalCensusBundle bundle;
             {
                 var ledger = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
                 if (ledger?.Items == null) throw new InvalidOperationException("Local census requires the current ledger.");
@@ -349,15 +343,18 @@ namespace CityBankers
                         _config.Roles.ToDictionary(p => p.Key, p => p.Value.Character, StringComparer.OrdinalIgnoreCase),
                         WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList(), "local-" + census.RunId);
                 }
-                RuntimeStateStore.WriteJsonAtomic(path, bundle);
             }
-            if (JsonConvert.SerializeObject(bundle.Census) != JsonConvert.SerializeObject(census) || bundle.Plan == null || bundle.Storage == null)
-                throw new InvalidOperationException("Local census application changed during retry.");
-            RuntimeStateStore.WriteJsonAtomic(Path.Combine(ActiveLedgerStore.GetHistoryDirectory(_settingsDir),
-                "census-local-" + census.RunId + ".json"), new
-                { census.RunId, census.Character, census.ObservedUtc, EventTimeKnown = false, bundle.Plan.Differences,
-                    Dispatch = bundle.StorageGrant,
-                    Withdrawals = bundle.QueuedRequests?.Select(r => new { Original = r, Disposition = "reconciled", DeliveryInferred = false }) });
+            if (bundle.Plan == null || bundle.Storage == null)
+                throw new InvalidOperationException("Local census plan is incomplete.");
+            foreach (var difference in bundle.Plan.Differences)
+                CityDwellers.Shared.ManagerMemory.Current.RecordItemHistory(
+                    CityDwellers.Shared.ManagerAccounting.TransactionId, new ActiveHistoryRecord
+                    {
+                        LeftUtc = census.ObservedUtc, Reason = "census-" + difference.Kind,
+                        Item = difference.Previous, CurrentItem = difference.Current,
+                        ItemName = difference.Physical?.Item?.Name,
+                        Source = "census-local:" + census.RunId, EventTimeKnown = false
+                    });
             RuntimeStorageStateTransactions.ReplaceCensusedWorker(_settingsDir, bundle.Storage);
             // Reload unaffected characters on EVERY retry. Never replay an old
             // global ledger/storage snapshot while other bankers are working.
@@ -379,7 +376,7 @@ namespace CityBankers
                 if (queue.Batches.Any(b => !originalIds.Contains(b.BatchId) && !plannedIds.Contains(b.BatchId)))
                     throw new InvalidOperationException("Unexpected dispatch was added while Central's census owned routing.");
                 // Central has not resumed, so no planned batch can have traded.
-                // Original records remain in the immutable application bundle.
+                // The current plan and original records remain in working memory.
                 RuntimeStateStore.SaveDispatchQueue(_settingsDir, bundle.Queue);
             }
             WithdrawalStore.ReconcileQueuedRequestsAfterLocalCensus(_settingsDir, census.RunId,

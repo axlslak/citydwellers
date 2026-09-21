@@ -62,9 +62,12 @@ namespace CityDwellers.Host
             LegacyBusinessImport importer = null;
             if (version == 0)
             {
+                RuntimeLog.Write("Creating relational business tables for first import.");
                 _tables.Create(_connection);
                 importer = new LegacyBusinessImport(_connection, _root);
+                RuntimeLog.Write("Importing legacy business records and settings once.");
                 state = importer.ReadBusiness();
+                RuntimeLog.Write("Legacy records read; committing relational business data.");
                 _tables.Commit(_connection, new AccountingState { Reserve = null }, state, transaction =>
                 {
                     using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(4)", _connection, transaction)) command.ExecuteNonQuery();
@@ -73,8 +76,10 @@ namespace CityDwellers.Host
             else
             {
                 if (version != 4) throw new InvalidOperationException("Unsupported business schema version.");
+                RuntimeLog.Write("Loading relational business rows into Manager RAM.");
                 state = _tables.Load(_connection);
             }
+            RuntimeLog.Write("Business rows loaded; loading settings.");
             state.BankTerminal = Configuration<BankTerminalState>("citybankers-bank-terminal.json") ?? new BankTerminalState();
             state.PhatzPolicy = Configuration<PhatzPolicyState>("citybankers-phatz-policy.json") ?? new PhatzPolicyState();
             state.PhatzPolicy.Items = state.PhatzPolicy.Items ?? new List<PhatzPolicyItem>();
@@ -101,6 +106,7 @@ namespace CityDwellers.Host
             }
             // Business rows and the import version committed together. Interrupted
             // DDL cleanup is safe to repeat; it can never restore stale documents.
+            RuntimeLog.Write("Finishing retired-table cleanup.");
             foreach (string table in new[] { "cd_event_lines", "cd_document_chunks", "cd_documents", "cd_directories",
                 "cd_migration_chunks", "cd_migration_files", "cd_migration_runs", "cd_ledger_items", "cd_stock_items", "cd_banker_state", "cd_meta" })
                 using (var command = new MySqlCommand("DROP TABLE IF EXISTS " + table, _connection)) command.ExecuteNonQuery();

@@ -22,6 +22,7 @@ namespace CityDwellers.Shared
         // Coordination participates in atomic admission, but never goes to SQL.
         public SymbiantIndexState ItemIndex;
         public List<RecoveryReservation> Reservations = new List<RecoveryReservation>();
+        public Dictionary<string, BagAuditResult> AppliedCensuses = new Dictionary<string, BagAuditResult>(StringComparer.Ordinal);
         public Dictionary<string, DispatchCommand> Commands = new Dictionary<string, DispatchCommand>(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, StorageBatchResult> Results = new Dictionary<string, StorageBatchResult>(StringComparer.OrdinalIgnoreCase);
         public List<ReceiptEvidence> Receipts = new List<ReceiptEvidence>();
@@ -124,6 +125,23 @@ namespace CityDwellers.Shared
             lock (_accountingSync)
                 if (_accountingTransaction != null && _accountingClient == client)
                     FinishAccounting(_accountingTransaction, false);
+        }
+        public BagAuditResult ReadAppliedCensus(string transaction, string run)
+        {
+            lock (_accountingSync)
+            {
+                BagAuditResult result;
+                return Accounting(transaction).AppliedCensuses.TryGetValue(run, out result) ? result.Copy() : null;
+            }
+        }
+        public void CompleteCensus(string transaction, BagAuditResult result)
+        {
+            lock (_accountingSync)
+            {
+                var state = Writing(transaction);
+                state.AppliedCensuses = new Dictionary<string, BagAuditResult>(state.AppliedCensuses, StringComparer.Ordinal);
+                state.AppliedCensuses[result.RunId] = result.Copy();
+            }
         }
         public ActiveLedgerState ReadLedger(string transaction)
         { lock (_accountingSync) return Accounting(transaction).Ledger?.Copy(); }

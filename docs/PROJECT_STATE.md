@@ -1,3 +1,25 @@
+## Session 209 — worker admission accounting and early startup visibility
+
+- Owner live evidence: SQL load/connection behavior substantially improved; all
+  eight workers finish their allowed initial audits but remain unadmitted. Central
+  logs "Local census commit retry: Accounting changes require a transaction."
+- Root cause: local admission commits storage and ledger through nested helpers,
+  then calls MarkReconciled outside an accounting scope. The final RAM mutation
+  throws, so admission never completes despite earlier partial business commits.
+- Wrapped validation, worker merge, history, withdrawal reconciliation and bag
+  reconciliation in one Manager accounting transaction. Reply follows commit.
+  Completion evidence stays in transactional Manager RAM for idempotent retries;
+  active local admission no longer saves application/completion snapshots to disk.
+  Meaningful item differences go to relational history. Initial-audit policy and
+  worker-scoped admission remain unchanged; no additional scans or SQL connections.
+- Owner clarified the roughly 30-second delay is BEFORE the first BUILD line.
+  Existing logging starts after SQL connection, hydration/import and cleanup, so
+  its +0.001s timestamp excluded those operations. Added early Main/startup logs
+  and phase messages for connection, import/load, commit and cleanup. Exact duration
+  cause remains unmeasured; do not attribute it to antivirus or later AO auditing.
+- Validation: source call-path and transaction review, lexical delimiter review,
+  git diff --check. No build, test suite or live SQL/AO, per owner boundary.
+
 ## Session 208 — optional JSON objects during legacy import
 
 - Fixed the owner-reported startup exception at LegacyBusinessImport.ReadBusiness:

@@ -61,7 +61,7 @@ namespace CityDwellers.Host
 
         public override Encoding Encoding => new UTF8Encoding(false);
 
-        // Persist complete diagnostics synchronously in MySQL before filtering the console.
+        // Append complete diagnostics to the native log before filtering the console.
         private readonly ThreadLocal<StringBuilder> _line =
             new ThreadLocal<StringBuilder>(() => new StringBuilder(), true);
         private readonly bool _verbose = string.Equals(

@@ -16,6 +16,7 @@ namespace CityDwellers.Host
         [STAThread]
         private static int Main(string[] args)
         {
+            RuntimeLog.Write("Starting City Dwellers.");
             if (ClientlessGameDataBootstrap.IsRestoreCommand(args))
                 return ClientlessGameDataBootstrap.Run(args);
 
@@ -316,12 +317,15 @@ namespace CityDwellers.Host
                 bool created;
                 _managerInstance = new Mutex(true, "Global\\CityDwellers.Manager", out created);
                 if (!created) { _managerInstance.Dispose(); _managerInstance = null; throw new InvalidOperationException("City Dwellers is already running on this host."); }
+                RuntimeLog.Initialize(dataDirectory);
                 ManagerHost.InitializeMemory();
+                RuntimeLog.Write("Opening Manager SQL connection.");
                 _database = new ManagerDatabase(runtimeDirectory, failure =>
                     HostFailure.Stop("Business persistence failed; stopping before further physical operations.", failure));
+                RuntimeLog.Write("Manager SQL connection opened; loading working state.");
                 _database.Initialize();
+                RuntimeLog.Write("Manager working state loaded.");
                 AppDomain.CurrentDomain.ProcessExit += (sender, args) => _database.Dispose();
-                RuntimeLog.Initialize(dataDirectory);
                 BuildIdentity.StartHost(runtimeDirectory);
                 RuntimeLog.Write("BUILD " + BuildIdentity.Label + " | revision=" + BuildIdentity.Revision);
                 foreach (string build in BuildIdentity.DescribeComponents(true))
