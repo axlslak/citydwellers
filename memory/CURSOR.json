@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 209,
-  "last_completed_session": 208,
-  "status": "in_progress",
+  "last_completed_session": 209,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-209-worker-admission-transaction",
-  "checkpoint_commit": "f1b8df08708f86d6dbf0b6903c4c336f78d14ab8",
-  "task": "Fix worker admission accounting and expose pre-BUILD startup timing",
-  "resume_instruction": "Owner log: completed worker audits fail Local census commit retry: Accounting changes require a transaction. MarkReconciled is reached without outer transaction in ApplyLocalCensus. Convert active local admission to atomic Manager accounting with RAM completion and relational differences, remove active file snapshots. Instrument startup before SQL open/load to measure pre-BUILD delay; do not speculate antivirus. No build/live tests.",
+  "checkpoint_commit": "b5c5b136c5df1313d87f6fd15a5d9d31b5f3ef37",
+  "task": "Completed: worker admission transaction and early startup phase logging",
+  "resume_instruction": "Session209 fixes missing outer transaction in local census admission; RAM completion marker and relational difference history, ack after commit. Early Main/SQL phase logs now expose pre-BUILD delay; precise delay cause remains unmeasured until new owner evidence. Source review only; no builds/tests/live SQL/AO. Preserve Manager RAM/single SQL ownership and initial-audit-only policy. Reopen on owner issue.",
   "base_commit": "3856cba8ede3c8204d91db409850d23b9e7d1f28"
 }
