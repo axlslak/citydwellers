@@ -1,32 +1,29 @@
-## Session 207 — Manager memory replacement in progress
+## Session 207 — Manager RAM and sole SQL owner
 
-- Owner authorized the full architecture replacement. The required endpoint is one
-  Manager SQL connection, startup hydration, relational business changes only, and
-  removal of all four live filesystem tables after preserving business records.
-- Current source checkpoint is NOT that completed endpoint. SqlStore/SqlFile and
-  business transaction callers still exist; no claim of one connection or SQL
-  filesystem removal is valid yet. No live database changes have been performed.
-- Added a shared ManagerMemory assembly, owned by ManagerHost in the host AppDomain
-  and attached to each client AppDomain before plugin loading. It survives Manager
-  AO login restarts; child domains cannot instantiate their own owner. Typed models
-  cross the in-process boundary; no generic path/document cache was introduced.
-- Host restart/shutdown commands and Flipper cache now live in Manager RAM too.
-  Shutdown operator audit appends to a native disk log. No SQL control marker polling.
-- Tell queue, channel queue, assignment/acknowledgement state, banker readiness,
-  health, admission, initial audit allowance/commands/results now use Manager RAM.
-  Existing public tell APIs temporarily retain ignored dataDirectory arguments.
-  Outstanding old tells/channel messages transfer into memory once before login;
-  only transferred queue entries are removed by that transition.
-- One initial physical audit per banker per host remains enforced across child
-  reloads. No additional automatic audit authorization. Readiness uses a single
-  typed memory snapshot; unload clears availability and relinquishes pending tells.
-- Next: convert business state and transaction ownership together, including
-  storage/dispatch/withdrawal/custody, ledger/history/lost-found and cloak state;
-  preserve settings; hydrate business records once; remove per-client SQL sources
-  and legacy tables only after their business records have proper relational rows.
-  Do not introduce a generic RAM filesystem or a SQL JSON archive as a shortcut.
-- Validation so far: source/reference review, project XML parsing and diff whitespace
-  check only. No compilation, tests, live AO or live SQL per owner boundary.
+- Implemented the owner-requested architecture: the host Manager service owns one
+  unpooled SQL connection; no banker or other client references the SQL connector.
+  Shared typed state lives in Manager RAM across client/Manager login restarts.
+- Startup loads relational business state once. Runtime reads, admission, tells,
+  health, buddy positions, Flipper operations and coordination use Manager IPC/RAM.
+  Atomic accounting scopes publish RAM changes after persistence; only changed
+  business rows are written. No SQL advisory locks, heartbeat queries or file polling
+  for ordinary runtime coordination. Native logs and explicit diagnostics remain.
+- Removed SqlStore, SqlFile, SqlDirectory, BankerSqlStore and checksum gates.
+  Fixed relational entities preserve ledger/stock, item and transaction history,
+  lost/found, cloak events and unfinished custody. Completed custody heads leave SQL;
+  completed business history remains. No replacement document/blob/chunk store.
+- First schema-4 startup imports existing business rows/documents and settings,
+  commits business data with the schema version, then drops the retired filesystem,
+  migration archive and superseded business tables. A failed import never reaches
+  cleanup. Original source/backup files are untouched. Settings use native config/;
+  the permitted item catalogue stays in data/items.json. No DataMigration utility.
+- Operator changes to relational columns load on next startup without hash checks.
+  Preserved one initial audit per banker/host, explicit-admin subsequent audits,
+  bounded public queues and compound custody/accounting transaction scopes.
+- Validation: focused source/caller review, project XML and compile-path inspection,
+  lexical delimiter review and git diff --check. No compilation, test suites, live
+  AO or live SQL, following the owner's standing boundary. Publication resolves
+  this implementation task; runtime behavior is not claimed live-verified.
 
 ## Session 205 — eliminate per-item SQL under the stock writer transaction
 

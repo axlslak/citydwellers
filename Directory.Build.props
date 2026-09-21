@@ -21,11 +21,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- SQL sources/dependency are explicit in each csproj so Visual Studio
-         reloads their item lists when this backend is added or changed. -->
+    <!-- Native file helpers and typed Manager clients; SQL belongs only to the host. -->
+    <Compile Include="$(MSBuildThisFileDirectory)shared\DiskFiles.cs"><Link>DiskFiles.cs</Link></Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\HostFailure.cs"><Link>HostFailure.cs</Link></Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)shared\BankerState.cs"><Link>BankerState.cs</Link></Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\CharacterNames.cs"><Link>CharacterNames.cs</Link></Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\ItemFamilies.cs"><Link>ItemFamilies.cs</Link></Compile>
-    <Compile Include="$(MSBuildThisFileDirectory)shared\FileSnapshot.cs"><Link>FileSnapshot.cs</Link></Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\ItemCatalog.cs"><Link>ItemCatalog.cs</Link></Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\RepositoryUpdates.cs">
       <Link>RepositoryUpdates.cs</Link>
@@ -46,9 +47,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\SettingsPaths.cs">
       <Link>SettingsPaths.cs</Link>
     </Compile>
-    <Compile Include="$(MSBuildThisFileDirectory)shared\BuddyPositionSnapshot.cs">
-      <Link>BuddyPositionSnapshot.cs</Link>
-    </Compile>
+
     <Compile Include="$(MSBuildThisFileDirectory)shared\LoggingDefaults.cs">
       <Link>LoggingDefaults.cs</Link>
     </Compile>

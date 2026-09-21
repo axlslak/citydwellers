@@ -24,7 +24,6 @@ namespace CityFlipper
 
         private string _dataDirectory;
         private string _operationId;
-        private string _cancelRequestPath;
 
         private readonly Stopwatch _timer = new Stopwatch();
         private readonly object _sync = new object();
@@ -87,9 +86,6 @@ namespace CityFlipper
                     out settingsError))
             {
                 _dataDirectory = dataDirectory;
-                _cancelRequestPath = Path.Combine(
-                    dataDirectory,
-                    "cityflipper-cancel.request");
             }
             else
             {
@@ -97,24 +93,9 @@ namespace CityFlipper
                 return;
             }
 
-            string operationIdPath = Path.Combine(
-                _dataDirectory,
-                "cityflipper-operation.id");
-
-            if (SqlFile.Exists(operationIdPath))
-            {
-                _operationId = SqlFile.ReadAllText(operationIdPath).Trim();
-            }
-
-            string toggleRequestPath = Path.Combine(
-                _dataDirectory,
-                "cityflipper-toggle.request");
-
-            string requestedAction = null;
-            if (SqlFile.Exists(toggleRequestPath))
-            {
-                requestedAction = SqlFile.ReadAllText(toggleRequestPath).Trim();
-            }
+            var operation = ManagerMemory.Current.ReadFlipperOperation();
+            _operationId = operation?.Id;
+            string requestedAction = operation?.Action;
 
             _toggleRequested = !string.IsNullOrWhiteSpace(requestedAction);
             _ensureEnabledOnly = string.Equals(
@@ -742,17 +723,12 @@ namespace CityFlipper
 
         private bool IsCancellationRequested()
         {
-            if (string.IsNullOrWhiteSpace(_operationId) ||
-                string.IsNullOrWhiteSpace(_cancelRequestPath))
+            if (string.IsNullOrWhiteSpace(_operationId))
             {
                 return false;
             }
 
-            return SqlFile.Exists(_cancelRequestPath) &&
-                       string.Equals(
-                           SqlFile.ReadAllText(_cancelRequestPath).Trim(),
-                           _operationId,
-                           StringComparison.Ordinal);
+            return ManagerMemory.Current.FlipperCancelled(_operationId);
         }
 
         private Dictionary<string, string> DumpObject(object value)
@@ -868,9 +844,6 @@ namespace CityFlipper
                     PostToggleCloakInfo = _postToggleCloakInfo
                 };
 
-                string resultPath = Path.Combine(
-                    _dataDirectory,
-                    "cityflipper-result.json");
                 string json = JsonConvert.SerializeObject(result, Formatting.Indented);
 
                 Logger.Information(
@@ -878,8 +851,8 @@ namespace CityFlipper
                 Logger.Information("Waiting for the unified host to unload the Flipper client.");
 
                 // Publish the complete result last: the host can unload this
-                // AppDomain as soon as the atomic SQL write commits.
-                SqlFile.WriteAllText(resultPath, json);
+                // AppDomain as soon as Manager receives the result.
+                ManagerMemory.Current.PublishFlipperResult(_operationId, json);
             }
             catch (Exception ex)
             {

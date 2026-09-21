@@ -934,46 +934,12 @@ namespace CityManager
 
         private List<CloakEventRecord> LoadRecentCloakEvents(int limit, bool announcementsOnly = false)
         {
-            var recent = new List<CloakEventRecord>();
-            if (limit <= 0 || string.IsNullOrWhiteSpace(_eventsPath) || !SqlFile.Exists(_eventsPath))
-                return recent;
-
-            try
-            {
-                foreach (string line in SqlFile.ReadLines(_eventsPath))
-                {
-                    if (string.IsNullOrWhiteSpace(line))
-                        continue;
-
-                    try
-                    {
-                        CloakEventRecord record =
-                            JsonConvert.DeserializeObject<CloakEventRecord>(line);
-                        if (record == null)
-                            continue;
-                        // Probes/cache reads identify the observer, not the character who flipped it.
-                        if (announcementsOnly &&
-                            !((record.EventType == "cloak_on_announcement" && record.NewStatus == CloakStatus.Enabled) ||
-                              (record.EventType == "cloak_off_announcement" && record.NewStatus == CloakStatus.Disabled)))
-                            continue;
-
-                        recent.Add(record);
-                        recent.Sort((left, right) =>
-                            right.OccurredUtc.CompareTo(left.OccurredUtc));
-                        if (recent.Count > limit)
-                            recent.RemoveAt(recent.Count - 1);
-                    }
-                    catch
-                    {
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning("Unable to read cloak history for status: " + ex.Message);
-            }
-
-            return recent;
+            return ManagerMemory.Current.ReadCloakEvents(ManagerAccounting.TransactionId)
+                .Select(record => Newtonsoft.Json.Linq.JObject.FromObject(record).ToObject<CloakEventRecord>())
+                .Where(record => !announcementsOnly ||
+                    (record.EventType == "cloak_on_announcement" && record.NewStatus == CloakStatus.Enabled) ||
+                    (record.EventType == "cloak_off_announcement" && record.NewStatus == CloakStatus.Disabled))
+                .OrderByDescending(record => record.OccurredUtc).Take(Math.Max(0, limit)).ToList();
         }
 
         private string StatusSection(string title)
@@ -1039,13 +1005,13 @@ namespace CityManager
 
                     lock (_devSync)
                     {
-                        if (SqlFile.Exists(_diagnosticLogPath))
-                            foreach (string line in SqlFile.ReadTailLines(_diagnosticLogPath, 10000))
+                        if (DiskFiles.Exists(_diagnosticLogPath))
+                            foreach (string line in DiskFiles.ReadTailLines(_diagnosticLogPath, 10000))
                                 header.AppendLine(line);
                         else
                             foreach (string line in _diagnosticHistory)
                                 header.AppendLine(line);
-                        SqlFile.WriteAllText(path, header.ToString());
+                        DiskFiles.WriteAllText(path, header.ToString());
                     }
 
                     Logger.Warning("Manager diagnostic dump created: " + path);

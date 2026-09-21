@@ -2,6 +2,7 @@ using System;
 
 namespace CityDwellers.Shared
 {
+    [Serializable]
     public class BuddyPositionSnapshot
     {
         public string Character { get; set; }
@@ -44,13 +45,16 @@ namespace CityDwellers.Shared
         public float? LastMovementObservationY { get; set; }
         public float? LastMovementObservationZ { get; set; }
         public string Error { get; set; }
+        internal BuddyPositionSnapshot Copy() => (BuddyPositionSnapshot)MemberwiseClone();
     }
 
+    [Serializable]
     public class BuddyHomeDirective
     {
         public string JobId { get; set; }
         public DateTime RequestedUtc { get; set; }
         public string MovementMode { get; set; }
         public bool Cancel { get; set; }
+        internal BuddyHomeDirective Copy() => (BuddyHomeDirective)MemberwiseClone();
     }
 }

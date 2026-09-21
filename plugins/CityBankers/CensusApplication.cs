@@ -31,7 +31,7 @@ namespace CityBankers
         internal static Bundle Apply(string settings, string directory, string generation,
             IList<BagAuditResult> censuses, IDictionary<string, string> roles)
         {
-            return CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
+            return CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.RuntimeState.v1", () =>
             {
                 if (censuses.Count == 0 || censuses.Select(c => c.Character)
                     .Distinct(StringComparer.OrdinalIgnoreCase).Count() != censuses.Count ||
@@ -41,13 +41,12 @@ namespace CityBankers
                     throw new InvalidOperationException("Reconciliation requires Central and distinct configured census participants.");
                 var runs = censuses.Select(c => c.Character.ToLowerInvariant() + "/" + c.RunId)
                     .OrderBy(value => value, StringComparer.Ordinal).ToList();
-                string path = Path.Combine(directory, "application.json");
-                var bundle = ReadExisting<Bundle>(path);
+                Bundle bundle = null;
                 if (bundle == null)
                 {
                     var observations = censuses.SelectMany(c => PhysicalLedgerReconciliation.ReadCensus(settings, c)).ToList();
-                    var previous = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>() ?? new ActiveLedgerState();
-                    var previousStorage = ReadExisting<StorageState>(RuntimeStateStore.GetStorageStatePath(settings));
+                    var previous = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>() ?? new ActiveLedgerState();
+                    var previousStorage = RuntimeStateStore.LoadStorageState(settings);
                     if (previous.Items == null) throw new InvalidOperationException("Existing ledger has no item collection.");
                     foreach (var observation in observations.Where(o => o.Bag.HasValue &&
                         !string.IsNullOrWhiteSpace(o.BagIdentity) && o.BagIdentity != "(None:0000)"))
@@ -96,31 +95,29 @@ namespace CityBankers
                     {
                         Generation = generation, RecordedUtc = DateTime.UtcNow, Runs = runs,
                         PreviousLedger = previous, MatchingAnchors = anchors, PreviousStorage = previousStorage,
-                        PreviousQueue = ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(settings)),
+                        PreviousQueue = RuntimeStateStore.LoadDispatchQueue(settings),
                         ReservedWithdrawals = withdrawals,
                         Plan = plan, Storage = BuildStorage(censuses, plan, generation),
                         Queue = BuildQueue(plan, observations, roles, new List<WithdrawalState>(), generation)
                     };
                     bundle.Storage.Workers.AddRange((previousStorage?.Workers ?? new List<StorageWorkerState>())
                         .Where(w => !scope.Contains(w.Character)));
-                    RuntimeStateStore.WriteJsonAtomic(path, bundle);
                 }
                 if (bundle.Format != "citybankers-census-application-v3" || bundle.ReservedWithdrawals == null ||
                     bundle.Generation != generation || bundle.Runs == null || !bundle.Runs.SequenceEqual(runs) ||
                     bundle.MatchingAnchors == null || bundle.Plan == null || bundle.Storage == null || bundle.Queue == null)
                     throw new InvalidOperationException("Census changed during application; retained bundle requires a new reconciliation.");
 
-                // Immutable investigation history is written before removing claims.
-                // The time is when the difference was observed, not an invented loss time.
-                RuntimeStateStore.WriteJsonAtomic(Path.Combine(ActiveLedgerStore.GetHistoryDirectory(settings),
-                    "census-" + generation + ".json"), new
-                    {
-                        Format = "citybankers-census-history-v1", bundle.Generation, bundle.RecordedUtc,
-                        EventTimeKnown = false, bundle.Runs, bundle.Plan.Differences,
-                        Withdrawals = bundle.ReservedWithdrawals.Select(w => new
-                        { Original = w, Disposition = WithdrawalStore.HasConfirmedDelivery(w) ? "completed" : "reconciled",
-                            ObservedLedgerIds = bundle.Plan.Items.Where(i => i.Id == w.ActiveLedgerId).Select(i => i.Id).ToList() }).ToList()
-                    });
+                // Only actual item differences become history. The plan and its
+                // full input snapshots remain temporary working memory.
+                foreach (var difference in bundle.Plan.Differences)
+                    CityDwellers.Shared.ManagerMemory.Current.RecordItemHistory(
+                        CityDwellers.Shared.ManagerAccounting.TransactionId, new ActiveHistoryRecord
+                        {
+                            LeftUtc = bundle.RecordedUtc, Reason = "census-" + difference.Kind,
+                            Item = difference.Previous, CurrentItem = difference.Current,
+                            ItemName = difference.Physical?.Item?.Name, Source = generation, EventTimeKnown = false
+                        });
                 foreach (var withdrawal in bundle.ReservedWithdrawals.Where(w => WithdrawalStore.HasConfirmedDelivery(w)))
                     ActiveLedgerStore.RecordCensusConfirmedDelivery(settings, withdrawal,
                         bundle.PreviousLedger.Items.SingleOrDefault(i => i.Id == withdrawal.ActiveLedgerId));
@@ -128,7 +125,7 @@ namespace CityBankers
                 ActiveLedgerStore.ApplyCensus(settings, bundle.Plan.Items, censuses.SelectMany(c =>
                     PhysicalLedgerReconciliation.ReadCensus(settings, c)).Select(o => new TransferItemState
                     { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }),
-                    "history/census-" + generation + ".json",
+                    "census:" + generation,
                     bundle.ReservedWithdrawals.Where(w => WithdrawalStore.HasConfirmedDelivery(w)).Select(w => w.ActiveLedgerId));
                 // Old batch status is not a physical instruction after a full census.
                 // Its complete record remains in application.json, without inventing
@@ -137,8 +134,6 @@ namespace CityBankers
                 WithdrawalStore.ReconcileRequestsAfterCensus(settings, generation, bundle.ReservedWithdrawals);
                 WithdrawalStore.ResetRecoveryAfterCensus(settings, Path.Combine(directory, "previous-recovery-reservations.json"));
                 SharedBagRecovery.MarkReconciled(settings, censuses.Select(c => c.Character));
-                RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, "applied.json"), new
-                { Generation = generation, bundle.Runs, Count = bundle.Plan.Items.Count });
                 CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(settings),
                     "recovery:history/census-" + generation + ".json", "central", "recovery.applied",
                     new { Generation = generation, bundle.Runs, RemainingClaims = bundle.Plan.Items.Count,

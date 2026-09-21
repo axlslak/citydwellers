@@ -1,4 +1,4 @@
-using Directory = CityDwellers.Shared.SqlDirectory;
+using Directory = System.IO.Directory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -15,11 +15,10 @@ namespace CityBankers
     public partial class BankingServiceAgent
     {
         private ReceiptEvidence _receipt;
-        private string _receiptDirectory;
+        private List<Item> _receiptLiveBeforeItems;
         private Action _afterReceipt;
         private bool _lateReceiptDeclineReported;
         private Stopwatch _custodyVerificationWait;
-        private int _receiptSequence;
         private string _settledOffer;
         private readonly Stopwatch _offerStableFor = Stopwatch.StartNew();
         private string _settledInventory;
@@ -69,28 +68,7 @@ namespace CityBankers
             Trade.Confirm();
         }
 
-        private sealed class ReceiptEvidence
-        {
-            public string Kind;
-            public string TransactionId;
-            public string BatchId;
-            public string AttemptId;
-            public List<TransferItemState> PreparedItems;
-            public string Character;
-            public string Phase;
-            public List<TransferItemState> Before;
-            public List<TransferItemState> Expected;
-            public List<TransferItemState> Observed;
-            // Live object references are valid only in this actor/cache lifetime.
-            // Persisted slot evidence remains separate; never deserialize references.
-            [Newtonsoft.Json.JsonIgnore]
-            public List<Item> LiveBeforeItems;
-            public int? WithdrawalArrivalSlot;
-            public object BeforeSlots;
-            public object ObservedSlots;
-            public int Direction;
-            public List<string> LedgerIds;
-        }
+
 
         private List<TransferItemState> PhysicalInventory()
         {
@@ -105,10 +83,10 @@ namespace CityBankers
                 (IsReserveBag(item) ? "/" + item.UniqueIdentity : "");
         }
 
-        private object PhysicalSlots()
+        private List<CustodySlot> PhysicalSlots()
         {
             return Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory)
-                .Select(i => new { Slot = i.Slot.ToString(), Identity = i.UniqueIdentity.ToString(),
+                .Select(i => new CustodySlot { Slot = i.Slot.ToString(), Identity = i.UniqueIdentity.ToString(),
                     AoId = i.Id, HighId = i.HighId, Ql = i.Ql, Name = i.Name, Quantity = StackableItems.Quantity(i) }).ToList();
         }
 
@@ -132,15 +110,11 @@ namespace CityBankers
             _settledOffer = null;
             _settledInventory = null;
             _pendingConfirmation = Identity.None;
-            _receiptDirectory = Path.Combine(RuntimeStateStore.GetDataDirectory(_settingsDir),
-                "custody-transactions", Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_receiptDirectory);
-            _receiptSequence = 0;
+            _receiptLiveBeforeItems = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory).ToList();
             _reserveReceiptObservationAfter = SharedBagRecovery.ContainerObservationSequence;
             if (kind == "dispatch-send") BindReserveProofToAttempt(expected, batch, transaction);
-            _receipt = new ReceiptEvidence { Kind = kind, TransactionId = transaction,
+            _receipt = new ReceiptEvidence { Id = Guid.NewGuid().ToString("N"), Kind = kind, TransactionId = transaction,
                 BatchId = batch, Character = Client.CharacterName, Before = PhysicalInventory(), BeforeSlots = PhysicalSlots(),
-                LiveBeforeItems = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory).ToList(),
                 Expected = expected == null ? null : new List<TransferItemState>(expected), Direction = direction,
                 PreparedItems = expected == null ? null : new List<TransferItemState>(expected),
                 AttemptId = kind == "dispatch-send" ? _activeBatch?.AttemptId :
@@ -173,10 +147,9 @@ namespace CityBankers
         private void PersistReceipt(string phase)
         {
             _receipt.Phase = phase;
-            byte[] bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(_receipt, Formatting.Indented));
-            string path = Path.Combine(_receiptDirectory,
-                (_receiptSequence++).ToString("D6") + "-" + phase + ".json");
-            CityDwellers.Shared.SqlFile.CreateNew(path, bytes);
+            CityDwellers.Shared.ManagerAccounting.Transaction("Custody", () =>
+                CityDwellers.Shared.ManagerMemory.Current.ChangeReceipt(
+                    CityDwellers.Shared.ManagerAccounting.TransactionId, _receipt));
             CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
                 _receipt.TransactionId ?? _receipt.BatchId, Client.CharacterName, "receipt." + phase, _receipt,
                 CityDwellers.Shared.IncidentJournal.IsProblem(phase), new[] { _receipt.BatchId, _tradeTrace });

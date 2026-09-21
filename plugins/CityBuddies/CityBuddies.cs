@@ -66,9 +66,6 @@ namespace CityBuddies
             new Dictionary<int, NavmeshPathfinder>();
         private readonly Dictionary<int, string> _navmeshLoadErrors =
             new Dictionary<int, string>();
-        private string _readyPath;
-        private string _snapshotPath;
-        private string _homeDirectivePath;
         private string _navmeshDirectory;
         private string _dataDirectory;
         private string _navigationTracePath;
@@ -140,15 +137,6 @@ namespace CityBuddies
                 return;
             }
 
-            _readyPath = Path.Combine(
-                _dataDirectory,
-                $"citybuddies-ready-{Client.CharacterName}.ready");
-            _snapshotPath = Path.Combine(
-                _dataDirectory,
-                $"citybuddies-position-{Client.CharacterName}.json");
-            _homeDirectivePath = Path.Combine(
-                _dataDirectory,
-                $"citybuddies-home-{Client.CharacterName}.json");
             _navmeshDirectory = Path.Combine(pluginDir, "NavMeshes");
 
             DeleteSnapshot();
@@ -326,9 +314,7 @@ namespace CityBuddies
 
             try
             {
-                SqlFile.WriteAllText(
-                    _readyPath,
-                    $"{Client.CharacterName}|{DateTime.UtcNow:O}");
+                ManagerMemory.Current.SetBuddyReady(Client.CharacterName, true);
 
                 _readyWritten = true;
                 Logger.Information(
@@ -370,15 +356,14 @@ namespace CityBuddies
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(_homeDirectivePath) ||
-                    !SqlFile.Exists(_homeDirectivePath))
+                if (string.IsNullOrWhiteSpace(_dataDirectory) ||
+                    ManagerMemory.Current.ReadBuddyHome(Client.CharacterName) == null)
                 {
                     return;
                 }
 
                 BuddyHomeDirective directive =
-                    JsonConvert.DeserializeObject<BuddyHomeDirective>(
-                        FileSnapshot.ReadText(_homeDirectivePath));
+                    ManagerMemory.Current.ReadBuddyHome(Client.CharacterName);
 
                 if (!string.IsNullOrWhiteSpace(_lastDirectiveError))
                 {
@@ -958,7 +943,7 @@ namespace CityBuddies
                     $"{SafeFileToken(Client.CharacterName)}-" +
                     $"{SafeFileToken(directive.JobId)}-{Guid.NewGuid():N}.jsonl";
                 string path = Path.Combine(traceDirectory, fileName);
-                SqlFile.WriteAllText(path, string.Empty);
+                DiskFiles.WriteAllText(path, string.Empty);
 
                 lock (_navigationTraceSync)
                 {
@@ -1264,7 +1249,7 @@ namespace CityBuddies
 
                 try
                 {
-                    SqlFile.AppendAllLines(
+                    DiskFiles.AppendAllLines(
                         _navigationTracePath,
                         _pendingNavigationTrace);
                     _pendingNavigationTrace.Clear();
@@ -1564,17 +1549,17 @@ namespace CityBuddies
 
         private void WriteSnapshotAtomically(BuddyPositionSnapshot snapshot)
         {
-            FileSnapshot.WriteText(_snapshotPath, JsonConvert.SerializeObject(snapshot));
+            ManagerMemory.Current.PublishBuddyPosition(Client.CharacterName, snapshot);
         }
 
         private void DeleteSnapshot()
         {
-            if (string.IsNullOrWhiteSpace(_snapshotPath))
+            if (string.IsNullOrWhiteSpace(_dataDirectory))
                 return;
 
             lock (_snapshotSync)
             {
-                try { SqlFile.Delete(_snapshotPath); }
+                try { ManagerMemory.Current.PublishBuddyPosition(Client.CharacterName, null); }
                 catch { }
             }
         }

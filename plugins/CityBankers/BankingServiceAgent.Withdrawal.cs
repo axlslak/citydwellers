@@ -1061,17 +1061,17 @@ namespace CityBankers
         {
             if (_receipt == null || _receipt.Kind != "withdrawal-transfer" ||
                 _receipt.Direction != 1 || _receipt.BatchId != state.Id ||
-                _receipt.LiveBeforeItems == null)
+                _receiptLiveBeforeItems == null)
                 throw new InvalidOperationException("Withdrawal arrival lacks live receipt evidence.");
 
             List<Item> inventory = Inventory.Items.Where(item => item != null &&
                 item.Slot.Type == IdentityType.Inventory).ToList();
             // The full count delta has already been verified. Also require all prior
             // live occurrences to remain present and exactly one new occurrence.
-            List<Item> added = inventory.Where(item => !_receipt.LiveBeforeItems.Any(
+            List<Item> added = inventory.Where(item => !_receiptLiveBeforeItems.Any(
                 before => ReferenceEquals(before, item))).ToList();
             if (added.Count != 1 || !MatchesWithdrawalItem(added[0], state) ||
-                _receipt.LiveBeforeItems.Any(before => !inventory.Any(item => ReferenceEquals(before, item))))
+                _receiptLiveBeforeItems.Any(before => !inventory.Any(item => ReferenceEquals(before, item))))
                 throw new InvalidOperationException("Cannot bind the single verified withdrawal arrival to a live occurrence.");
 
             var activeIds = new HashSet<string>(WithdrawalStore.LoadAll(_settingsDir)

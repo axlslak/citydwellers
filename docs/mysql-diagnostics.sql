@@ -1,25 +1,24 @@
--- Read-only checks. No reset, reimport, archive reconstruction or table rebuild.
-SELECT table_name, table_rows, data_length, index_length,
-       ROUND((data_length + index_length) / 1048576, 2) AS allocated_mib
-FROM information_schema.tables
-WHERE table_schema = DATABASE() AND table_name LIKE 'cd_%'
+-- Read-only schema-4 diagnostics. Run in the City Dwellers database.
+SELECT version FROM cd_storage_version;
+SELECT table_name, table_rows, data_length, index_length
+FROM information_schema.tables WHERE table_schema = DATABASE()
 ORDER BY data_length + index_length DESC;
-
-SELECT meta_key, meta_value FROM cd_meta
-WHERE meta_key IN ('schema_version', 'banker_relational_version');
-
-SELECT 'ledger' AS entity, COUNT(*) AS item_count FROM cd_ledger_items
-UNION ALL SELECT 'stock', COUNT(*) FROM cd_stock_items;
-
--- Completed background cleanup leaves no migration archive tables.
+SELECT COUNT(*) AS ledger_items FROM cd_ledger_entries;
+SELECT COUNT(*) AS stock_items FROM cd_stock_entries;
+SELECT id, ao_id, high_id, ql, name, `from`, received_utc,
+       transaction_id, `character`, location, bag, slot
+FROM cd_ledger_entries ORDER BY received_utc DESC LIMIT 100;
+SELECT * FROM cd_item_history ORDER BY left_utc DESC LIMIT 100;
+SELECT * FROM cd_transactions ORDER BY utc DESC LIMIT 100;
+SELECT * FROM cd_lost_claims LIMIT 100;
+SELECT * FROM cd_cloak_events LIMIT 100;
+SELECT * FROM cd_pending_custody LIMIT 100;
+-- Expected empty after successful conversion and cleanup.
 SELECT table_name FROM information_schema.tables
-WHERE table_schema = DATABASE()
-  AND table_name IN ('cd_migration_runs','cd_migration_files','cd_migration_chunks');
-
--- Remaining document storage by top-level namespace (business documents remain).
-SELECT SUBSTRING_INDEX(path, '/', 1) AS namespace,
-       COUNT(*) AS documents, SUM(byte_length) AS content_bytes
-FROM cd_documents GROUP BY namespace ORDER BY content_bytes DESC;
-
-SELECT donor, COUNT(*) AS items FROM cd_ledger_items
-GROUP BY donor ORDER BY items DESC;
+WHERE table_schema = DATABASE() AND table_name IN
+('cd_documents','cd_document_chunks','cd_directories','cd_event_lines',
+ 'cd_migration_chunks','cd_migration_files','cd_migration_runs',
+ 'cd_ledger_items','cd_stock_items','cd_banker_state','cd_meta');
+-- Expected one runtime connection for the host; inspection sessions also appear.
+SELECT id, user, host, db, command, time, state, info
+FROM information_schema.processlist WHERE db = DATABASE();

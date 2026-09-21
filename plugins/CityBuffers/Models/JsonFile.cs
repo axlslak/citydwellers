@@ -29,15 +29,15 @@ namespace MalisBuffBots
                 _mutable = string.Equals(jsonPath, Path.BAN_JSON, StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(jsonPath, Path.USERRANK_JSON, StringComparison.OrdinalIgnoreCase);
 
-                if (_mutable && !SqlFile.Exists(jsonPath))
+                if (_mutable && !DiskFiles.Exists(jsonPath))
                 {
                     if (string.Equals(jsonPath, Path.BAN_JSON, StringComparison.OrdinalIgnoreCase))
                     {
-                        SqlFile.TryCreateNew(jsonPath, JsonConvert.SerializeObject(new List<string>()));
+                        DiskFiles.TryCreateNew(jsonPath, JsonConvert.SerializeObject(new List<string>()));
                     }
                     else
                     {
-                        SqlFile.TryCreateNew(jsonPath, JsonConvert.SerializeObject(new Dictionary<Rank, List<string>>
+                        DiskFiles.TryCreateNew(jsonPath, JsonConvert.SerializeObject(new Dictionary<Rank, List<string>>
                         {
                             { Rank.Admin, new List<string> {  } },
                             { Rank.Moderator, new List<string> {  } },
@@ -47,14 +47,14 @@ namespace MalisBuffBots
                     }
                 }
 
-                Raw = _mutable ? SqlFile.ReadAllText(jsonPath) : System.IO.File.ReadAllText(jsonPath);
+                Raw = _mutable ? DiskFiles.ReadAllText(jsonPath) : System.IO.File.ReadAllText(jsonPath);
                 _data = JsonConvert.DeserializeObject<T>(Raw);
                 if (ReferenceEquals(_data, null)) throw new InvalidOperationException("JSON contains null.");
             }
             catch (Exception ex)
             {
                 if (_mutable)
-                    SqlStore.FailClosed("The MySQL buffer authority record is invalid: " + jsonPath, ex);
+                    HostFailure.Stop("The buffer authority record is invalid: " + jsonPath, ex);
                 throw new InvalidOperationException("Cannot load buffer JSON: " + jsonPath, ex);
             }
         }
@@ -63,7 +63,7 @@ namespace MalisBuffBots
         {
             if (!_mutable)
                 throw new InvalidOperationException("Deployed buffer definitions are read-only.");
-            SqlFile.WriteAllText(_path, JsonConvert.SerializeObject(_data));
+            DiskFiles.WriteAllText(_path, JsonConvert.SerializeObject(_data));
         }
     }
 }

@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -102,7 +102,7 @@ namespace CityBankers
                 string.Equals(_activeBatch?.Character, character, StringComparison.OrdinalIgnoreCase)) return true;
             var grant = ReadStorageGrant(run, character);
             bool central = string.Equals(character, _centralCharacter, StringComparison.OrdinalIgnoreCase);
-            var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
+            var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             if (queue?.Batches == null) throw new InvalidOperationException("Dispatch queue unavailable for local census admission.");
             return queue.Batches.Any(b =>
                 (central || string.Equals(b.Character, character, StringComparison.OrdinalIgnoreCase)) &&
@@ -320,9 +320,9 @@ namespace CityBankers
             var bundle = CensusApplication.ReadExisting<LocalCensusBundle>(path);
             if (bundle == null)
             {
-                var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
+                var ledger = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
                 if (ledger?.Items == null) throw new InvalidOperationException("Local census requires the current ledger.");
-                var storage = CensusApplication.ReadExisting<StorageState>(RuntimeStateStore.GetStorageStatePath(_settingsDir));
+                var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
                 var previousStorage = storage?.Workers?.SingleOrDefault(w => string.Equals(w.Character, census.Character, StringComparison.OrdinalIgnoreCase));
                 var previous = ledger.Items.Where(e => string.Equals(e.Character, census.Character, StringComparison.OrdinalIgnoreCase)).ToList();
                 foreach (var observation in observations.Where(o => o.Bag.HasValue && !string.IsNullOrWhiteSpace(o.BagIdentity)))
@@ -344,7 +344,7 @@ namespace CityBankers
                     throw new InvalidOperationException("Local census cannot supersede an active withdrawal transfer.");
                 if (string.Equals(census.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase))
                 {
-                    bundle.PreviousQueue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
+                    bundle.PreviousQueue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
                     bundle.Queue = CensusApplication.BuildQueue(plan, observations,
                         _config.Roles.ToDictionary(p => p.Key, p => p.Value.Character, StringComparer.OrdinalIgnoreCase),
                         WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList(), "local-" + census.RunId);
@@ -361,7 +361,7 @@ namespace CityBankers
             RuntimeStorageStateTransactions.ReplaceCensusedWorker(_settingsDir, bundle.Storage);
             // Reload unaffected characters on EVERY retry. Never replay an old
             // global ledger/storage snapshot while other bankers are working.
-            var current = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
+            var current = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
             if (current?.Items == null) throw new InvalidOperationException("Current ledger is unavailable.");
             var merged = current.Items.Where(e => !string.Equals(e.Character, census.Character, StringComparison.OrdinalIgnoreCase))
                 .Concat(bundle.Plan.Items).ToList();
@@ -371,7 +371,7 @@ namespace CityBankers
             if (string.Equals(census.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase))
             {
                 if (bundle.Queue == null) throw new InvalidOperationException("Central census has no physical dispatch plan.");
-                var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir))
+                var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir)
                     ?? new DispatchQueueState();
                 var originalIds = new HashSet<string>((bundle.PreviousQueue?.Batches ?? new List<DispatchBatchState>())
                     .Select(b => b.BatchId), StringComparer.Ordinal);
@@ -406,7 +406,7 @@ namespace CityBankers
                 StartLocalCensus("Both dispatch peers confirmed cancellation; refresh remaining Central custody before routing.");
                 return;
             }
-            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
+            var ledger = CityDwellers.Shared.BankerState.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
             if (ledger?.Items == null) return;
             var expected = ledger.Items.Where(e => string.Equals(e.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                 e.Location == "inventory" && !e.Bag.HasValue && !CruPolicy.IsCru(e.AoId) &&

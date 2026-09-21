@@ -20,7 +20,7 @@ namespace CityDwellers.Host
             {
                 if (_writer != null) return;
                 _writer = new SynchronizedTeeWriter(Console.Out,
-                    Path.Combine(dataDirectory, "citydwellers.log"));
+                    Path.Combine(dataDirectory, "citydweller.log"));
                 Console.SetOut(_writer);
                 Console.SetError(_writer);
             }
@@ -98,7 +98,7 @@ namespace CityDwellers.Host
             // Child client loggers call back into this host while holding their
             // own SQL transactions. This independent append never reacquires the
             // gameplay writer lock and remains committed if game state rolls back.
-            SqlStore.AppendRuntimeLog(_streamPath, line + "\n");
+            DiskFiles.AppendAllText(_streamPath, line + "\n");
             RenderLine(line);
         }
 

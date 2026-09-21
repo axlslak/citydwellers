@@ -30,6 +30,8 @@ namespace CityDwellers.Shared
         public override object InitializeLifetimeService() => null;
         public void DisconnectClient(string character)
         {
+            SetBuddyReady(character, false);
+            PublishBuddyPosition(character, null);
             ClearBankerPresence(character);
             ClearBankerOperational(character);
             ClearBankerHealth(character);

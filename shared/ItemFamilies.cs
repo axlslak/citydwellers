@@ -1,11 +1,10 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
+using File = CityDwellers.Shared.DiskFiles;
+using Directory = System.IO.Directory;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO;
 using System.Text;
-using System.Security.Cryptography;
 using System.Threading;
 using Newtonsoft.Json;
 
@@ -13,11 +12,8 @@ namespace CityDwellers.Shared
 {
     // Evidence comes from an actual low/high item link or a physical ledger row.
     // Equal names, numeric adjacency and matching flags never create an edge.
-    public sealed class ItemTemplatePair
-    {
-        public int LowId;
-        public int HighId;
-    }
+
+
 
     public sealed class ItemFamilyIndex
     {
@@ -60,20 +56,8 @@ namespace CityDwellers.Shared
     {
         public static ItemTemplatePair[] Merge(string path, IEnumerable<ItemTemplatePair> observations)
         {
-            return SqlStore.WithLock("item-pair-evidence", () =>
-            {
-                var stored = File.Exists(path)
-                    ? JsonConvert.DeserializeObject<ItemTemplatePair[]>(File.ReadAllText(path))
-                    : new ItemTemplatePair[0];
-                if (stored == null || stored.Any(p => p == null || p.LowId <= 0 || p.HighId <= 0 || p.LowId == p.HighId))
-                    throw new InvalidDataException("Invalid SQL item pair evidence.");
-                var result = new ItemFamilyIndex(stored.Concat(observations ?? Enumerable.Empty<ItemTemplatePair>())).Pairs
-                    .OrderBy(p => p.LowId).ThenBy(p => p.HighId).ToArray();
-                if (!result.Select(p => p.LowId + ":" + p.HighId).SequenceEqual(
-                    stored.OrderBy(p => p.LowId).ThenBy(p => p.HighId).Select(p => p.LowId + ":" + p.HighId)))
-                    File.WriteAllText(path, JsonConvert.SerializeObject(result, Formatting.Indented));
-                return result;
-            });
+            return ManagerAccounting.Transaction("Item template pairs", () => ManagerMemory.Current.MergeItemPairs(
+                ManagerAccounting.TransactionId, (observations ?? Enumerable.Empty<ItemTemplatePair>()).ToArray()));
         }
     }
 }

@@ -1,4 +1,4 @@
-using Directory = CityDwellers.Shared.SqlDirectory;
+using Directory = System.IO.Directory;
 using System;
 using System.IO;
 
@@ -19,15 +19,14 @@ namespace CityBankers.Shared
 
             try
             {
-                Directory.CreateDirectory(CityDwellers.Shared.SqlStore.GetDataDirectory(settingsDirectory));
+                Directory.CreateDirectory(CityDwellers.Shared.SettingsPaths.GetDataDirectory(settingsDirectory));
                 error = null;
                 return true;
             }
             catch (Exception ex)
             {
                 error =
-                    $"Unable to access MySQL runtime namespace '{settingsDirectory}'. " +
-                    $"Check the required MySQL configuration and connectivity. {ex.Message}";
+                    $"Unable to access runtime directory '{settingsDirectory}': {ex.Message}";
                 return false;
             }
         }
@@ -54,11 +53,11 @@ namespace CityBankers.Shared
         public const int InitialBankTerminalInstance = 1477725977;
 
         public static string BankTerminalPath(string settingsDirectory) =>
-            Path.Combine(RuntimeStateStore.GetDataDirectory(settingsDirectory), "citybankers-bank-terminal.json");
+            Path.Combine(settingsDirectory, "config", "citybankers-bank-terminal.json");
 
         public static JObject ReadBankTerminal(string settingsDirectory)
         {
-            var state = RuntimeStateStore.ReadJson<JObject>(BankTerminalPath(settingsDirectory));
+            var state = JObject.FromObject(CityDwellers.Shared.ManagerMemory.Current.ReadBankTerminal(CityDwellers.Shared.ManagerAccounting.TransactionId));
             if (state == null) return new JObject {
                 ["Instance"] = InitialBankTerminalInstance, ["Revision"] = "initial"
             };
@@ -71,10 +70,10 @@ namespace CityBankers.Shared
         public static void SaveBankTerminal(string settingsDirectory, int instance, string changedBy)
         {
             if (instance <= 0) throw new ArgumentOutOfRangeException(nameof(instance));
-            RuntimeStateStore.WriteJsonAtomic(BankTerminalPath(settingsDirectory), new JObject {
-                ["Instance"] = instance, ["Revision"] = Guid.NewGuid().ToString("N"),
-                ["ChangedBy"] = changedBy, ["ChangedUtc"] = DateTime.UtcNow
-            });
+            CityDwellers.Shared.ManagerAccounting.Transaction("Bank terminal setting", () =>
+                CityDwellers.Shared.ManagerMemory.Current.ChangeBankTerminal(CityDwellers.Shared.ManagerAccounting.TransactionId,
+                    new BankTerminalState { Instance = instance, Revision = Guid.NewGuid().ToString("N"),
+                        ChangedBy = changedBy, ChangedUtc = DateTime.UtcNow }));
         }
 
         public static string ReadManagerCharacter(string settingsDirectory)

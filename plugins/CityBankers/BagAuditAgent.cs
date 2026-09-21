@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Diagnostics;
 using System.Collections.Generic;
@@ -145,7 +145,7 @@ namespace CityBankers
                 _activeCommandPath = _startupCommandPath;
                 _activeResultPath = _startupResultPath;
             }
-            else if (File.Exists(_manualCommandPath) && ServicePolicy.IsBagAuditMode())
+            else if (ServicePolicy.IsBagAuditMode() && File.Exists(_manualCommandPath))
             {
                 _activeCommandPath = _manualCommandPath;
                 _activeResultPath = _manualResultPath;

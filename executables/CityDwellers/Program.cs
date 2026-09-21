@@ -147,6 +147,8 @@ namespace CityDwellers.Host
     internal static class CityDwellersCoordinator
     {
         private static string _dataDirectory;
+        private static ManagerDatabase _database;
+        private static Mutex _managerInstance;
         internal static bool OperatorShutdownRequested { get; private set; }
 
         public static int Run(ManualResetEvent stop, bool interactive)
@@ -311,10 +313,14 @@ namespace CityDwellers.Host
             try
             {
                 settings = LoadOrCreateSettings(runtimeDirectory);
+                bool created;
+                _managerInstance = new Mutex(true, "Global\\CityDwellers.Manager", out created);
+                if (!created) { _managerInstance.Dispose(); _managerInstance = null; throw new InvalidOperationException("City Dwellers is already running on this host."); }
                 ManagerHost.InitializeMemory();
-                SqlStore.Initialize(runtimeDirectory);
-                SqlStore.StartRuntime();
-                ManagerHost.ImportLegacyMessages(dataDirectory);
+                _database = new ManagerDatabase(runtimeDirectory, failure =>
+                    HostFailure.Stop("Business persistence failed; stopping before further physical operations.", failure));
+                _database.Initialize();
+                AppDomain.CurrentDomain.ProcessExit += (sender, args) => _database.Dispose();
                 RuntimeLog.Initialize(dataDirectory);
                 BuildIdentity.StartHost(runtimeDirectory);
                 RuntimeLog.Write("BUILD " + BuildIdentity.Label + " | revision=" + BuildIdentity.Revision);
@@ -328,12 +334,14 @@ namespace CityDwellers.Host
             }
             catch (Exception ex)
             {
+                _database?.Dispose();
+                if (_managerInstance != null) { _managerInstance.ReleaseMutex(); _managerInstance.Dispose(); _managerInstance = null; }
                 Console.Error.WriteLine("City Dwellers startup failed: " + ex);
                 return false;
             }
 
             RuntimeLog.Write("Portable runtime: " + runtimeDirectory);
-            RuntimeLog.Write("Manager memory initialized for queues, availability, control and Flipper cache; business persistence remains in MySQL.");
+            RuntimeLog.Write("Manager working state loaded. One SQL connection; clients use Manager memory.");
 
             if (!settings.RequireTrustedTime)
             {

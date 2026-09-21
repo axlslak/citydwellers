@@ -26,14 +26,14 @@ namespace CityManager
                 _path = Path.Combine(settingsDirectory, FileName);
                 Administrators.Clear();
 
-                if (SqlFile.Exists(_path))
+                if (DiskFiles.Exists(_path))
                 {
                     // Existing authority state must remain authoritative. Invalid
                     // imported records require repair; never reset to defaults.
                     try { LoadLocked(); }
                     catch (Exception ex)
                     {
-                        SqlStore.FailClosed("The MySQL authority record is invalid: " + _path, ex);
+                        HostFailure.Stop("The authority configuration is invalid: " + _path, ex);
                         throw;
                     }
                 }
@@ -194,7 +194,7 @@ namespace CityManager
         {
             PersistedAdminList state =
                 JsonConvert.DeserializeObject<PersistedAdminList>(
-                    SqlFile.ReadAllText(_path));
+                    DiskFiles.ReadAllText(_path));
 
             if (state == null || state.Version != CurrentVersion)
                 throw new InvalidDataException("Unsupported administrator-list file.");
@@ -239,7 +239,7 @@ namespace CityManager
                 Administrators = SnapshotLocked()
             };
 
-            SqlFile.WriteAllText(_path,
+            DiskFiles.WriteAllText(_path,
                 JsonConvert.SerializeObject(state, Formatting.Indented));
         }
 

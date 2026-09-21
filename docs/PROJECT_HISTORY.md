@@ -1,3 +1,30 @@
+## Session 207 — Manager RAM and sole SQL owner
+
+- Implemented the owner-requested architecture: the host Manager service owns one
+  unpooled SQL connection; no banker or other client references the SQL connector.
+  Shared typed state lives in Manager RAM across client/Manager login restarts.
+- Startup loads relational business state once. Runtime reads, admission, tells,
+  health, buddy positions, Flipper operations and coordination use Manager IPC/RAM.
+  Atomic accounting scopes publish RAM changes after persistence; only changed
+  business rows are written. No SQL advisory locks, heartbeat queries or file polling
+  for ordinary runtime coordination. Native logs and explicit diagnostics remain.
+- Removed SqlStore, SqlFile, SqlDirectory, BankerSqlStore and checksum gates.
+  Fixed relational entities preserve ledger/stock, item and transaction history,
+  lost/found, cloak events and unfinished custody. Completed custody heads leave SQL;
+  completed business history remains. No replacement document/blob/chunk store.
+- First schema-4 startup imports existing business rows/documents and settings,
+  commits business data with the schema version, then drops the retired filesystem,
+  migration archive and superseded business tables. A failed import never reaches
+  cleanup. Original source/backup files are untouched. Settings use native config/;
+  the permitted item catalogue stays in data/items.json. No DataMigration utility.
+- Operator changes to relational columns load on next startup without hash checks.
+  Preserved one initial audit per banker/host, explicit-admin subsequent audits,
+  bounded public queues and compound custody/accounting transaction scopes.
+- Validation: focused source/caller review, project XML and compile-path inspection,
+  lexical delimiter review and git diff --check. No compilation, test suites, live
+  AO or live SQL, following the owner's standing boundary. Publication resolves
+  this implementation task; runtime behavior is not claimed live-verified.
+
 ## Session 205 — eliminate per-item SQL under the stock writer transaction
 
 - Owner live log: database gate passed, all nine bankers reached InPlay/open bank,

@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -345,8 +345,8 @@ namespace CityBankers
             var bundle = CensusApplication.ReadExisting<WithdrawalCensusBundle>(path);
             if (bundle == null)
             {
-                var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
-                var storage = CensusApplication.ReadExisting<StorageState>(RuntimeStateStore.GetStorageStatePath(_settingsDir));
+                var ledger = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
+                var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
                 if (ledger?.Items == null || storage?.Workers == null) throw new InvalidOperationException("Withdrawal census needs current ledger/storage.");
                 foreach (var observation in observations.Where(o => o.Bag.HasValue && !string.IsNullOrWhiteSpace(o.BagIdentity)))
                 {
@@ -388,7 +388,7 @@ namespace CityBankers
                     grant.ExpiredRequests.Contains(r.Id))).ToList();
                 bundle = new WithdrawalCensusBundle { Grant = grant, Censuses = censuses, Previous = previous,
                     MatchingAnchors = anchors, PreviousStorage = storage,
-                    PreviousQueue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir)),
+                    PreviousQueue = RuntimeStateStore.LoadDispatchQueue(_settingsDir),
                     Plan = plan, Dispositions = dispositions, Storage = CensusApplication.BuildStorage(censuses, plan, grant.Id),
                     Queue = CensusApplication.BuildQueue(plan, observations,
                         _config.Roles.ToDictionary(p => p.Key, p => p.Value.Character, StringComparer.OrdinalIgnoreCase),
@@ -399,7 +399,7 @@ namespace CityBankers
                 JsonConvert.SerializeObject(bundle.Censuses) != JsonConvert.SerializeObject(censuses) || bundle.Plan == null ||
                 bundle.Storage == null || bundle.Queue?.Batches == null || bundle.PreviousQueue?.Batches == null || bundle.Dispositions == null)
                 throw new InvalidOperationException("Withdrawal census application changed during retry.");
-            var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
+            var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var allowed = new HashSet<string>(bundle.PreviousQueue.Batches.Concat(bundle.Queue.Batches).Select(b => b.BatchId));
             if (queue?.Batches == null || queue.Batches.Any(b => !allowed.Contains(b.BatchId)))
                 throw new InvalidOperationException("Dispatch queue changed during withdrawal census.");
@@ -412,7 +412,7 @@ namespace CityBankers
             foreach (var request in grant.Requests.Where(WithdrawalStore.HasConfirmedDelivery))
                 ActiveLedgerStore.RecordCensusConfirmedDelivery(_settingsDir, request, bundle.Previous.SingleOrDefault(i => i.Id == request.ActiveLedgerId));
             foreach (var worker in bundle.Storage.Workers) RuntimeStorageStateTransactions.ReplaceCensusedWorker(_settingsDir, worker);
-            var current = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
+            var current = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
             if (current?.Items == null) throw new InvalidOperationException("Current ledger unavailable during withdrawal census application.");
             ActiveLedgerStore.ApplyCensus(_settingsDir, current.Items.Where(i => !scope.Contains(i.Character)).Concat(bundle.Plan.Items).ToList(),
                 observations.Select(o => new TransferItemState { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }),

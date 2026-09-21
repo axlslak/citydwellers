@@ -12,6 +12,7 @@ using AOSharp.Clientless.Chat;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using SmokeLounge.AOtomation.Messaging.GameData;
 using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.Messages.ChatMessages;
@@ -106,8 +107,6 @@ namespace CityManager
 
         private string _settingsDir;
         private string _dataDir;
-        private string _statePath;
-        private string _eventsPath;
         private string _diagnosticLogPath;
         private bool _charInPlay;
 
@@ -130,7 +129,6 @@ namespace CityManager
             public bool GrowthProbe;
         }
 
-        private string _orgBlobStatePath;
         private int _orgBlobCurrentPageSize = OrgBlobPageSize;
         private int _orgBlobProvenSafePageSize;
         private int _orgBlobFailedPageSize;
@@ -204,10 +202,7 @@ namespace CityManager
                 return;
             }
 
-            _statePath = Path.Combine(_dataDir, "citymanager-cloak-state.json");
-            _eventsPath = Path.Combine(_dataDir, "citymanager-cloak-events.jsonl");
             _diagnosticLogPath = Path.Combine(_dataDir, "citymanager-diagnostics.log");
-            _orgBlobStatePath = Path.Combine(_dataDir, "citymanager-org-size.json");
             LoadOrgBlobBudgetState();
             SaveOrgBlobBudgetState();
 
@@ -220,12 +215,12 @@ namespace CityManager
                 Logger.Warning("Manager syslog reporting disabled: " + ex.Message);
             }
             ItemCatalog.StartLoading();
-            AdminListStore.Initialize(_dataDir);
-            BanListStore.Initialize(_dataDir);
+            AdminListStore.Initialize(Path.Combine(_settingsDir, "config"));
+            BanListStore.Initialize(Path.Combine(_settingsDir, "config"));
             DevTrace(
                 $"ADMIN LIST initialized sql-key=adminlist.json " +
                 $"count={AdminListStore.Snapshot().Count}.");
-            if (!SqlFile.Exists(CityBankers.Shared.SettingsPaths.BankTerminalPath(_settingsDir)))
+            if (!DiskFiles.Exists(CityBankers.Shared.SettingsPaths.BankTerminalPath(_settingsDir)))
                 CityBankers.Shared.SettingsPaths.SaveBankTerminal(_settingsDir,
                     CityBankers.Shared.SettingsPaths.InitialBankTerminalInstance, "initial");
             InitializeMembership();
@@ -2106,12 +2101,12 @@ namespace CityManager
 
             try
             {
-                if (string.IsNullOrWhiteSpace(_orgBlobStatePath) ||
-                    !SqlFile.Exists(_orgBlobStatePath))
+                if (string.IsNullOrWhiteSpace(_settingsDir) ||
+                    ManagerMemory.Current.ReadOrgOutputBudget() == null)
                     return;
 
                 OrgBlobBudgetState saved = JsonConvert.DeserializeObject<OrgBlobBudgetState>(
-                    SqlFile.ReadAllText(_orgBlobStatePath));
+                    ManagerMemory.Current.ReadOrgOutputBudget());
                 if (saved == null ||
                     saved.DefaultPageSize != OrgBlobPageSize ||
                     saved.CurrentPageSize < OrgBlobMinPageSize ||
@@ -2186,7 +2181,7 @@ namespace CityManager
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(_orgBlobStatePath))
+                if (string.IsNullOrWhiteSpace(_settingsDir))
                     return;
 
                 OrgBlobBudgetState snapshot;
@@ -2207,9 +2202,7 @@ namespace CityManager
                     };
                 }
 
-                FileSnapshot.WriteText(
-                    _orgBlobStatePath,
-                    JsonConvert.SerializeObject(snapshot, Formatting.Indented));
+                ManagerMemory.Current.SetOrgOutputBudget(JsonConvert.SerializeObject(snapshot));
             }
             catch (Exception ex)
             {
@@ -2933,7 +2926,7 @@ namespace CityManager
 
             try
             {
-                SqlFile.AppendAllText(_diagnosticLogPath, line + Environment.NewLine);
+                DiskFiles.AppendAllText(_diagnosticLogPath, line + Environment.NewLine);
             }
             catch (Exception ex)
             {
@@ -3196,21 +3189,8 @@ namespace CityManager
         {
             try
             {
-                PersistedCloakState state = null;
-                if (SqlFile.Exists(_statePath))
-                {
-                    try
-                    {
-                        state = JsonConvert.DeserializeObject<PersistedCloakState>(
-                            SqlFile.ReadAllText(_statePath));
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Warning(
-                            $"Persisted cloak snapshot is unreadable; " +
-                            $"falling back to the event log: {ex.Message}");
-                    }
-                }
+                var cached = ManagerMemory.Current.ReadCloak(ManagerAccounting.TransactionId);
+                PersistedCloakState state = cached == null ? null : JObject.FromObject(cached).ToObject<PersistedCloakState>();
 
                 if (state != null)
                 {
@@ -3305,38 +3285,10 @@ namespace CityManager
             }
         }
 
-        private CloakEventRecord LoadLatestCloakEvent()
-        {
-            if (!SqlFile.Exists(_eventsPath))
-                return null;
-
-            CloakEventRecord latest = null;
-
-            foreach (string line in SqlFile.ReadLines(_eventsPath))
-            {
-                if (string.IsNullOrWhiteSpace(line))
-                    continue;
-
-                try
-                {
-                    CloakEventRecord candidate =
-                        JsonConvert.DeserializeObject<CloakEventRecord>(line);
-
-                    if (candidate != null &&
-                        (latest == null || candidate.OccurredUtc > latest.OccurredUtc))
-                    {
-                        latest = candidate;
-                    }
-                }
-                catch
-                {
-                    // Keep scanning: a partially written final line must not hide
-                    // earlier authoritative events.
-                }
-            }
-
-            return latest;
-        }
+        private CloakEventRecord LoadLatestCloakEvent() =>
+            ManagerMemory.Current.ReadCloakEvents(ManagerAccounting.TransactionId)
+                .OrderByDescending(record => record.OccurredUtc)
+                .Select(record => JObject.FromObject(record).ToObject<CloakEventRecord>()).FirstOrDefault();
 
         private void SaveState()
         {
@@ -3354,8 +3306,8 @@ namespace CityManager
                     ObservationSource = _observationSource
                 };
 
-                SqlFile.WriteAllText(_statePath,
-                    JsonConvert.SerializeObject(state, Formatting.Indented));
+                ManagerAccounting.Transaction("Cloak state", () => ManagerMemory.Current.ChangeCloak(
+                    ManagerAccounting.TransactionId, JObject.FromObject(state).ToObject<CityDwellers.Shared.CloakState>()));
             }
             catch (Exception ex)
             {
@@ -3392,7 +3344,8 @@ namespace CityManager
                     RawMessage = rawMessage
                 };
 
-                SqlFile.AppendAllText(_eventsPath, JsonConvert.SerializeObject(record) + Environment.NewLine);
+                ManagerAccounting.Transaction("Cloak event", () => ManagerMemory.Current.RecordCloakEvent(
+                    ManagerAccounting.TransactionId, JObject.FromObject(record).ToObject<CityDwellers.Shared.CloakEvent>()));
                 CityDwellers.Shared.ServiceEvents.Report("cloak.changed", "info", "Cloak observation recorded.", record);
             }
             catch (Exception ex)

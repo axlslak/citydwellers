@@ -61,6 +61,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="Storage\ManagerDatabase.cs" />
+    <Compile Include="Storage\BusinessTables.cs" />
+    <Compile Include="Storage\LegacyBusinessImport.cs" />
     <Compile Include="..\..\shared\ShutdownControl.cs"><Link>ShutdownControl.cs</Link></Compile>
     <Compile Include="ClientDomainLifetime.cs" />
     <Compile Include="BuffersHost.cs" />
@@ -123,11 +126,6 @@
   </ItemGroup>
   <!-- Explicit SQL items: do not depend on an imported wildcard being refreshed by Visual Studio. -->
   <ItemGroup>
-    <Compile Include="..\..\shared\SqlStore.cs"><Link>Sql\SqlStore.cs</Link></Compile>
-    <Compile Include="..\..\shared\SqlSchema.cs"><Link>Sql\SqlSchema.cs</Link></Compile>
-    <Compile Include="..\..\shared\SqlFile.cs"><Link>Sql\SqlFile.cs</Link></Compile>
-    <Compile Include="..\..\shared\BankerSqlStore.cs"><Link>Sql\BankerSqlStore.cs</Link></Compile>
-    <Compile Include="..\..\shared\SqlDirectory.cs"><Link>Sql\SqlDirectory.cs</Link></Compile>
     <PackageReference Include="MySqlConnector" Version="[2.3.7]" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

@@ -17,7 +17,7 @@ namespace MalisBuffBots
             BUFF_JSON = System.IO.Path.Combine(PLUGIN_DIR, "JSON", "BuffsDb.json");
             REBUFF_JSON = System.IO.Path.Combine(PLUGIN_DIR, "JSON", "RebuffInfo.json");
             // Per-character MySQL keys keep independent buffer authority state.
-            string state = System.IO.Path.Combine(data, "buffers", Client.CharacterName.ToLowerInvariant());
+            string state = System.IO.Path.Combine(settings, "config", "buffers", Client.CharacterName.ToLowerInvariant());
             USERRANK_JSON = System.IO.Path.Combine(state, "UserRanks.json");
             BAN_JSON = System.IO.Path.Combine(state, "BanList.json");
         }

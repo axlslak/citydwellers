@@ -50,9 +50,9 @@ namespace CityManager
         {
             lock (_membershipSync)
             {
-                _memberListPath = Path.Combine(_dataDir, "memberlist.json");
+                _memberListPath = Path.Combine(_settingsDir, "config", "memberlist.json");
                 _membershipStatePath =
-                    Path.Combine(_dataDir, "citymanager-membership-state.json");
+                    Path.Combine(_settingsDir, "config", "citymanager-membership-state.json");
                 _membershipShuttingDown = false;
                 _membershipFetchInFlight = false;
                 _nextMembershipTickUtc = DateTime.MinValue;
@@ -892,7 +892,7 @@ namespace CityManager
         {
             _permanentMembers.Clear();
 
-            if (!SqlFile.Exists(_memberListPath))
+            if (!DiskFiles.Exists(_memberListPath))
             {
                 TrySavePermanentMembersLocked();
                 return;
@@ -902,7 +902,7 @@ namespace CityManager
             {
                 PersistedMemberList state =
                     JsonConvert.DeserializeObject<PersistedMemberList>(
-                        SqlFile.ReadAllText(_memberListPath));
+                        DiskFiles.ReadAllText(_memberListPath));
 
                 if (state == null ||
                     state.Version != MemberListVersion ||
@@ -924,7 +924,7 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Error($"Unable to load permanent member list: {ex.Message}");
-                SqlStore.FailClosed("The MySQL permanent member list is invalid; repair it before starting Manager.", ex);
+                HostFailure.Stop("The permanent member list is invalid; repair it before starting Manager.", ex);
                 throw;
             }
         }
@@ -936,14 +936,14 @@ namespace CityManager
             _liveAddedMembers.Clear();
             _liveRemovedMembers.Clear();
 
-            if (!SqlFile.Exists(_membershipStatePath))
+            if (!DiskFiles.Exists(_membershipStatePath))
                 return;
 
             try
             {
                 PersistedMembershipState state =
                     JsonConvert.DeserializeObject<PersistedMembershipState>(
-                        SqlFile.ReadAllText(_membershipStatePath));
+                        DiskFiles.ReadAllText(_membershipStatePath));
 
                 if (state == null ||
                     (state.Version != 1 && state.Version != MembershipStateVersion))
@@ -982,7 +982,7 @@ namespace CityManager
             catch (Exception ex)
             {
                 Logger.Error($"Unable to load membership state: {ex.Message}");
-                SqlStore.FailClosed("The MySQL membership state is invalid; repair it before starting Manager.", ex);
+                HostFailure.Stop("The membership state is invalid; repair it before starting Manager.", ex);
                 throw;
             }
         }
@@ -1091,7 +1091,7 @@ namespace CityManager
             if (string.IsNullOrWhiteSpace(path))
                 throw new InvalidOperationException("Membership storage is not initialized.");
 
-            SqlFile.WriteAllText(path, json);
+            DiskFiles.WriteAllText(path, json);
         }
 
         private static List<string> SortedNames(IEnumerable<string> names)

@@ -23,7 +23,7 @@ namespace CityManager
                 {
                     // Read the journal first so a newly added claim cannot look absent in an older ledger snapshot.
                     var losses = lost ? LostItemsStore.Read(_settingsDir) : null;
-                    var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<JObject>();
+                    var ledger = CityDwellers.Shared.BankerState.ReadLedger<JObject>();
                     var items = ledger?["Items"] as JArray;
                     if (ledger != null && (items == null || items.Any(i => !(i is JObject) ||
                         string.IsNullOrWhiteSpace(i["Id"]?.ToString()))))
@@ -31,7 +31,7 @@ namespace CityManager
                     // Without a ledger, pending write-ahead records cannot be classified as removed.
                     var active = new HashSet<string>((items ?? new JArray()).Select(i => i["Id"].ToString()),
                         StringComparer.Ordinal);
-                    var index = RuntimeStateStore.ReadJsonStrict<JObject>(Path.Combine(_dataDir, "symbiant-index.json"));
+                    var index = CityDwellers.Shared.BankerState.ReadItemIndex<JObject>();
                     var names = (index?["Items"] as JArray ?? new JArray()).OfType<JObject>()
                         .GroupBy(i => i["AoId"]?.ToString() ?? "")
                         .ToDictionary(g => g.Key, g => g.First()["Name"]?.ToString());
@@ -53,8 +53,8 @@ namespace CityManager
                                 (ledger != null && !active.Contains(e.LedgerId)))))
                         {
                             string name = string.IsNullOrWhiteSpace(record.ItemName)
-                                ? nameOf(record.PreviousLedgerEntry) : record.ItemName;
-                            rows.Add(Tuple.Create(record.PreviousLedgerEntry, record, name, record.DiscoveredUtc));
+                                ? nameOf(JObject.FromObject(record.PreviousLedgerEntry)) : record.ItemName;
+                            rows.Add(Tuple.Create(JObject.FromObject(record.PreviousLedgerEntry), record, name, record.DiscoveredUtc));
                         }
                     }
                     else

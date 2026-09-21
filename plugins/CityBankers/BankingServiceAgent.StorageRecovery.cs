@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -141,14 +141,14 @@ namespace CityBankers
                 ReceiptEvidence sent;
                 if (!_appliedDispatchReceipts.TryGetValue(request.Received.AttemptId, out sent))
                 { proposal.Reply.TrySetResult("pending"); return true; }
-                var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
+                var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
                 var batch = queue?.Batches?.SingleOrDefault(b => b.BatchId == request.Received.BatchId &&
                     b.AttemptId == request.Received.AttemptId);
                 grant = new StorageRecoveryGrant { Request = request, Sent = sent, OriginalBatch = batch };
                 ValidateStorageGrant(grant, request.RunId, request.Received.Character);
                 // Sender accounting must already have transferred these exact
                 // occurrence IDs; partial storage may have changed their slots.
-                var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
+                var ledger = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
                 var ids = sent.LedgerIds;
                 var owned = ledger?.Items?.Where(e => ids != null && ids.Contains(e.Id)).ToList();
                 if (ids == null || ids.Count != sent.Expected.Count || ids.Distinct().Count() != ids.Count ||
@@ -201,7 +201,7 @@ namespace CityBankers
         private void CompleteStorageRecoveryCensus(StorageRecoveryGrant grant)
         {
             if (grant == null) return;
-            var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
+            var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             if (queue?.Batches == null) throw new InvalidOperationException("Dispatch queue unavailable during recovery.");
             var batch = queue.Batches.SingleOrDefault(b => b.BatchId == grant.OriginalBatch.BatchId);
             if (batch != null)

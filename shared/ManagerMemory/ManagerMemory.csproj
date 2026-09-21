@@ -23,8 +23,16 @@
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Compile Include="ManagerMemory.cs" />
+    <Compile Include="BankingModels.cs" />
+    <Compile Include="BankingOperations.cs" />
+    <Compile Include="Accounting.cs" />
+    <Compile Include="BagHistory.cs" />
+    <Compile Include="PolicyModels.cs" />
+    <Compile Include="CloakRecords.cs" />
     <Compile Include="FlipperObservation.cs" />
     <Compile Include="HostControl.cs" />
+    <Compile Include="ServiceCoordination.cs" />
+    <Compile Include="..\BuddyPositionSnapshot.cs" />
     <Compile Include="BagAuditModels.cs" />
     <Compile Include="BankerCoordination.cs" />
     <Compile Include="BankerHealth.cs" />

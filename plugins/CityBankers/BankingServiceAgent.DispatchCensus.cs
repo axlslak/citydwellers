@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -153,7 +153,7 @@ namespace CityBankers
 
         private bool OtherDispatchPending(DispatchCensusGrant grant)
         {
-            var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
+            var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             if (queue?.Batches == null) throw new InvalidOperationException("Paired census requires the dispatch queue.");
             // Other workers' unresolved records remain in the queue. Only
             // another attempt involving this same worker exceeds this pair's
@@ -177,7 +177,7 @@ namespace CityBankers
                 if (!_isCentral || (proof != null && !IsDispatchEvidence(proof)) ||
                     (proof == null && string.IsNullOrWhiteSpace(proposal.BatchId)))
                     throw new InvalidOperationException("Invalid dispatch census request.");
-                var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
+                var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
                 var batch = queue?.Batches?.SingleOrDefault(b => b.BatchId == (proof?.BatchId ?? proposal.BatchId) &&
                     (proof == null || b.AttemptId == proof.AttemptId));
                 string attempt = proof?.AttemptId ?? batch?.AttemptId;
@@ -289,7 +289,7 @@ namespace CityBankers
             // Give ordinary paired cancellation and verified storage recovery
             // their first opportunity. A failed attempt without one peer's
             // receipt still needs physical resolution instead of an eternal wait.
-            var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
+            var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var failed = (queue?.Batches ?? new List<DispatchBatchState>()).Where(b =>
                 b.Status == "failed" && !b.TransferNeverStarted).ToList();
             string signature = string.Join(";", failed.Select(b => b.BatchId + "/" + b.AttemptId).OrderBy(s => s));
@@ -410,9 +410,9 @@ namespace CityBankers
             if (bundle == null)
             {
                 if (OtherDispatchPending(grant)) throw new InvalidOperationException("Another dispatch still has unresolved custody.");
-                var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
+                var ledger = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
                 if (ledger?.Items == null) throw new InvalidOperationException("Current ledger unavailable for paired census.");
-                var storage = CensusApplication.ReadExisting<StorageState>(RuntimeStateStore.GetStorageStatePath(_settingsDir));
+                var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
                 foreach (var observation in observations.Where(o => o.Bag.HasValue && !string.IsNullOrWhiteSpace(o.BagIdentity)))
                 {
                     var matches = storage?.Workers?.Where(w => string.Equals(w.Character, observation.Character, StringComparison.OrdinalIgnoreCase))
@@ -430,7 +430,7 @@ namespace CityBankers
                 bundle = new DispatchCensusBundle
                 {
                     Grant = grant, Censuses = censuses, Previous = previous, PreviousStorage = storage,
-                    PreviousQueue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir)),
+                    PreviousQueue = RuntimeStateStore.LoadDispatchQueue(_settingsDir),
                     Requests = requests, Plan = plan, Storage = CensusApplication.BuildStorage(censuses, plan, grant.CentralRun),
                     Queue = CensusApplication.BuildQueue(plan, observations,
                         _config.Roles.ToDictionary(p => p.Key, p => p.Value.Character, StringComparer.OrdinalIgnoreCase),
@@ -443,7 +443,7 @@ namespace CityBankers
                 bundle.Plan == null || bundle.Storage == null || bundle.Queue?.Batches == null ||
                 bundle.PreviousQueue?.Batches == null || bundle.Requests == null)
                 throw new InvalidOperationException("Paired census application changed during retry.");
-            var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
+            var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var allowedIds = new HashSet<string>(bundle.PreviousQueue.Batches.Concat(bundle.Queue.Batches).Select(b => b.BatchId));
             if (queue?.Batches == null || queue.Batches.Any(b => !allowedIds.Contains(b.BatchId)) ||
                 queue.Batches.Any(b => b.BatchId == grant.Batch.BatchId && b.AttemptId != grant.Batch.AttemptId))
@@ -460,7 +460,7 @@ namespace CityBankers
                     Withdrawals = bundle.Requests.Select(r => new { Original = r, Disposition = "reconciled" }) });
             foreach (var worker in bundle.Storage.Workers)
                 RuntimeStorageStateTransactions.ReplaceCensusedWorker(_settingsDir, worker);
-            var current = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
+            var current = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
             if (current?.Items == null) throw new InvalidOperationException("Current ledger unavailable during paired census application.");
             ActiveLedgerStore.ApplyCensus(_settingsDir, current.Items.Where(i => !scope.Contains(i.Character)).Concat(bundle.Plan.Items).ToList(),
                 observations.Select(o => new TransferItemState { AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name }),

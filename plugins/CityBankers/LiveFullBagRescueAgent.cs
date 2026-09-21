@@ -180,8 +180,7 @@ namespace CityBankers
                 // the stranded bag before readiness, and write-front reconciliation has then
                 // proved a fresh writable target. The exact zero-item matches=0 result is now
                 // only stale bookkeeping and can be cleared without moving physical items.
-                RuntimeStateStore.DeleteIfExists(
-                    RuntimeStateStore.GetStorageResultPath(_settingsDir, Client.CharacterName));
+                RuntimeStateStore.DeleteStorageResult(_settingsDir, Client.CharacterName);
                 string notice =
                     "LIVE FULL-BAG RESCUE " + _role + " batch " + ShortId(batch.BatchId) +
                     ": no persisted bank bag remains stranded after fresh startup write-front " +
@@ -359,8 +358,7 @@ namespace CityBankers
                     return;
                 }
 
-                RuntimeStateStore.DeleteIfExists(
-                    RuntimeStateStore.GetStorageResultPath(_settingsDir, Client.CharacterName));
+                RuntimeStateStore.DeleteStorageResult(_settingsDir, Client.CharacterName);
 
                 string notice =
                     "LIVE FULL-BAG RESCUE " + _role + " batch " + ShortId(_job.BatchId) +

@@ -1,56 +1,56 @@
-# Existing database storage and cleanup
+# Business storage (schema 4)
 
-The database still exists. Preserve it; do not reset it or reconstruct accounting
-from physical inventory. DataMigration is retired and is no longer built or used.
-Do not run an old DataMigration executable against schema 3.
+The host Manager service owns one MySQL connection with pooling disabled. Client
+plugins do not contain the connector. Manager loads all durable business state at
+startup and answers ordinary requests from RAM through in-process IPC. It writes
+only changed business rows, in one transaction for a compound accounting change.
+There is no SQL polling, advisory lock, document store or checksum gate.
 
-Build and deploy the matching host and plugins, then restart normally. Existing
-completed schema 1/2 imports are admitted and upgraded to schema 3. Missing or
-incomplete databases stop with an error rather than silently creating empty state.
-The runtime still requires its exclusive database lease.
+## Startup conversion
 
-The host schedules cleanup ten seconds after startup, retrying hourly. It removes
-obsolete SQL diagnostic documents in batches of twenty and drops the redundant
-`cd_migration_chunks`, `cd_migration_files`, and `cd_migration_runs` tables.
-Completed imports no longer depend on original-source deletion. There is no
-replacement archive, copy, checksum pass, or replay. Original disk sources and
-backups are not deleted. Partial cleanup is safe to retry.
+Normal startup performs conversion automatically; DataMigration is retired.
+Existing relational ledger and stock columns are authoritative. The importer reads
+legacy documents once for transaction/item history, lost/found, cloak events and
+unfinished custody. It preserves donor/taker and location metadata; it never
+reconstructs ownership from inventory. Settings are exported to native config/
+without overwriting existing files. The catalogue remains data/items.json.
 
-Cleanup preserves relational ledger and stock rows, donor and recipient history,
-custody transactions, lost/found, settings, pending tells and current-host census
-coordination. Obsolete `ledger.json` and `current-stock.json` copies are removed
-only after the relational upgrade succeeds. The explicit diagnostic allowlist
-includes transaction traces, service-event copies, incident dumps, navigation
-traces, old logs, old-host census documents and tell acknowledgements older than
-one day. Meaningful `history/` records and cloak event history are retained.
+Business rows and schema version 4 commit together before cleanup. Only then does
+startup drop cd_event_lines, cd_document_chunks, cd_documents, cd_directories,
+cd_migration_chunks, cd_migration_files, cd_migration_runs, cd_ledger_items,
+cd_stock_items, cd_banker_state and cd_meta. Interrupted cleanup can repeat without
+reimporting stale data. Original disk source/backup files are never deleted.
+Pending legacy tells/channels transfer into RAM during this first startup; they
+are transient thereafter, as are health, availability and coordination.
 
-The catalogue, runtime log and requested diagnostic dumps remain on disk as
-previously authorized. A physical `data` folder is valid. Automatic incident
-snapshots/exports and duplicate service-event persistence are disabled; optional
-syslog forwarding remains. No new disk service-event archive replaces SQL copies.
+## Contents and ownership
 
-## Remaining work and verification boundary
+SQL retains relational ledger/stock and storage locations, transaction/item
+history (including lost/found), cloak state/events and the minimal state needed
+for unfinished transfers/withdrawals. Completed custody snapshots are removed;
+meaningful history is retained. Runtime logs, requested dumps, tell queues,
+positions and service control are not SQL entities.
 
-The generic live SQL document/chunk backend still serves other business state.
-This change removes the retired import filesystem and diagnostic amplification;
-it does not claim that every live document has been converted to relational rows.
+The fixed entity mapping in executables/CityDwellers/Storage/BusinessTables.cs is
+the authoritative schema definition. Every mapped business field has an ordinary
+SQL column. record_id, parent_id and position identify and relate rows; there are
+no serialized document payloads or hashes. Date/time columns hold UTC timestamps.
+Operator edits to business columns are read on the next host startup; the running
+Manager continues to own its current RAM state. Parent relationships must remain
+valid when editing related rows.
 
-`mysql-diagnostics.sql` contains read-only storage queries. Dropping archive
-tables removes those tables; deleting rows in surviving InnoDB tables may leave
-allocated space available for reuse rather than immediately shrink their files.
-No blocking table rebuild or live SQL operation is performed by this source change.
-Compilation and live runtime validation remain owner-run.
+Bootstrap connection settings remain in citydwellers.json under MySql (Host,
+Port, Database, User, Password, SslMode). No server-brand rejection is imposed.
+SQL failures during persistence stop the host; an indeterminate commit is never
+replayed automatically. Reconnection occurs only when a real write needs it.
 
-## Server compatibility
+Native config/ contains administrator settings, policy, memberships, item-pair
+evidence and buffer settings. data/ may contain the catalogue, normal logs and
+explicit diagnostic output. Its existence does not reject startup.
 
-Startup accepts MySQL-compatible servers, including MariaDB, based on the required
-JSON_VALID capability and existing schema checks rather than a server-name ban.
-The packet-size and exclusive-lease checks still apply. Keep the existing `MySql`
-configuration section for either server. No database move or recreation is needed.
-Deploy a matching rebuilt host and all plugins: the old Initialize(string,bool)
-stack signature identifies a build from before session203.
+## Validation boundary
 
-Compatibility references: [MariaDB JSON](https://mariadb.com/docs/server/reference/data-types/string-data-types/json),
-[generated columns](https://mariadb.com/docs/server/reference/sql-statements/data-definition/create/generated-columns),
-[named locks](https://mariadb.com/docs/server/reference/sql-functions/secondary-functions/miscellaneous-functions/get_lock),
-and [MySqlConnector](https://mysqlconnector.net/).
+The implementation received source and project-structure review only. No build,
+automated tests, live SQL conversion or AO run was performed in this Work session,
+following the owner boundary. mysql-diagnostics.sql contains read-only inspection
+queries; mysql-schema.sql locates the runtime schema and inspects its definitions.

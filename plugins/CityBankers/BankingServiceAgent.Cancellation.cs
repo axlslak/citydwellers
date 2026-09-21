@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -19,13 +19,6 @@ namespace CityBankers
             public ReceiptEvidence Proof;
             public Task<string> Request;
             public readonly Stopwatch Retry = Stopwatch.StartNew();
-        }
-
-        private sealed class CancellationPair
-        {
-            public ReceiptEvidence Sender;
-            public ReceiptEvidence Receiver;
-            public DispatchBatchState OriginalBatch;
         }
 
         private readonly Dictionary<string, CancellationPending> _cancellationOutbox =
@@ -108,111 +101,113 @@ namespace CityBankers
             if (proposal.Kind != "dispatch-cancelled") return false;
             try
             {
-                if (!_isCentral || !IsCancellationProof(proposal.Cancellation))
-                    throw new InvalidOperationException("Invalid dispatch cancellation proof.");
-                var proof = proposal.Cancellation;
-                bool sender = proof.Kind == "dispatch-send";
-                if (sender ? !string.Equals(proof.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase) :
-                    !_config.Roles.Any(p => p.Key != "central" &&
-                        string.Equals(p.Value?.Character, proof.Character, StringComparison.OrdinalIgnoreCase)))
-                    throw new InvalidOperationException("Cancellation proof came from an unexpected participant.");
-                string directory = CancellationDirectory(proof.AttemptId);
-                string path = Path.Combine(directory, sender ? "sender.json" : "receiver.json");
-                var retained = CensusApplication.ReadExisting<ReceiptEvidence>(path);
-                if (retained != null && JsonConvert.SerializeObject(retained) != JsonConvert.SerializeObject(proof))
-                    throw new InvalidOperationException("A cancellation attempt was reused with different evidence.");
-                if (retained == null) RuntimeStateStore.WriteJsonAtomic(path, proof);
-                string completed = Path.Combine(directory, "completed.json");
-                if (!File.Exists(completed))
+                return CityDwellers.Shared.ManagerAccounting.Transaction("Dispatch cancellation", () =>
                 {
-                    var source = CensusApplication.ReadExisting<ReceiptEvidence>(Path.Combine(directory, "sender.json"));
-                    var receiver = CensusApplication.ReadExisting<ReceiptEvidence>(Path.Combine(directory, "receiver.json"));
-                    if (source == null || receiver == null || !StartupCensusGate.IsOpen || Trade.IsTrading ||
-                        _receipt != null || _activeBatch != null || _donationActive || _donationCleanup != null ||
-                        _returnOffer != null || _extraction != null || _withdrawalTradeOpened)
-                    { proposal.Reply.TrySetResult("pending"); return true; }
-                    if (!IsCancellationProof(source) || !IsCancellationProof(receiver) ||
-                        source.AttemptId != receiver.AttemptId || source.BatchId != receiver.BatchId ||
-                        source.TransactionId != receiver.TransactionId || !SameManifest(source.PreparedItems, receiver.PreparedItems))
-                        throw new InvalidOperationException("Cancellation participants disagree about the attempted transfer.");
-                    string pairPath = Path.Combine(directory, "pair.json");
-                    var pair = CensusApplication.ReadExisting<CancellationPair>(pairPath);
-                    var queue = CensusApplication.ReadExisting<DispatchQueueState>(RuntimeStateStore.GetDispatchQueuePath(_settingsDir));
-                    if (queue?.Batches == null) throw new InvalidOperationException("Cancellation requires the current dispatch queue.");
-                    var batch = queue.Batches.SingleOrDefault(b => b.BatchId == source.BatchId);
-                    if (batch?.RequiresPairedCensus == true)
-                    { proposal.Reply.TrySetResult("pending"); return true; }
-                    if (pair == null)
+                    if (!_isCentral || !IsCancellationProof(proposal.Cancellation))
+                        throw new InvalidOperationException("Invalid dispatch cancellation proof.");
+                    var proof = proposal.Cancellation;
+                    bool sender = proof.Kind == "dispatch-send";
+                    if (sender ? !string.Equals(proof.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase) :
+                        !_config.Roles.Any(p => p.Key != "central" &&
+                            string.Equals(p.Value?.Character, proof.Character, StringComparison.OrdinalIgnoreCase)))
+                        throw new InvalidOperationException("Cancellation proof came from an unexpected participant.");
+                    var owner = CityDwellers.Shared.ManagerMemory.Current;
+                    string transaction = CityDwellers.Shared.ManagerAccounting.TransactionId;
+                    var retained = owner.ReadCancellationReceipt(transaction, proof.AttemptId, proof.Kind);
+                    if (retained != null && JsonConvert.SerializeObject(retained) != JsonConvert.SerializeObject(proof))
+                        throw new InvalidOperationException("A cancellation attempt was reused with different evidence.");
+                    if (retained == null) owner.ChangeReceipt(transaction, proof);
+                    var pair = owner.ReadCancellation(transaction, proof.AttemptId);
+                    if (pair?.Outcome == null)
                     {
-                        if (batch == null || batch.AttemptId != source.AttemptId || batch.Status != "failed" ||
-                            batch.TransactionId != source.TransactionId ||
-                            !string.Equals(batch.Character, receiver.Character, StringComparison.OrdinalIgnoreCase) ||
-                            !SameManifest(batch.Items, source.PreparedItems))
+                        var source = owner.ReadCancellationReceipt(transaction, proof.AttemptId, "dispatch-send");
+                        var receiver = owner.ReadCancellationReceipt(transaction, proof.AttemptId, "dispatch-receive");
+                        if (source == null || receiver == null || !StartupCensusGate.IsOpen || Trade.IsTrading ||
+                            _receipt != null || _activeBatch != null || _donationActive || _donationCleanup != null ||
+                            _returnOffer != null || _extraction != null || _withdrawalTradeOpened)
                         { proposal.Reply.TrySetResult("pending"); return true; }
-                        pair = new CancellationPair { Sender = source, Receiver = receiver,
-                            OriginalBatch = JsonConvert.DeserializeObject<DispatchBatchState>(JsonConvert.SerializeObject(batch)) };
-                        RuntimeStateStore.WriteJsonAtomic(pairPath, pair);
-                    }
-                    if (JsonConvert.SerializeObject(pair.Sender) != JsonConvert.SerializeObject(source) ||
-                        JsonConvert.SerializeObject(pair.Receiver) != JsonConvert.SerializeObject(receiver))
-                        throw new InvalidOperationException("Retained cancellation participants changed during retry.");
-                    string outcome = "superseded";
-                    if (batch != null && batch.LastCancelledAttempt == source.AttemptId)
-                        outcome = "already-reconciled";
-                    else if (batch != null && batch.AttemptId == source.AttemptId)
-                    {
-                        if (batch.Status != "failed") { proposal.Reply.TrySetResult("pending"); return true; }
-                        string signature = string.Join(";", PhysicalInventory().Select(CustodyKey).OrderBy(k => k));
-                        string previous;
-                        if (!_cancellationSignatures.TryGetValue(source.AttemptId, out previous) || previous != signature)
-                        {
-                            _cancellationSignatures[source.AttemptId] = signature;
-                            _cancellationSettling[source.AttemptId] = Stopwatch.StartNew();
-                            proposal.Reply.TrySetResult("pending"); return true;
-                        }
-                        if (_cancellationSettling[source.AttemptId].ElapsedMilliseconds < 500)
+                        if (!IsCancellationProof(source) || !IsCancellationProof(receiver) ||
+                            source.AttemptId != receiver.AttemptId || source.BatchId != receiver.BatchId ||
+                            source.TransactionId != receiver.TransactionId || !SameManifest(source.PreparedItems, receiver.PreparedItems))
+                            throw new InvalidOperationException("Cancellation participants disagree about the attempted transfer.");
+                        var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+                        if (queue?.Batches == null) throw new InvalidOperationException("Cancellation requires the current dispatch queue.");
+                        var batch = queue.Batches.SingleOrDefault(b => b.BatchId == source.BatchId);
+                        if (batch?.RequiresPairedCensus == true)
                         { proposal.Reply.TrySetResult("pending"); return true; }
-                        bool available = CancelledSourceStillAvailable(source);
-                        outcome = available ? "retry-queued" : "source-census-required";
-                        if (available)
+                        if (pair == null)
                         {
-                            string retryId = "retry-" + source.AttemptId;
-                            if (queue.Batches.Any(b => b.BatchId == retryId))
-                                throw new InvalidOperationException("Cancellation retry already exists alongside its original batch.");
-                            var retry = JsonConvert.DeserializeObject<DispatchBatchState>(JsonConvert.SerializeObject(batch));
-                            retry.BatchId = retryId;
-                            retry.LastCancelledAttempt = source.AttemptId;
-                            retry.AttemptId = null;
-                            retry.Status = "queued";
-                            retry.TransferNeverStarted = false;
-                            retry.LastError = null;
-                            retry.UpdatedUtc = DateTime.UtcNow;
-                            queue.Batches.Remove(batch);
-                            queue.Batches.Add(retry);
+                            if (batch == null || batch.AttemptId != source.AttemptId || batch.Status != "failed" ||
+                                batch.TransactionId != source.TransactionId ||
+                                !string.Equals(batch.Character, receiver.Character, StringComparison.OrdinalIgnoreCase) ||
+                                !SameManifest(batch.Items, source.PreparedItems))
+                            { proposal.Reply.TrySetResult("pending"); return true; }
+                            pair = new CancellationPair { AttemptId = proof.AttemptId, Sender = source, Receiver = receiver,
+                                OriginalBatch = JsonConvert.DeserializeObject<DispatchBatchState>(JsonConvert.SerializeObject(batch)) };
+                            owner.ChangeCancellation(transaction, pair);
                         }
-                        else
+                        if (JsonConvert.SerializeObject(pair.Sender) != JsonConvert.SerializeObject(source) ||
+                            JsonConvert.SerializeObject(pair.Receiver) != JsonConvert.SerializeObject(receiver))
+                            throw new InvalidOperationException("Retained cancellation participants changed during retry.");
+                        string outcome = "superseded";
+                        if (batch != null && batch.LastCancelledAttempt == source.AttemptId)
+                            outcome = "already-reconciled";
+                        else if (batch != null && batch.AttemptId == source.AttemptId)
                         {
-                            batch.LastCancelledAttempt = source.AttemptId;
-                            batch.AttemptId = null;
-                            batch.Status = "cancelled";
-                            batch.TransferNeverStarted = false;
-                            batch.LastError = "Both peers confirmed cancellation; refresh current source custody before routing.";
-                            batch.UpdatedUtc = DateTime.UtcNow;
+                            if (batch.Status != "failed") { proposal.Reply.TrySetResult("pending"); return true; }
+                            string signature = string.Join(";", PhysicalInventory().Select(CustodyKey).OrderBy(k => k));
+                            string previous;
+                            if (!_cancellationSignatures.TryGetValue(source.AttemptId, out previous) || previous != signature)
+                            {
+                                _cancellationSignatures[source.AttemptId] = signature;
+                                _cancellationSettling[source.AttemptId] = Stopwatch.StartNew();
+                                proposal.Reply.TrySetResult("pending"); return true;
+                            }
+                            if (_cancellationSettling[source.AttemptId].ElapsedMilliseconds < 500)
+                            { proposal.Reply.TrySetResult("pending"); return true; }
+                            bool available = CancelledSourceStillAvailable(source);
+                            outcome = available ? "retry-queued" : "source-census-required";
+                            if (available)
+                            {
+                                string retryId = "retry-" + source.AttemptId;
+                                if (queue.Batches.Any(b => b.BatchId == retryId))
+                                    throw new InvalidOperationException("Cancellation retry already exists alongside its original batch.");
+                                var retry = JsonConvert.DeserializeObject<DispatchBatchState>(JsonConvert.SerializeObject(batch));
+                                retry.BatchId = retryId;
+                                retry.LastCancelledAttempt = source.AttemptId;
+                                retry.AttemptId = null;
+                                retry.Status = "queued";
+                                retry.TransferNeverStarted = false;
+                                retry.LastError = null;
+                                retry.UpdatedUtc = DateTime.UtcNow;
+                                queue.Batches.Remove(batch);
+                                queue.Batches.Add(retry);
+                            }
+                            else
+                            {
+                                batch.LastCancelledAttempt = source.AttemptId;
+                                batch.AttemptId = null;
+                                batch.Status = "cancelled";
+                                batch.TransferNeverStarted = false;
+                                batch.LastError = "Both peers confirmed cancellation; refresh current source custody before routing.";
+                                batch.UpdatedUtc = DateTime.UtcNow;
+                            }
+                            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                            _workerRetries[batch.Character] = Stopwatch.StartNew();
                         }
-                        RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
-                        _workerRetries[batch.Character] = Stopwatch.StartNew();
+                        // A retry uses a new batch ID as well as a new attempt ID:
+                        // old storage replies cannot affect it. A completion-write
+                        // retry never recreates an original batch that has gone away.
+                        pair.Outcome = outcome;
+                        owner.ChangeCancellation(transaction, pair);
+                        _cancellationSignatures.Remove(source.AttemptId);
+                        _cancellationSettling.Remove(source.AttemptId);
+                        Logger.Information("[CityBankers] DISPATCH CANCELLATION RECONCILED " + source.BatchId +
+                            "; attempt=" + source.AttemptId + "; " + outcome + ". Both inventories remained unchanged.");
                     }
-                    // A retry uses a new batch ID as well as a new attempt ID:
-                    // old storage replies cannot affect it. A completion-write
-                    // retry never recreates an original batch that has gone away.
-                    RuntimeStateStore.WriteJsonAtomic(completed, new
-                    { source.AttemptId, source.BatchId, source.TransactionId, Outcome = outcome, Pair = pair });
-                    _cancellationSignatures.Remove(source.AttemptId);
-                    _cancellationSettling.Remove(source.AttemptId);
-                    Logger.Information("[CityBankers] DISPATCH CANCELLATION RECONCILED " + source.BatchId +
-                        "; attempt=" + source.AttemptId + "; " + outcome + ". Both inventories remained unchanged.");
-                }
-                proposal.Reply.TrySetResult("complete:" + proof.AttemptId);
+                    proposal.Reply.TrySetResult("complete:" + proof.AttemptId);
+                    return true;
+                });
             }
             catch (Exception ex)
             {
@@ -232,7 +227,7 @@ namespace CityBankers
             if (source.LedgerIds == null || source.LedgerIds.Count != source.PreparedItems.Count ||
                 source.LedgerIds.Any(string.IsNullOrWhiteSpace) || source.LedgerIds.Distinct().Count() != source.LedgerIds.Count)
                 return false;
-            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
+            var ledger = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
             var entries = ledger?.Items?.Where(i => source.LedgerIds.Contains(i.Id)).ToList();
             if (entries == null || entries.Count != source.LedgerIds.Count || entries.Any(i =>
                 !string.Equals(i.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase) ||

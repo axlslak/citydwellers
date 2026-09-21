@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -13,52 +13,6 @@ namespace CityBankers.Shared
     public static partial class CruPolicy
     {
         public static bool IsCru(WithdrawalState row) => row?.Item != null && IsCru(row.Item.AoId);
-    }
-
-    public sealed class WithdrawalState
-    {
-        public string Format = "citybankers-withdrawal-v2";
-        public string Id;
-        public string OrderId;
-        public long Revision;
-        public int RecoveryAttempts;
-        public int LiveInventoryRecoveryAttempts;
-        public int LiveInventoryAnchorAttempts;
-        public string Status;
-        public DateTime CreatedUtc;
-        public DateTime UpdatedUtc;
-        public DateTime? PickupExpiresUtc;
-        public string PickupHostGeneration;
-        public long PickupDeadlineStamp;
-        public DateTime? DeliveredUtc;
-        public string RequestedBy;
-        public string RecipientMain;
-        public List<string> AllowedCharacters = new List<string>();
-        public string ActiveLedgerId;
-        public string DonationTransactionId;
-        public string SourceRole;
-        public string SourceCharacter;
-        public string SourceBag;
-        public int SourceBagOuterSlot;
-        public int SourceInnerSlot;
-        public string SourceItemIdentity;
-        public List<int> PreExtractionInventorySlots = new List<int>();
-        public string ExtractedItemIdentity;
-        public int? LiveInventoryAnchorSlot;
-        public string LiveInventoryAnchorIdentity;
-        public string CentralItemIdentity;
-        public string TransferAttemptId;
-        public string ReturnBatchId;
-        public string ReconciledByCensus;
-        public string RecoveryCensusId;
-        public string Error;
-        public TransferItemState Item;
-    }
-
-    public sealed class WithdrawalQueueState
-    {
-        public string Format = "citybankers-withdrawal-queue-v2";
-        public List<WithdrawalState> Withdrawals = new List<WithdrawalState>();
     }
 
     public static class WithdrawalStore
@@ -80,22 +34,13 @@ namespace CityBankers.Shared
             row.PickupDeadlineStamp = Stopwatch.GetTimestamp() + Stopwatch.Frequency * PickupSeconds;
         }
 
-        public sealed class RecoveryReservation
-        {
-            public string OperationId;
-            public string LedgerId;
-            public string CensusCharacter;
-            public bool CensusCentral;
-            public string WithdrawalCensusId;
-        }
 
         private static string RecoveryPath(string directory) => Path.Combine(
             RuntimeStateStore.GetDataDirectory(directory), "recovery-reservations.json");
         private static List<RecoveryReservation> ReadRecovery(string directory)
         {
-            string path = RecoveryPath(directory);
-            if (!File.Exists(path)) return new List<RecoveryReservation>();
-            var rows = JsonConvert.DeserializeObject<List<RecoveryReservation>>(File.ReadAllText(path));
+            var rows = CityDwellers.Shared.ManagerMemory.Current.ReadReservations(
+                CityDwellers.Shared.ManagerAccounting.TransactionId);
             if (rows == null || rows.Any(r => r == null || string.IsNullOrWhiteSpace(r.OperationId) || (string.IsNullOrWhiteSpace(r.LedgerId) && string.IsNullOrWhiteSpace(r.CensusCharacter))))
                 throw new InvalidDataException("Invalid recovery reservation state.");
             return rows;
@@ -143,7 +88,7 @@ namespace CityBankers.Shared
                 // Leases precede status changes under the same admission mutex.
                 // If either write fails, the retained grant and exact revisions
                 // let the same recovery finish freezing the requests on retry.
-                RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), reservations);
+                CityDwellers.Shared.ManagerMemory.Current.ChangeReservations(CityDwellers.Shared.ManagerAccounting.TransactionId, reservations);
                 foreach (var row in rows.Where(r => ids.Contains(r.Id) && r.RecoveryCensusId != id))
                 {
                     row.Status = "reconciling";
@@ -199,7 +144,7 @@ namespace CityBankers.Shared
                 var existing = rows.FirstOrDefault(r => string.Equals(r.CensusCharacter, character, StringComparison.OrdinalIgnoreCase));
                 if (existing != null) return existing.OperationId == operation;
                 rows.Add(new RecoveryReservation { OperationId = operation, CensusCharacter = character, CensusCentral = central });
-                RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), rows);
+                CityDwellers.Shared.ManagerMemory.Current.ChangeReservations(CityDwellers.Shared.ManagerAccounting.TransactionId, rows);
                 return true;
             });
         }
@@ -220,7 +165,7 @@ namespace CityBankers.Shared
                     rows.Add(new RecoveryReservation { OperationId = centralRun, CensusCharacter = central, CensusCentral = true });
                 if (!rows.Any(r => r.OperationId == workerRun))
                     rows.Add(new RecoveryReservation { OperationId = workerRun, CensusCharacter = worker });
-                RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), rows);
+                CityDwellers.Shared.ManagerMemory.Current.ChangeReservations(CityDwellers.Shared.ManagerAccounting.TransactionId, rows);
                 return true;
             });
         }
@@ -287,7 +232,7 @@ namespace CityBankers.Shared
                 var existing = rows.FirstOrDefault(r => r.LedgerId == ledgerId);
                 if (existing != null) return existing.OperationId == operation;
                 rows.Add(new RecoveryReservation { OperationId = operation, LedgerId = ledgerId });
-                RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), rows);
+                CityDwellers.Shared.ManagerMemory.Current.ChangeReservations(CityDwellers.Shared.ManagerAccounting.TransactionId, rows);
                 return true;
             });
         }
@@ -298,7 +243,7 @@ namespace CityBankers.Shared
             {
                 var rows = ReadRecovery(directory);
                 if (rows.RemoveAll(r => r.OperationId == operation) != 0)
-                    RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), rows);
+                    CityDwellers.Shared.ManagerMemory.Current.ChangeReservations(CityDwellers.Shared.ManagerAccounting.TransactionId, rows);
                 return true;
             });
         }
@@ -307,14 +252,7 @@ namespace CityBankers.Shared
         {
             Locked(() =>
             {
-                // A completed census supersedes old movement leases even if
-                // their cache is malformed. Preserve the original text first.
-                if (!File.Exists(archivePath)) RuntimeStateStore.WriteJsonAtomic(archivePath, new
-                {
-                    OriginalContents = File.Exists(RecoveryPath(directory)) ? File.ReadAllText(RecoveryPath(directory)) : null,
-                    Reason = "superseded-by-complete-physical-census"
-                });
-                RuntimeStateStore.WriteJsonAtomic(RecoveryPath(directory), new List<RecoveryReservation>());
+                CityDwellers.Shared.ManagerMemory.Current.ChangeReservations(CityDwellers.Shared.ManagerAccounting.TransactionId, new List<RecoveryReservation>());
                 return true;
             });
         }
@@ -360,23 +298,8 @@ namespace CityBankers.Shared
         // All readers fail closed: unreadable state is never an empty bank queue.
         private static List<WithdrawalState> Read(string directory)
         {
-            string path = GetPath(directory);
-            if (!File.Exists(path)) return new List<WithdrawalState>();
-            JObject root = JObject.Parse(File.ReadAllText(path));
-            List<WithdrawalState> rows;
-            if (root["Withdrawals"] != null)
-            {
-                if ((string)root["Format"] != "citybankers-withdrawal-queue-v2")
-                    throw new InvalidDataException("Unknown withdrawal queue format.");
-                rows = root["Withdrawals"].ToObject<List<WithdrawalState>>();
-            }
-            else
-            {
-                string format = (string)root["Format"];
-                if (format != "citybankers-withdrawal-v1" && format != "citybankers-withdrawal-v2")
-                    throw new InvalidDataException("Unknown withdrawal state format.");
-                rows = new List<WithdrawalState> { root.ToObject<WithdrawalState>() };
-            }
+            var rows = CityDwellers.Shared.ManagerMemory.Current.ReadWithdrawals(
+                CityDwellers.Shared.ManagerAccounting.TransactionId)?.Withdrawals ?? new List<WithdrawalState>();
             if (rows == null || rows.Any(row => row == null || string.IsNullOrWhiteSpace(row.Id)))
                 throw new InvalidDataException("Invalid withdrawal queue.");
             if (rows.Select(row => row.Id).Distinct(StringComparer.Ordinal).Count() != rows.Count)
@@ -394,12 +317,12 @@ namespace CityBankers.Shared
 
         private static T Locked<T>(Func<T> action)
         {
-            return CityDwellers.Shared.SqlStore.WithLock(MutexName, action);
+            return CityDwellers.Shared.ManagerAccounting.Transaction(MutexName, action);
         }
 
         public static List<WithdrawalState> LoadAll(string directory)
         {
-            return Locked(() => Read(directory));
+            return Read(directory);
         }
 
         public static WithdrawalState Load(string directory)
@@ -421,8 +344,8 @@ namespace CityBankers.Shared
                 string before = JsonConvert.SerializeObject(rows);
                 T result = action(rows);
                 if (!string.Equals(before, JsonConvert.SerializeObject(rows), StringComparison.Ordinal))
-                    RuntimeStateStore.WriteJsonAtomic(GetPath(directory),
-                        new WithdrawalQueueState { Withdrawals = rows });
+                    CityDwellers.Shared.ManagerMemory.Current.ChangeWithdrawals(
+                        CityDwellers.Shared.ManagerAccounting.TransactionId, new WithdrawalQueueState { Withdrawals = rows });
                 return result;
             });
         }
@@ -492,7 +415,7 @@ namespace CityBankers.Shared
         private static bool RequestStillStored(string directory, WithdrawalState request)
         {
             if (request.Item == null) return false;
-            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<JObject>();
+            var ledger = CityDwellers.Shared.BankerState.ReadLedger<JObject>();
             if (ledger == null) return false;
             var entries = (ledger["Items"] as JArray)?.Where(e => (string)e["Id"] == request.ActiveLedgerId).ToList();
             if (entries == null || entries.Count != 1) return false;

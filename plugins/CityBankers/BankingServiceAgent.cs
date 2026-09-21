@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -190,16 +190,7 @@ namespace CityBankers
             actor.TraceTrade("recovery.quiescing", new { Directory = Path.GetFileName(directory) }, true,
                 "recovery:history/census-" + Path.GetFileName(directory).Replace("cycle-", "") + ".json");
             if (Trade.IsTrading) { TryDeclineTrade(); return false; }
-            RuntimeStateStore.WriteJsonAtomic(Path.Combine(directory, Client.CharacterName + ".retired-operations.json"), new
-            {
-                Receipt = actor._receipt, Batch = actor._activeBatch, Command = actor._workerCommand,
-                Reserved = actor._reservedDispatch, Storage = actor._storageJob,
-                Return = actor._returnOffer, Withdrawal = actor._withdrawal, Pickups = actor._pickupItems,
-                Extraction = actor._extraction, LocalCensus = actor._localCensus, Reserve = actor._reserveOperation,
-                DispatchCensus = actor._dispatchCensus, WithdrawalCensus = actor._withdrawalCensus,
-                Donation = actor._donationSnapshot, Cleanup = actor._donationCleanup,
-                DeliveryInferred = false
-            });
+            // Durable custody is already recorded by Manager; no duplicate actor dump.
             var root = actor._lifecycleRoot ?? actor;
             actor.Teardown();
             actor._enabled = false;
@@ -1419,10 +1410,8 @@ namespace CityBankers
                 return;
             }
 
-            RuntimeStateStore.DeleteIfExists(
-                RuntimeStateStore.GetStorageResultPath(_settingsDir, next.Character));
-            RuntimeStateStore.DeleteIfExists(
-                RuntimeStateStore.GetDispatchCommandPath(_settingsDir, next.Character));
+            RuntimeStateStore.DeleteStorageResult(_settingsDir, next.Character);
+            RuntimeStateStore.DeleteDispatchCommand(_settingsDir, next.Character);
             RuntimeStateStore.WriteDispatchCommand(
                 _settingsDir,
                 new DispatchCommand
@@ -1700,8 +1689,7 @@ namespace CityBankers
                 error,
                 _activeBatch.Items);
             TellKavem("Dispatch failure " + _activeBatch.Role + ": " + error);
-            RuntimeStateStore.DeleteIfExists(
-                RuntimeStateStore.GetDispatchCommandPath(_settingsDir, _activeBatch.Character));
+            RuntimeStateStore.DeleteDispatchCommand(_settingsDir, _activeBatch.Character);
             _activeBatch = null;
             _activeWorkerIdentity = Identity.None;
             _outgoingOpened = false;
@@ -1806,8 +1794,7 @@ namespace CityBankers
             RememberReserveArrival(command.Items, command);
             _workerCommand = null;
             _workerAccepted = false;
-            RuntimeStateStore.DeleteIfExists(
-                RuntimeStateStore.GetDispatchCommandPath(_settingsDir, Client.CharacterName));
+            RuntimeStateStore.DeleteDispatchCommand(_settingsDir, Client.CharacterName);
             _storageJob = new StorageJob
             {
                 Command = command,
@@ -2232,8 +2219,7 @@ namespace CityBankers
                     StoredCount = 0,
                     Error = error
                 });
-            RuntimeStateStore.DeleteIfExists(
-                RuntimeStateStore.GetDispatchCommandPath(_settingsDir, Client.CharacterName));
+            RuntimeStateStore.DeleteDispatchCommand(_settingsDir, Client.CharacterName);
             TellKavem("Worker trade failure on " + Client.CharacterName + ": " + error);
             _workerCommand = null;
             _workerAccepted = false;

@@ -1,5 +1,5 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
+using File = CityDwellers.Shared.DiskFiles;
+using Directory = System.IO.Directory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -112,7 +112,8 @@ namespace CityBankers
             path = Path.Combine(root, "active.json");
             history = Path.Combine(root, "history");
             // Unreadable persistence is a hold, never a fresh recovery plan.
-            retained = File.Exists(path);
+            retained = CityDwellers.Shared.ManagerMemory.Current.ReadBagHistory(
+                CityDwellers.Shared.ManagerAccounting.TransactionId, Client.CharacterName).Any(row => row.Phase != "complete");
             epoch = bankEpoch = requestedOpen = reconnectRequested = pendingId = lastError = null;
             inventory.Clear(); bank.Clear(); views.Clear(); opened.Clear();
             PlannedReconnect = false;
@@ -664,8 +665,8 @@ namespace CityBankers
         }
         private static void FindAnchor(State s, Transfer transfer)
         {
-            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
-            var storage = CensusApplication.ReadExisting<StorageState>(RuntimeStateStore.GetStorageStatePath(settings));
+            var ledger = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
+            var storage = RuntimeStateStore.LoadStorageState(settings);
             var bags = (storage?.Workers ?? new List<StorageWorkerState>()).Where(w =>
                 string.Equals(w.Character, s.Character, StringComparison.OrdinalIgnoreCase))
                 .SelectMany(w => w.Bags ?? new List<StorageBagState>())
@@ -684,22 +685,8 @@ namespace CityBankers
         }
         internal static void MarkReconciled(string directory, IEnumerable<string> characters)
         {
-            // Call only after the immutable application bundle and ledger writes.
-            // Retrying that bundle is safe; old receipts must not rebind later stock.
             foreach (string character in characters.Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                string archive = Path.Combine(RuntimeStateStore.GetDataDirectory(directory),
-                    "bag-recovery", character.ToLowerInvariant(), "history");
-                if (!Directory.Exists(archive)) continue;
-                foreach (string file in Directory.GetFiles(archive, "*.json"))
-                {
-                    var s = CensusApplication.ReadExisting<State>(file);
-                    if (s == null || s.Character != character || s.Phase != "complete" ||
-                        s.ReconciledUtc != default(DateTime)) continue;
-                    s.ReconciledUtc = DateTime.UtcNow;
-                    RuntimeStateStore.WriteJsonAtomic(file, s);
-                }
-            }
+                CityDwellers.Shared.ManagerMemory.Current.ReconcileBagHistory(CityDwellers.Shared.ManagerAccounting.TransactionId, character);
         }
         internal static void ApplyProvenance(string directory, IEnumerable<PhysicalLedgerReconciliation.Observation> observations,
             IEnumerable<ActiveLedgerItem> anchors)
@@ -707,13 +694,9 @@ namespace CityBankers
             var all = observations.ToList(); var previous = anchors.ToList();
             foreach (string character in all.Select(o => o.Character).Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                string root = Path.Combine(RuntimeStateStore.GetDataDirectory(directory), "bag-recovery", character.ToLowerInvariant());
-                string archive = Path.Combine(root, "history");
-                var files = Directory.Exists(archive) ? Directory.GetFiles(archive, "*.json").ToList() : new List<string>();
-                string active = Path.Combine(root, "active.json"); if (File.Exists(active)) files.Add(active);
-                foreach (string file in files)
+                foreach (var s in CityDwellers.Shared.ManagerMemory.Current.ReadBagHistory(
+                    CityDwellers.Shared.ManagerAccounting.TransactionId, character))
                 {
-                    var s = CensusApplication.ReadExisting<State>(file);
                     if (s == null || s.Character != character || s.Phase != "complete" || s.ReconciledUtc != default(DateTime)) continue;
                     foreach (var t in s.Transfers.Where(t => t.AnchorId != null && t.TargetSlot >= 0))
                     {

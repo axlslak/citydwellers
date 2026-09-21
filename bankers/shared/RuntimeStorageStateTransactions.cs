@@ -32,7 +32,7 @@ namespace CityBankers.Shared
                 worker.Bags.RemoveAll(b => b.LastUniqueIdentity == identity);
                 if (replacement != null) worker.Bags.Add(replacement);
                 state.UpdatedUtc = DateTime.UtcNow;
-                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetStorageStatePath(settingsDir), state);
+                CityDwellers.Shared.ManagerMemory.Current.ChangeStorage(CityDwellers.Shared.ManagerAccounting.TransactionId, state);
                 RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
             });
         }
@@ -46,7 +46,7 @@ namespace CityBankers.Shared
                 state.Workers.RemoveAll(w => string.Equals(w.Character, replacement.Character, StringComparison.OrdinalIgnoreCase));
                 state.Workers.Add(replacement);
                 state.UpdatedUtc = DateTime.UtcNow;
-                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetStorageStatePath(settingsDir), state);
+                CityDwellers.Shared.ManagerMemory.Current.ChangeStorage(CityDwellers.Shared.ManagerAccounting.TransactionId, state);
                 RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
             });
         }
@@ -77,7 +77,7 @@ namespace CityBankers.Shared
                     throw new InvalidOperationException("Returned extraction bag conflicts with another persisted bag slot.");
                 bag.OuterSlotInstance = finalOuterSlot;
                 state.UpdatedUtc = DateTime.UtcNow;
-                RuntimeStateStore.WriteJsonAtomic(RuntimeStateStore.GetStorageStatePath(settingsDir), state);
+                CityDwellers.Shared.ManagerMemory.Current.ChangeStorage(CityDwellers.Shared.ManagerAccounting.TransactionId, state);
                 RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
             });
         }
@@ -243,9 +243,7 @@ namespace CityBankers.Shared
                     worker.ObservedUtc = DateTime.UtcNow;
                     state.UpdatedUtc = DateTime.UtcNow;
 
-                    RuntimeStateStore.WriteJsonAtomic(
-                        RuntimeStateStore.GetStorageStatePath(settingsDir),
-                        state);
+                    CityDwellers.Shared.ManagerMemory.Current.ChangeStorage(CityDwellers.Shared.ManagerAccounting.TransactionId, state);
                     RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
                 });
 
@@ -303,9 +301,7 @@ namespace CityBankers.Shared
                     matches[0].OuterSlotInstance = liveOuterSlot;
                     worker.ObservedUtc = DateTime.UtcNow;
                     state.UpdatedUtc = DateTime.UtcNow;
-                    RuntimeStateStore.WriteJsonAtomic(
-                        RuntimeStateStore.GetStorageStatePath(settingsDir),
-                        state);
+                    CityDwellers.Shared.ManagerMemory.Current.ChangeStorage(CityDwellers.Shared.ManagerAccounting.TransactionId, state);
                     RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
                 });
                 return true;
@@ -350,7 +346,7 @@ namespace CityBankers.Shared
 
         private static void WithRuntimeStateMutex(Action action)
         {
-            CityDwellers.Shared.SqlStore.WithLock(RuntimeStateMutexName, action);
+            CityDwellers.Shared.ManagerAccounting.Transaction(RuntimeStateMutexName, action);
         }
     }
 }

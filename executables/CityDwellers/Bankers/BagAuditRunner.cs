@@ -1,5 +1,5 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
+using File = CityDwellers.Shared.DiskFiles;
+using Directory = System.IO.Directory;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -688,7 +688,7 @@ internal static class BagAuditRunner
             "snapshot with live audit results and did not replace it.");
 
         File.WriteAllText(path, text.ToString());
-        return CityDwellers.Shared.SqlStore.DescribePath(path);
+        return System.IO.Path.GetFullPath(path);
     }
 
     private static void AppendExpectedStateComparison(

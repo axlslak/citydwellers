@@ -101,10 +101,9 @@ namespace CityBankers
                     queue.Batches.Remove(batch);
                     RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
 
-                    RuntimeStateStore.DeleteIfExists(
-                        RuntimeStateStore.GetStorageResultPath(
+                    RuntimeStateStore.DeleteStorageResult(
                             _settingsDir,
-                            batch.Character));
+                            batch.Character);
 
                     DispatchCommand command = RuntimeStateStore.ReadDispatchCommand(
                         _settingsDir,
@@ -114,10 +113,9 @@ namespace CityBankers
                             batch.BatchId,
                             StringComparison.Ordinal))
                     {
-                        RuntimeStateStore.DeleteIfExists(
-                            RuntimeStateStore.GetDispatchCommandPath(
+                        RuntimeStateStore.DeleteDispatchCommand(
                                 _settingsDir,
-                                batch.Character));
+                                batch.Character);
                     }
 
                     RuntimeStateStore.AppendLedger(

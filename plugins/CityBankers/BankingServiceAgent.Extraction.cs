@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -13,32 +13,8 @@ using Newtonsoft.Json;
 
 namespace CityBankers
 {
-    internal sealed class ExtractionSlot
-    {
-        public int Slot;
-        public TransferItemState Item;
-    }
 
-    internal sealed class ExtractionProof
-    {
-        public string Id;
-        public string LedgerId;
-        public string TransactionId;
-        public string Character;
-        public string Role;
-        public string Source;
-        public int? Bag;
-        public string BagIdentity;
-        public int SourceSlot;
-        public int? FinalBagSlot;
-        public int InventorySlot;
-        public TransferItemState Item;
-        public DateTime RecordedUtc;
-        public List<ExtractionSlot> BeforeSource;
-        public List<ExtractionSlot> AfterSource;
-        public List<ExtractionSlot> BeforeInventory;
-        public List<ExtractionSlot> AfterInventory;
-    }
+
 
     public partial class BankingServiceAgent
     {
@@ -80,10 +56,14 @@ namespace CityBankers
                 proof.AfterInventory.Any(s => s.Slot == proof.InventorySlot && CustodyKey(s.Item) == CustodyKey(proof.Item));
         }
 
-        private string ExtractionDirectory(ExtractionProof proof) => Path.Combine(
-            RuntimeStateStore.GetDataDirectory(_settingsDir), "banker-extractions", proof.Id);
-        private void SaveExtraction(string phase) => RuntimeStateStore.WriteJsonAtomic(
-            Path.Combine(ExtractionDirectory(_extraction), phase + ".json"), _extraction);
+        private void SaveExtraction(string phase) => SaveExtraction(_extraction, phase);
+        private static void SaveExtraction(ExtractionProof proof, string phase)
+        {
+            proof.Phase = phase;
+            CityDwellers.Shared.ManagerAccounting.Transaction("Extraction", () =>
+                CityDwellers.Shared.ManagerMemory.Current.ChangeExtraction(
+                    CityDwellers.Shared.ManagerAccounting.TransactionId, proof));
+        }
         private void ExtractionStep(ExtractionPhase phase)
         { _extractionPhase = phase; _extractionAge.Restart(); _extractionSignature = null; _extractionStable.Restart(); }
 
@@ -95,7 +75,7 @@ namespace CityBankers
                 _donationCleanup != null || _dispatchPreparation != null || _extractionScan.ElapsedMilliseconds < 1500) return;
             _extractionScan.Restart();
             if (CensusReservedHere()) return;
-            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
+            var ledger = CityDwellers.Shared.BankerState.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
             if (ledger == null) return;
             var withdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();
             var candidates = ledger.Items.Where(e => e.Slot.HasValue && e.HighId.HasValue &&
@@ -321,10 +301,11 @@ namespace CityBankers
                 !_config.Roles.Any(p => string.Equals(p.Key, proof.Role, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(p.Value?.Character, proof.Character, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidOperationException("Incomplete extraction proof or unknown source.");
-            string completed = Path.Combine(ExtractionDirectory(proof), "completed.json");
-            if (File.Exists(completed))
+            var previous = CityDwellers.Shared.ManagerMemory.Current.ReadExtraction(
+                CityDwellers.Shared.ManagerAccounting.TransactionId, proof.Id);
+            if (previous?.Phase == "completed")
             {
-                var previous = JsonConvert.DeserializeObject<ExtractionProof>(File.ReadAllText(completed));
+                previous.Phase = proof.Phase;
                 if (JsonConvert.SerializeObject(previous) != JsonConvert.SerializeObject(proof))
                     throw new InvalidOperationException("Extraction ID was reused with different evidence.");
                 WithdrawalStore.ReleaseRecovery(_settingsDir, proof.Id);
@@ -332,7 +313,7 @@ namespace CityBankers
             }
             if (!WithdrawalStore.OwnsRecovery(_settingsDir, proof.Id, proof.LedgerId))
                 throw new InvalidOperationException("Extraction no longer owns its ledger reservation.");
-            RuntimeStateStore.WriteJsonAtomic(Path.Combine(ExtractionDirectory(proof), "verified.json"), proof);
+            SaveExtraction(proof, "verified");
             ActiveLedgerStore.RecordExtraction(_settingsDir, proof);
             if (string.Equals(proof.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase))
             {
@@ -355,7 +336,7 @@ namespace CityBankers
                     }
                 }
             }
-            RuntimeStateStore.WriteJsonAtomic(completed, proof);
+            SaveExtraction(proof, "completed");
             WithdrawalStore.ReleaseRecovery(_settingsDir, proof.Id);
         }
 

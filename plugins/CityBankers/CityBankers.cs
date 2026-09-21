@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -44,7 +44,6 @@ namespace CityBankers
         private string _tempPath;
         private string _reportCommandPath;
         private string _reportAckPath;
-        private string _healthPath;
         private string _dataDir;
         private bool _inPlay;
         private bool _diagnosticStarted;
@@ -93,7 +92,6 @@ namespace CityBankers
             _reportAckPath = Path.Combine(
                 pluginDir,
                 $"citybankers-report-ack-{token}.json");
-            _healthPath = Path.Combine(pluginDir, $"citybankers-health-{token}.json");
 
             DeleteIfExists(_resultPath);
             DeleteIfExists(_tempPath);
@@ -305,7 +303,7 @@ namespace CityBankers
 
         private void PublishHealthHeartbeat()
         {
-            if (DateTime.UtcNow < _nextHealthUtc || string.IsNullOrWhiteSpace(_healthPath))
+            if (DateTime.UtcNow < _nextHealthUtc || string.IsNullOrWhiteSpace(_settingsDir))
                 return;
 
             _nextHealthUtc = DateTime.UtcNow.AddSeconds(5);
@@ -761,11 +759,10 @@ namespace CityBankers
 
         private void ProcessReportCommand()
         {
-            if (string.IsNullOrWhiteSpace(_reportCommandPath) ||
-                !File.Exists(_reportCommandPath))
-            {
-                return;
-            }
+            string request = CityDwellers.Shared.ManagerMemory.Current.ReadBankerReport(Client.CharacterName);
+            bool manual = ServicePolicy.IsBagAuditMode();
+            if (request == null && manual && File.Exists(_reportCommandPath)) request = File.ReadAllText(_reportCommandPath);
+            if (request == null) return;
 
             ReportAck ack = new ReportAck
             {
@@ -776,8 +773,7 @@ namespace CityBankers
 
             try
             {
-                ReportCommand command = JsonConvert.DeserializeObject<ReportCommand>(
-                    File.ReadAllText(_reportCommandPath));
+                ReportCommand command = JsonConvert.DeserializeObject<ReportCommand>(request);
 
                 if (command == null)
                     throw new InvalidOperationException("Report command is empty.");
@@ -826,8 +822,8 @@ namespace CityBankers
             }
             finally
             {
-                WriteAtomicJson(_reportAckPath, ack);
-                DeleteIfExists(_reportCommandPath);
+                CityDwellers.Shared.ManagerMemory.Current.FinishBankerReport(Client.CharacterName);
+                if (manual) { WriteAtomicJson(_reportAckPath, ack); DeleteIfExists(_reportCommandPath); }
             }
         }
 

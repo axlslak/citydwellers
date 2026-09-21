@@ -1,4 +1,4 @@
-using Directory = CityDwellers.Shared.SqlDirectory;
+using Directory = System.IO.Directory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -16,31 +16,11 @@ namespace CityBankers
     {
         // Central is the sole writer. Entries are enrolled before accepting an
         // offer, so a crash between physical receipt and disposition loses no bag.
-        private sealed class BagReserve
-        {
-            public List<ReserveBag> Bags = new List<ReserveBag>();
-            public Dictionary<string, int> Targets = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        }
-        private sealed class ReserveBag
-        {
-            public string Identity, Transaction, Destination, Role, Batch;
-            public string EmptyProofBatch;
-            public bool Quarantined, Delivered;
-        }
-        private sealed class ReserveOperation
-        {
-            public string Identity, Purpose, Phase;
-            public int SourceSlot;
-            public DateTime StartedUtc;
-            public int ReadRetries;
-            public long ObservationAfter;
-            public bool SenderVerifiedEmpty;
-            [JsonIgnore] public Container Before;
-        }
         private long _reserveReceiptObservationAfter;
         private readonly Dictionary<string, long> _reserveArrivalAfter = new Dictionary<string, long>();
         private readonly HashSet<string> _reserveEmptyArrivals = new HashSet<string>();
         private ReserveOperation _reserveOperation;
+        private Container _reserveBefore;
         private readonly Stopwatch _reservePoll = Stopwatch.StartNew();
         private string ReservePath => Path.Combine(RuntimeStateStore.GetDataDirectory(_settingsDir), "bag-recovery", "central-reserve.json");
         private string ReserveMovePath => Path.Combine(RuntimeStateStore.GetDataDirectory(_settingsDir),
@@ -49,8 +29,9 @@ namespace CityBankers
         // 102. Never let those two fictitious slots authorize reserve movement.
         private static int ReserveBankFreeSlots => !Inventory.Bank.IsOpen || Inventory.Bank.Items == null ? 0 :
             Math.Max(0, Math.Min(Inventory.Bank.NumFreeSlots, 102 - Inventory.Bank.Items.Count));
-        private BagReserve ReadReserve() => CensusApplication.ReadExisting<BagReserve>(ReservePath) ?? new BagReserve();
-        private void SaveReserve(BagReserve state) => RuntimeStateStore.WriteJsonAtomic(ReservePath, state);
+        private BagReserve ReadReserve() => CityDwellers.Shared.ManagerMemory.Current.ReadReserve(CityDwellers.Shared.ManagerAccounting.TransactionId);
+        private void SaveReserve(BagReserve state) => CityDwellers.Shared.ManagerAccounting.Transaction("Reserve bags", () =>
+            CityDwellers.Shared.ManagerMemory.Current.ChangeReserve(CityDwellers.Shared.ManagerAccounting.TransactionId, state));
         private static bool IsReserveBag(TransferItemState item) => item != null &&
             (item.AoId == StorageBagPolicy.SmallBackpackId || item.HighId == StorageBagPolicy.SmallBackpackId);
         private static bool IsReserveBatch(IEnumerable<TransferItemState> items) =>
@@ -62,7 +43,7 @@ namespace CityBankers
         private static int ReserveTarget(BagReserve state, string character)
         {
             int target;
-            return state.Targets.TryGetValue(character, out target) ? target : 0;
+            return state.TryGetTarget(character, out target) ? target : 0;
         }
 
         private void CaptureReserveTargets(BagReserve state, StorageState storage, HashSet<string> ready)
@@ -73,21 +54,18 @@ namespace CityBankers
             {
                 int actual = worker.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count();
                 int target;
-                if (!state.Targets.TryGetValue(worker.Character, out target))
+                if (!state.TryGetTarget(worker.Character, out target))
                 {
                     // Bootstrap the just-completed repair without filling the gap
                     // between historical stock and theoretical retention capacity.
-                    string history = Path.Combine(RuntimeStateStore.GetDataDirectory(_settingsDir), "bag-recovery",
-                        worker.Character.ToLowerInvariant(), "history");
-                    int deleted = Directory.Exists(history) ? Directory.EnumerateFiles(history, "*.json")
-                        .Select(f => CensusApplication.ReadExisting<SharedBagRecovery.State>(f))
-                        .Where(r => r != null && r.EmptyShellsDisappeared && r.Phase == "complete")
-                        .Select(r => r.Bag).Distinct().Count() : 0;
+                    int deleted = CityDwellers.Shared.ManagerMemory.Current.ReadBagHistory(
+                        CityDwellers.Shared.ManagerAccounting.TransactionId, worker.Character)
+                        .Where(row => row.EmptyShellsDisappeared && row.Phase == "complete").Select(row => row.Bag).Distinct().Count();
                     target = Math.Max(actual, Math.Min(RetentionBagCapacity(worker.Role), actual + deleted));
-                    state.Targets[worker.Character] = target; changed = true;
+                    state.SetTarget(worker.Character, target); changed = true;
                 }
                 else if (actual > target)
-                { state.Targets[worker.Character] = actual; changed = true; }
+                { state.SetTarget(worker.Character, actual); changed = true; }
             }
             if (changed) SaveReserve(state);
         }
@@ -228,11 +206,17 @@ namespace CityBankers
             long after;
             if (!_reserveArrivalAfter.TryGetValue(identity, out after)) after = SharedBagRecovery.ContainerObservationSequence;
             _reserveArrivalAfter.Remove(identity);
+            _reserveBefore = null;
             _reserveOperation = new ReserveOperation { Identity = identity, Purpose = purpose, Phase = "start", StartedUtc = DateTime.UtcNow,
                 ObservationAfter = after, SenderVerifiedEmpty = _reserveEmptyArrivals.Remove(identity) };
             SaveReserveOperation();
         }
-        private void SaveReserveOperation() => RuntimeStateStore.WriteJsonAtomic(ReserveMovePath, _reserveOperation);
+        private void SaveReserveOperation()
+        {
+            _reserveOperation.Character = Client.CharacterName;
+            CityDwellers.Shared.ManagerAccounting.Transaction("Reserve movement", () =>
+                CityDwellers.Shared.ManagerMemory.Current.ChangeReserveOperation(CityDwellers.Shared.ManagerAccounting.TransactionId, _reserveOperation));
+        }
         private void ReservePhase(string phase, Item source)
         {
             _reserveOperation.Phase = phase; _reserveOperation.SourceSlot = source.Slot.Instance;
@@ -267,7 +251,7 @@ namespace CityBankers
                     op.ReadRetries = Math.Min(7, op.ReadRetries + 1);
                     var current = Inventory.Containers.FirstOrDefault(c => c.Identity == records[0].Identity);
                     Logger.Warning("[CityBankers] EMPTY BAG RESERVE read retry " + op.Identity +
-                        "; attempt=" + op.ReadRetries + "; beforeHandle=" + (op.Before?.Handle ?? 0) +
+                        "; attempt=" + op.ReadRetries + "; beforeHandle=" + (_reserveBefore?.Handle ?? 0) +
                         "; currentHandle=" + (current?.Handle ?? 0) + "; observationAfter=" + op.ObservationAfter +
                         ". Only this bag is held; no roster census requested.");
                     ReservePhase("read-backoff", records[0].Bag);
@@ -317,17 +301,17 @@ namespace CityBankers
                         (op.SenderVerifiedEmpty ? "; source empty proof and exact receipt." : "; incoming snapshot since receipt/move boundary."));
                     ReservePhase("opening", record.Bag); return true; // validate without toggling Use
                 }
-                op.Before = Inventory.Containers.FirstOrDefault(c => c.Identity == record.Identity);
+                _reserveBefore = Inventory.Containers.FirstOrDefault(c => c.Identity == record.Identity);
                 // A restart census has already opened inventory bags. Reusing its
                 // exact empty result avoids toggling that same window closed.
                 var known = RuntimeStateStore.LoadStorageState(_settingsDir)?.Workers?.Where(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase))
                     .SelectMany(w => w.Bags).SingleOrDefault(b => b.LastUniqueIdentity == op.Identity &&
                         b.Source == "inventory" && b.OuterSlotInstance == (record.Bag.Slot.Instance & 65535));
-                if (known?.Items?.Count == 0 && op.Before != null && op.Before.IsOpen &&
-                    op.Before.Handle == known.LastHandle && op.Before.Items?.Count == 0)
+                if (known?.Items?.Count == 0 && _reserveBefore != null && _reserveBefore.IsOpen &&
+                    _reserveBefore.Handle == known.LastHandle && _reserveBefore.Items?.Count == 0)
                 { ReservePhase("verified-empty", record.Bag); return true; }
                 Logger.Information("[CityBankers] EMPTY BAG RESERVE requesting contents " + op.Identity +
-                    "; slot=" + record.Bag.Slot + "; beforeHandle=" + (op.Before?.Handle ?? 0) +
+                    "; slot=" + record.Bag.Slot + "; beforeHandle=" + (_reserveBefore?.Handle ?? 0) +
                     "; observationAfter=" + op.ObservationAfter + ".");
                 ReservePhase("opening", record.Bag); record.Bag.Use(); return true;
             }
@@ -339,7 +323,7 @@ namespace CityBankers
                 int observedHandle, observedCount;
                 bool incoming = SharedBagRecovery.TryObserveContainer(record.Identity, op.ObservationAfter, out observedHandle, out observedCount);
                 bool census = op.Phase == "verified-empty" && container != null && container.IsOpen &&
-                    ReferenceEquals(container, op.Before) && container.Items?.Count == 0;
+                    ReferenceEquals(container, _reserveBefore) && container.Items?.Count == 0;
                 if (!incoming && !census && !op.SenderVerifiedEmpty) return true;
                 if ((incoming && observedCount != 0) || (container?.Items?.Count > 0))
                 {

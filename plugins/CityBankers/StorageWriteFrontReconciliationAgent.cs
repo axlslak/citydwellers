@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -394,7 +394,7 @@ namespace CityBankers
         {
             int imported = 0;
             string problem = null;
-            bool success = CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
+            bool success = CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.RuntimeState.v1", () =>
                 TryReconcileOpenBagContentsCore(container, out imported, out problem));
             importedExtras = imported;
             error = problem;
@@ -594,7 +594,7 @@ namespace CityBankers
         private bool TryUpdatePersistedBagSlot(string identity, string source, int liveSlot, out string error)
         {
             string problem = null;
-            bool success = CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
+            bool success = CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.RuntimeState.v1", () =>
                 TryUpdatePersistedBagSlotCore(identity, source, liveSlot, out problem));
             error = problem;
             return success;
@@ -976,10 +976,9 @@ namespace CityBankers
                     return;
                 }
 
-                RuntimeStateStore.DeleteIfExists(
-                    RuntimeStateStore.GetStorageResultPath(
+                RuntimeStateStore.DeleteStorageResult(
                         _settingsDir,
-                        Client.CharacterName));
+                        Client.CharacterName);
             }
 
             _recovery = new RecoveryJob

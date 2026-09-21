@@ -1,5 +1,5 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
+using File = CityDwellers.Shared.DiskFiles;
+using Directory = System.IO.Directory;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -227,54 +227,11 @@ namespace CityBankers
         }
     }
 
-    internal sealed class ActiveLedgerState
-    {
-        public string Format = "citybankers-active-ledger-v1";
-        public DateTime UpdatedUtc;
-        public List<ActiveLedgerItem> Items = new List<ActiveLedgerItem>();
-    }
 
-    internal sealed class ActiveLedgerItem
-    {
-        public string Id;
-        public int AoId;
-        public int? HighId;
-        public int? Ql;
-        public string TransactionId;
-        public string From;
-        public DateTime ReceivedUtc;
-        public string Family;
-        public string Character;
-        public string Location;
-        public int? Bag;
-        public int? Slot;
-    }
 
-    internal sealed class SymbiantIndexState
-    {
-        public string Format = "citybankers-symbiant-index-v1";
-        public DateTime UpdatedUtc;
-        public List<SymbiantIndexItem> Items = new List<SymbiantIndexItem>();
-    }
 
-    internal sealed class SymbiantIndexItem
-    {
-        public int AoId;
-        public string Family;
-        public int? HighId;
-        public int? Ql;
-        public string Name;
-        public string Slot;
-    }
 
-    internal sealed class ActiveHistoryRecord
-    {
-        public string Format = "citybankers-history-v1";
-        public DateTime LeftUtc;
-        public string Reason;
-        public string Recipient;
-        public ActiveLedgerItem Item;
-    }
+
 
     internal sealed class LegacyProvenance
     {
@@ -315,7 +272,7 @@ namespace CityBankers
             // taking the writer; recheck ledger existence inside the transaction.
             Dictionary<string, LegacyProvenance> provenance = LoadLedger(settingsDir) == null
                 ? LoadLegacyProvenance(settingsDir) : null;
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 EnsureIndexSeeded(settingsDir);
 
@@ -342,7 +299,7 @@ namespace CityBankers
 
         public static ActiveLedgerState LoadLedger(string settingsDir)
         {
-            ActiveLedgerState state = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
+            ActiveLedgerState state = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
             if (state != null && state.Items == null)
                 state.Items = new List<ActiveLedgerItem>();
             return state;
@@ -352,7 +309,7 @@ namespace CityBankers
             IEnumerable<TransferItemState> metadata, string evidence,
             IEnumerable<string> confirmedDeliveryIds = null)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 UpsertIndex(settingsDir, metadata);
                 SaveLedger(settingsDir, new ActiveLedgerState { Items = items },
@@ -364,7 +321,7 @@ namespace CityBankers
         internal static void RecordPhysicalReturn(string settingsDir, string ledgerId, string transaction,
             string source, string central, TransferItemState item, int? slot)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 var ledger = LoadLedger(settingsDir);
                 var entry = ledger?.Items?.SingleOrDefault(e => e.Id == ledgerId);
@@ -390,7 +347,7 @@ namespace CityBankers
         internal static void RecordWithdrawalArrival(string settingsDir, WithdrawalState state,
             string central, TransferItemState item, int inventorySlot)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 // Called only after a physically verified worker receipt has become
                 // central-received, before central-ready. Keep the existing occurrence ID.
@@ -416,7 +373,7 @@ namespace CityBankers
 
         internal static void RecordExtraction(string settingsDir, ExtractionProof proof)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 var ledger = LoadLedger(settingsDir);
                 var entry = ledger?.Items?.SingleOrDefault(e => e.Id == proof.LedgerId);
@@ -451,8 +408,7 @@ namespace CityBankers
 
         public static SymbiantIndexState LoadIndex(string settingsDir)
         {
-            SymbiantIndexState state = RuntimeStateStore.ReadJson<SymbiantIndexState>(
-                GetIndexPath(settingsDir));
+            SymbiantIndexState state = CityDwellers.Shared.ManagerMemory.Current.ReadItemIndex(CityDwellers.Shared.ManagerAccounting.TransactionId);
             if (state != null && state.Items == null)
                 state.Items = new List<SymbiantIndexItem>();
             return state;
@@ -466,7 +422,7 @@ namespace CityBankers
             DateTime receivedUtc,
             IEnumerable<TransferItemState> items)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 List<TransferItemState> incoming = (items ?? Enumerable.Empty<TransferItemState>())
                     .Where(item => item != null && item.AoId != 0 && !CruPolicy.IsCru(item.AoId))
@@ -520,7 +476,7 @@ namespace CityBankers
             string sourceCharacter = null,
             IEnumerable<string> occurrenceIds = null)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 if (string.IsNullOrWhiteSpace(sourceCharacter) || occurrenceIds == null)
                     throw new InvalidOperationException("Dispatch accounting requires the prepared sender and occurrence IDs.");
@@ -571,7 +527,7 @@ namespace CityBankers
             string settingsDir,
             CurrentStockState stock)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 var censusing = WithdrawalStore.GetCensusCharacters(settingsDir);
                 var readyCharacters = WithdrawalStore.GetReadyCharacters(settingsDir);
@@ -677,7 +633,7 @@ namespace CityBankers
             string recipient,
             string sourceCharacter = null)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 ActiveLedgerState ledger = LoadLedger(settingsDir);
                 if (ledger == null)
@@ -715,7 +671,7 @@ namespace CityBankers
         internal static void RecordCensusConfirmedDelivery(string settingsDir, WithdrawalState withdrawal,
             ActiveLedgerItem original)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 if (!WithdrawalStore.HasConfirmedDelivery(withdrawal))
                     throw new InvalidOperationException("Census cannot invent a delivery confirmation.");
@@ -738,7 +694,7 @@ namespace CityBankers
             string reason,
             string recipient)
         {
-            return CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            return CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 ActiveLedgerState ledger = LoadLedger(settingsDir);
                 ActiveLedgerItem entry = ledger?.Items?.FirstOrDefault(item =>
@@ -861,7 +817,7 @@ namespace CityBankers
                         var occurrenceByAoid = new Dictionary<int, int>();
                         foreach (JObject sourceItem in sourceItems.OfType<JObject>())
                         {
-                            CityDwellers.Shared.SqlStore.WithLock("CityBankers.LegacyHistory.v1", () =>
+                            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.LegacyHistory.v1", () =>
                             {
                                 int aoId = IntTokenValue(sourceItem["AoId"]);
                                 if (aoId == 0)
@@ -988,10 +944,10 @@ namespace CityBankers
             string removalReason = "Ledger entry removed without a recorded delivery; cause unknown.",
             string evidence = "ledger-update", IEnumerable<string> excludedRemovalIds = null)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.Ledger.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 // Strict reads: an unreadable old ledger is never an empty baseline.
-                var previous = CityDwellers.Shared.BankerSqlStore.ReadLedger<ActiveLedgerState>();
+                var previous = CityDwellers.Shared.BankerState.ReadLedger<ActiveLedgerState>();
                 if (ledger.Items == null || ledger.Items.Any(i => i == null || string.IsNullOrWhiteSpace(i.Id)) ||
                     ledger.Items.GroupBy(i => i.Id, StringComparer.Ordinal).Any(g => g.Count() != 1) ||
                     (previous != null && (previous.Items == null || previous.Items.Any(i => i == null || string.IsNullOrWhiteSpace(i.Id)) ||
@@ -1004,14 +960,14 @@ namespace CityBankers
                     .Where(i => !remaining.Contains(i.Id) && !excluded.Contains(i.Id)).ToList();
                 if (removed.Count > 0)
                 {
-                    var index = RuntimeStateStore.ReadJsonStrict<SymbiantIndexState>(GetIndexPath(settingsDir));
+                    var index = CityDwellers.Shared.ManagerMemory.Current.ReadItemIndex(CityDwellers.Shared.ManagerAccounting.TransactionId);
                     DateTime discovered = DateTime.UtcNow;
                     LostItemsStore.RecordBeforeRemoval(settingsDir, removed.Select(item => new LostItemRecord
                     {
                         IncidentId = item.Id + "/" + evidence, LedgerId = item.Id,
                         ItemName = index?.Items?.FirstOrDefault(i => i.AoId == item.AoId)?.Name,
                         DiscoveredUtc = discovered, Reason = removalReason, Evidence = evidence,
-                        PreviousLedgerEntry = JObject.FromObject(item)
+                        PreviousLedgerEntry = item
                     }));
                 }
                 ledger.UpdatedUtc = DateTime.UtcNow;
@@ -1020,7 +976,10 @@ namespace CityBankers
                     .ThenBy(item => item.ReceivedUtc)
                     .ThenBy(item => item.Id, StringComparer.Ordinal)
                     .ToList();
-                CityDwellers.Shared.BankerSqlStore.SaveLedger(ledger);
+                var itemNames = LoadIndex(settingsDir)?.Items ?? new List<SymbiantIndexItem>();
+                foreach (var item in ledger.Items)
+                    if (string.IsNullOrWhiteSpace(item.Name)) item.Name = itemNames.FirstOrDefault(row => row.AoId == item.AoId)?.Name;
+                CityDwellers.Shared.BankerState.SaveLedger(ledger);
                 LostItemsStore.ConfirmRemovals(settingsDir, remaining);
                 // Business history and lost/found above are authoritative.
                 // Do not serialize the whole ledger again for duplicate diagnostics.
@@ -1056,7 +1015,7 @@ namespace CityBankers
                 }
             }
 
-            if (changed || !File.Exists(GetIndexPath(settingsDir)))
+            if (changed || LoadIndex(settingsDir) == null)
                 SaveIndex(settingsDir, index);
         }
 
@@ -1136,182 +1095,35 @@ namespace CityBankers
             index.Items = (index.Items ?? new List<SymbiantIndexItem>())
                 .OrderBy(item => item.AoId)
                 .ToList();
-            RuntimeStateStore.WriteJsonAtomic(GetIndexPath(settingsDir), index);
+            CityDwellers.Shared.ManagerMemory.Current.ChangeItemIndex(CityDwellers.Shared.ManagerAccounting.TransactionId, index);
         }
 
         private static Dictionary<string, LegacyProvenance> LoadLegacyProvenance(string settingsDir)
         {
             var result = new Dictionary<string, LegacyProvenance>(StringComparer.Ordinal);
-            string directory = GetLegacyEventDirectory(settingsDir);
-            if (!Directory.Exists(directory))
-                return result;
-
-            foreach (string path in Directory.GetFiles(directory, "citybankers-*.jsonl")
-                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    foreach (string line in File.ReadLines(path))
-                    {
-                        if (string.IsNullOrWhiteSpace(line))
-                            continue;
-                        JObject record;
-                        try
-                        {
-                            record = JObject.Parse(line);
-                        }
-                        catch
-                        {
-                            continue;
-                        }
-
-                        if (!string.Equals(
-                            record["Event"]?.ToString(),
-                            "player_trade_completed",
-                            StringComparison.OrdinalIgnoreCase))
-                        {
-                            continue;
-                        }
-
-                        string transactionId = record["TransactionId"]?.ToString();
-                        if (string.IsNullOrWhiteSpace(transactionId))
-                            continue;
-
-                        DateTime utc;
-                        if (!DateTime.TryParse(record["Utc"]?.ToString(), out utc))
-                            utc = DateTime.MinValue;
-                        else
-                            utc = utc.ToUniversalTime();
-
-                        string donor = record["Source"]?.ToString();
-                        if (string.IsNullOrWhiteSpace(donor))
-                            donor = TrustedOperators.BootstrapAdmin;
-
-                        result[transactionId] = new LegacyProvenance
-                        {
-                            Donor = donor,
-                            Utc = utc
-                        };
-                    }
-                }
-                catch
-                {
-                }
-            }
+            foreach (var record in CityDwellers.Shared.ManagerMemory.Current.ReadTransactions(CityDwellers.Shared.ManagerAccounting.TransactionId))
+                if (record.Event == "player_trade_completed" && !string.IsNullOrWhiteSpace(record.TransactionId))
+                    result[record.TransactionId] = new LegacyProvenance { Donor = record.Source, Utc = record.Utc };
             return result;
         }
-
-        private static bool HistoryContains(
-            string settingsDir,
-            DateTime leftUtc,
-            string itemId,
-            string reason)
+        private static bool HistoryContains(string settingsDir, DateTime leftUtc, string itemId, string reason)
         {
             DateTime utc = leftUtc == DateTime.MinValue ? DateTime.UtcNow : leftUtc.ToUniversalTime();
-            string path = Path.Combine(
-                GetHistoryDirectory(settingsDir),
-                "history-" + utc.ToString("yyyy-MM", CultureInfo.InvariantCulture) + ".jsonl");
-            if (!File.Exists(path))
-                return false;
-
-            try
-            {
-                foreach (string line in File.ReadLines(path))
-                {
-                    if (string.IsNullOrWhiteSpace(line))
-                        continue;
-                    JObject record;
-                    try
-                    {
-                        record = JObject.Parse(line);
-                    }
-                    catch
-                    {
-                        continue;
-                    }
-
-                    if (!string.Equals(record["Reason"]?.ToString(), reason, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    JObject item = record["Item"] as JObject;
-                    if (item != null && string.Equals(
-                        item["Id"]?.ToString(),
-                        itemId,
-                        StringComparison.Ordinal))
-                    {
-                        return true;
-                    }
-                }
-            }
-            catch
-            {
-            }
-            return false;
+            return CityDwellers.Shared.ManagerMemory.Current.ReadItemHistory(CityDwellers.Shared.ManagerAccounting.TransactionId)
+                .Any(record => record.LeftUtc.Year == utc.Year && record.LeftUtc.Month == utc.Month &&
+                    record.Item?.Id == itemId && string.Equals(record.Reason, reason, StringComparison.OrdinalIgnoreCase));
         }
-
-        private static int HistoryDepartureCount(
-            string settingsDir,
-            DateTime leftUtc,
-            string transactionId,
-            int aoId,
-            string reason)
+        private static int HistoryDepartureCount(string settingsDir, DateTime leftUtc, string transactionId, int aoId, string reason)
         {
             DateTime utc = leftUtc == DateTime.MinValue ? DateTime.UtcNow : leftUtc.ToUniversalTime();
-            string path = Path.Combine(
-                GetHistoryDirectory(settingsDir),
-                "history-" + utc.ToString("yyyy-MM", CultureInfo.InvariantCulture) + ".jsonl");
-            if (!File.Exists(path))
-                return 0;
-
-            int count = 0;
-            try
-            {
-                foreach (string line in File.ReadLines(path))
-                {
-                    if (string.IsNullOrWhiteSpace(line))
-                        continue;
-                    JObject record;
-                    try
-                    {
-                        record = JObject.Parse(line);
-                    }
-                    catch
-                    {
-                        continue;
-                    }
-
-                    if (!string.Equals(record["Reason"]?.ToString(), reason, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    DateTime recordedLeftUtc = ParseUtcToken(record["LeftUtc"]);
-                    if (recordedLeftUtc.Ticks != utc.Ticks)
-                        continue;
-                    JObject item = record["Item"] as JObject;
-                    if (item != null &&
-                        IntTokenValue(item["AoId"]) == aoId &&
-                        string.Equals(item["TransactionId"]?.ToString(), transactionId, StringComparison.Ordinal))
-                    {
-                        count++;
-                    }
-                }
-            }
-            catch
-            {
-            }
-            return count;
+            return CityDwellers.Shared.ManagerMemory.Current.ReadItemHistory(CityDwellers.Shared.ManagerAccounting.TransactionId)
+                .Count(record => record.LeftUtc == utc && record.Item?.TransactionId == transactionId &&
+                    record.Item.AoId == aoId && string.Equals(record.Reason, reason, StringComparison.OrdinalIgnoreCase));
         }
-
         private static void AppendHistory(string settingsDir, ActiveHistoryRecord record)
         {
-            lock (HistoryLock)
-            {
-                DateTime utc = record.LeftUtc == DateTime.MinValue
-                    ? DateTime.UtcNow
-                    : record.LeftUtc.ToUniversalTime();
-                string path = Path.Combine(
-                    GetHistoryDirectory(settingsDir),
-                    "history-" + utc.ToString("yyyy-MM", CultureInfo.InvariantCulture) + ".jsonl");
-                string line = JsonConvert.SerializeObject(record, Formatting.None) + Environment.NewLine;
-                File.AppendAllText(path, line, new UTF8Encoding(false));
-            }
+            CityDwellers.Shared.ManagerAccounting.Transaction("Item history", () =>
+                CityDwellers.Shared.ManagerMemory.Current.RecordItemHistory(CityDwellers.Shared.ManagerAccounting.TransactionId, record));
         }
 
         private static ActiveLedgerItem Clone(ActiveLedgerItem item)
@@ -1319,6 +1131,7 @@ namespace CityBankers
             return new ActiveLedgerItem
             {
                 Id = item.Id,
+                Name = item.Name,
                 AoId = item.AoId,
                 HighId = item.HighId,
                 Ql = item.Ql,

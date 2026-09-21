@@ -1,5 +1,5 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
+using File = CityDwellers.Shared.DiskFiles;
+using Directory = System.IO.Directory;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -27,9 +27,6 @@ public class FlipperLoader
     private static string _dataDir;
     private static string _pluginPath;
     private static string _pluginDir;
-    private static string _toggleRequestPath;
-    private static string _operationIdPath;
-    private static string _cancelRequestPath;
     private static int _timeoutMs;
     private static bool _interactive;
     private static volatile bool _stopping;
@@ -153,15 +150,7 @@ public class FlipperLoader
         }
 
         _pluginDir = Path.GetDirectoryName(_pluginPath);
-        _toggleRequestPath =
-            Path.Combine(_dataDir, "cityflipper-toggle.request");
-        _operationIdPath =
-            Path.Combine(_dataDir, "cityflipper-operation.id");
-        _cancelRequestPath =
-            Path.Combine(_dataDir, "cityflipper-cancel.request");
 
-        DeleteIfExists(_toggleRequestPath);
-        DeleteIfExists(_operationIdPath);
 
         FlipperCacheStore.Initialize(
             _dataDir,
@@ -220,8 +209,6 @@ public class FlipperLoader
             Console.ReadLine();
 
         _stopping = true;
-        DeleteIfExists(_toggleRequestPath);
-        DeleteIfExists(_operationIdPath);
         if (!ProbeIdle.WaitOne(TimeSpan.FromSeconds(15)))
         {
             Console.WriteLine(
@@ -683,19 +670,7 @@ public class FlipperLoader
                         : "OBSERVE PROBE");
         Console.WriteLine("--------------------------------------");
 
-        string resultPath =
-            Path.Combine(_dataDir, "cityflipper-result.json");
-        string tempPath = resultPath + ".tmp";
-
-        DeleteIfExists(resultPath);
-        DeleteIfExists(tempPath);
-        DeleteIfExists(_toggleRequestPath);
-        DeleteIfExists(_operationIdPath);
-
-        if (actionRequested)
-            File.WriteAllText(_toggleRequestPath, requestedAction);
-        if (!string.IsNullOrWhiteSpace(operationId))
-            File.WriteAllText(_operationIdPath, operationId);
+        ManagerMemory.Current.BeginFlipper(operationId, actionRequested ? requestedAction : null);
 
         Logger logger = new LoggerConfiguration()
             .WriteTo.Console(
@@ -716,7 +691,7 @@ public class FlipperLoader
                 return run;
             }
 
-            if (IsFileValue(_cancelRequestPath, operationId))
+            if (ManagerMemory.Current.FlipperCancelled(operationId))
             {
                 Console.WriteLine(
                     $"[{totalTimer.Elapsed.TotalSeconds:F3}s] " +
@@ -756,7 +731,7 @@ public class FlipperLoader
 
             Stopwatch resultWaitTimer = Stopwatch.StartNew();
 
-            while (!File.Exists(resultPath))
+            while (ManagerMemory.Current.ReadFlipperOperation()?.Result == null)
             {
                 if (_stopping)
                 {
@@ -768,7 +743,7 @@ public class FlipperLoader
                     return run;
                 }
 
-                if (IsFileValue(_cancelRequestPath, operationId))
+                if (ManagerMemory.Current.FlipperCancelled(operationId))
                 {
                     Console.WriteLine(
                         $"[{totalTimer.Elapsed.TotalSeconds:F3}s] " +
@@ -796,7 +771,7 @@ public class FlipperLoader
             Console.WriteLine(
                 $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Observation received.");
 
-            string json = File.ReadAllText(resultPath);
+            string json = ManagerMemory.Current.ReadFlipperOperation()?.Result;
             run.Result = JsonConvert.DeserializeObject<FlipperResult>(json);
             run.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds;
             run.Success = run.Result != null;
@@ -849,11 +824,7 @@ public class FlipperLoader
                     "cooldown so AO can release the character session.");
             }
 
-            DeleteIfExists(resultPath);
-            DeleteIfExists(tempPath);
-            DeleteIfExists(_toggleRequestPath);
-            DeleteIfExists(_operationIdPath);
-            DeleteIfContains(_cancelRequestPath, operationId);
+            ManagerMemory.Current.FinishFlipper(operationId);
             ProbeIdle.Set();
         }
     }
@@ -978,55 +949,6 @@ public class FlipperLoader
             Ok = false,
             Message = message
         };
-    }
-
-    private static void DeleteIfExists(string path)
-    {
-        try
-        {
-            if (File.Exists(path))
-                File.Delete(path);
-        }
-        catch
-        {
-        }
-    }
-
-    private static void DeleteIfContains(string path, string expectedValue)
-    {
-        if (string.IsNullOrWhiteSpace(expectedValue))
-            return;
-
-        try
-        {
-            if (IsFileValue(path, expectedValue))
-                File.Delete(path);
-        }
-        catch
-        {
-        }
-    }
-
-    private static bool IsFileValue(string path, string expectedValue)
-    {
-        if (string.IsNullOrWhiteSpace(path) ||
-            string.IsNullOrWhiteSpace(expectedValue))
-        {
-            return false;
-        }
-
-        try
-        {
-            return File.Exists(path) &&
-                   string.Equals(
-                       File.ReadAllText(path).Trim(),
-                       expectedValue,
-                       StringComparison.Ordinal);
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     public class Config

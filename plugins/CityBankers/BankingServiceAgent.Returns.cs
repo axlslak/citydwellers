@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -15,17 +15,8 @@ namespace CityBankers
 {
     public partial class BankingServiceAgent
     {
-        private sealed class ReturnOffer
-        {
-            public string Id;
-            public string LedgerId;
-            public string TransactionId;
-            public string Source;
-            public int SourceSlot;
-            public TransferItemState Item;
-            public DateTime StartedUtc;
-            public DateTime? CompletedUtc;
-        }
+
+
 
         private ReturnOffer _returnOffer;
         private Identity _returnPartner = Identity.None;
@@ -65,9 +56,12 @@ namespace CityBankers
                 a.Item != null && b.Item != null && CustodyKey(a.Item) == CustodyKey(b.Item);
         }
 
-        private string ReturnDirectory(ReturnOffer offer)
+        private static void SaveReturn(ReturnOffer offer, string phase)
         {
-            return Path.Combine(RuntimeStateStore.GetDataDirectory(_settingsDir), "banker-returns", offer.Id);
+            offer.Phase = phase;
+            CityDwellers.Shared.ManagerAccounting.Transaction("Return", () =>
+                CityDwellers.Shared.ManagerMemory.Current.ChangeReturn(
+                    CityDwellers.Shared.ManagerAccounting.TransactionId, offer));
         }
 
         private bool HandleReturnProposal(DispatchProposal proposal)
@@ -77,10 +71,10 @@ namespace CityBankers
             Guid id;
             if (!_isCentral || offer?.Item == null || !Guid.TryParseExact(offer.Id, "N", out id))
             { proposal.Reply.TrySetResult("busy"); return true; }
-            string completed = Path.Combine(ReturnDirectory(offer), "completed.json");
-            if (File.Exists(completed))
+            var recorded = CityDwellers.Shared.ManagerMemory.Current.ReadReturn(
+                CityDwellers.Shared.ManagerAccounting.TransactionId, offer.Id);
+            if (recorded?.CompletedUtc != null)
             {
-                var recorded = JsonConvert.DeserializeObject<ReturnOffer>(File.ReadAllText(completed));
                 proposal.Reply.TrySetResult(SameReturn(recorded, offer) ? "complete:" + offer.Id : "busy");
                 return true;
             }
@@ -89,7 +83,7 @@ namespace CityBankers
                 if (SameReturn(_returnOffer, offer))
                 {
                     _returnSenderVerified = true;
-                    RuntimeStateStore.WriteJsonAtomic(Path.Combine(ReturnDirectory(offer), "sender-acknowledged.json"), offer);
+                    SaveReturn(offer, "sender-acknowledged");
                 }
                 proposal.Reply.TrySetResult("pending");
                 return true;
@@ -114,7 +108,7 @@ namespace CityBankers
             {
                 _returnOffer = offer;
                 _returnPhase.Restart();
-                RuntimeStateStore.WriteJsonAtomic(Path.Combine(ReturnDirectory(offer), "prepared.json"), offer);
+                SaveReturn(offer, "prepared");
             }
             proposal.Reply.TrySetResult(valid ? "ready:" + offer.Id : "busy");
             return true;
@@ -261,9 +255,7 @@ namespace CityBankers
             else if (status == TradeStatus.Finished)
                 AwaitPhysicalReceipt(new List<TransferItemState> { _returnOffer.Item }, () =>
                 {
-                    RuntimeStateStore.WriteJsonAtomic(Path.Combine(ReturnDirectory(_returnOffer),
-                        _isCentral ? "received.json" : "sent.json"), new
-                        { Offer = _returnOffer, Character = Client.CharacterName, RecordedUtc = DateTime.UtcNow, Evidence = _receipt });
+                    SaveReturn(_returnOffer, _isCentral ? "received" : "sent");
                     _returnLocalVerified = true;
                     _returnOpened = false;
                     _returnPhase.Restart();
@@ -311,7 +303,7 @@ namespace CityBankers
                 }
             }
             offer.CompletedUtc = DateTime.UtcNow;
-            RuntimeStateStore.WriteJsonAtomic(Path.Combine(ReturnDirectory(offer), "completed.json"), offer);
+            SaveReturn(offer, "completed");
             ResetReturn();
             try
             {
@@ -346,7 +338,7 @@ namespace CityBankers
                 _returnPoll.ElapsedMilliseconds < 1000) return;
             _returnPoll.Restart();
             if (CensusReservedHere()) return;
-            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
+            var ledger = CityDwellers.Shared.BankerState.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
             if (ledger == null) return;
             var withdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();
             var inventory = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory).ToList();

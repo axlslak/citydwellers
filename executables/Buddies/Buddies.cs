@@ -1,5 +1,5 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
+using File = CityDwellers.Shared.DiskFiles;
+using Directory = System.IO.Directory;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -525,9 +525,8 @@ public class BuddiesHost
 
         string username = _config.AccountPrefix + index;
         string character = activeBuddy.Character;
-        string readyPath = GetReadyPath(character);
 
-        DeleteReadyMarker(readyPath);
+        DeleteReadyMarker(character);
         DeletePositionSnapshot(character);
         DeleteHomeDirective(character);
 
@@ -564,7 +563,7 @@ public class BuddiesHost
             Console.WriteLine(
                 $"Buddy domain started; waiting for {character} to reach InPlay...");
 
-            if (!WaitForReady(character, readyPath, WakeupTimeoutMs))
+            if (!WaitForReady(character, WakeupTimeoutMs))
             {
                 Console.WriteLine(
                     $"TIMEOUT waiting for {character} to reach InPlay.");
@@ -587,7 +586,7 @@ public class BuddiesHost
                 }
 
                 domain = null;
-                DeleteReadyMarker(readyPath);
+                DeleteReadyMarker(character);
                 DeletePositionSnapshot(character);
                 DeleteHomeDirective(character);
 
@@ -644,7 +643,7 @@ public class BuddiesHost
                 }
             }
 
-            DeleteReadyMarker(readyPath);
+            DeleteReadyMarker(character);
             DeletePositionSnapshot(character);
             DeleteHomeDirective(character);
 
@@ -811,7 +810,7 @@ public class BuddiesHost
                         GetLogoutQuarantineDeadline();
                 }
             }
-            DeleteReadyMarker(GetReadyPath(buddy.Character));
+            DeleteReadyMarker(buddy.Character);
             DeletePositionSnapshot(buddy.Character);
             DeleteHomeDirective(buddy.Character);
 
@@ -1723,16 +1722,14 @@ public class BuddiesHost
             Error = "Position snapshot is not available yet."
         };
 
-        string path = GetPositionPath(buddy.Character);
 
         try
         {
-            if (!File.Exists(path))
+            if (ManagerMemory.Current.ReadBuddyPosition(buddy.Character) == null)
                 return fallback;
 
             BuddyPositionSnapshot snapshot =
-                JsonConvert.DeserializeObject<BuddyPositionSnapshot>(
-                    FileSnapshot.ReadText(path));
+                ManagerMemory.Current.ReadBuddyPosition(buddy.Character);
 
             if (snapshot == null)
             {
@@ -1854,21 +1851,11 @@ public class BuddiesHost
                 (double)remaining / Stopwatch.Frequency);
     }
 
-    private static string GetReadyPath(string character)
-    {
-        return Path.Combine(
-            _dataDir,
-            $"citybuddies-ready-{character}.ready");
-    }
 
-    private static string GetPositionPath(string character)
-    {
-        return Path.Combine(
-            _dataDir,
-            $"citybuddies-position-{character}.json");
-    }
 
-    private static bool WaitForReady(string character, string readyPath, int timeoutMs)
+
+
+    private static bool WaitForReady(string character, int timeoutMs)
     {
         var timer = Stopwatch.StartNew();
 
@@ -1876,12 +1863,7 @@ public class BuddiesHost
         {
             try
             {
-                if (File.Exists(readyPath))
-                {
-                    string marker = File.ReadAllText(readyPath);
-                    if (marker.StartsWith(character + "|", StringComparison.OrdinalIgnoreCase))
-                        return true;
-                }
+                if (ManagerMemory.Current.BuddyReady(character)) return true;
             }
             catch
             {
@@ -1893,41 +1875,17 @@ public class BuddiesHost
         return false;
     }
 
-    private static void DeleteReadyMarker(string readyPath)
+    private static void DeleteReadyMarker(string character)
     {
-        try
-        {
-            if (File.Exists(readyPath))
-                File.Delete(readyPath);
-        }
-        catch
-        {
-        }
+        ManagerMemory.Current.SetBuddyReady(character, false);
     }
 
     private static void DeletePositionSnapshot(string character)
     {
-        try
-        {
-            string path = GetPositionPath(character);
-            if (File.Exists(path))
-                File.Delete(path);
-
-            string tempPath = path + ".tmp";
-            if (File.Exists(tempPath))
-                File.Delete(tempPath);
-        }
-        catch
-        {
-        }
+        ManagerMemory.Current.PublishBuddyPosition(character, null);
     }
 
-    private static string GetHomeDirectivePath(string character)
-    {
-        return Path.Combine(
-            _dataDir,
-            $"citybuddies-home-{character}.json");
-    }
+
 
     private static void WriteHomeDirective(ActiveBuddy buddy)
     {
@@ -1967,8 +1925,7 @@ public class BuddiesHost
     {
         try
         {
-            string path = GetHomeDirectivePath(character);
-            FileSnapshot.WriteText(path, JsonConvert.SerializeObject(directive));
+            ManagerMemory.Current.SetBuddyHome(character, directive);
         }
         catch (Exception ex)
         {
@@ -1979,19 +1936,7 @@ public class BuddiesHost
 
     private static void DeleteHomeDirective(string character)
     {
-        try
-        {
-            string path = GetHomeDirectivePath(character);
-            if (File.Exists(path))
-                File.Delete(path);
-
-            string tempPath = path + ".tmp";
-            if (File.Exists(tempPath))
-                File.Delete(tempPath);
-        }
-        catch
-        {
-        }
+        ManagerMemory.Current.SetBuddyHome(character, null);
     }
 
     private static void MarkSlotLingering(int index, string character)
@@ -2109,7 +2054,7 @@ public class BuddiesHost
             string traceSuffix =
                 string.IsNullOrWhiteSpace(snapshot.NavigationTraceFile)
                     ? string.Empty
-                    : " Trace: " + CityDwellers.Shared.SqlStore.DescribePath(
+                    : " Trace: " + System.IO.Path.GetFullPath(
                         Path.Combine(_dataDir, "NavigationTraces", snapshot.NavigationTraceFile));
             Console.WriteLine(
                 $"Home navigation {terminalState} for {candidate.Character}: " +

@@ -75,7 +75,7 @@ namespace CityManager
         {
             lock (_altsSync)
             {
-                _altsPath = Path.Combine(_dataDir, "alts.json");
+                _altsPath = Path.Combine(_settingsDir, "config", "alts.json");
                 _altsBotName = LoadAltBotName();
                 _altGroups.Clear();
                 _altToMain.Clear();
@@ -92,7 +92,7 @@ namespace CityManager
                 _onlineSnapshotResponse = null;
                 _startupOnlineSnapshotPending = false;
 
-                if (SqlFile.Exists(_altsPath))
+                if (DiskFiles.Exists(_altsPath))
                 {
                     try
                     {
@@ -102,7 +102,7 @@ namespace CityManager
                     {
                         Logger.Error($"Unable to load alt cache: {ex.Message}");
                         // Never discard authoritative imported identities.
-                        SqlStore.FailClosed("The MySQL alt cache is invalid; repair it before starting Manager.", ex);
+                        HostFailure.Stop("The alt cache is invalid; repair it before starting Manager.", ex);
                         throw;
                     }
                 }
@@ -1825,7 +1825,7 @@ namespace CityManager
         private void LoadAltsLocked()
         {
             PersistedAltState state = JsonConvert.DeserializeObject<PersistedAltState>(
-                SqlFile.ReadAllText(_altsPath));
+                DiskFiles.ReadAllText(_altsPath));
 
             if (state == null ||
                 (state.Version != 1 && state.Version != AltStateVersion) ||
@@ -1887,7 +1887,7 @@ namespace CityManager
                     .ToList()
             };
 
-            SqlFile.WriteAllText(_altsPath,
+            DiskFiles.WriteAllText(_altsPath,
                 JsonConvert.SerializeObject(state, Formatting.Indented));
         }
 

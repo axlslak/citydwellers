@@ -305,9 +305,8 @@ namespace CityManager
 
         private JObject ReadBankerHeartbeat(string character)
         {
-            string token = CityDwellers.Shared.CharacterNames.FileToken(character);
-            return RuntimeStateStore.ReadJson<JObject>(Path.Combine(
-                _dataDir, "citybankers-health-" + token + ".json"));
+            var health = ManagerMemory.Current.BankerHealth(character);
+            return health == null ? null : JObject.FromObject(health);
         }
 
         private static bool BankerHeartbeatIsLive(JObject heartbeat)
@@ -501,7 +500,7 @@ namespace CityManager
                     ? Regex.Replace(link.Substring(open + 1, close - open - 1), "<.*?>", string.Empty)
                     : "AOID " + aoid;
                 SymbiantCatalog.AddOrUpdatePhatzItem(_settingsDir,
-                    new SymbiantCatalog.PhatzPolicyItem
+                    new CityBankers.Shared.PhatzPolicyItem
                     {
                         AoId = aoid,
                         HighId = highid,
@@ -534,10 +533,10 @@ namespace CityManager
 
         private List<string> BuildPhatzPolicyWindow(ReplyTarget target)
         {
-            SymbiantCatalog.PhatzPolicyState dynamicPolicy =
+            CityBankers.Shared.PhatzPolicyState dynamicPolicy =
                 SymbiantCatalog.LoadPhatzPolicy(_settingsDir);
             var disabled = new HashSet<int>(dynamicPolicy.DisabledAoIds ?? new List<int>());
-            var rows = new Dictionary<int, SymbiantCatalog.PhatzPolicyItem>();
+            var rows = new Dictionary<int, CityBankers.Shared.PhatzPolicyItem>();
             JObject acceptance = CityBankers.Shared.SettingsPaths.ReadBankersSettings(_settingsDir)
                 .GetValue("AcceptancePolicy", StringComparison.OrdinalIgnoreCase) as JObject;
             JObject configured = acceptance?
@@ -555,7 +554,7 @@ namespace CityManager
                     ? SymbiantCatalog.KeepAllCopies
                     : ParseDonationInt(maximumToken);
                 if (maximum == 0) continue;
-                rows[aoid] = new SymbiantCatalog.PhatzPolicyItem
+                rows[aoid] = new CityBankers.Shared.PhatzPolicyItem
                 {
                     AoId = aoid,
                     Name = item.GetValue("Name", StringComparison.OrdinalIgnoreCase)?.ToString() ??
@@ -563,8 +562,8 @@ namespace CityManager
                     MaxCopies = maximum
                 };
             }
-            foreach (SymbiantCatalog.PhatzPolicyItem item in dynamicPolicy.Items ??
-                new List<SymbiantCatalog.PhatzPolicyItem>())
+            foreach (CityBankers.Shared.PhatzPolicyItem item in dynamicPolicy.Items ??
+                new List<CityBankers.Shared.PhatzPolicyItem>())
                 if (item != null && !disabled.Contains(item.AoId)) rows[item.AoId] = item;
 
             var body = new StringBuilder();
@@ -733,10 +732,7 @@ namespace CityManager
                     p.Name.Equals("central", StringComparison.OrdinalIgnoreCase))?.Value as JObject;
                 string character = (string)central?.GetValue("Character", StringComparison.OrdinalIgnoreCase);
                 if (string.IsNullOrWhiteSpace(character)) { Reply(target, "Central is not configured."); return; }
-                string token = character;
-                foreach (char invalid in Path.GetInvalidFileNameChars()) token = token.Replace(invalid, '_');
-                string path = Path.Combine(_dataDir, "citybankers-report-command-" + token + ".json");
-                if (!SqlFile.TryCreateNew(path, new JObject {
+                if (!ManagerMemory.Current.RequestBankerReport(character, new JObject {
                     ["Recipient"] = senderName, ["Kind"] = "dynel"
                 }.ToString()))
                 {
@@ -829,7 +825,7 @@ namespace CityManager
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
             var readyCharacters = WithdrawalStore.GetReadyCharacters(_settingsDir);
 
-            JObject ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<JObject>();
+            JObject ledger = CityDwellers.Shared.BankerState.ReadLedger<JObject>();
             JObject selected = (ledger?["Items"] as JArray ?? new JArray())
                 .OfType<JObject>()
                 .Where(item => ParseDonationInt(item["AoId"]) == aoId &&
@@ -1125,11 +1121,10 @@ namespace CityManager
         {
             var records = new Dictionary<string, DonationRecord>(
                 StringComparer.Ordinal);
-            JObject index = RuntimeStateStore.ReadJson<JObject>(
-                Path.Combine(_dataDir, "symbiant-index.json"));
+            JObject index = BankerState.ReadItemIndex<JObject>();
             Dictionary<int, DonationItemMetadata> metadata = LoadDonationMetadata(index);
 
-            JObject ledger = CityDwellers.Shared.BankerSqlStore.ReadLedger<JObject>();
+            JObject ledger = CityDwellers.Shared.BankerState.ReadLedger<JObject>();
             int ordinal = 0;
             // Donor history is not evidence of availability. Consume physical occurrences
             // once, so duplicate historical claims cannot create additional GET buttons.
@@ -1154,51 +1149,9 @@ namespace CityManager
                 AddDonationRecord(records, item, metadata, "active-" + ordinal++, available);
             }
 
-            string historyDirectory = Path.Combine(_dataDir, "history");
-            if (SqlDirectory.Exists(historyDirectory))
-            {
-                foreach (string path in SqlDirectory.GetFiles(
-                    historyDirectory,
-                    "history-*.jsonl").OrderBy(value => value, StringComparer.Ordinal))
-                {
-                    int lineNumber = 0;
-                    try
-                    {
-                        foreach (string line in SqlFile.ReadLines(path))
-                        {
-                            lineNumber++;
-                            if (string.IsNullOrWhiteSpace(line))
-                                continue;
-                            JObject history;
-                            try
-                            {
-                                history = JObject.Parse(line);
-                            }
-                            catch
-                            {
-                                continue;
-                            }
-
-                            JObject item = history["Item"] as JObject;
-                            if (item != null)
-                            {
-                                AddDonationRecord(
-                                    records,
-                                    item,
-                                    metadata,
-                                    Path.GetFileName(path) + "-" + lineNumber,
-                                    false);
-                            }
-                        }
-                    }
-                    catch (IOException ex)
-                    {
-                        Logger.Warning(
-                            "DONOR HISTORY skipped " + Path.GetFileName(path) +
-                            ": " + ex.Message);
-                    }
-                }
-            }
+            foreach (var history in ManagerMemory.Current.ReadItemHistory(ManagerAccounting.TransactionId))
+                if (history.Item != null)
+                    AddDonationRecord(records, JObject.FromObject(history.Item), metadata, history.Id, false);
 
             List<WithdrawalState> withdrawals = WithdrawalStore.LoadAll(_settingsDir);
             foreach (WithdrawalState withdrawal in withdrawals.Where(WithdrawalStore.IsActive))

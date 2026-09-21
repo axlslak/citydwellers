@@ -620,7 +620,7 @@ namespace CityManager
 
             try
             {
-                SqlFile.WriteAllText(path, requestId);
+                ManagerMemory.Current.CancelFlipper(requestId);
                 DevTrace(
                     $"RAID FLIPPER cancel requested [{ShortId(requestId)}] before cloak lower.");
             }
@@ -2189,7 +2189,7 @@ namespace CityManager
 
                     string path = RaidStatePath;
                     string json = JsonConvert.SerializeObject(state, Formatting.Indented);
-                    SqlFile.WriteAllText(path, json);
+                    ManagerMemory.Current.SetRaidCoordinator(json);
                 }
                 catch (Exception ex)
                 {
@@ -2202,14 +2202,14 @@ namespace CityManager
         private void LoadRaidState()
         {
             string path = RaidStatePath;
-            if (!SqlFile.Exists(path))
+            if (ManagerMemory.Current.ReadRaidCoordinator() == null)
                 return;
 
             try
             {
                 PersistedRaidCoordinatorState state =
                     JsonConvert.DeserializeObject<PersistedRaidCoordinatorState>(
-                        SqlFile.ReadAllText(path));
+                        ManagerMemory.Current.ReadRaidCoordinator());
 
                 if (state == null || state.Version != 1)
                     throw new InvalidDataException("Unsupported raid-state file.");
@@ -2709,23 +2709,7 @@ namespace CityManager
 
         private void DeleteRaidStateFile()
         {
-            lock (_raidPersistenceSync)
-            {
-                try
-                {
-                    string path = RaidStatePath;
-                    string tempPath = path + ".tmp";
-
-                    if (SqlFile.Exists(path))
-                        SqlFile.Delete(path);
-                    if (SqlFile.Exists(tempPath))
-                        SqlFile.Delete(tempPath);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"Unable to delete completed raid-state file: {ex.Message}");
-                }
-            }
+            ManagerMemory.Current.SetRaidCoordinator(null);
         }
 
         private static bool IsRaidStatusCommand(string[] parts) =>

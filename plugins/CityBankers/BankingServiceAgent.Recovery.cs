@@ -33,7 +33,7 @@ namespace CityBankers
                 return;
             }
             if (_looseRecoveryStable.ElapsedMilliseconds < 500) return;
-            var ledger = CityDwellers.Shared.BankerSqlStore.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
+            var ledger = CityDwellers.Shared.BankerState.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
             if (ledger == null) return;
             var withdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();
             var rules = SymbiantCatalog.GetRulesFor(_settingsDir,

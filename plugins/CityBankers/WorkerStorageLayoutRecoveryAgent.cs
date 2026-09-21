@@ -1,4 +1,4 @@
-using File = CityDwellers.Shared.SqlFile;
+using File = CityDwellers.Shared.DiskFiles;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -179,7 +179,7 @@ namespace CityBankers
 
         private bool TryReconcileLiveBagSlots()
         {
-            return CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
+            return CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.RuntimeState.v1", () =>
             {
                 if (Inventory.Bank == null || !Inventory.Bank.IsOpen ||
                     Inventory.Bank.Items == null || Inventory.Items == null)
@@ -859,8 +859,7 @@ namespace CityBankers
                 {
                     queue.Batches.Remove(batch);
                     RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
-                    RuntimeStateStore.DeleteIfExists(
-                        RuntimeStateStore.GetStorageResultPath(_settingsDir, batch.Character));
+                    RuntimeStateStore.DeleteStorageResult(_settingsDir, batch.Character);
 
                     RuntimeStateStore.AppendLedger(
                         _settingsDir,
@@ -899,8 +898,7 @@ namespace CityBankers
                         (result.Error ?? "<no error>");
                     batch.UpdatedUtc = DateTime.UtcNow;
                     RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
-                    RuntimeStateStore.DeleteIfExists(
-                        RuntimeStateStore.GetStorageResultPath(_settingsDir, batch.Character));
+                    RuntimeStateStore.DeleteStorageResult(_settingsDir, batch.Character);
                     ReportCentralDecisionOnce(
                         batch,
                         "failed",

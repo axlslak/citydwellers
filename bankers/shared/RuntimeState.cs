@@ -1,5 +1,5 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
+using File = CityDwellers.Shared.DiskFiles;
+using Directory = System.IO.Directory;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -57,166 +57,6 @@ namespace CityBankers.Shared
         public static bool IsCru(int id) => id == AoId;
     }
 
-    public class StorageState
-    {
-        public string Format = "citybankers-storage-state-v1";
-        public string BaselineRunId;
-        public DateTime UpdatedUtc;
-        public List<StorageWorkerState> Workers = new List<StorageWorkerState>();
-    }
-
-    public class StorageWorkerState
-    {
-        public string Role;
-        public string Character;
-        public DateTime ObservedUtc;
-        public List<StorageBagState> Bags = new List<StorageBagState>();
-    }
-
-    public class StorageBagState
-    {
-        public string Source;
-        public string OuterSlotType;
-        public int OuterSlotInstance;
-        public string LastUniqueIdentity;
-        public int LastHandle;
-        public int Capacity = 21;
-        public List<StoredItemState> Items = new List<StoredItemState>();
-    }
-
-    public class StoredItemState
-    {
-        public string UniqueIdentity;
-        public int AoId;
-        public int HighId;
-        public int Ql;
-        public string Name;
-        public int InnerSlot;
-        public DateTime ObservedUtc;
-        public string TransactionId;
-    }
-
-    public class CurrentStockState
-    {
-        public string Format = "citybankers-current-stock-v1";
-        public string BaselineRunId;
-        public DateTime UpdatedUtc;
-        public List<StockItemState> Items = new List<StockItemState>();
-    }
-
-    public class StockItemState
-    {
-        public string TransactionId;
-        public string Role;
-        public string PhysicalRole;
-        public bool RouteMatchesPhysicalRole;
-        public string Character;
-        public string BagSource;
-        public int BagOuterSlot;
-        public int InnerSlot;
-        public string UniqueIdentity;
-        public int AoId;
-        public int HighId;
-        public int Ql;
-        public string Name;
-        public DateTime ObservedUtc;
-    }
-
-    public class DispatchQueueState
-    {
-        public string Format = "citybankers-dispatch-queue-v1";
-        public DateTime UpdatedUtc;
-        public List<DispatchBatchState> Batches = new List<DispatchBatchState>();
-    }
-
-    public class DispatchBatchState
-    {
-        public string BatchId;
-        public string AttemptId;
-        public string LastCancelledAttempt;
-        public string TransactionId;
-        public string Role;
-        public string Character;
-        public string Status;
-        public DateTime CreatedUtc;
-        public DateTime UpdatedUtc;
-        public int AttemptCount;
-        // Set only by a failed source check before any dispatch command/trade is issued.
-        public bool TransferNeverStarted;
-        // Central has since rebuilt routing from a full physical census.
-        // Old cancellation receipts must not enqueue a second copy of that plan.
-        public bool RequiresPairedCensus;
-        public string LastError;
-        public List<TransferItemState> Items = new List<TransferItemState>();
-    }
-
-    public class TransferItemState
-    {
-        public int Quantity = 1;
-        public string UniqueIdentity;
-        public int AoId;
-        public int HighId;
-        public int Ql;
-        public string Name;
-    }
-
-    public class DispatchCommand
-    {
-        public string Format = "citybankers-dispatch-command-v1";
-        public string BatchId;
-        public string AttemptId;
-        public string TransactionId;
-        public string Role;
-        public string SourceCharacter;
-        public string DestinationCharacter;
-        public DateTime CreatedUtc;
-        public List<TransferItemState> Items = new List<TransferItemState>();
-    }
-
-    public class StorageBatchResult
-    {
-        public string Format = "citybankers-storage-result-v1";
-        public string BatchId;
-        public string TransactionId;
-        public string Role;
-        public string Character;
-        public DateTime CompletedUtc;
-        public bool Success;
-        public int ExpectedCount;
-        public int StoredCount;
-        public string Error;
-    }
-
-    public class LedgerRecord
-    {
-        public string Format = "citybankers-ledger-v1";
-        public DateTime Utc;
-        public string Event;
-        public string TransactionId;
-        public string BatchId;
-        public string Actor;
-        public string Role;
-        public string Character;
-        public string Source;
-        public string Destination;
-        public string Message;
-        public List<LedgerItem> Items;
-    }
-
-    public class LedgerItem
-    {
-        public int Quantity = 1;
-        public string UniqueIdentity;
-        public int AoId;
-        public int HighId;
-        public int Ql;
-        public string Name;
-        public string Role;
-        public string BagSource;
-        public int? BagOuterSlot;
-        public int? InnerSlot;
-    }
-
     // Raised only by a read that moved nothing: the file was held by a
     // concurrent writer for longer than the reader was willing to wait. It
     // carries no custody implication, so a caller may retry it instead of
@@ -271,7 +111,7 @@ namespace CityBankers.Shared
 
         public static string GetDataDirectory(string settingsDir)
         {
-            return CityDwellers.Shared.SqlStore.GetDataDirectory(settingsDir);
+            return CityDwellers.Shared.SettingsPaths.GetDataDirectory(settingsDir);
         }
 
         public static string GetLedgerDirectory(string settingsDir)
@@ -310,24 +150,23 @@ namespace CityBankers.Shared
 
         public static StorageState LoadStorageState(string settingsDir)
         {
-            return ReadJson<StorageState>(GetStorageStatePath(settingsDir));
+            return ManagerMemory.Current.ReadStorage(ManagerAccounting.TransactionId);
         }
 
         public static void SaveCurrentStock(CurrentStockState state)
         {
-            CityDwellers.Shared.BankerSqlStore.SaveStock(state);
+            CityDwellers.Shared.BankerState.SaveStock(state);
         }
 
         public static CurrentStockState LoadCurrentStock(string settingsDir)
         {
-            CurrentStockState state = CityDwellers.Shared.BankerSqlStore.ReadStock<CurrentStockState>();
+            CurrentStockState state = CityDwellers.Shared.BankerState.ReadStock<CurrentStockState>();
             return state ?? new CurrentStockState { UpdatedUtc = DateTime.UtcNow };
         }
 
         public static DispatchQueueState LoadDispatchQueue(string settingsDir)
         {
-            DispatchQueueState state = ReadJson<DispatchQueueState>(
-                GetDispatchQueuePath(settingsDir));
+            DispatchQueueState state = ManagerMemory.Current.ReadDispatch(ManagerAccounting.TransactionId);
             if (state == null)
                 state = new DispatchQueueState();
             if (state.Batches == null)
@@ -340,7 +179,7 @@ namespace CityBankers.Shared
             StorageState storageState,
             string transactionId)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.RuntimeState.v1", () =>
             {
                 if (storageState == null)
                     throw new ArgumentNullException("storageState");
@@ -348,7 +187,7 @@ namespace CityBankers.Shared
                 WithMutex(StateMutexName, delegate
                 {
                     storageState.UpdatedUtc = DateTime.UtcNow;
-                    WriteJsonAtomic(GetStorageStatePath(settingsDir), storageState);
+                    ManagerMemory.Current.ChangeStorage(ManagerAccounting.TransactionId, storageState);
                     CurrentStockState stock = BuildCurrentStock(settingsDir, storageState);
                     SaveCurrentStock(stock);
                 });
@@ -374,7 +213,7 @@ namespace CityBankers.Shared
             string baselineRunId,
             string transactionId)
         {
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.RuntimeState.v1", () =>
             {
                 if (replacement == null)
                     throw new ArgumentNullException("replacement");
@@ -387,7 +226,7 @@ namespace CityBankers.Shared
 
                 WithMutex(StateMutexName, delegate
                 {
-                    StorageState state = ReadJson<StorageState>(GetStorageStatePath(settingsDir)) ??
+                    StorageState state = ManagerMemory.Current.ReadStorage(ManagerAccounting.TransactionId) ??
                         new StorageState();
                     if (state.Workers == null)
                         state.Workers = new List<StorageWorkerState>();
@@ -417,7 +256,7 @@ namespace CityBankers.Shared
                     state.BaselineRunId = baselineRunId;
                     state.UpdatedUtc = DateTime.UtcNow;
 
-                    WriteJsonAtomic(GetStorageStatePath(settingsDir), state);
+                    ManagerMemory.Current.ChangeStorage(ManagerAccounting.TransactionId, state);
                     SaveCurrentStock(BuildCurrentStock(settingsDir, state));
                 });
 
@@ -477,7 +316,7 @@ namespace CityBankers.Shared
             WithMutex(StateMutexName, delegate
             {
                 state.UpdatedUtc = DateTime.UtcNow;
-                WriteJsonAtomic(GetDispatchQueuePath(settingsDir), state);
+                ManagerMemory.Current.ChangeDispatch(ManagerAccounting.TransactionId, state);
             });
         }
 
@@ -502,8 +341,7 @@ namespace CityBankers.Shared
             {
                 WithMutex(StateMutexName, delegate
                 {
-                    StorageState state = ReadJson<StorageState>(
-                        GetStorageStatePath(settingsDir));
+                    StorageState state = ManagerMemory.Current.ReadStorage(ManagerAccounting.TransactionId);
                     if (state == null)
                         throw new InvalidOperationException(
                             "Persistent storage baseline is missing. Run CityDwellers.exe bankers-bagaudit first.");
@@ -574,7 +412,7 @@ namespace CityBankers.Shared
 
                     worker.ObservedUtc = DateTime.UtcNow;
                     state.UpdatedUtc = DateTime.UtcNow;
-                    WriteJsonAtomic(GetStorageStatePath(settingsDir), state);
+                    ManagerMemory.Current.ChangeStorage(ManagerAccounting.TransactionId, state);
                     SaveCurrentStock(BuildCurrentStock(settingsDir, state));
                     success = true;
                 });
@@ -603,8 +441,7 @@ namespace CityBankers.Shared
             {
                 WithMutex(StateMutexName, delegate
                 {
-                    StorageState state = ReadJsonNoLock<StorageState>(
-                        GetStorageStatePath(settingsDir));
+                    StorageState state = ManagerMemory.Current.ReadStorage(ManagerAccounting.TransactionId);
                     StorageWorkerState worker = (state?.Workers ?? new List<StorageWorkerState>())
                         .FirstOrDefault(value => string.Equals(
                             value.Character, character, StringComparison.OrdinalIgnoreCase));
@@ -624,7 +461,7 @@ namespace CityBankers.Shared
                     bag.Items.Remove(item);
                     worker.ObservedUtc = DateTime.UtcNow;
                     state.UpdatedUtc = DateTime.UtcNow;
-                    WriteJsonAtomicNoLock(GetStorageStatePath(settingsDir), state);
+                    ManagerMemory.Current.ChangeStorage(ManagerAccounting.TransactionId, state);
                     SaveCurrentStock(BuildCurrentStock(settingsDir, state));
                 });
                 return true;
@@ -753,17 +590,15 @@ namespace CityBankers.Shared
             if (command == null || string.IsNullOrWhiteSpace(command.DestinationCharacter))
                 throw new InvalidOperationException("Dispatch command destination is missing.");
 
-            WriteJsonAtomic(
-                GetDispatchCommandPath(settingsDir, command.DestinationCharacter),
-                command);
+            ManagerAccounting.Transaction("Dispatch command", () => ManagerMemory.Current.ChangeDispatchCommand(
+                ManagerAccounting.TransactionId, command.DestinationCharacter, command));
         }
 
         public static DispatchCommand ReadDispatchCommand(
             string settingsDir,
             string character)
         {
-            return ReadJson<DispatchCommand>(
-                GetDispatchCommandPath(settingsDir, character));
+            return ManagerMemory.Current.ReadDispatchCommand(ManagerAccounting.TransactionId, character);
         }
 
         public static void WriteStorageResult(
@@ -773,18 +608,21 @@ namespace CityBankers.Shared
             if (result == null || string.IsNullOrWhiteSpace(result.Character))
                 throw new InvalidOperationException("Storage result character is missing.");
 
-            WriteJsonAtomic(
-                GetStorageResultPath(settingsDir, result.Character),
-                result);
+            ManagerAccounting.Transaction("Storage result", () => ManagerMemory.Current.ChangeStorageResult(
+                ManagerAccounting.TransactionId, result.Character, result));
         }
 
         public static StorageBatchResult ReadStorageResult(
             string settingsDir,
             string character)
         {
-            return ReadJson<StorageBatchResult>(
-                GetStorageResultPath(settingsDir, character));
+            return ManagerMemory.Current.ReadStorageResult(ManagerAccounting.TransactionId, character);
         }
+
+        public static void DeleteDispatchCommand(string settingsDir, string character) =>
+            ManagerAccounting.Transaction("Clear dispatch command", () => ManagerMemory.Current.ChangeDispatchCommand(ManagerAccounting.TransactionId, character, null));
+        public static void DeleteStorageResult(string settingsDir, string character) =>
+            ManagerAccounting.Transaction("Clear storage result", () => ManagerMemory.Current.ChangeStorageResult(ManagerAccounting.TransactionId, character, null));
 
         public static void DeleteIfExists(string path)
         {
@@ -811,18 +649,8 @@ namespace CityBankers.Shared
                 record.Event, record, CityDwellers.Shared.IncidentJournal.IsProblem(record.Event),
                 new[] { record.BatchId });
 
-            WithMutex(LedgerMutexName, delegate
-            {
-                string directory = GetLedgerDirectory(settingsDir);
-                string path = Path.Combine(
-                    directory,
-                    "citybankers-" +
-                    record.Utc.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) +
-                    ".jsonl");
-                string line = JsonConvert.SerializeObject(record, Formatting.None) +
-                    Environment.NewLine;
-                File.AppendAllText(path, line, new UTF8Encoding(false));
-            });
+            ManagerAccounting.Transaction("Transaction history", () =>
+                ManagerMemory.Current.RecordTransaction(ManagerAccounting.TransactionId, record));
         }
 
         public static void AppendActivity(
@@ -853,8 +681,8 @@ namespace CityBankers.Shared
             return ReadJsonStrict<T>(path);
         }
 
-        // SQL reads return a committed document. An absent key is distinct from
-        // backend failure: the mandatory backend terminates the host on failure.
+        // Native files are reserved for configuration and explicit diagnostics.
+        // Business state is read through the typed Manager methods above.
         public static string ReadTextShared(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("Path is required.", "path");
@@ -922,7 +750,7 @@ namespace CityBankers.Shared
 
         private static void WithMutex(string name, Action action)
         {
-            CityDwellers.Shared.SqlStore.WithLock(name, action);
+            CityDwellers.Shared.ManagerAccounting.Transaction(name, action);
         }
 
         private static string SafeFileToken(string value)

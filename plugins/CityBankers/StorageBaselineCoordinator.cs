@@ -1,5 +1,5 @@
-using File = CityDwellers.Shared.SqlFile;
-using Directory = CityDwellers.Shared.SqlDirectory;
+using File = CityDwellers.Shared.DiskFiles;
+using Directory = System.IO.Directory;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -213,7 +213,7 @@ namespace CityBankers
 
             // Preserve the exact cutover run forever, then replace the stable latest pointer.
             // The latest file is only touched after aggregate validation succeeds.
-            CityDwellers.Shared.SqlStore.WithLock("CityBankers.RuntimeState.v1", () =>
+            CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.RuntimeState.v1", () =>
             {
                 WriteNewFileAtomically(archivePath, json);
                 ReplaceFileAtomically(latestPath, File.ReadAllText(archivePath));
