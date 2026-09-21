@@ -3070,3 +3070,23 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Validation was source-only: focused diff/call-path review, explicit wake/fallback
   review and changed-file delimiter checks. No assistant build, test suite, live
   SQL or AO run; owner rebuilds and measures idle CPU/live behavior.
+
+## Session 212 — Git build identity root detection
+
+- Fixed `build/Write-BuildIdentity.ps1` so repository-root validation no longer
+  compares `git rev-parse --show-toplevel` to the MSBuild source path as text.
+  Windows junctions, subst drives and equivalent path aliases can name the same
+  worktree differently and caused valid builds to fall back to a `source-...`
+  fingerprint.
+- Root proof now uses `git -C <root> rev-parse --show-prefix`. An empty prefix is
+  Git's own indication that the supplied source directory is the worktree root.
+  A non-empty prefix still rejects accidentally stamping an enclosing parent
+  repository's commit, so the original safety boundary is preserved.
+- The reproducible `source-...` fallback remains unchanged for real source
+  exports/non-Git builds.
+- Runtime update-check behavior was not changed. After an ordinary Git checkout
+  rebuild, the generated assembly identity should contain the actual HEAD SHA and
+  the runtime checker can compare it directly with published master.
+- Validation was source-only; owner rebuilds. Expected build output includes
+  `Build revision obtained from ...git.exe` and `City Dwellers build: <SHA>`
+  instead of the source-fingerprint warning.
