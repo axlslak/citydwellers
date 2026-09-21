@@ -678,19 +678,20 @@ namespace CityManager
                 TrySaveAltsLocked();
                 PruneAndCanonicalizeAltQueueLocked();
 
-                // Online(N) counts main groups, not character rows. Page receipt
-                // alone cannot authorize replacing presence or caching mappings.
+                // Online(N) counts main groups, not character rows. Partial pages
+                // may add positive mappings, but only a valid complete snapshot
+                // may replace the current online-presence set.
                 bool validSnapshot = mainCount == declaredCount &&
                     _onlineSnapshotResponse.Groups.Values.All(names => names.Count > 0) &&
                     (declaredCount != 0 || pageCount == 1);
                 if (complete && !validSnapshot)
                 {
                     _onlineSnapshotResponse = null;
-                    Logger.Warning($"ALTS ONLINE <- {_altsBotName} rejected: " +
+                    Logger.Warning($"ALTS ONLINE <- {_altsBotName} rejected as a complete snapshot: " +
                         $"declared mains={declaredCount}, parsed mains={mainCount}, online={onlineCount}, " +
-                        $"pages={receivedPages}/{pageCount}; org presence and mappings preserved.");
+                        $"pages={receivedPages}/{pageCount}; prior presence preserved, positive mappings retained.");
                     DevTrace($"ALTS ONLINE <- {_altsBotName}: incomplete parsed groups " +
-                        $"({mainCount}/{declaredCount}); org presence and mappings preserved.");
+                        $"({mainCount}/{declaredCount}); prior presence preserved.");
                     return true;
                 }
 
@@ -887,7 +888,7 @@ namespace CityManager
             DevTrace(
                 $"ALTS PASSIVE <- {_altsBotName} main={main} " +
                 $"pages={receivedPages}/{pageCount} unique={accumulated} " +
-                $"complete={complete}; cache saved.");
+                $"complete={complete}; Manager alt state updated.");
         }
 
         private void ExpirePassiveAltResponses(DateTime now)
