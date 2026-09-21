@@ -68,6 +68,8 @@ namespace CityDwellers.Host
                 RuntimeLog.Write("Importing legacy business records and settings once.");
                 state = importer.ReadBusiness();
                 state.Alts = ReadLegacyAlts() ?? new AltState();
+                RuntimeLog.Write("Legacy alt state prepared; groups=" +
+                    (state.Alts.Groups?.Count ?? 0) + ".");
                 RuntimeLog.Write("Legacy records read; committing relational business data.");
                 _tables.Commit(_connection, new AccountingState { Reserve = null, Alts = null }, state, transaction =>
                 {
@@ -80,6 +82,8 @@ namespace CityDwellers.Host
                 _tables.Create(_connection);
                 state = _tables.Load(_connection);
                 state.Alts = ReadLegacyAlts() ?? new AltState();
+                RuntimeLog.Write("Legacy alt state prepared; groups=" +
+                    (state.Alts.Groups?.Count ?? 0) + ".");
                 _tables.Commit(_connection, state, state, transaction =>
                 {
                     using (var command = new MySqlCommand("UPDATE cd_storage_version SET version=5 WHERE version=4", _connection, transaction)) command.ExecuteNonQuery();
