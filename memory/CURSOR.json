@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 212,
+  "current_session": 213,
   "last_completed_session": 212,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-212-build-identity-root",
-  "checkpoint_commit": "e5c550b726380fa7af8753201e9763e185d6cc23",
-  "task": "Completed: Git build identity repository-root detection fix",
-  "resume_instruction": "Session212 replaces textual --show-toplevel path equality with Git --show-prefix root proof. This handles Windows junction/subst/path aliases while still rejecting enclosing parent repositories. Source fingerprint fallback and runtime update checker are unchanged. Owner rebuilds and verifies actual HEAD SHA is embedded.",
-  "base_commit": "d2e0d63129c7ec2f12e400ab042b509b88fc4b6d"
+  "transaction": "session-213-unsafe-binding-redirect",
+  "checkpoint_commit": "7acdd8dfabdc04e3a3000f5e1effa8371c6ea5e0",
+  "task": "Update stale Unsafe binding redirect",
+  "resume_instruction": "Update only plugins/CityManager/app.config binding redirect to assembly version 6.0.3.0, matching resolved System.Runtime.CompilerServices.Unsafe 6.1.2. Owner rebuilds.",
+  "base_commit": "7acdd8dfabdc04e3a3000f5e1effa8371c6ea5e0"
 }
