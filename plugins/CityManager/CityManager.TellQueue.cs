@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Diagnostics;
+using System.Threading.Tasks;
 
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
@@ -141,6 +143,7 @@ namespace CityManager
 
             if (TellQueue.TryAssign(_dataDir, job, sender, now))
             {
+                WakeBankerActivity(sender);
                 _tellQueueLastSender = sender;
                 Logger.Information(
                     "TELL QUEUE assigned " + ShortTellId(job.Id) + " -> " +
@@ -276,6 +279,32 @@ namespace CityManager
                 recipientId,
                 text,
                 requiredSender);
+        }
+
+        private void WakeBankerActivity(string character)
+        {
+            if (string.IsNullOrWhiteSpace(character))
+                return;
+            WakeBankerActivityAsync(character);
+        }
+
+        private async Task WakeBankerActivityAsync(string character)
+        {
+            try
+            {
+                string pipe = "CityDwellers.Bankers." + Process.GetCurrentProcess().Id + "." +
+                    character.ToLowerInvariant();
+                await LocalIpc.RequestLineAsync(
+                    pipe,
+                    "{\"Kind\":\"wake\"}",
+                    250,
+                    750).ConfigureAwait(false);
+            }
+            catch
+            {
+                // Not every tell sender is a banker (Manager/Buffer are valid senders).
+                // Banker vegetative polling remains the fallback if a wake is missed.
+            }
         }
 
         private string SelectNextTellSender(List<TellSenderHeartbeat> available)
