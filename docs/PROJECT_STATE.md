@@ -3220,3 +3220,32 @@ and runs live validation. CRU diagnostic state remains unchanged.
   an item still exists is settled by a later physical inventory observation, and
   must be attributed to that observation rather than to the timeout.
 - Validation was source review only, as above.
+
+## Session 220 — atomic verified-storage ledger location
+
+- `[VERIFIED-LIVE]` A worker completed a storage batch with verified stored=1/1,
+  then immediately reported a stable loose-inventory mismatch for the item that
+  had just been moved into its bag and relogged. The physical/baseline result and
+  the detector contradicted each other.
+- `[VERIFIED]` Root cause: `RecordPlacement` committed Storage and CurrentStock,
+  while the active ledger still described the occurrence as loose inventory until
+  Central's later `SyncStoredLocations` reconciliation tick. The worker detector
+  reads the ledger directly, so it could observe that temporary split. Its prior
+  mismatch signature could also survive a legitimate custody mutation and count
+  as the first half of a later "stable" mismatch.
+- `[IMPLEMENTED]` Verified storage now runs inside one Manager accounting
+  transaction. The worker validates the exact attempt-bound Central sender receipt,
+  including its ledger occurrence IDs and immutable batch manifest; storage,
+  current stock and the selected active-ledger occurrence are then committed
+  together. This supports both valid event orders: Central may mark the selected
+  occurrence as worker inventory first, or worker storage may become physically
+  verified first. Central's existing dispatch completion logic already refuses to
+  move an occurrence backward once the worker owns it.
+- `[IMPLEMENTED]` After the atomic commit succeeds, the worker clears the remembered
+  loose-inventory mismatch and restarts its five-second observation window. Evidence
+  gathered before a legitimate custody mutation cannot confirm evidence after it.
+- `[UNCHANGED]` `SyncStoredLocations` remains as reconciliation/backstop; audit,
+  relog and physical-recovery policy are unchanged. Session 219 hold behavior was
+  not modified.
+- Validation was source/diff/call-path review, attempt/receipt ordering review and
+  delimiter balance. No assistant build or live AO run; owner rebuilds/live-tests.

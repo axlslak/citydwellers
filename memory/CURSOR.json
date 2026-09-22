@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 220,
-  "last_completed_session": 219,
-  "status": "in_progress",
+  "last_completed_session": 220,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-220-atomic-storage-ledger-location",
-  "checkpoint_commit": "9cec32b",
-  "task": "Fix false loose-inventory banker fault after a verified storage placement",
-  "resume_instruction": "Journal BEGIN is seq498. Live evidence showed a worker report verified stored=1/1, then about 110ms later DetectLocalInventoryDifference expected the same item loose because RecordPlacement had updated storage/stock but ledger location was still inventory. Make verified placement update storage, stock and matching active-ledger occurrence in the same Manager accounting transaction; invalidate stale loose-mismatch confirmation across legitimate custody mutations. Source review only; owner builds/live-tests. If interrupted, inspect tree against 9cec32b.",
+  "checkpoint_commit": "3eee5a6",
+  "task": "Completed: verified storage commits storage/stock and attempt-bound ledger location atomically; stale loose-mismatch evidence is invalidated",
+  "resume_instruction": "Session220 is published. Owner rebuilds/live-tests. Expected normal worker storage no longer produces an immediate loose-inventory mismatch/relog for the item just verified inside a bag. If a mismatch recurs, use the new expected/observed evidence to determine whether it is a genuine physical difference rather than this stale ledger window. No audit/relog policy changed. Next journal seq500.",
   "base_commit": "9cec32b"
 }

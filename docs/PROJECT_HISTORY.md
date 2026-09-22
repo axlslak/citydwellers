@@ -3327,3 +3327,25 @@ and the claim belongs to that observation. `hold clear` gained a `deleted`
 suffix for exactly this reason — the bot cannot see what the administrator did
 by hand, so moving the accounting record requires them to say so, and the ledger
 records that it was their word and not an observation.
+
+## Session 220 — verified storage and ledger location become one commit
+
+A live worker stored an item successfully, reported the batch complete, and then
+faulted because the loose-inventory detector still expected that same item in
+normal inventory. The contradiction was internal: verified placement updated the
+storage baseline and current stock immediately, but the active ledger's location
+was corrected later by Central's periodic reconciliation.
+
+The storage completion path now opens one Manager accounting transaction, verifies
+the exact Central sender receipt for that dispatch attempt, and uses its bound
+ledger occurrence IDs. Within that transaction the physical placement is persisted
+to storage/current stock and the corresponding active-ledger occurrence moves to
+the verified bag slot. This deliberately handles the legal ordering where worker
+storage completes before Central's Finished callback: the sender receipt already
+identifies the exact occurrences, and the later Central callback is already
+designed not to move a worker-held occurrence back to loose inventory.
+
+The worker also discards any remembered loose-inventory mismatch after the verified
+custody mutation and starts a fresh observation interval. A pre-mutation mismatch
+can no longer be reused as confirmation of a post-mutation one. The periodic
+ledger synchronizer remains a backstop rather than the normal placement commit path.
