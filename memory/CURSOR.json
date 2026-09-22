@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 227,
-  "last_completed_session": 226,
-  "status": "in_progress",
+  "last_completed_session": 227,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-227-thanks-memorial-window",
-  "checkpoint_commit": "9fecda9",
-  "task": "In progress: turn #thanks into a memorial window with clickable Bobsan whois links",
-  "resume_instruction": "Session 227 owns the writer slot. Replace the one-line #thanks reply with a small AO info-window/blob. Keep exactly this order: Reapermann, Fuze, Snorre, Rampage007. Display Reapermann but query Bobsan !whois Reaperman; the others query their displayed names. Do not add biographies, tiers, or extra people. Next journal seq513.",
+  "checkpoint_commit": "5c30c31",
+  "task": "Completed: #thanks now opens a memorial window with clickable Bobsan whois links",
+  "resume_instruction": "Session 227 sealed. #thanks opens a blob titled Those that have fallen with exactly four rows in order: Reapermann, Fuze, Snorre, Rampage007. Reapermann displays with that spelling but queries Bobsan !whois Reaperman; all other names query themselves. No biographies, tiers, or extra names. Owner builds/live-tests. Next journal seq514.",
   "base_commit": "9fecda9"
 }
