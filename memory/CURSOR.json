@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 228,
-  "last_completed_session": 227,
-  "status": "in_progress",
+  "last_completed_session": 228,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-228-protect-reapermann-spelling",
-  "checkpoint_commit": "9d8f623",
-  "task": "In progress: make Reapermann's memorial spelling an explicit protected display value",
-  "resume_instruction": "Session 228 owns the writer slot. In #thanks, keep the visible memorial name exactly Reapermann (two Ns) and keep Bobsan lookup Reaperman (one N) as a separate lookup-only value. Do not normalize or derive the display spelling from the lookup name. Next journal seq515.",
+  "checkpoint_commit": "75b0bea",
+  "task": "Completed: Reapermann's memorial spelling is explicitly protected from the Bobsan lookup identity",
+  "resume_instruction": "Session 228 sealed. #thanks displays Reapermann exactly (two Ns). The Bobsan lookup identity Reaperman (one N) is held in a separate lookup-only constant, and source explicitly forbids deriving/normalizing the memorial display spelling from it. Owner builds/live-tests. Next journal seq516.",
   "base_commit": "9d8f623"
 }
