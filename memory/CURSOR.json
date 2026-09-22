@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 229,
+  "current_session": 230,
   "last_completed_session": 229,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-229-correct-reapermann-identity",
-  "checkpoint_commit": "a364009",
-  "task": "Completed: #thanks preserves Reapermann for display and Reaperman for Bobsan whois",
-  "resume_instruction": "Session 229 sealed. #thanks displays Reapermann (two Ns) and sends Bobsan !whois Reaperman (one N). The distinction is explicit in source as MemorialReapermannDisplayName and BobsanReapermanWhoisName. seq517 supersedes the incorrect seq516 claim that both values should use two Ns. Owner builds/live-tests. Next journal seq518.",
-  "base_commit": "52f1816"
+  "transaction": "session-230-reapermann-two-ns-everywhere",
+  "checkpoint_commit": "706b356",
+  "task": "In progress: make #thanks use Reapermann with two Ns in both display and sent Bobsan command",
+  "resume_instruction": "Session 230 owns the writer slot. Remove the one-N Reaperman string from #thanks. The memorial name shown and the Bobsan command sent by the clickable link must both be exactly Reapermann. Supersede seq517. Next journal seq519.",
+  "base_commit": "706b356"
 }
