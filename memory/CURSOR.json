@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 227,
+  "current_session": 228,
   "last_completed_session": 227,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-227-thanks-memorial-window",
-  "checkpoint_commit": "5c30c31",
-  "task": "Completed: #thanks now opens a memorial window with clickable Bobsan whois links",
-  "resume_instruction": "Session 227 sealed. #thanks opens a blob titled Those that have fallen with exactly four rows in order: Reapermann, Fuze, Snorre, Rampage007. Reapermann displays with that spelling but queries Bobsan !whois Reaperman; all other names query themselves. No biographies, tiers, or extra names. Owner builds/live-tests. Next journal seq514.",
-  "base_commit": "9fecda9"
+  "transaction": "session-228-protect-reapermann-spelling",
+  "checkpoint_commit": "9d8f623",
+  "task": "In progress: make Reapermann's memorial spelling an explicit protected display value",
+  "resume_instruction": "Session 228 owns the writer slot. In #thanks, keep the visible memorial name exactly Reapermann (two Ns) and keep Bobsan lookup Reaperman (one N) as a separate lookup-only value. Do not normalize or derive the display spelling from the lookup name. Next journal seq515.",
+  "base_commit": "9d8f623"
 }
