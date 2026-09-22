@@ -286,7 +286,7 @@ namespace CityBankers.Shared
 
         public const int PickupSeconds = 180;
         public const int MaximumOrders = 4;
-        public const int MaximumOrderItems = 3;
+        public const int MaximumOrderItems = ServicePolicy.MaxTradeItems;
         public const string FileName = "withdrawal.json";
         private const string MutexName = "CityBankers.Withdrawal.v1";
 
@@ -393,7 +393,7 @@ namespace CityBankers.Shared
                 else if (own.Any(row => HasStatus(row, "pickup-trading")))
                     reason = "Finish your open pickup trade before adding another item.";
                 else if (own.Count >= MaximumOrderItems)
-                    reason = "Your order already has three items. Collect the ready items first.";
+                    reason = "Your order already has ten items. Collect the ready items first.";
                 else if (own.Count == 0 && active.Select(row => row.OrderId).Distinct().Count() >= MaximumOrders)
                     reason = "All four pickup orders are occupied. Please try again after a pickup.";
                 if (reason != null) return false;

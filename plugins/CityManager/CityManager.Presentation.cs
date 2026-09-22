@@ -206,7 +206,7 @@ namespace CityManager
                     body = CommandHelp(
                         target,
                         "get [AO item ID]",
-                        "Add an available item to your order: up to three items per member and four orders across the bank.",
+                        "Add an available item to your order: up to ten items per member and four orders across the bank.",
                         "Each addition and arrival refreshes your three-minute pickup clock. Wait for the ready tell, then trade with Kbcentral and confirm normally to collect ready items. Known alts share your order. Central may ask you to retry during an internal transfer. Donations can continue while orders await pickup.",
                         "Athen Paladins member",
                         "Alias: withdraw. Reserved copies disappear from available stock. Confirm the player trade dialog normally; delivery is recorded only after AO Finished and inventory verification. Uncollected items return to storage.");

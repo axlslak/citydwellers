@@ -4,7 +4,7 @@ Status: source review and fixes completed. Compilation and live AO/load testing 
 
 ## Capacity and ownership
 
-Central has one physical trade window. Existing admission allows four active pickup orders, each with up to three items; further orders receive a capacity response. These are orders, not simultaneous trade windows. Increasing this limit without changing staging capacity would be a separate change.
+Central has one physical trade window. Existing admission allows four active pickup orders, each with up to ten items; further orders receive a capacity response. These are orders, not simultaneous trade windows. Ordinary internal dispatch also uses the full ten-item trade window.
 
 Withdrawal admission already uses a named mutex across domains, checks current reservations and live storage again, groups orders by canonical recipient, and prevents additions to an open pickup trade. Saves reject stale revisions. Pickup claims are made against current persisted state under that same lock. Only the order's allowed collectors can claim it; offering items in a pickup trade is declined. Receipt completion requires matching inventory evidence before recording delivery.
 

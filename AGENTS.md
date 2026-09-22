@@ -140,7 +140,7 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
 ## Public multiuser service — session 191
 
 - Preserve bounded public work, per-member spam budgets, receipt ownership and atomic queued/claimed/cancelled IPC decisions. Multiple users must not overwrite each other's recipient, order, donation or pending receipt.
-- Four active pickup orders (three items each) are staging capacity, not simultaneous Central trades. One Central trade window remains. Do not claim ten-user throughput without owner live evidence.
+- Four active pickup orders (ten items each) are staging capacity, not simultaneous Central trades. One Central trade window remains. Do not claim ten-user throughput without owner live evidence.
 - One buffer cast failure must not clear everybody's queue. Keep duplicate/capacity checks atomic and preserve the no-automatic-audit policy under spam and concurrency.
 - See docs/MULTIUSER_REVIEW.md for limits and repeatable owner live scenarios. Severe tell backlog pauses fresh public input rather than growing an unbounded rejection backlog; authenticated Manager administrative controls remain reachable.
 
