@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 219,
+  "current_session": 220,
   "last_completed_session": 219,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-219-hold-retry-durability-and-correction",
-  "checkpoint_commit": "75efaab",
-  "task": "Completed: hold retry durability, hold clear accounting semantics, session 218 corrections",
-  "resume_instruction": "Central answers holds / hold retry <n|id> / hold clear <n|id> [deleted]. Source review only; the owner rebuilds, then runs 'holds' on Kbcentral and 'hold retry 1'. seq495 and seq496 supersede two claims in seq493 - read them before trusting the session 218 record. Three OPEN items in seq497 plus three earlier from seq491. Next journal seq498.",
-  "base_commit": "c770182"
+  "transaction": "session-220-atomic-storage-ledger-location",
+  "checkpoint_commit": "9cec32b",
+  "task": "Fix false loose-inventory banker fault after a verified storage placement",
+  "resume_instruction": "Journal BEGIN is seq498. Live evidence showed a worker report verified stored=1/1, then about 110ms later DetectLocalInventoryDifference expected the same item loose because RecordPlacement had updated storage/stock but ledger location was still inventory. Make verified placement update storage, stock and matching active-ledger occurrence in the same Manager accounting transaction; invalidate stale loose-mismatch confirmation across legitimate custody mutations. Source review only; owner builds/live-tests. If interrupted, inspect tree against 9cec32b.",
+  "base_commit": "9cec32b"
 }
