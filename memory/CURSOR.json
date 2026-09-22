@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 221,
+  "current_session": 222,
   "last_completed_session": 221,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-221-hold-accounting-atomicity",
-  "checkpoint_commit": "00a53aa",
-  "task": "Completed: hold clear lost-item bug, clear-versus-retry race, atomic ledger/hold commits",
-  "resume_instruction": "hold clear deleted is now safe to use. Central answers holds / hold retry <n|id> / hold clear <n|id> [deleted]. Source review only; the owner rebuilds and live-verifies. Forward rule from seq501: public journal records carry sanitized intent/outcome/resume only. Two OPEN items in seq501 plus three from seq491. Next journal seq502.",
-  "base_commit": "c517afa"
+  "transaction": "session-222-retained-item-evidence-wording",
+  "checkpoint_commit": "2977255",
+  "task": "Make delete-failure diagnostics state what the evidence supports instead of asserting physical presence",
+  "resume_instruction": "Journal BEGIN is seq502. Work is in plugins/CityBankers/BankingServiceAgent.cs only, in FailDonationCleanup and its three call sites. No accounting or custody behaviour changes. If this cursor is in_progress with no seq503 terminal record, inspect the tree against 2977255.",
+  "base_commit": "2977255"
 }
