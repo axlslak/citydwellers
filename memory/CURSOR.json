@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 228,
+  "current_session": 229,
   "last_completed_session": 228,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-228-protect-reapermann-spelling",
-  "checkpoint_commit": "75b0bea",
-  "task": "Completed: Reapermann's memorial spelling is explicitly protected from the Bobsan lookup identity",
-  "resume_instruction": "Session 228 sealed. #thanks displays Reapermann exactly (two Ns). The Bobsan lookup identity Reaperman (one N) is held in a separate lookup-only constant, and source explicitly forbids deriving/normalizing the memorial display spelling from it. Owner builds/live-tests. Next journal seq516.",
-  "base_commit": "9d8f623"
+  "transaction": "session-229-correct-reapermann-identity",
+  "checkpoint_commit": "52f1816",
+  "task": "In progress: correct #thanks so Reapermann is used for both display and Bobsan whois",
+  "resume_instruction": "Session 229 owns the writer slot. Remove the one-N Reaperman value from #thanks. The memorial display and Bobsan !whois target must both be exactly Reapermann (two Ns). Supersede the earlier journal claim that a one-N lookup was intentional. Next journal seq517.",
+  "base_commit": "52f1816"
 }
