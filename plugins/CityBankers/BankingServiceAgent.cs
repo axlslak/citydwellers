@@ -606,14 +606,25 @@ namespace CityBankers
         // Keeps the durable hold in step with physical progress, one verified
         // deletion at a time, so a crash leaves behind exactly the items that
         // are still loose on Central.
-        private void UpdateRetryHoldItems(string batchId, List<TransferItemState> remaining)
+        // Called inside the same accounting transaction as the ledger archive, so
+        // the hold and the ledger can never disagree about one verified deletion.
+        // The last verified item removes the hold here rather than on a later
+        // tick: a zero-item "retrying" hold is never persisted.
+        private void CommitRetryHoldProgress(string batchId, List<TransferItemState> remaining)
         {
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             DispatchBatchState batch = FindQueuedBatch(queue, batchId);
             if (batch == null)
                 return;
-            batch.Items = new List<TransferItemState>(remaining);
-            batch.UpdatedUtc = DateTime.UtcNow;
+            if (remaining.Count == 0)
+            {
+                queue.Batches.Remove(batch);
+            }
+            else
+            {
+                batch.Items = new List<TransferItemState>(remaining);
+                batch.UpdatedUtc = DateTime.UtcNow;
+            }
             RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
         }
 
@@ -742,48 +753,67 @@ namespace CityBankers
             string senderName,
             bool itemsArePhysicallyGone)
         {
+            // A "retrying" hold whose deletions are still running in this process
+            // must not be cleared underneath them: the durable record would go
+            // while _donationCleanup kept issuing Item.Delete(). After a crash or
+            // relog the cleanup is gone and the same hold is clearable again.
+            if (_donationCleanup != null &&
+                string.Equals(_donationCleanup.SourceBatchId, batch.BatchId, StringComparison.Ordinal))
+            {
+                TellKavem(
+                    batch.BatchId + " is being retried right now, so clearing it would " +
+                    "leave the deletions running with no record. Wait for the retry to " +
+                    "finish or fail, then clear it.");
+                return;
+            }
+
             // Removed, not marked "cancelled". HasQueuedDispatchWork counts every
             // batch still in the list regardless of status, so a status change
             // would leave the trade gate shut and look like the command failed.
             string previousError = batch.LastError ?? "none";
             List<TransferItemState> items = batch.Items ?? new List<TransferItemState>();
             queue.Batches.Remove(batch);
-            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
 
-            // The command never touches an item. It moves the accounting record
-            // only on the administrator's word that they destroyed them, and the
-            // ledger says whose word it was.
-            if (itemsArePhysicallyGone)
-            {
-                foreach (TransferItemState item in items)
-                    ActiveLedgerStore.ArchiveActiveItem(_settingsDir, batch.TransactionId,
-                        item.AoId, DateTime.UtcNow, "deleted_overcap_by_administrator",
-                        null, Client.CharacterName);
-            }
-
-            RuntimeStateStore.AppendLedger(
-                _settingsDir,
-                new LedgerRecord
+            // One commit: the queue removal, the archives and the record of who
+            // authorised them. The archive reason stays "deleted_overcap" because
+            // that is what SaveLedger recognises as an intentional removal; a new
+            // reason string archived the entry and also filed it as a lost item.
+            // The administrator's name is the recipient, which is the field for it.
+            CityDwellers.Shared.ManagerAccounting.Transaction(
+                "CityBankers administrator hold release", () =>
                 {
-                    Utc = DateTime.UtcNow,
-                    Event = "hold_cleared_by_administrator",
-                    TransactionId = batch.TransactionId,
-                    Actor = senderName,
-                    Role = "central",
-                    Character = Client.CharacterName,
-                    Source = batch.Role,
-                    Destination = itemsArePhysicallyGone ? "deleted-by-administrator" : "released",
-                    Message = "Administrator " + (senderName ?? "?") +
-                        " released batch " + batch.BatchId +
-                        " (previous error: " + previousError + "). This command moved and " +
-                        "destroyed nothing itself. " + (itemsArePhysicallyGone
-                            ? "The administrator stated the items below were destroyed by hand, " +
-                              "so they were archived out of the active ledger on that statement " +
-                              "alone; the bot did not observe it."
-                            : "The items below remain loose on Central and remain active in the " +
-                              "ledger; reconciling them is the administrator's."),
-                    Items = items
-                        .Select(item => ToLedgerItem(item, "central", null, null, null)).ToList()
+                    RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                    if (itemsArePhysicallyGone)
+                    {
+                        foreach (TransferItemState item in items)
+                            ActiveLedgerStore.ArchiveActiveItem(_settingsDir, batch.TransactionId,
+                                item.AoId, DateTime.UtcNow, "deleted_overcap",
+                                "administrator:" + (senderName ?? "?"), Client.CharacterName);
+                    }
+                    RuntimeStateStore.AppendLedger(
+                        _settingsDir,
+                        new LedgerRecord
+                        {
+                            Utc = DateTime.UtcNow,
+                            Event = "hold_cleared_by_administrator",
+                            TransactionId = batch.TransactionId,
+                            Actor = senderName,
+                            Role = "central",
+                            Character = Client.CharacterName,
+                            Source = batch.Role,
+                            Destination = itemsArePhysicallyGone ? "deleted-by-administrator" : "released",
+                            Message = "Administrator " + (senderName ?? "?") +
+                                " released batch " + batch.BatchId +
+                                " (previous error: " + previousError + "). This command moved and " +
+                                "destroyed nothing itself. " + (itemsArePhysicallyGone
+                                    ? "The administrator stated the items below were destroyed by hand, " +
+                                      "so they were archived out of the active ledger on that statement " +
+                                      "alone; the bot did not observe it."
+                                    : "The items below remain loose on Central and remain active in the " +
+                                      "ledger; reconciling them is the administrator's."),
+                            Items = items
+                                .Select(item => ToLedgerItem(item, "central", null, null, null)).ToList()
+                        });
                 });
             TellKavem(
                 "Released " + batch.BatchId + ", " + items.Count + " item(s): " +
@@ -1439,37 +1469,59 @@ namespace CityBankers
                 if (remaining.Count < cleanup.PendingBeforeCount)
                 {
                     TransferItemState deleted = cleanup.PendingDelete;
-                    ActiveLedgerStore.ArchiveActiveItem(_settingsDir, cleanup.TransactionId,
-                        deleted.AoId, DateTime.UtcNow, "deleted_overcap", null, Client.CharacterName);
+                    // AO has confirmed the physical removal. Publish the ledger
+                    // archive, the durable hold's new remainder and the deletion
+                    // record in one accounting commit: a crash between them would
+                    // otherwise leave the hold claiming an item that is already
+                    // archived and gone.
+                    List<TransferItemState> stillLoose =
+                        cleanup.DeleteItems.Skip(cleanup.DeleteIndex + 1).ToList();
+                    try
+                    {
+                        CityDwellers.Shared.ManagerAccounting.Transaction(
+                            "CityBankers verified over-cap deletion", () =>
+                            {
+                                ActiveLedgerStore.ArchiveActiveItem(_settingsDir,
+                                    cleanup.TransactionId, deleted.AoId, DateTime.UtcNow,
+                                    "deleted_overcap", null, Client.CharacterName);
+                                if (cleanup.SourceBatchId != null)
+                                    CommitRetryHoldProgress(cleanup.SourceBatchId, stillLoose);
+                                RuntimeStateStore.AppendLedger(
+                                    _settingsDir,
+                                    new LedgerRecord
+                                    {
+                                        Utc = DateTime.UtcNow,
+                                        Event = "donation_overcap_deleted",
+                                        TransactionId = cleanup.TransactionId,
+                                        Actor = Client.CharacterName,
+                                        Role = "central",
+                                        Character = Client.CharacterName,
+                                        Source = "normal-inventory",
+                                        Destination = "deleted",
+                                        Message = "AO inventory state confirmed one excess copy disappeared after Item.Delete().",
+                                        Items = new List<LedgerItem>
+                                        {
+                                            ToLedgerItem(deleted, "central", null, null, null)
+                                        }
+                                    });
+                            });
+                    }
+                    catch (Exception ex)
+                    {
+                        // The item is physically gone but nothing committed. Fail
+                        // with the item still counted, which over-claims rather
+                        // than losing it silently, and say why.
+                        FailDonationCleanup(
+                            "AO confirmed deletion of " + deleted.Name + " QL" + deleted.Ql +
+                            " but the atomic ledger/hold commit failed, so this hold may still " +
+                            "name an item that is already gone: " + ex.Message);
+                        return;
+                    }
                     cleanup.DeletedCount++;
                     cleanup.DeleteIndex++;
                     cleanup.PendingDelete = null;
                     cleanup.PendingBeforeCount = 0;
                     cleanup.DeleteDeadlineUtc = DateTime.MinValue;
-                    // Narrow the durable hold before anything else, so a crash on
-                    // the next tick leaves exactly the items still loose here.
-                    if (cleanup.SourceBatchId != null)
-                        UpdateRetryHoldItems(
-                            cleanup.SourceBatchId,
-                            cleanup.DeleteItems.Skip(cleanup.DeleteIndex).ToList());
-                    RuntimeStateStore.AppendLedger(
-                        _settingsDir,
-                        new LedgerRecord
-                        {
-                            Utc = DateTime.UtcNow,
-                            Event = "donation_overcap_deleted",
-                            TransactionId = cleanup.TransactionId,
-                            Actor = Client.CharacterName,
-                            Role = "central",
-                            Character = Client.CharacterName,
-                            Source = "normal-inventory",
-                            Destination = "deleted",
-                            Message = "AO inventory state confirmed one excess copy disappeared after Item.Delete().",
-                            Items = new List<LedgerItem>
-                            {
-                                ToLedgerItem(deleted, "central", null, null, null)
-                            }
-                        });
                     RuntimeStateStore.AppendActivity(
                         _settingsDir,
                         Client.CharacterName,
@@ -1543,6 +1595,24 @@ namespace CityBankers
             List<TransferItemState> remainingOverflow = cleanup.DeleteItems
                 .Skip(cleanup.DeleteIndex)
                 .ToList();
+            // The hold that records the failure and the ledger entry that explains
+            // it publish together. A half-written failure is worse than none: the
+            // queue would block without the record saying why.
+            CityDwellers.Shared.ManagerAccounting.Transaction(
+                "CityBankers over-cap delete failure", () =>
+                FailDonationCleanupState(cleanup, error, remainingOverflow));
+            TellDonationPartner(
+                "DELETE FAILURE: " + error +
+                " The excess item remains on Central and is NOT being reported as deleted. Storeable items from this donation may continue through the queue, but a failed central-delete hold will block new donations until the physical state is reconciled.");
+            _donationDispositionPartnerName = null;
+            _donationCleanup = null;
+        }
+
+        private void FailDonationCleanupState(
+            DonationCleanupState cleanup,
+            string error,
+            List<TransferItemState> remainingOverflow)
+        {
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             AddDonationDispatchBatches(queue, cleanup.TransactionId, cleanup.StoreItems);
             // An administrator retry already has a durable hold in the queue.
@@ -1597,11 +1667,6 @@ namespace CityBankers
                     Items = remainingOverflow.Select(item =>
                         ToLedgerItem(item, "central", null, null, null)).ToList()
                 });
-            TellDonationPartner(
-                "DELETE FAILURE: " + error +
-                " The excess item remains on Central and is NOT being reported as deleted. Storeable items from this donation may continue through the queue, but a failed central-delete hold will block new donations until the physical state is reconciled.");
-            _donationDispositionPartnerName = null;
-            _donationCleanup = null;
         }
 
         private void QueueDonationForDispatch(
