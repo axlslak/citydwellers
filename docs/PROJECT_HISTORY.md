@@ -3268,3 +3268,33 @@ Both findings come from a 112-agent adversarial sweep over six lenses; 21 findin
 - Validation was source/diff/call-path review only. No assistant build, live SQL
   migration, AO run, or automated tests; owner rebuilds and performs the first
   schema-4 -> 5 startup/live verification.
+
+## Session 218 — administrator exit from a failed central-delete hold
+
+A live donation on 2026-09-22 put six `Xan Spirit ... - Beta` QL250 over their
+retention cap. Central was supposed to delete all six in place and dispatch
+nothing. AO did not confirm the first deletion within the 10s verification
+window, so `FailDonationCleanup` parked all six as a `delete-hold-*` batch with
+`Role="central-delete"` and `Status="failed"`.
+
+Nothing in the codebase could ever clear that batch. `"central-delete"` and
+`"delete-hold-"` were write-only strings, `TransferNeverStarted` is never set on
+the hold, and the three post-login reconciliation agents that remove batches all
+return early under `UsesPhysicalRecovery`, which is true in normal operation. The
+hold therefore kept `HasUnresolvedDispatchWork` true and Central refused every
+player trade indefinitely. Session 186 had removed failure-triggered execution
+and said the administrator decides; the administrator had no verb to decide with.
+
+The fix supplies that verb rather than restoring automation. Central's trusted
+tell interface gains `holds`, `hold retry <n>` and `hold clear <n>`. Retry
+re-enters the same verified delete loop for a central-delete hold; clear removes
+the batch from the queue without moving or destroying anything, for use once the
+owner has settled the physical state by hand. Clear removes rather than marks
+`cancelled` because `HasQueuedDispatchWork` counts every batch still in the list.
+
+Re-enabling `TryRecoverFailedDispatch` was considered and rejected: it matches
+this hold and would run a paired dispatch-census against `batch.Character`, which
+for a central-delete hold is Central itself.
+
+Also corrected a cosmetic acceptance-preview miscount that counted copies
+announced as DELETING toward the projected stored total.

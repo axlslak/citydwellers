@@ -490,8 +490,21 @@ namespace CityBankers
                     return;
                 }
 
+                if (command == "holds")
+                {
+                    TellKavem(BuildHoldsMessage());
+                    return;
+                }
+
+                if (command.StartsWith("hold "))
+                {
+                    HandleHoldCommand(message.SenderName, text.Substring(5).Trim());
+                    return;
+                }
+
                 TellKavem(
-                    "CityBankers operator commands: status | queue | bags. " +
+                    "CityBankers operator commands: status | queue | bags | holds | " +
+                    "hold retry <n> | hold clear <n>. " +
                     "Public #stock and #donor commands live on Apcmanager. " +
                     "You are the bootstrap admin; your trades with Central are accepted under the current max-10 policy.");
             }
@@ -561,6 +574,207 @@ namespace CityBankers
                     int free = w.Bags?.Sum(b => Math.Max(0, b.Capacity - (b.Items?.Count ?? 0))) ?? 0;
                     return w.Role + "=" + bags + " bags/" + used + " used/" + free + " free";
                 })) + ".";
+        }
+
+        // A failed batch keeps HasUnresolvedDispatchWork true, which is what
+        // refuses every new player trade. Session 186 removed failure-triggered
+        // execution and left the decision to the administrator; these verbs are
+        // that decision. Nothing here runs on its own.
+        private static List<DispatchBatchState> FailedHolds(DispatchQueueState queue)
+        {
+            return (queue?.Batches ?? new List<DispatchBatchState>())
+                .Where(b => b != null &&
+                    string.Equals(b.Status, "failed", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(b => b.CreatedUtc)
+                .ThenBy(b => b.BatchId, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        private static string Clip(string text, int limit)
+        {
+            if (string.IsNullOrEmpty(text)) return "none";
+            return text.Length <= limit ? text : text.Substring(0, limit - 3) + "...";
+        }
+
+        private static string DescribeHoldItems(DispatchBatchState batch)
+        {
+            List<TransferItemState> items = batch?.Items ?? new List<TransferItemState>();
+            if (items.Count == 0)
+                return "no items";
+            return string.Join(", ", items
+                .GroupBy(i => (i.Name ?? "?") + " QL" + i.Ql, StringComparer.Ordinal)
+                .Select(g => g.Count() > 1 ? g.Key + " x" + g.Count() : g.Key));
+        }
+
+        // Kept to one short tell, like status/queue/bags. The full item list and
+        // the full error are already in the ledger; this only has to be enough to
+        // pick the right hold.
+        private string BuildHoldsMessage()
+        {
+            List<DispatchBatchState> holds =
+                FailedHolds(RuntimeStateStore.LoadDispatchQueue(_settingsDir));
+            if (holds.Count == 0)
+                return "CityBankers holds: none.";
+
+            return "CityBankers holds (" + holds.Count + " blocking donations): " +
+                string.Join("; ", holds.Take(5).Select((batch, index) =>
+                    (index + 1) + ") " + Clip(batch.BatchId, 20) +
+                    " " + (batch.Role ?? "?") +
+                    " " + (batch.Items?.Count ?? 0) + " item(s)" +
+                    " " + Math.Max(0, (int)(DateTime.UtcNow - batch.CreatedUtc).TotalMinutes) + "m" +
+                    " - " + Clip(batch.LastError, 90))) +
+                (holds.Count > 5 ? "; ..." : string.Empty) +
+                ". Use 'hold retry <n>' to re-run a central-delete hold, " +
+                "'hold clear <n>' to stop tracking one you have settled by hand.";
+        }
+
+        private void HandleHoldCommand(string senderName, string argument)
+        {
+            string[] parts = (argument ?? string.Empty)
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length != 2)
+            {
+                TellKavem("Usage: hold retry <n> | hold clear <n>. Use 'holds' for the list.");
+                return;
+            }
+
+            string verb = parts[0].ToLowerInvariant();
+            if (verb != "retry" && verb != "clear")
+            {
+                TellKavem("Unknown hold verb '" + parts[0] + "'. Use retry or clear.");
+                return;
+            }
+
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            List<DispatchBatchState> holds = FailedHolds(queue);
+            if (holds.Count == 0)
+            {
+                TellKavem("CityBankers holds: none. Nothing to " + verb + ".");
+                return;
+            }
+
+            DispatchBatchState target = null;
+            int ordinal;
+            if (int.TryParse(parts[1], out ordinal))
+            {
+                if (ordinal < 1 || ordinal > holds.Count)
+                {
+                    TellKavem("No hold " + ordinal + "; there are " + holds.Count + ". Use 'holds'.");
+                    return;
+                }
+                target = holds[ordinal - 1];
+            }
+            else
+            {
+                List<DispatchBatchState> matches = holds.Where(b =>
+                    b.BatchId != null &&
+                    b.BatchId.StartsWith(parts[1], StringComparison.OrdinalIgnoreCase)).ToList();
+                if (matches.Count != 1)
+                {
+                    TellKavem(matches.Count == 0
+                        ? "No failed hold matches '" + parts[1] + "'. Use 'holds'."
+                        : "'" + parts[1] + "' matches " + matches.Count + " holds; be more specific.");
+                    return;
+                }
+                target = matches[0];
+            }
+
+            if (verb == "clear")
+            {
+                ClearHold(queue, target, senderName);
+                return;
+            }
+
+            RetryDeleteHold(queue, target, senderName);
+        }
+
+        private void ClearHold(DispatchQueueState queue, DispatchBatchState batch, string senderName)
+        {
+            // Removed, not marked "cancelled". HasQueuedDispatchWork counts every
+            // batch still in the list regardless of status, so a status change
+            // would leave the trade gate shut and look like the command failed.
+            string previousError = batch.LastError ?? "none";
+            queue.Batches.Remove(batch);
+            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+            RuntimeStateStore.AppendLedger(
+                _settingsDir,
+                new LedgerRecord
+                {
+                    Utc = DateTime.UtcNow,
+                    Event = "hold_cleared_by_administrator",
+                    TransactionId = batch.TransactionId,
+                    Actor = senderName,
+                    Role = "central",
+                    Character = Client.CharacterName,
+                    Source = batch.Role,
+                    Destination = "released",
+                    Message = "Administrator " + (senderName ?? "?") +
+                        " released failed batch " + batch.BatchId +
+                        " (previous error: " + previousError + "). No item was moved or " +
+                        "destroyed by this command; the bot simply stops tracking the batch, " +
+                        "and the items below remain physical truth on Central.",
+                    Items = (batch.Items ?? new List<TransferItemState>())
+                        .Select(item => ToLedgerItem(item, "central", null, null, null)).ToList()
+                });
+            TellKavem(
+                "Released " + batch.BatchId + ", " + (batch.Items?.Count ?? 0) + " item(s): " +
+                Clip(DescribeHoldItems(batch), 140) +
+                ". Nothing moved or was destroyed; they are still on " +
+                Client.CharacterName + " and still recorded as active.");
+        }
+
+        private void RetryDeleteHold(DispatchQueueState queue, DispatchBatchState batch, string senderName)
+        {
+            if (!string.Equals(batch.Role, "central-delete", StringComparison.OrdinalIgnoreCase))
+            {
+                TellKavem(
+                    "'hold retry' only re-runs a central-delete hold; " + batch.BatchId +
+                    " is role=" + (batch.Role ?? "?") + ". Resolve that one physically and " +
+                    "use 'hold clear' once it is settled.");
+                return;
+            }
+
+            if (_donationCleanup != null || _donationPartnerName != null || Trade.IsTrading ||
+                _activeBatch != null || _stackOperation != null || _receipt != null)
+            {
+                TellKavem("Central is mid-transaction. Retry the hold once the queue is quiet.");
+                return;
+            }
+
+            List<TransferItemState> items = (batch.Items ?? new List<TransferItemState>())
+                .Where(item => item != null).ToList();
+            if (items.Count == 0)
+            {
+                TellKavem(batch.BatchId + " holds no items; use 'hold clear' instead.");
+                return;
+            }
+
+            // Remove the hold before re-running: a second failure must park one
+            // fresh hold, not accumulate a duplicate of this one.
+            queue.Batches.Remove(batch);
+            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+
+            _donationDispositionPartnerName = senderName;
+            _donationCleanup = new DonationCleanupState
+            {
+                TransactionId = batch.TransactionId,
+                ReceivedCount = items.Count,
+                StoreItems = new List<TransferItemState>(),
+                DeleteItems = items,
+                DeleteIndex = 0,
+                DeletedCount = 0
+            };
+            RuntimeStateStore.AppendActivity(
+                _settingsDir,
+                Client.CharacterName,
+                _role,
+                "HOLD RETRY " + batch.BatchId + " re-running " + items.Count +
+                " over-cap deletion(s) at the request of " + (senderName ?? "?") + ".");
+            TellKavem(
+                "Retrying " + batch.BatchId + ": " + items.Count + " over-cap deletion(s), " +
+                Clip(DescribeHoldItems(batch), 120) +
+                ". Each is verified against AO inventory before the next; a second " +
+                "failure gives you a DELETE FAILURE and a fresh hold.");
         }
 
         // ---------------------------------------------------------------------
@@ -2468,11 +2682,43 @@ namespace CityBankers
             foreach (TransferItemState item in added)
             {
                 tradeIndex++;
-                int earlierCopies = alreadyOffered.Count(candidate =>
-                    candidate != null && RetentionCountKey(candidate.AoId) == RetentionCountKey(item.AoId));
+                int earlierCopies = ProjectedStoredEarlierInTrade(alreadyOffered, item);
                 AnnounceDonationItemAdded(item, tradeIndex, earlierCopies);
                 alreadyOffered.Add(item);
             }
+        }
+
+        // Only a copy that will actually be stored raises the projected total.
+        // Counting one this trade already announced as DELETING reported a stored
+        // count one too high for every further over-cap copy of the same retention
+        // group, so a trade of six over-cap copies counted 5, 6, 7 ... while the
+        // real stored total stayed at the cap. This mirrors FinishDonation, which
+        // increments its projection only on the store branch.
+        private int ProjectedStoredEarlierInTrade(
+            List<TransferItemState> offeredInOrder,
+            TransferItemState item)
+        {
+            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            string key = RetentionCountKey(item.AoId);
+            int stored = 0;
+            foreach (TransferItemState candidate in
+                offeredInOrder ?? new List<TransferItemState>())
+            {
+                if (candidate == null ||
+                    !string.Equals(RetentionCountKey(candidate.AoId), key, StringComparison.Ordinal) ||
+                    CruPolicy.IsCru(candidate.AoId) ||
+                    IsReserveBag(candidate))
+                {
+                    continue;
+                }
+                SymbiantCatalog.AcceptanceRule rule;
+                if (!SymbiantCatalog.TryGetRule(_settingsDir, candidate.AoId, out rule))
+                    continue; // Rejected outright; never reaches storage.
+                if (SymbiantCatalog.IsAtRetentionLimit(rule, CountStoredCopies(stock, candidate) + stored))
+                    continue; // Announced as DELETING; the stored total does not move.
+                stored++;
+            }
+            return stored;
         }
 
         private void AnnounceDonationItemAdded(

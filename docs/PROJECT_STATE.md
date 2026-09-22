@@ -3142,3 +3142,58 @@ and runs live validation. CRU diagnostic state remains unchanged.
 - Validation was source/diff/call-path review only. No assistant build, live SQL
   migration, AO run, or automated tests; owner rebuilds and performs the first
   schema-4 -> 5 startup/live verification.
+
+## Session 218 — administrator exit from a failed central-delete hold
+
+- `[VERIFIED]` Live incident, owner log `872128b7-citydweller.log`, transaction
+  `don-f1c6fa5267fb4d79861872997be29431`. At `2026-09-22T00:34:52` a donation put
+  six `Xan Spirit ... - Beta` QL250 over their retention cap, so Central queued
+  six verified deletions and zero storage dispatches. The first deletion was not
+  confirmed by AO within `ServicePolicy.DeleteVerifyTimeoutMs` (10s);
+  `FailDonationCleanup` parked all six as one `delete-hold-*` batch with
+  `Role="central-delete"`, `Status="failed"`.
+- `[VERIFIED]` The six items never left Central and none was destroyed. Custody
+  is unambiguous: they are loose in Central normal inventory and still recorded
+  active by `ActiveLedgerStore.RecordDonation`, which runs before disposition.
+  `ArchiveActiveItem(..., "deleted_overcap")` never ran.
+- `[VERIFIED]` That hold had no exit. `"central-delete"` and `"delete-hold-"`
+  were write-only strings; nothing read either. `TransferNeverStarted` is never
+  set on the hold, so `UnresolvedDispatch` counted it forever,
+  `HasUnresolvedDispatchWork` stayed true, and every player trade was refused
+  with "CityBankers is finishing pending storage work."
+- `[VERIFIED]` Re-enabling `TryRecoverFailedDispatch` would not have helped and
+  would have harmed: it selects `Status=="failed" && !TransferNeverStarted`,
+  which matches this hold, then runs a paired dispatch-census against
+  `batch.Character` — which for a central-delete hold is Central itself.
+- `[VERIFIED]` `PostLoginFailedBatchReconciliationAgent`,
+  `WorkerSuccessQueueReconciliationAgent` and `RouteRepairAgent` all return early
+  under `StartupCensusGate.UsesPhysicalRecovery`, which is true in every
+  non-bag-audit run. None of them can clear a hold in normal operation.
+- `[IMPLEMENTED]` Central's trusted-tell interface gains `holds`,
+  `hold retry <n|id>` and `hold clear <n|id>`. This implements the session 186
+  rule directly: failure-triggered execution stays removed, the bug is explained,
+  and the administrator decides. Nothing here runs on its own.
+- `[IMPLEMENTED]` `hold retry` accepts only a `central-delete` hold, refuses
+  while Central is mid-transaction, removes the hold before re-running so a
+  second failure parks one fresh hold rather than a duplicate, and re-enters the
+  same verified `TickDonationCleanup` loop.
+- `[IMPLEMENTED]` `hold clear` removes the batch instead of marking it
+  `cancelled`. `HasQueuedDispatchWork` counts every batch still in the list
+  regardless of status, so a status change would have left the trade gate shut.
+  It moves and destroys nothing, and says so in both the ledger and the reply.
+- `[OPEN]` `HasQueuedDispatchWork` returning true for any batch means a batch
+  left `cancelled` by coordinated cancellation
+  (`BankingServiceAgent.Cancellation.cs:190`) also blocks donations forever. Same
+  shape as this incident, not fixed here; the fix is a policy call about which
+  statuses count as live work.
+- `[OPEN]` Why AO did not confirm the deletion is still unknown. The retry gives
+  the administrator a way to find out by repetition; it does not explain it.
+- `[IMPLEMENTED]` Donation acceptance preview miscount. `earlierCopiesInTrade`
+  counted copies already announced as DELETING, so a trade of six over-cap copies
+  of one retention group reported "5 already stored", then "6 already stored",
+  while the real stored total stayed at the cap. `ProjectedStoredEarlierInTrade`
+  now mirrors `FinishDonation` and increments only on the store branch. Cosmetic;
+  it never affected disposition.
+- Validation was source review only. No assistant build, no AO run, no automated
+  tests; there is no .NET toolchain in this container. The owner rebuilds and
+  live-verifies.
