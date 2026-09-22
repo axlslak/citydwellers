@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 223,
+  "current_session": 224,
   "last_completed_session": 223,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-223-sparse-review-protocol",
-  "checkpoint_commit": "a3cb004",
-  "task": "Completed: sparse two-assistant review protocol recorded in AGENTS.md",
-  "resume_instruction": "Read the sparse-review handoff section in AGENTS.md before writing. Publish in three steps and stage the marker explicitly - seq505 records this session bundling its own marker and implementation by using git add -A. Hold machinery is finished as far as review took it. Open items: seq503 (three) and seq491 (three). Next journal seq506.",
-  "base_commit": "ea7fc5b"
+  "transaction": "session-224-ten-item-trade-capacity",
+  "checkpoint_commit": "e5fe149",
+  "task": "In progress: raise ordinary pickup and internal dispatch capacity to the existing 10-item trade window for owner stress testing",
+  "resume_instruction": "Session 224 owns the writer slot. Base is owner commit e5fe149 (OrgBlobPageSize=7200). Implement only the explicit capacity relaxation: pickup order items 3->10 and internal dispatch batch 6->10, with matching user-facing text/docs. Do not change reconciler, audit policy, or deeper trade verification in this session. Next journal seq507.",
+  "base_commit": "e5fe149"
 }
