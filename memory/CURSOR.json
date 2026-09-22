@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 217,
+  "current_session": 218,
   "last_completed_session": 217,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-217-encrypted-memory-5-and-boundary-findings",
-  "checkpoint_commit": "9160a6ebed50efb2dbf7ba0e2477b231ea263bb8",
-  "task": "Completed: encrypted memory #5 plus three storage-boundary findings",
-  "resume_instruction": "Memory #5 is boot-required and verified; the AGENTS.md pointer resolves. Three unfixed OPEN findings in seq491: WriteJsonAtomic is no longer atomic (37 callers), ReadTextShared's safety premise is void, and BagOriginTrace/AmbiguousBagReport still write a physical data/diagnostic-dumps that the session 192 boundary forbids. Next journal seq492.",
-  "base_commit": "a25bd27c19467b97ca37e4818035b84d12082269"
+  "transaction": "session-218-central-delete-hold-exit",
+  "checkpoint_commit": "c0f37bb",
+  "task": "Add an administrator exit for a failed central-delete hold that currently blocks all donations on Kbcentral",
+  "resume_instruction": "Journal BEGIN is seq492. Work is in plugins/CityBankers/BankingServiceAgent.cs: trusted-tell verbs holds / hold retry / hold clear, plus the donation preview miscount in AnnounceDonationItemAdded. If this cursor is in_progress with no seq493 terminal record, the change was not finished; inspect the tree against c0f37bb.",
+  "base_commit": "c0f37bb"
 }
