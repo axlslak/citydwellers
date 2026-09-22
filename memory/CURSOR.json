@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 218,
+  "current_session": 219,
   "last_completed_session": 218,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-218-central-delete-hold-exit",
-  "checkpoint_commit": "f4db6a8",
-  "task": "Completed: administrator exit for a failed central-delete hold, plus donation preview miscount",
-  "resume_instruction": "Central now answers holds / hold retry <n|id> / hold clear <n|id> on the trusted tell interface. Source review only; the owner rebuilds and live-verifies, then runs 'holds' on Kbcentral. Two OPEN items in seq493: a cancelled batch still blocks donations because HasQueuedDispatchWork counts every batch in the list, and the reason AO refused the deletion is still unknown. Three earlier OPEN findings from seq491 remain. Next journal seq494.",
-  "base_commit": "c0f37bb"
+  "transaction": "session-219-hold-retry-durability-and-correction",
+  "checkpoint_commit": "c770182",
+  "task": "Close the hold-retry crash boundary and correct the session 218 record after independent review",
+  "resume_instruction": "Journal BEGIN is seq494. Work is in plugins/CityBankers/BankingServiceAgent.cs (hold retry durability, hold clear deleted variant) plus docs/PROJECT_STATE.md and docs/PROJECT_HISTORY.md. If this cursor is in_progress with no seq495 terminal record, inspect the tree against c770182.",
+  "base_commit": "c770182"
 }
