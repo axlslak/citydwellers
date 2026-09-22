@@ -16,7 +16,7 @@ namespace CityManager
         // Owner-adjustable organization blob budget baseline in UTF-8 bytes.
         // Runtime delivery feedback moves the current budget around this default;
         // changing 5200 here still changes the baseline after the next rebuild.
-        private const int OrgBlobPageSize = 5200;
+        private const int OrgBlobPageSize = 7200;
         private const int OrgBlobProbeQuantum = 50;
         private const int OrgBlobMinProbeStep = 250;
         private const int OrgBlobProbeEvidenceMargin = 1024;
