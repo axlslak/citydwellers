@@ -439,7 +439,19 @@ namespace CityManager
                 return;
             }
 
-            Reply(target, "Those that have fallen: Reaper, Fuze, Snorre");
+            string body =
+                "<a href='chatcmd:///tell Bobsan !whois Reaperman'>Reapermann</a>\n" +
+                "<a href='chatcmd:///tell Bobsan !whois Fuze'>Fuze</a>\n" +
+                "<a href='chatcmd:///tell Bobsan !whois Snorre'>Snorre</a>\n" +
+                "<a href='chatcmd:///tell Bobsan !whois Rampage007'>Rampage007</a>";
+
+            Reply(
+                target,
+                BuildBlobLinks(
+                    target,
+                    "Those that have fallen",
+                    "Those that have fallen",
+                    body));
         }
 
         private string BuildCommandList(ReplyTarget target, bool isAdmin)
