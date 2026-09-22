@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 226,
-  "last_completed_session": 225,
-  "status": "in_progress",
+  "last_completed_session": 226,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-226-thanks-memorial-command",
-  "checkpoint_commit": "01d982b",
-  "task": "In progress: add a one-line public #thanks memorial command",
-  "resume_instruction": "Session 226 owns the writer slot. Add #thanks as a normal public/member command. Its command output has exactly one row: Those that have fallen — Reaper, Fuze, Snorre. Do not add a second row, credits tier, biography, or other names. Next journal seq511.",
+  "checkpoint_commit": "c256f31",
+  "task": "Completed: added a one-line public #thanks memorial command",
+  "resume_instruction": "Session 226 sealed. #thanks is a normal public/member command and replies with exactly one row: Those that have fallen: Reaper, Fuze, Snorre. No second row or additional credits were added. Owner builds/live-tests. Next journal seq512.",
   "base_commit": "01d982b"
 }
