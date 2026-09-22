@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 222,
+  "current_session": 223,
   "last_completed_session": 222,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-222-retained-item-evidence-wording",
-  "checkpoint_commit": "d8fda40",
-  "task": "Completed: delete-failure evidence wording and the inverse confirmation invariant",
-  "resume_instruction": "The hold machinery is finished as far as review has taken it: holds / hold retry <n|id> / hold clear <n|id> [deleted], atomic commits, and failure records that claim only what their evidence supports. Source review only; the owner rebuilds and live-verifies. Invariants to keep: seq496 and seq503 are two halves of one rule about confirmation. Three OPEN items in seq503 plus three from seq491. Next journal seq504.",
-  "base_commit": "2977255"
+  "transaction": "session-223-sparse-review-protocol",
+  "checkpoint_commit": "ea7fc5b",
+  "task": "Record the sparse two-assistant review protocol in AGENTS.md",
+  "resume_instruction": "Journal BEGIN is seq504. Documentation only, AGENTS.md. If this cursor is in_progress with no seq505 terminal record, inspect the tree against ea7fc5b.",
+  "base_commit": "ea7fc5b"
 }

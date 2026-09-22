@@ -222,3 +222,32 @@ The state/history files are compact restart checkpoints. The encrypted `memory/`
   it. A tripwire that is inconvenient is still a tripwire.
 - `[DECISION]` Name the condition for what it is. Neutral vocabulary understated it and is what
   made the session 147 error feel reasonable.
+
+## Handoff rule — sparse two-assistant review (sessions 218-222)
+
+The owner works with two assistants. They do not run concurrently and neither owns
+the repository. This is how they take turns.
+
+- `[INVARIANT]` `memory/CURSOR.json` is the referee, not either assistant and not
+  the owner's memory of who was last in the tree. `idle` means the next isolated
+  job is available to whoever asks first. `in_progress` means inspect and plan
+  freely, write nothing.
+- `[OWNER-DIRECTION]` Publish in three steps, so a crash boundary is unmistakable
+  to the other writer: a journal `BEGIN` marker with the cursor set `in_progress`,
+  committed and pushed **before** implementing; then the implementation as its own
+  commit; then the terminal record naming that implementation commit by hash, with
+  the cursor back to `idle`. A seal that does not name its implementation commit
+  makes recovery guesswork.
+- `[DECISION]` Treat the other assistant's commits exactly as you would treat your
+  own older work: inspect them, and let Git, the code and the evidence decide. Do
+  not overwrite something because of who authored it, and do not defer to it for
+  the same reason.
+- `[DECISION]` A review finding is traced before it is accepted or disputed. Say
+  plainly which it was. Four rounds across sessions 219-222 each found something
+  the previous round missed, including two of this repository's invariants and one
+  definite accounting bug — the value is in the independence, which is lost if
+  either side simply agrees.
+- `[DECISION]` Corrections go in as `SUPERSEDE` records naming the superseded
+  `seq`. The journal is append-only; a wrong claim is answered, never edited.
+- `[OWNER-DIRECTION]` Credit the review in the record. Who found a thing is part of
+  how the next session judges how well it was checked.
