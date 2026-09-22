@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 225,
+  "current_session": 226,
   "last_completed_session": 225,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-225-braver-internal-trades",
-  "checkpoint_commit": "915b89b",
-  "task": "Completed: ordinary bot-to-bot trades trust exact local AO trade state instead of redundant peer-stage IPC/timer waits",
-  "resume_instruction": "Session 225 sealed. Normal Central->worker dispatch and worker->Central withdrawal transfer no longer wait for peer opened/accepted RPCs or extra offer-settle delays. They require exact local AO manifests and retain partner/attempt checks, AO Finished, and post-trade physical inventory verification. Recovery-return remains cautious and still uses peer-stage coordination. Owner builds/live stress-tests. Next journal seq510.",
-  "base_commit": "c31e86e"
+  "transaction": "session-226-thanks-memorial-command",
+  "checkpoint_commit": "01d982b",
+  "task": "In progress: add a one-line public #thanks memorial command",
+  "resume_instruction": "Session 226 owns the writer slot. Add #thanks as a normal public/member command. Its command output has exactly one row: Those that have fallen — Reaper, Fuze, Snorre. Do not add a second row, credits tier, biography, or other names. Next journal seq511.",
+  "base_commit": "01d982b"
 }
