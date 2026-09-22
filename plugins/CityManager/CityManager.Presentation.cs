@@ -439,14 +439,13 @@ namespace CityManager
                 return;
             }
 
-            // Exact memorial/display spelling and exact Bobsan lookup identity.
-            // Do not collapse these two names into one value.
-            const string MemorialReapermannDisplayName = "Reapermann";
-            const string BobsanReapermanWhoisName = "Reaperman";
+            // Memorial spelling is literal. The displayed name and the
+            // command sent by the link must both remain exactly Reapermann.
+            const string ReapermannName = "Reapermann";
 
             string body =
-                "<a href='chatcmd:///tell Bobsan !whois " + BobsanReapermanWhoisName + "'>" +
-                MemorialReapermannDisplayName + "</a>\n" +
+                "<a href='chatcmd:///tell Bobsan !whois " + ReapermannName + "'>" +
+                ReapermannName + "</a>\n" +
                 "<a href='chatcmd:///tell Bobsan !whois Fuze'>Fuze</a>\n" +
                 "<a href='chatcmd:///tell Bobsan !whois Snorre'>Snorre</a>\n" +
                 "<a href='chatcmd:///tell Bobsan !whois Rampage007'>Rampage007</a>";
