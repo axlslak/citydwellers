@@ -2454,6 +2454,10 @@ namespace CityBankers
                             throw new InvalidOperationException(
                                 "Storage state update failed: " + (placementError ?? "unknown error"));
 
+                        if (string.IsNullOrWhiteSpace(_storageJob.Command.AttemptId))
+                            throw new InvalidOperationException(
+                                "Verified storage placement has no dispatch attempt identity.");
+
                         ReceiptEvidence senderReceipt =
                             CityDwellers.Shared.ManagerMemory.Current.ReadCancellationReceipt(
                                 CityDwellers.Shared.ManagerAccounting.TransactionId,
@@ -2463,6 +2467,7 @@ namespace CityBankers
                             !string.Equals(senderReceipt.AttemptId, _storageJob.Command.AttemptId, StringComparison.Ordinal) ||
                             !string.Equals(senderReceipt.BatchId, _storageJob.Command.BatchId, StringComparison.Ordinal) ||
                             !string.Equals(senderReceipt.TransactionId, _storageJob.Command.TransactionId, StringComparison.Ordinal) ||
+                            !string.Equals(senderReceipt.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase) ||
                             !SameManifest(senderReceipt.PreparedItems, _storageJob.Command.Items) ||
                             senderReceipt.LedgerIds == null ||
                             senderReceipt.LedgerIds.Count != (_storageJob.Command.Items?.Count ?? 0) ||
