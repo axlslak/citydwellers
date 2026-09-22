@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 226,
+  "current_session": 227,
   "last_completed_session": 226,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-226-thanks-memorial-command",
-  "checkpoint_commit": "c256f31",
-  "task": "Completed: added a one-line public #thanks memorial command",
-  "resume_instruction": "Session 226 sealed. #thanks is a normal public/member command and replies with exactly one row: Those that have fallen: Reaper, Fuze, Snorre. No second row or additional credits were added. Owner builds/live-tests. Next journal seq512.",
-  "base_commit": "01d982b"
+  "transaction": "session-227-thanks-memorial-window",
+  "checkpoint_commit": "9fecda9",
+  "task": "In progress: turn #thanks into a memorial window with clickable Bobsan whois links",
+  "resume_instruction": "Session 227 owns the writer slot. Replace the one-line #thanks reply with a small AO info-window/blob. Keep exactly this order: Reapermann, Fuze, Snorre, Rampage007. Display Reapermann but query Bobsan !whois Reaperman; the others query their displayed names. Do not add biographies, tiers, or extra people. Next journal seq513.",
+  "base_commit": "9fecda9"
 }
