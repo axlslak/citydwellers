@@ -3249,3 +3249,43 @@ and runs live validation. CRU diagnostic state remains unchanged.
   not modified.
 - Validation was source/diff/call-path review, attempt/receipt ordering review and
   delimiter balance. No assistant build or live AO run; owner rebuilds/live-tests.
+
+## Session 221 — hold accounting atomicity and the lost-item bug
+
+- `[VERIFIED]` Raised by independent review of session 219, confirmed in code.
+  `hold clear <n> deleted` archived the active-ledger entry under a new reason
+  string, `"deleted_overcap_by_administrator"`. `SaveLedger` excludes only
+  `"withdrawn"` and `"deleted_overcap"` from `LostItemsStore.RecordBeforeRemoval`,
+  so the command archived the item *and* filed it as lost. Definite accounting
+  bug; the command was never safe to use.
+- `[IMPLEMENTED]` Fixed without adding another magic string. The reason is now
+  `"deleted_overcap"`, already recognised as an intentional removal, and the
+  administrator attribution goes in `recipient`, which is the field for it.
+  Verified first that nothing reads `ActiveHistoryRecord.Recipient` for logic and
+  that the only `HistoryDepartureCount("deleted_overcap")` caller is the one-time
+  legacy import, matched on an exact legacy `LeftUtc`.
+- `[IMPLEMENTED]` `hold clear` refuses while the hold it names is the live
+  `_donationCleanup.SourceBatchId`. `hold retry` already refused mid-transaction;
+  clear did not, so it could remove the durable record while the cleanup kept
+  issuing `Item.Delete()`. After a crash or relog the cleanup is gone and a
+  `retrying` hold is clearable again.
+- `[IMPLEMENTED]` The verified-deletion path committed the ledger archive and the
+  hold's new remainder separately. Both, plus the deletion record, now publish in
+  one `ManagerAccounting` transaction, following the pattern session 220
+  established for verified storage placement. If that commit fails, the cleanup
+  fails with the item still counted — over-claiming rather than losing it — and
+  names the reason.
+- `[IMPLEMENTED]` The last verified deletion removes the hold inside that same
+  commit, so a zero-item `retrying` hold is never persisted.
+  `FailDonationCleanup`'s state mutations are likewise one commit; a half-written
+  failure would block the queue without the record explaining why.
+- `[DECISION]` Public journal records carry sanitized intent, outcome and resume
+  information. Incident evidence — transaction identifiers, item identities,
+  timings, log excerpts — goes to encrypted conversation memory instead. The
+  journal is append-only, so `seq492`/`seq493` keep the detail they already
+  published; this is a forward rule, not a licence to rewrite them.
+- `[OPEN]` Unchanged: `HasQueuedDispatchWork` counts every batch in the list, so a
+  batch left `cancelled` by coordinated cancellation still blocks donations
+  permanently. Why AO did not confirm the original deletion is still unknown.
+- Validation was source review only. No assistant build, no AO run, no automated
+  tests; the owner rebuilds and live-verifies.

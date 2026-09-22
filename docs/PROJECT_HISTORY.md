@@ -3349,3 +3349,29 @@ The worker also discards any remembered loose-inventory mismatch after the verif
 custody mutation and starts a fresh observation interval. A pre-mutation mismatch
 can no longer be reused as confirmation of a post-mutation one. The periodic
 ledger synchronizer remains a backstop rather than the normal placement commit path.
+
+## Session 221 — hold accounting atomicity and the lost-item bug
+
+Independent review of session 219 found that `hold clear <n> deleted` was unsafe
+to use. It archived the active-ledger entry under a new reason string, and
+`SaveLedger` excludes only `"withdrawn"` and `"deleted_overcap"` from lost-item
+recording — so the command archived the item and simultaneously reported it lost.
+The correction was to stop inventing reasons: the archive uses
+`"deleted_overcap"`, which the exclusion already covers, and the administrator's
+name goes in `recipient`, the field meant for attribution.
+
+Two atomicity holes closed at the same time. `hold clear` could be issued against
+a hold that was actively retrying, removing the durable record while the in-memory
+cleanup kept issuing deletions; it now refuses while that hold is the live
+cleanup's, and becomes clearable again after a crash clears the cleanup. And the
+verified-deletion path published the ledger archive and the hold's new remainder
+as separate commits, so a crash between them left the hold naming an already-gone
+item. They now publish together, along with the deletion record, in one accounting
+transaction — the pattern session 220 established for verified storage placement.
+The last deletion removes the hold in that same commit, so a zero-item `retrying`
+hold never reaches disk.
+
+The session also adopted a forward rule on the public journal: sanitized intent,
+outcome and resume information there; incident evidence in encrypted conversation
+memory. The append-only invariant stands, so the records that already carry
+detail keep it.
