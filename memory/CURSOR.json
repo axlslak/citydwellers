@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 224,
+  "current_session": 225,
   "last_completed_session": 224,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-224-ten-item-trade-capacity",
-  "checkpoint_commit": "fed0eb2",
-  "task": "Completed: pickup orders and ordinary internal dispatch use the existing ten-item trade-window capacity",
-  "resume_instruction": "Session 224 sealed. Owner builds and live stress-tests. Pickup orders allow ten items and Central->worker internal dispatch batches use ten. Worker->Central withdrawal extraction remains the existing one-request/one-item state machine; no reconciler, audit/recovery, or receipt-verification behavior changed. Next journal seq508.",
-  "base_commit": "e5fe149"
+  "transaction": "session-225-braver-internal-trades",
+  "checkpoint_commit": "c31e86e",
+  "task": "In progress: simplify ordinary bot-to-bot trade handshakes by trusting AO trade state and exact manifests instead of redundant peer-stage IPC",
+  "resume_instruction": "Session 225 owns the writer slot. Simplify normal Central->worker dispatch and worker->Central withdrawal transfer only: exact local AO manifest/partner/attempt remains required; AO Finished and post-trade inventory verification remain required; remove redundant opened/accepted peer-stage waits and extra offer-settle delays from those normal paths. Do not change recovery-return handshake, reconciler, audit policy, or physical receipt verification. Next journal seq509.",
+  "base_commit": "c31e86e"
 }
