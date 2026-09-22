@@ -3375,3 +3375,22 @@ The session also adopted a forward rule on the public journal: sanitized intent,
 outcome and resume information there; incident evidence in encrypted conversation
 memory. The append-only invariant stands, so the records that already carry
 detail keep it.
+
+## Session 222 — delete-failure records state what the evidence supports
+
+One sentence in the delete-failure path claimed the excess items remained on
+Central. It was reached from three places and was wrong in two of them: the
+no-matching-loose-copy refusal is positive evidence of absence, and the failed
+atomic commit added in session 221 follows a confirmed removal. Only the
+verification timeout leaves presence genuinely open, and even there presence is
+presumed from silence rather than seen.
+
+`FailDonationCleanup` now takes an explicit `RetainedItemEvidence` and the
+sentence is derived from it. Nothing about custody or accounting changed — the
+hold retains the occurrence in all three cases, conservatively, as before.
+
+The session also completed the invariant from session 219. "Absence of
+confirmation is not confirmation of absence" has an inverse of equal weight: once
+physical removal is confirmed, nothing may later assert physical presence. A
+generic reassurance appended to every failure is how a system talks itself out of
+evidence it already had.

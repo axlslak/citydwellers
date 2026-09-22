@@ -3289,3 +3289,24 @@ and runs live validation. CRU diagnostic state remains unchanged.
   permanently. Why AO did not confirm the original deletion is still unknown.
 - Validation was source review only. No assistant build, no AO run, no automated
   tests; the owner rebuilds and live-verifies.
+
+## Session 222 — delete-failure records state what the evidence supports
+
+- `[VERIFIED]` Raised by independent review of session 221. The delete-failure
+  donor tell and the `donation_overcap_delete_failed` ledger record both asserted
+  that the excess items remain on Central. Two of the three paths that reach them
+  contradict it: the no-matching-loose-copy refusal is positive evidence of
+  absence, and the failed atomic commit follows a confirmed removal. Only the
+  verification timeout leaves presence open, and there it is presumed from silence
+  rather than observed. Diagnostics and evidence semantics, not custody.
+- `[IMPLEMENTED]` `FailDonationCleanup` takes a `RetainedItemEvidence`
+  (`PresenceUnconfirmed`, `AbsenceObserved`, `DeletionConfirmed`) and
+  `DescribeRetainedItems` supplies the sentence for the tell and the ledger
+  record. The hold retains the occurrence in every case and the accounting is
+  unchanged; only the claim differs.
+- `[INVARIANT]` The inverse of the seq496 rule holds with it: once physical
+  removal is confirmed, no later record may assert physical presence. A record
+  claims what its evidence supports and no more — silence is not presence, and
+  confirmation is not reversible by a later generic sentence.
+- Validation was source review only. No assistant build, no AO run, no automated
+  tests; the owner rebuilds and live-verifies.
