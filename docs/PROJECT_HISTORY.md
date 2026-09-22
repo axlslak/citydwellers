@@ -3271,30 +3271,59 @@ Both findings come from a 112-agent adversarial sweep over six lenses; 21 findin
 
 ## Session 218 — administrator exit from a failed central-delete hold
 
-A live donation on 2026-09-22 put six `Xan Spirit ... - Beta` QL250 over their
-retention cap. Central was supposed to delete all six in place and dispatch
-nothing. AO did not confirm the first deletion within the 10s verification
-window, so `FailDonationCleanup` parked all six as a `delete-hold-*` batch with
-`Role="central-delete"` and `Status="failed"`.
+A donation put six symbiants of one retention group over their cap. Central's
+whole job was to delete them in place and dispatch nothing. AO did not confirm
+the first deletion inside the 10s verification window, and because the delete
+loop is serial, `FailDonationCleanup` parked all six — one `Item.Delete()`
+issued, none confirmed — as a `delete-hold-*` batch with `Role="central-delete"`
+and `Status="failed"`.
 
 Nothing in the codebase could ever clear that batch. `"central-delete"` and
 `"delete-hold-"` were write-only strings, `TransferNeverStarted` is never set on
-the hold, and the three post-login reconciliation agents that remove batches all
-return early under `UsesPhysicalRecovery`, which is true in normal operation. The
-hold therefore kept `HasUnresolvedDispatchWork` true and Central refused every
-player trade indefinitely. Session 186 had removed failure-triggered execution
-and said the administrator decides; the administrator had no verb to decide with.
+the hold, and the three reconciliation agents that remove batches all return
+early under `UsesPhysicalRecovery`, which is true in normal operation. The hold
+kept `HasUnresolvedDispatchWork` true and Central declined every unrelated trade
+indefinitely. Session 186 had removed failure-triggered execution and said the
+administrator decides; the administrator had no verb to decide with.
 
-The fix supplies that verb rather than restoring automation. Central's trusted
-tell interface gains `holds`, `hold retry <n>` and `hold clear <n>`. Retry
-re-enters the same verified delete loop for a central-delete hold; clear removes
-the batch from the queue without moving or destroying anything, for use once the
-owner has settled the physical state by hand. Clear removes rather than marks
-`cancelled` because `HasQueuedDispatchWork` counts every batch still in the list.
+The fix supplies that verb rather than restoring automation: `holds`,
+`hold retry <n>` and `hold clear <n>` on Central's trusted tell interface. Clear
+removes the batch rather than marking it `cancelled`, because
+`HasQueuedDispatchWork` counts every batch still in the list regardless of
+status — which also means a `cancelled` batch blocks donations just as
+permanently, an open problem this session did not fix.
 
-Re-enabling `TryRecoverFailedDispatch` was considered and rejected: it matches
-this hold and would run a paired dispatch-census against `batch.Character`, which
-for a central-delete hold is Central itself.
+Re-enabling `TryRecoverFailedDispatch` was considered and rejected. The first
+recorded reason was wrong and is corrected here: a central-delete hold has no
+dispatch `AttemptId`, so the dormant path matches the hold, cannot build valid
+dispatch evidence, replies `pending`, and escalates to `StartupCensusGate.Block`
+after 60s. It misclassifies and escalates; it does not start a census against
+Central itself.
 
 Also corrected a cosmetic acceptance-preview miscount that counted copies
 announced as DELETING toward the projected stored total.
+
+Incident detail — the log, the transaction, timings and item identities — is in
+encrypted conversation memory, not here.
+
+## Session 219 — hold retry durability
+
+Independent review of session 218 found a real hole and it was confirmed against
+the code. `hold retry` removed the durable hold before running, then carried the
+work in `DonationCleanupState`, which is in-memory and dies with the AppDomain.
+A crash mid-retry left the items loose on Central and active in the ledger with
+no queue record of why they were unresolved — a durable known failure converted
+into a non-durable operation.
+
+The hold now survives the retry as `Status="retrying"`, narrowing its item list
+as each deletion verifies, removed only on full success, and updated in place on
+a further failure rather than duplicated. `"retrying"` is unresolved, so the
+trade gate stays shut across a relog and `holds` shows an interrupted retry.
+
+The same review drew a distinction worth keeping: a verification timeout
+establishes that no deletion was *confirmed*, not that nothing was destroyed.
+Whether the items survived is settled by a later physical inventory observation,
+and the claim belongs to that observation. `hold clear` gained a `deleted`
+suffix for exactly this reason — the bot cannot see what the administrator did
+by hand, so moving the accounting record requires them to say so, and the ledger
+records that it was their word and not an observation.

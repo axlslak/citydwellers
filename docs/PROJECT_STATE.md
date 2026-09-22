@@ -3145,55 +3145,78 @@ and runs live validation. CRU diagnostic state remains unchanged.
 
 ## Session 218 — administrator exit from a failed central-delete hold
 
-- `[VERIFIED]` Live incident, owner log `872128b7-citydweller.log`, transaction
-  `don-f1c6fa5267fb4d79861872997be29431`. At `2026-09-22T00:34:52` a donation put
-  six `Xan Spirit ... - Beta` QL250 over their retention cap, so Central queued
-  six verified deletions and zero storage dispatches. The first deletion was not
-  confirmed by AO within `ServicePolicy.DeleteVerifyTimeoutMs` (10s);
-  `FailDonationCleanup` parked all six as one `delete-hold-*` batch with
-  `Role="central-delete"`, `Status="failed"`.
-- `[VERIFIED]` The six items never left Central and none was destroyed. Custody
-  is unambiguous: they are loose in Central normal inventory and still recorded
-  active by `ActiveLedgerStore.RecordDonation`, which runs before disposition.
-  `ArchiveActiveItem(..., "deleted_overcap")` never ran.
+- `[VERIFIED]` A donation put six symbiants of one retention group over their
+  configured cap, so Central queued six in-place deletions and zero storage
+  dispatches. AO did not confirm the first deletion within
+  `ServicePolicy.DeleteVerifyTimeoutMs` (10s), so `FailDonationCleanup` parked
+  the untried remainder as one `delete-hold-*` batch with
+  `Role="central-delete"`, `Status="failed"`. `TickDonationCleanup` is serial, so
+  `DeleteIndex` was still 0 and all six went into the hold: six scheduled, one
+  `Item.Delete()` issued, none confirmed.
 - `[VERIFIED]` That hold had no exit. `"central-delete"` and `"delete-hold-"`
   were write-only strings; nothing read either. `TransferNeverStarted` is never
   set on the hold, so `UnresolvedDispatch` counted it forever,
-  `HasUnresolvedDispatchWork` stayed true, and every player trade was refused
-  with "CityBankers is finishing pending storage work."
-- `[VERIFIED]` Re-enabling `TryRecoverFailedDispatch` would not have helped and
-  would have harmed: it selects `Status=="failed" && !TransferNeverStarted`,
-  which matches this hold, then runs a paired dispatch-census against
-  `batch.Character` — which for a central-delete hold is Central itself.
+  `HasUnresolvedDispatchWork` stayed true, and Central declined every unrelated
+  incoming trade.
 - `[VERIFIED]` `PostLoginFailedBatchReconciliationAgent`,
   `WorkerSuccessQueueReconciliationAgent` and `RouteRepairAgent` all return early
-  under `StartupCensusGate.UsesPhysicalRecovery`, which is true in every
-  non-bag-audit run. None of them can clear a hold in normal operation.
+  under `StartupCensusGate.UsesPhysicalRecovery`, which is `!IsBagAuditMode()` and
+  therefore true in every normal run. None can clear a hold in normal operation,
+  which is why relogging did not help.
+- `[VERIFIED]` Re-enabling `TryRecoverFailedDispatch` would not fix this and
+  would make it worse, but not for the reason session 218 first recorded. A
+  central-delete hold carries no dispatch `AttemptId`, so the dormant path
+  matches it on `failed && !TransferNeverStarted`, fails to construct valid
+  dispatch evidence, replies `pending` without taking ownership, and after 60s
+  escalates to `StartupCensusGate.Block`. It misclassifies a non-dispatch hold
+  and then escalates rather than starting a census against Central itself. With
+  a live `_receipt` it can also throw, since `DispatchEvidence` reaches
+  `_appliedDispatchReceipts.TryGetValue(null, ...)`.
 - `[IMPLEMENTED]` Central's trusted-tell interface gains `holds`,
-  `hold retry <n|id>` and `hold clear <n|id>`. This implements the session 186
-  rule directly: failure-triggered execution stays removed, the bug is explained,
-  and the administrator decides. Nothing here runs on its own.
-- `[IMPLEMENTED]` `hold retry` accepts only a `central-delete` hold, refuses
-  while Central is mid-transaction, removes the hold before re-running so a
-  second failure parks one fresh hold rather than a duplicate, and re-enters the
-  same verified `TickDonationCleanup` loop.
+  `hold retry <n|id>` and `hold clear <n|id> [deleted]`. This implements the
+  session 186 rule directly: failure-triggered execution stays removed, the bug
+  is explained, and the administrator decides. Nothing here runs on its own.
 - `[IMPLEMENTED]` `hold clear` removes the batch instead of marking it
   `cancelled`. `HasQueuedDispatchWork` counts every batch still in the list
   regardless of status, so a status change would have left the trade gate shut.
-  It moves and destroys nothing, and says so in both the ledger and the reply.
-- `[OPEN]` `HasQueuedDispatchWork` returning true for any batch means a batch
-  left `cancelled` by coordinated cancellation
-  (`BankingServiceAgent.Cancellation.cs:190`) also blocks donations forever. Same
-  shape as this incident, not fixed here; the fix is a policy call about which
-  statuses count as live work.
-- `[OPEN]` Why AO did not confirm the deletion is still unknown. The retry gives
-  the administrator a way to find out by repetition; it does not explain it.
+- `[OPEN]` That same property means a batch left `cancelled` by coordinated
+  cancellation (`BankingServiceAgent.Cancellation.cs:190`) also blocks donations
+  forever. Same shape as this incident, not fixed; the fix is a policy call about
+  which statuses count as live work.
+- `[OPEN]` Why AO did not confirm the deletion is unknown. Retry lets the owner
+  probe it by repetition; it does not explain it.
 - `[IMPLEMENTED]` Donation acceptance preview miscount. `earlierCopiesInTrade`
-  counted copies already announced as DELETING, so a trade of six over-cap copies
-  of one retention group reported "5 already stored", then "6 already stored",
-  while the real stored total stayed at the cap. `ProjectedStoredEarlierInTrade`
-  now mirrors `FinishDonation` and increments only on the store branch. Cosmetic;
-  it never affected disposition.
+  counted copies already announced as DELETING, so several over-cap copies of one
+  retention group in a single trade reported a stored total climbing past the
+  cap. `ProjectedStoredEarlierInTrade` mirrors `FinishDonation` and increments
+  only on the store branch. Cosmetic; disposition was never affected.
+- `[DECISION]` The incident narrative — the log, the transaction, timings, item
+  identities and the owner's live state — is not in this repository. Public files
+  carry the engineering facts and the rules; the narrative is in encrypted
+  conversation memory.
 - Validation was source review only. No assistant build, no AO run, no automated
-  tests; there is no .NET toolchain in this container. The owner rebuilds and
+  tests; there is no .NET toolchain in that container. The owner rebuilds and
   live-verifies.
+
+## Session 219 — hold retry durability and session 218 corrections
+
+- `[VERIFIED]` Raised by independent review, confirmed against the code: session
+  218's `hold retry` removed the durable hold and then carried the work only in
+  `DonationCleanupState`, ordinary in-memory plugin state. A disconnect or host
+  crash mid-retry lost the queue record that explained why those items were
+  unresolved, while the active ledger kept them active. A durable known failure
+  became a non-durable operation.
+- `[IMPLEMENTED]` The batch now stays in the queue as `Status="retrying"` for the
+  whole retry, its `Items` narrowed as each deletion verifies, removed only on
+  full success. A further failure updates that same batch in place instead of
+  parking a duplicate. `"retrying"` is outside `UnresolvedDispatch`'s resolved
+  set, so the trade gate stays shut across a relog, and `holds` lists it.
+- `[IMPLEMENTED]` `hold clear <n> deleted` archives the items as
+  `deleted_overcap_by_administrator`. Plain `hold clear` leaves them active and
+  says so. Both the reply and the ledger record state that the bot destroyed
+  nothing and did not observe the deletion.
+- `[INVARIANT]` Absence of confirmation is not confirmation of absence. A delete
+  verification timeout establishes only that no deletion was confirmed. Whether
+  an item still exists is settled by a later physical inventory observation, and
+  must be attributed to that observation rather than to the timeout.
+- Validation was source review only, as above.

@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 219,
-  "last_completed_session": 218,
-  "status": "in_progress",
+  "last_completed_session": 219,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-219-hold-retry-durability-and-correction",
-  "checkpoint_commit": "c770182",
-  "task": "Close the hold-retry crash boundary and correct the session 218 record after independent review",
-  "resume_instruction": "Journal BEGIN is seq494. Work is in plugins/CityBankers/BankingServiceAgent.cs (hold retry durability, hold clear deleted variant) plus docs/PROJECT_STATE.md and docs/PROJECT_HISTORY.md. If this cursor is in_progress with no seq495 terminal record, inspect the tree against c770182.",
+  "checkpoint_commit": "75efaab",
+  "task": "Completed: hold retry durability, hold clear accounting semantics, session 218 corrections",
+  "resume_instruction": "Central answers holds / hold retry <n|id> / hold clear <n|id> [deleted]. Source review only; the owner rebuilds, then runs 'holds' on Kbcentral and 'hold retry 1'. seq495 and seq496 supersede two claims in seq493 - read them before trusting the session 218 record. Three OPEN items in seq497 plus three earlier from seq491. Next journal seq498.",
   "base_commit": "c770182"
 }
