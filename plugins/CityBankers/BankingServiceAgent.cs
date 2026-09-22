@@ -1513,8 +1513,8 @@ namespace CityBankers
                         // than losing it silently, and say why.
                         FailDonationCleanup(
                             "AO confirmed deletion of " + deleted.Name + " QL" + deleted.Ql +
-                            " but the atomic ledger/hold commit failed, so this hold may still " +
-                            "name an item that is already gone: " + ex.Message);
+                            " but the atomic ledger/hold commit failed: " + ex.Message,
+                            RetainedItemEvidence.DeletionConfirmed);
                         return;
                     }
                     cleanup.DeletedCount++;
@@ -1534,7 +1534,8 @@ namespace CityBankers
                 if (DateTime.UtcNow >= cleanup.DeleteDeadlineUtc)
                     FailDonationCleanup(
                         "AO did not confirm deletion of " + cleanup.PendingDelete.Name +
-                        " QL" + cleanup.PendingDelete.Ql + " before the verification timeout.");
+                        " QL" + cleanup.PendingDelete.Ql + " before the verification timeout.",
+                        RetainedItemEvidence.PresenceUnconfirmed);
                 return;
             }
 
@@ -1567,7 +1568,8 @@ namespace CityBankers
             {
                 FailDonationCleanup(
                     "Refusing over-retention deletion because Central has no matching loose inventory copy of " +
-                    expected.Name + " QL" + expected.Ql + ".");
+                    expected.Name + " QL" + expected.Ql + ".",
+                    RetainedItemEvidence.AbsenceObserved);
                 return;
             }
 
@@ -1586,7 +1588,41 @@ namespace CityBankers
             matches[0].Delete();
         }
 
-        private void FailDonationCleanup(string error)
+        // What a delete failure establishes about the items the hold keeps. The
+        // hold retains them in every case, but for different reasons, and a record
+        // may not claim more than its case supports. "Absence of confirmation is
+        // not confirmation of absence" has an inverse that matters just as much:
+        // once physical removal is confirmed, nothing may later assert presence.
+        private enum RetainedItemEvidence
+        {
+            // No confirmation arrived. Presence is presumed from silence, not seen.
+            PresenceUnconfirmed,
+            // No matching loose copy was found. The item is not where the hold says.
+            AbsenceObserved,
+            // AO confirmed the removal; only the accounting commit failed.
+            DeletionConfirmed
+        }
+
+        private static string DescribeRetainedItems(RetainedItemEvidence evidence)
+        {
+            switch (evidence)
+            {
+                case RetainedItemEvidence.DeletionConfirmed:
+                    return "AO confirmed the physical removal, so the item is gone; the " +
+                        "accounting for it is not. The hold conservatively keeps the " +
+                        "occurrence until that is reconciled.";
+                case RetainedItemEvidence.AbsenceObserved:
+                    return "Central has no matching loose copy, so the item is not where " +
+                        "this hold says it is. The bot deleted nothing. The hold keeps the " +
+                        "occurrence because the discrepancy is unexplained.";
+                default:
+                    return "No deletion was confirmed, so the item is presumed still on " +
+                        "Central — a presumption from silence, not an observation. It is " +
+                        "NOT being reported as deleted.";
+            }
+        }
+
+        private void FailDonationCleanup(string error, RetainedItemEvidence evidence)
         {
             DonationCleanupState cleanup = _donationCleanup;
             if (cleanup == null)
@@ -1600,10 +1636,10 @@ namespace CityBankers
             // queue would block without the record saying why.
             CityDwellers.Shared.ManagerAccounting.Transaction(
                 "CityBankers over-cap delete failure", () =>
-                FailDonationCleanupState(cleanup, error, remainingOverflow));
+                FailDonationCleanupState(cleanup, error, evidence, remainingOverflow));
             TellDonationPartner(
-                "DELETE FAILURE: " + error +
-                " The excess item remains on Central and is NOT being reported as deleted. Storeable items from this donation may continue through the queue, but a failed central-delete hold will block new donations until the physical state is reconciled.");
+                "DELETE FAILURE: " + error + " " + DescribeRetainedItems(evidence) +
+                " Storeable items from this donation may continue through the queue, but a failed central-delete hold will block new donations until the physical state is reconciled.");
             _donationDispositionPartnerName = null;
             _donationCleanup = null;
         }
@@ -1611,6 +1647,7 @@ namespace CityBankers
         private void FailDonationCleanupState(
             DonationCleanupState cleanup,
             string error,
+            RetainedItemEvidence evidence,
             List<TransferItemState> remainingOverflow)
         {
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
@@ -1662,8 +1699,8 @@ namespace CityBankers
                     Character = Client.CharacterName,
                     Source = "normal-inventory",
                     Destination = "central-delete-hold",
-                    Message = error +
-                        " Excess item(s) remain physical AO truth on Central; a failed queue hold prevents new player trades until reconciled.",
+                    Message = error + " " + DescribeRetainedItems(evidence) +
+                        " A failed queue hold prevents new player trades until reconciled.",
                     Items = remainingOverflow.Select(item =>
                         ToLedgerItem(item, "central", null, null, null)).ToList()
                 });
