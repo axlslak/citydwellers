@@ -504,7 +504,7 @@ namespace CityBankers
 
                 TellKavem(
                     "CityBankers operator commands: status | queue | bags | holds | " +
-                    "hold retry <n> | hold clear <n>. " +
+                    "hold retry <n> | hold clear <n> [deleted]. " +
                     "Public #stock and #donor commands live on Apcmanager. " +
                     "You are the bootstrap admin; your trades with Central are accepted under the current max-10 policy.");
             }
@@ -580,14 +580,41 @@ namespace CityBankers
         // refuses every new player trade. Session 186 removed failure-triggered
         // execution and left the decision to the administrator; these verbs are
         // that decision. Nothing here runs on its own.
+        // "retrying" is listed too. An administrator retry leaves the batch in
+        // the queue under that status, so a crash or relog mid-retry still shows
+        // the hold instead of losing the only record of unresolved items.
         private static List<DispatchBatchState> FailedHolds(DispatchQueueState queue)
         {
             return (queue?.Batches ?? new List<DispatchBatchState>())
                 .Where(b => b != null &&
-                    string.Equals(b.Status, "failed", StringComparison.OrdinalIgnoreCase))
+                    (string.Equals(b.Status, "failed", StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(b.Status, "retrying", StringComparison.OrdinalIgnoreCase)))
                 .OrderBy(b => b.CreatedUtc)
                 .ThenBy(b => b.BatchId, StringComparer.Ordinal)
                 .ToList();
+        }
+
+        private DispatchBatchState FindQueuedBatch(DispatchQueueState queue, string batchId)
+        {
+            if (string.IsNullOrEmpty(batchId))
+                return null;
+            return (queue?.Batches ?? new List<DispatchBatchState>())
+                .FirstOrDefault(b => b != null &&
+                    string.Equals(b.BatchId, batchId, StringComparison.Ordinal));
+        }
+
+        // Keeps the durable hold in step with physical progress, one verified
+        // deletion at a time, so a crash leaves behind exactly the items that
+        // are still loose on Central.
+        private void UpdateRetryHoldItems(string batchId, List<TransferItemState> remaining)
+        {
+            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            DispatchBatchState batch = FindQueuedBatch(queue, batchId);
+            if (batch == null)
+                return;
+            batch.Items = new List<TransferItemState>(remaining);
+            batch.UpdatedUtc = DateTime.UtcNow;
+            RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
         }
 
         private static string Clip(string text, int limit)
@@ -621,20 +648,23 @@ namespace CityBankers
                     (index + 1) + ") " + Clip(batch.BatchId, 20) +
                     " " + (batch.Role ?? "?") +
                     " " + (batch.Items?.Count ?? 0) + " item(s)" +
+                    " " + (batch.Status ?? "?") +
                     " " + Math.Max(0, (int)(DateTime.UtcNow - batch.CreatedUtc).TotalMinutes) + "m" +
-                    " - " + Clip(batch.LastError, 90))) +
+                    " - " + Clip(batch.LastError, 80))) +
                 (holds.Count > 5 ? "; ..." : string.Empty) +
-                ". Use 'hold retry <n>' to re-run a central-delete hold, " +
-                "'hold clear <n>' to stop tracking one you have settled by hand.";
+                ". 'hold retry <n>' re-runs a central-delete hold; 'hold clear <n>' stops " +
+                "tracking one and leaves its items active; add 'deleted' if you destroyed " +
+                "them yourself. A 'retrying' hold was interrupted; retry it again.";
         }
 
         private void HandleHoldCommand(string senderName, string argument)
         {
             string[] parts = (argument ?? string.Empty)
                 .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length != 2)
+            if (parts.Length < 2 || parts.Length > 3)
             {
-                TellKavem("Usage: hold retry <n> | hold clear <n>. Use 'holds' for the list.");
+                TellKavem(
+                    "Usage: hold retry <n> | hold clear <n> [deleted]. Use 'holds' for the list.");
                 return;
             }
 
@@ -643,6 +673,24 @@ namespace CityBankers
             {
                 TellKavem("Unknown hold verb '" + parts[0] + "'. Use retry or clear.");
                 return;
+            }
+
+            // 'clear' only stops the bot tracking a batch; it cannot see what the
+            // administrator did physically. The suffix is how they say it, and it
+            // is the only thing that moves the accounting record.
+            bool itemsArePhysicallyGone = false;
+            if (parts.Length == 3)
+            {
+                if (verb != "clear" ||
+                    !string.Equals(parts[2], "deleted", StringComparison.OrdinalIgnoreCase))
+                {
+                    TellKavem(
+                        "Only 'hold clear <n> deleted' takes a third word, and it must be " +
+                        "'deleted'. Use it when you destroyed the items yourself; leave it " +
+                        "off if they are still on " + Client.CharacterName + ".");
+                    return;
+                }
+                itemsArePhysicallyGone = true;
             }
 
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
@@ -681,21 +729,38 @@ namespace CityBankers
 
             if (verb == "clear")
             {
-                ClearHold(queue, target, senderName);
+                ClearHold(queue, target, senderName, itemsArePhysicallyGone);
                 return;
             }
 
             RetryDeleteHold(queue, target, senderName);
         }
 
-        private void ClearHold(DispatchQueueState queue, DispatchBatchState batch, string senderName)
+        private void ClearHold(
+            DispatchQueueState queue,
+            DispatchBatchState batch,
+            string senderName,
+            bool itemsArePhysicallyGone)
         {
             // Removed, not marked "cancelled". HasQueuedDispatchWork counts every
             // batch still in the list regardless of status, so a status change
             // would leave the trade gate shut and look like the command failed.
             string previousError = batch.LastError ?? "none";
+            List<TransferItemState> items = batch.Items ?? new List<TransferItemState>();
             queue.Batches.Remove(batch);
             RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+
+            // The command never touches an item. It moves the accounting record
+            // only on the administrator's word that they destroyed them, and the
+            // ledger says whose word it was.
+            if (itemsArePhysicallyGone)
+            {
+                foreach (TransferItemState item in items)
+                    ActiveLedgerStore.ArchiveActiveItem(_settingsDir, batch.TransactionId,
+                        item.AoId, DateTime.UtcNow, "deleted_overcap_by_administrator",
+                        null, Client.CharacterName);
+            }
+
             RuntimeStateStore.AppendLedger(
                 _settingsDir,
                 new LedgerRecord
@@ -707,20 +772,26 @@ namespace CityBankers
                     Role = "central",
                     Character = Client.CharacterName,
                     Source = batch.Role,
-                    Destination = "released",
+                    Destination = itemsArePhysicallyGone ? "deleted-by-administrator" : "released",
                     Message = "Administrator " + (senderName ?? "?") +
-                        " released failed batch " + batch.BatchId +
-                        " (previous error: " + previousError + "). No item was moved or " +
-                        "destroyed by this command; the bot simply stops tracking the batch, " +
-                        "and the items below remain physical truth on Central.",
-                    Items = (batch.Items ?? new List<TransferItemState>())
+                        " released batch " + batch.BatchId +
+                        " (previous error: " + previousError + "). This command moved and " +
+                        "destroyed nothing itself. " + (itemsArePhysicallyGone
+                            ? "The administrator stated the items below were destroyed by hand, " +
+                              "so they were archived out of the active ledger on that statement " +
+                              "alone; the bot did not observe it."
+                            : "The items below remain loose on Central and remain active in the " +
+                              "ledger; reconciling them is the administrator's."),
+                    Items = items
                         .Select(item => ToLedgerItem(item, "central", null, null, null)).ToList()
                 });
             TellKavem(
-                "Released " + batch.BatchId + ", " + (batch.Items?.Count ?? 0) + " item(s): " +
-                Clip(DescribeHoldItems(batch), 140) +
-                ". Nothing moved or was destroyed; they are still on " +
-                Client.CharacterName + " and still recorded as active.");
+                "Released " + batch.BatchId + ", " + items.Count + " item(s): " +
+                Clip(DescribeHoldItems(batch), 130) + ". " + (itemsArePhysicallyGone
+                    ? "Archived as deleted on your word; the bot did not verify it."
+                    : "Nothing moved or was destroyed; they are still on " +
+                      Client.CharacterName + " and still active in the ledger. " +
+                      "Use 'hold clear <n> deleted' if you destroyed them yourself."));
         }
 
         private void RetryDeleteHold(DispatchQueueState queue, DispatchBatchState batch, string senderName)
@@ -749,9 +820,18 @@ namespace CityBankers
                 return;
             }
 
-            // Remove the hold before re-running: a second failure must park one
-            // fresh hold, not accumulate a duplicate of this one.
-            queue.Batches.Remove(batch);
+            // The hold stays in the queue for the whole retry. DonationCleanupState
+            // is ordinary in-memory plugin state, so removing the batch first would
+            // turn a durable known failure into a non-durable operation: a
+            // disconnect or host crash mid-retry would take the only record of
+            // these unresolved items with it. "retrying" is not in the resolved
+            // set, so the trade gate also stays shut across a relog.
+            batch.Status = "retrying";
+            batch.AttemptCount++;
+            batch.UpdatedUtc = DateTime.UtcNow;
+            batch.LastError = "Administrator " + (senderName ?? "?") +
+                " re-ran this central-delete hold. Previous error: " +
+                (batch.LastError ?? "none");
             RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
 
             _donationDispositionPartnerName = senderName;
@@ -762,7 +842,8 @@ namespace CityBankers
                 StoreItems = new List<TransferItemState>(),
                 DeleteItems = items,
                 DeleteIndex = 0,
-                DeletedCount = 0
+                DeletedCount = 0,
+                SourceBatchId = batch.BatchId
             };
             RuntimeStateStore.AppendActivity(
                 _settingsDir,
@@ -1365,6 +1446,12 @@ namespace CityBankers
                     cleanup.PendingDelete = null;
                     cleanup.PendingBeforeCount = 0;
                     cleanup.DeleteDeadlineUtc = DateTime.MinValue;
+                    // Narrow the durable hold before anything else, so a crash on
+                    // the next tick leaves exactly the items still loose here.
+                    if (cleanup.SourceBatchId != null)
+                        UpdateRetryHoldItems(
+                            cleanup.SourceBatchId,
+                            cleanup.DeleteItems.Skip(cleanup.DeleteIndex).ToList());
                     RuntimeStateStore.AppendLedger(
                         _settingsDir,
                         new LedgerRecord
@@ -1405,6 +1492,18 @@ namespace CityBankers
                 int receivedCount = cleanup.ReceivedCount;
                 int deletedCount = cleanup.DeletedCount;
                 List<TransferItemState> storeItems = new List<TransferItemState>(cleanup.StoreItems);
+                // Every deletion verified, so the durable hold has nothing left
+                // to describe. This is the only place a retried hold is removed.
+                if (cleanup.SourceBatchId != null)
+                {
+                    DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+                    DispatchBatchState retried = FindQueuedBatch(queue, cleanup.SourceBatchId);
+                    if (retried != null)
+                    {
+                        queue.Batches.Remove(retried);
+                        RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                    }
+                }
                 _donationCleanup = null;
                 QueueDonationForDispatch(transactionId, receivedCount, storeItems, deletedCount);
                 return;
@@ -1446,7 +1545,25 @@ namespace CityBankers
                 .ToList();
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             AddDonationDispatchBatches(queue, cleanup.TransactionId, cleanup.StoreItems);
-            if (remainingOverflow.Count > 0)
+            // An administrator retry already has a durable hold in the queue.
+            // Update it in place so repeated retries neither accumulate
+            // duplicates nor lose the batch's identity and attempt count.
+            DispatchBatchState existing = FindQueuedBatch(queue, cleanup.SourceBatchId);
+            if (existing != null)
+            {
+                if (remainingOverflow.Count > 0)
+                {
+                    existing.Status = "failed";
+                    existing.Items = remainingOverflow;
+                    existing.LastError = error;
+                    existing.UpdatedUtc = DateTime.UtcNow;
+                }
+                else
+                {
+                    queue.Batches.Remove(existing);
+                }
+            }
+            else if (remainingOverflow.Count > 0)
             {
                 queue.Batches.Add(new DispatchBatchState
                 {
@@ -3328,6 +3445,10 @@ namespace CityBankers
             public List<TransferItemState> DeleteItems = new List<TransferItemState>();
             public int DeleteIndex;
             public int DeletedCount;
+            // Set only by an administrator hold retry. While it is set, the
+            // durable "retrying" batch in the dispatch queue is the record of
+            // this work; it outlives the AppDomain and this state does not.
+            public string SourceBatchId;
             public TransferItemState PendingDelete;
             public int PendingBeforeCount;
             public DateTime DeleteDeadlineUtc;
