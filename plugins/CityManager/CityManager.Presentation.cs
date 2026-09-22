@@ -439,8 +439,14 @@ namespace CityManager
                 return;
             }
 
+            // Memorial display spelling is owner-specified and must never be
+            // inferred or normalized from the Bobsan lookup identity.
+            const string ReapermannDisplayName = "Reapermann";
+            const string ReapermannWhoisName = "Reaperman";
+
             string body =
-                "<a href='chatcmd:///tell Bobsan !whois Reaperman'>Reapermann</a>\n" +
+                "<a href='chatcmd:///tell Bobsan !whois " + ReapermannWhoisName + "'>" +
+                ReapermannDisplayName + "</a>\n" +
                 "<a href='chatcmd:///tell Bobsan !whois Fuze'>Fuze</a>\n" +
                 "<a href='chatcmd:///tell Bobsan !whois Snorre'>Snorre</a>\n" +
                 "<a href='chatcmd:///tell Bobsan !whois Rampage007'>Rampage007</a>";
