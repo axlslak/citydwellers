@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 224,
-  "last_completed_session": 223,
-  "status": "in_progress",
+  "last_completed_session": 224,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-224-ten-item-trade-capacity",
-  "checkpoint_commit": "e5fe149",
-  "task": "In progress: raise ordinary pickup and internal dispatch capacity to the existing 10-item trade window for owner stress testing",
-  "resume_instruction": "Session 224 owns the writer slot. Base is owner commit e5fe149 (OrgBlobPageSize=7200). Implement only the explicit capacity relaxation: pickup order items 3->10 and internal dispatch batch 6->10, with matching user-facing text/docs. Do not change reconciler, audit policy, or deeper trade verification in this session. Next journal seq507.",
+  "checkpoint_commit": "fed0eb2",
+  "task": "Completed: pickup orders and ordinary internal dispatch use the existing ten-item trade-window capacity",
+  "resume_instruction": "Session 224 sealed. Owner builds and live stress-tests. Pickup orders allow ten items and Central->worker internal dispatch batches use ten. Worker->Central withdrawal extraction remains the existing one-request/one-item state machine; no reconciler, audit/recovery, or receipt-verification behavior changed. Next journal seq508.",
   "base_commit": "e5fe149"
 }
