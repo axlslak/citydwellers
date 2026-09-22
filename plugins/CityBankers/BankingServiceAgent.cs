@@ -2428,24 +2428,55 @@ namespace CityBankers
 
         private void CommitStoredItem()
         {
-            string error;
-            if (!RuntimeStateStore.RecordPlacement(
-                _settingsDir,
-                _storageJob.Command.TransactionId,
-                _role,
-                Client.CharacterName,
-                _storageJob.Bag.Source,
-                _storageJob.Bag.OuterSlotInstance,
-                _storageJob.BagLiveIdentity,
-                _storageJob.BagHandle,
-                _storageJob.Expected,
-                _storageJob.ObservedStoredItemIdentity,
-                _storageJob.InnerSlot,
-                out error))
+            try
             {
-                FailStorageJob("AO placement succeeded but persistent state update failed: " + error);
+                // AO has already verified the physical placement. Publish the storage
+                // baseline/current-stock mutation and the matching active-ledger
+                // location in one Manager accounting commit. The loose-inventory
+                // detector must never observe "stock says bag / ledger says loose".
+                CityDwellers.Shared.ManagerAccounting.Transaction(
+                    "CityBankers verified storage placement", () =>
+                    {
+                        string placementError;
+                        if (!RuntimeStateStore.RecordPlacement(
+                            _settingsDir,
+                            _storageJob.Command.TransactionId,
+                            _role,
+                            Client.CharacterName,
+                            _storageJob.Bag.Source,
+                            _storageJob.Bag.OuterSlotInstance,
+                            _storageJob.BagLiveIdentity,
+                            _storageJob.BagHandle,
+                            _storageJob.Expected,
+                            _storageJob.ObservedStoredItemIdentity,
+                            _storageJob.InnerSlot,
+                            out placementError))
+                            throw new InvalidOperationException(
+                                "Storage state update failed: " + (placementError ?? "unknown error"));
+
+                        ActiveLedgerStore.RecordStoredPlacement(
+                            _settingsDir,
+                            _storageJob.Command.TransactionId,
+                            Client.CharacterName,
+                            _storageJob.Bag.Source,
+                            _storageJob.Bag.OuterSlotInstance,
+                            _storageJob.InnerSlot,
+                            _storageJob.Expected);
+                    });
+            }
+            catch (Exception ex)
+            {
+                FailStorageJob(
+                    "AO placement succeeded but atomic storage/ledger update failed: " + ex.Message);
                 return;
             }
+
+            // A mismatch observation from before this legitimate custody mutation
+            // cannot confirm one after it. Force the detector to establish two new,
+            // stable observations against the post-placement ledger revision.
+            _localCensusMismatch = null;
+            _localCensusScan.Restart();
+
             LedgerRecord record = new LedgerRecord
             {
                 Utc = DateTime.UtcNow,
