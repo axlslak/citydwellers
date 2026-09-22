@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 225,
-  "last_completed_session": 224,
-  "status": "in_progress",
+  "last_completed_session": 225,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-225-braver-internal-trades",
-  "checkpoint_commit": "c31e86e",
-  "task": "In progress: simplify ordinary bot-to-bot trade handshakes by trusting AO trade state and exact manifests instead of redundant peer-stage IPC",
-  "resume_instruction": "Session 225 owns the writer slot. Simplify normal Central->worker dispatch and worker->Central withdrawal transfer only: exact local AO manifest/partner/attempt remains required; AO Finished and post-trade inventory verification remain required; remove redundant opened/accepted peer-stage waits and extra offer-settle delays from those normal paths. Do not change recovery-return handshake, reconciler, audit policy, or physical receipt verification. Next journal seq509.",
+  "checkpoint_commit": "915b89b",
+  "task": "Completed: ordinary bot-to-bot trades trust exact local AO trade state instead of redundant peer-stage IPC/timer waits",
+  "resume_instruction": "Session 225 sealed. Normal Central->worker dispatch and worker->Central withdrawal transfer no longer wait for peer opened/accepted RPCs or extra offer-settle delays. They require exact local AO manifests and retain partner/attempt checks, AO Finished, and post-trade physical inventory verification. Recovery-return remains cautious and still uses peer-stage coordination. Owner builds/live stress-tests. Next journal seq510.",
   "base_commit": "c31e86e"
 }
