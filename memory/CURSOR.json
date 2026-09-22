@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 220,
+  "current_session": 221,
   "last_completed_session": 220,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-220-atomic-storage-ledger-location",
-  "checkpoint_commit": "3eee5a6",
-  "task": "Completed: verified storage commits storage/stock and attempt-bound ledger location atomically; stale loose-mismatch evidence is invalidated",
-  "resume_instruction": "Session220 is published. Owner rebuilds/live-tests. Expected normal worker storage no longer produces an immediate loose-inventory mismatch/relog for the item just verified inside a bag. If a mismatch recurs, use the new expected/observed evidence to determine whether it is a genuine physical difference rather than this stale ledger window. No audit/relog policy changed. Next journal seq500.",
-  "base_commit": "9cec32b"
+  "transaction": "session-221-hold-accounting-atomicity",
+  "checkpoint_commit": "c517afa",
+  "task": "Fix the hold clear lost-item accounting bug, the clear-versus-live-retry race, and the archive/hold-narrowing atomicity gap",
+  "resume_instruction": "Journal BEGIN is seq500. Work is in plugins/CityBankers/BankingServiceAgent.cs only. If this cursor is in_progress with no seq501 terminal record, inspect the tree against c517afa.",
+  "base_commit": "c517afa"
 }
