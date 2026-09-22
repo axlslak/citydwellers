@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 223,
-  "last_completed_session": 222,
-  "status": "in_progress",
+  "last_completed_session": 223,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-223-sparse-review-protocol",
-  "checkpoint_commit": "ea7fc5b",
-  "task": "Record the sparse two-assistant review protocol in AGENTS.md",
-  "resume_instruction": "Journal BEGIN is seq504. Documentation only, AGENTS.md. If this cursor is in_progress with no seq505 terminal record, inspect the tree against ea7fc5b.",
+  "checkpoint_commit": "a3cb004",
+  "task": "Completed: sparse two-assistant review protocol recorded in AGENTS.md",
+  "resume_instruction": "Read the sparse-review handoff section in AGENTS.md before writing. Publish in three steps and stage the marker explicitly - seq505 records this session bundling its own marker and implementation by using git add -A. Hold machinery is finished as far as review took it. Open items: seq503 (three) and seq491 (three). Next journal seq506.",
   "base_commit": "ea7fc5b"
 }
