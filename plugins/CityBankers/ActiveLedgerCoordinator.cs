@@ -535,17 +535,27 @@ namespace CityBankers
         public static void RecordStoredPlacement(
             string settingsDir,
             string transactionId,
+            string sourceCharacter,
             string character,
             string bagSource,
             int bagOuterSlot,
             int innerSlot,
-            TransferItemState item)
+            TransferItemState item,
+            IEnumerable<string> occurrenceIds)
         {
             CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 if (item == null || string.IsNullOrWhiteSpace(transactionId) ||
-                    string.IsNullOrWhiteSpace(character) || string.IsNullOrWhiteSpace(bagSource))
+                    string.IsNullOrWhiteSpace(sourceCharacter) || string.IsNullOrWhiteSpace(character) ||
+                    string.IsNullOrWhiteSpace(bagSource) || occurrenceIds == null)
                     throw new InvalidOperationException("Verified storage placement is missing ledger identity.");
+
+                var selectedIds = new HashSet<string>(
+                    occurrenceIds.Where(id => !string.IsNullOrWhiteSpace(id)),
+                    StringComparer.Ordinal);
+                if (selectedIds.Count == 0)
+                    throw new InvalidOperationException(
+                        "Verified storage placement has no attempt-bound ledger occurrences.");
 
                 ActiveLedgerState ledger = LoadLedger(settingsDir);
                 if (ledger?.Items == null)
@@ -553,14 +563,15 @@ namespace CityBankers
 
                 Func<ActiveLedgerItem, bool> sameOccurrenceClass = entry =>
                     entry != null &&
+                    selectedIds.Contains(entry.Id) &&
                     entry.AoId == item.AoId &&
                     entry.HighId == item.HighId &&
                     entry.Ql == item.Ql &&
-                    string.Equals(entry.TransactionId, transactionId, StringComparison.Ordinal) &&
-                    string.Equals(entry.Character, character, StringComparison.OrdinalIgnoreCase);
+                    string.Equals(entry.TransactionId, transactionId, StringComparison.Ordinal);
 
                 List<ActiveLedgerItem> alreadyStored = ledger.Items.Where(entry =>
                     sameOccurrenceClass(entry) &&
+                    string.Equals(entry.Character, character, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(entry.Location, bagSource, StringComparison.OrdinalIgnoreCase) &&
                     entry.Bag == bagOuterSlot &&
                     entry.Slot == innerSlot).ToList();
@@ -568,24 +579,28 @@ namespace CityBankers
                     return;
                 if (alreadyStored.Count > 1)
                     throw new InvalidOperationException(
-                        "Verified storage placement maps multiple ledger occurrences to one physical slot.");
+                        "Verified storage placement maps multiple attempt-bound ledger occurrences to one physical slot.");
 
                 List<ActiveLedgerItem> loose = ledger.Items.Where(entry =>
                     sameOccurrenceClass(entry) &&
                     string.Equals(entry.Location, "inventory", StringComparison.OrdinalIgnoreCase) &&
-                    !entry.Bag.HasValue)
+                    !entry.Bag.HasValue &&
+                    (string.Equals(entry.Character, character, StringComparison.OrdinalIgnoreCase) ||
+                     string.Equals(entry.Character, sourceCharacter, StringComparison.OrdinalIgnoreCase)))
                     .OrderBy(entry => entry.Id, StringComparer.Ordinal)
                     .ToList();
                 if (loose.Count == 0)
                     throw new InvalidOperationException(
-                        "Verified storage placement cannot identify a matching loose ledger occurrence for " +
+                        "Verified storage placement cannot identify a matching loose attempt-bound occurrence for " +
                         transactionId + "/" + item.AoId + ".");
 
-                // A single donation can contain indistinguishable copies of the same
-                // template. They share transaction/provenance and the dispatch command
-                // does not carry per-occurrence ledger IDs to the worker, so use the
-                // same stable ID ordering as SyncStoredLocations for the next loose copy.
+                // Worker storage can become physically verified before Central's
+                // Finished callback moves the selected receipt IDs to worker inventory.
+                // The sender receipt limits this choice to this exact dispatch attempt;
+                // for indistinguishable copies inside that one attempt, stable ID order
+                // selects the next still-loose occurrence.
                 ActiveLedgerItem stored = loose[0];
+                stored.Character = character;
                 stored.Location = bagSource;
                 stored.Bag = bagOuterSlot;
                 stored.Slot = innerSlot;
