@@ -1946,7 +1946,6 @@ namespace CityBankers
         {
             if (_activeBatch == null || !Trade.IsTrading)
                 return;
-            if (!DispatchPeerReady("opened")) return;
             if (Trade.TargetWindowCache?.Items == null) return;
             if (Trade.TargetWindowCache.Items.Count != 0)
             {
@@ -1958,9 +1957,9 @@ namespace CityBankers
             List<TransferItemState> offered = SnapshotTradeItems(liveOffered);
             if (MatchesExpected(offered, _activeBatch.Items) && offered.Count > 0)
             {
-                // Settle the complete offer once; incremental AddItem already
-                // waits for each server acknowledgement before advancing.
-                if (!InternalOfferSettled(offered)) return;
+                // Incremental AddItem already waits for AO to expose each requested
+                // occurrence before advancing. Once the complete exact manifest is
+                // visible locally, do not ask the peer to re-confirm the same fact.
                 if (!_outgoingAccepted)
                 {
                     _outgoingAccepted = true;
@@ -2257,15 +2256,16 @@ namespace CityBankers
             }
             if (!Trade.IsTrading || Trade.TargetWindowCache?.Items == null || Trade.PlayerWindowCache?.Items == null) return;
             List<TransferItemState> offered = SnapshotTradeItems(Trade.TargetWindowCache.Items);
-            if (Trade.PlayerWindowCache.Items.Count != 0 || !IsManifestSubset(offered, _workerCommand.Items))
+            if (Trade.PlayerWindowCache.Items.Count != 0 ||
+                !IsManifestSubset(offered, _workerCommand.Items))
             {
                 FailWorkerCommand("Dispatch trade windows contradict the prepared item manifest.");
                 return;
             }
-            if (_workerAccepted) return;
-            if (!DispatchPeerReady("accepted")) return;
-            // An incomplete receiver cache is permitted only after live IPC
-            // confirms Central accepted its exact complete local offer.
+            // Trust this client's AO trade window. A partial cache is not enough,
+            // but once the exact prepared manifest is visible there is no reason
+            // to ask Central over IPC whether Central can also see it.
+            if (!SameManifest(offered, _workerCommand.Items) || _workerAccepted) return;
             _workerAccepted = true;
             _localDispatchAcceptAge.Restart();
             PersistReceipt("local-offer-accepted");

@@ -748,7 +748,7 @@ namespace CityBankers
                 FailWithdrawal(_withdrawal, "Timed out returning the reserved item to Central.");
                 return;
             }
-            if (!_withdrawalTradeOpened || !Trade.IsTrading || !DispatchPeerReady("opened")) return;
+            if (!_withdrawalTradeOpened || !Trade.IsTrading) return;
             if (!_withdrawalItemOffered)
             {
                 Item item = FindWithdrawalInventoryItem(_withdrawal);
@@ -761,7 +761,7 @@ namespace CityBankers
             {
                 List<Item> offered = Trade.PlayerWindowCache?.Items ?? new List<Item>();
                 if (offered.Count == 1 && MatchesWithdrawalItem(offered[0], _withdrawal) &&
-                    DispatchWindowsConsistent(CurrentInternalCommand()) && InternalOfferSettled(SnapshotTradeItems(offered)))
+                    DispatchWindowsExact(CurrentInternalCommand()))
                 {
                     _withdrawalAccepted = true;
                     _localDispatchAcceptAge.Restart();

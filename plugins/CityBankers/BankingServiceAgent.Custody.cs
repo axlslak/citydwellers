@@ -52,16 +52,21 @@ namespace CityBankers
             if (_pendingConfirmation == Identity.None) return;
             if (!Trade.IsTrading || Trade.CurrentTarget != _pendingConfirmation)
             { _pendingConfirmation = Identity.None; return; }
-            if (_confirmationWait.ElapsedMilliseconds < 500) return;
             if (_dispatchConfirmed) { _pendingConfirmation = Identity.None; return; }
-            if (_localDispatchAcceptAge.ElapsedMilliseconds < 500 || !LocalInternalAccepted()) return;
-            if (_withdrawalPickupTrade)
+            if (!LocalInternalAccepted()) return;
+
+            bool cautiousRecovery =
+                _receipt != null &&
+                (_receipt.Kind == "recovery-return-send" || _receipt.Kind == "recovery-return-receive");
+            if (cautiousRecovery)
             {
-                if (Trade.TargetWindowCache?.Items == null || Trade.TargetWindowCache.Items.Count != 0 ||
-                    Trade.PlayerWindowCache?.Items == null ||
-                    !SameManifest(SnapshotTradeItems(Trade.PlayerWindowCache.Items), _pickupItems.Select(r => r.Item))) return;
+                if (_confirmationWait.ElapsedMilliseconds < 500 ||
+                    _localDispatchAcceptAge.ElapsedMilliseconds < 500 ||
+                    !DispatchWindowsConsistent(CurrentInternalCommand()) ||
+                    !DispatchPeerReady("accepted")) return;
             }
-            else if (!DispatchWindowsConsistent(CurrentInternalCommand()) || !DispatchPeerReady("accepted")) return;
+            else if (!DispatchWindowsExact(CurrentInternalCommand())) return;
+
             PersistReceipt("accepted-confirming");
             _dispatchConfirmed = true;
             _pendingConfirmation = Identity.None;

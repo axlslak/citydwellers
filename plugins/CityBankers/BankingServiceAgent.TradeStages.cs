@@ -98,8 +98,7 @@ namespace CityBankers
         {
             if (!_isCentral || _withdrawalPickupTrade || _withdrawalAccepted) return;
             var command = CurrentInternalCommand();
-            if (!DispatchTradeIsCurrent(command) || !DispatchWindowsConsistent(command) ||
-                !DispatchPeerReady("accepted")) return;
+            if (!DispatchTradeIsCurrent(command) || !DispatchWindowsExact(command)) return;
             _withdrawalAccepted = true;
             _localDispatchAcceptAge.Restart();
             Trade.Accept();
@@ -144,6 +143,19 @@ namespace CityBankers
             return _receipt.Direction < 0
                 ? remote.Count == 0 && SameManifest(SnapshotTradeItems(local), command.Items)
                 : local.Count == 0 && IsManifestSubset(SnapshotTradeItems(remote), command.Items);
+        }
+
+        // Normal bot-to-bot transfers trust the AO window each bot can see.
+        // Unlike recovery, they do not need a second bot to attest to a partial
+        // receiver cache: the complete exact manifest must be visible locally.
+        private bool DispatchWindowsExact(DispatchCommand command)
+        {
+            var local = Trade.PlayerWindowCache?.Items;
+            var remote = Trade.TargetWindowCache?.Items;
+            if (command == null || _receipt == null || local == null || remote == null) return false;
+            return _receipt.Direction < 0
+                ? remote.Count == 0 && SameManifest(SnapshotTradeItems(local), command.Items)
+                : local.Count == 0 && SameManifest(SnapshotTradeItems(remote), command.Items);
         }
 
         private bool HandleTradeStageProposal(DispatchProposal proposal)
