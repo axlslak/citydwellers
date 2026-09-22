@@ -40,6 +40,7 @@ namespace CityManager
                 "help",
                 "shutdown",
                 "changelog",
+                "thanks",
                 "online",
                 "items",
                 "i",
@@ -716,6 +717,10 @@ namespace CityManager
 
                 case "changelog":
                     ProcessChangelogCommand(parts, replyTarget);
+                    break;
+
+                case "thanks":
+                    ProcessThanksCommand(parts, replyTarget);
                     break;
 
                 case "help":

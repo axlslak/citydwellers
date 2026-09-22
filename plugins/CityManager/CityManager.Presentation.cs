@@ -431,6 +431,17 @@ namespace CityManager
             return body.ToString();
         }
 
+        private void ProcessThanksCommand(string[] parts, ReplyTarget target)
+        {
+            if (parts.Length != 1)
+            {
+                Reply(target, Usage(target, "thanks"));
+                return;
+            }
+
+            Reply(target, "Those that have fallen: Reaper, Fuze, Snorre");
+        }
+
         private string BuildCommandList(ReplyTarget target, bool isAdmin)
         {
             var body = new StringBuilder();
@@ -466,6 +477,7 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "cancel [raid-token]", "Cancel your active raid."));
             body.Append(HelpSyntaxLine(target, "online", "Show known org presence and observed guests."));
             body.Append(HelpSyntaxLine(target, "changelog", "Show the latest 25 owner-written entries."));
+            body.Append(HelpSyntaxLine(target, "thanks", "Remember those that have fallen."));
             body.Append(HelpSyntaxLine(target, "items [QL] <name words>", "Search item templates. Alias: i; itemid <AOID> shows attributes."));
             body.Append(HelpSyntaxLine(target, "alts [character]", "Show known mains and alts."));
             body.Append(HelpSyntaxLine(target, "join", "Ask for a guest-channel invite."));
