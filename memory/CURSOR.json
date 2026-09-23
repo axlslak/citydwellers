@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 231,
-  "last_completed_session": 230,
-  "status": "in_progress",
+  "last_completed_session": 231,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-231-local-recovery-storage-ledger",
-  "checkpoint_commit": "c874ea0",
-  "task": "In progress: allow verified local-recovery storage to commit its exact active-ledger occurrence without a dispatch AttemptId",
-  "resume_instruction": "Session 231 owns the writer slot. Fix only the local-recovery contradiction: local recovery already selects one exact active-ledger occurrence and does not have a Central dispatch attempt. Carry that ledger ID into StorageJob and use it for the atomic storage/ledger placement; keep ordinary dispatch receipt/AttemptId validation unchanged. Owner builds/live-tests. Next journal seq521.",
+  "checkpoint_commit": "0bf89ea",
+  "task": "Completed: verified local-recovery storage commits its exact active-ledger occurrence without requiring a dispatch AttemptId",
+  "resume_instruction": "Session 231 sealed. Local recovery carries the exact selected ledger occurrence into StorageJob and uses that ID when atomically committing verified storage placement. Ordinary Central-to-worker dispatch still requires its AttemptId and exact sender receipt. No audit/reconciler/relog policy changes. Owner builds/live-tests. Next journal seq522.",
   "base_commit": "c874ea0"
 }
