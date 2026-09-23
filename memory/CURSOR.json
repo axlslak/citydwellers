@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 231,
+  "current_session": 232,
   "last_completed_session": 231,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-231-local-recovery-storage-ledger",
-  "checkpoint_commit": "0bf89ea",
-  "task": "Completed: verified local-recovery storage commits its exact active-ledger occurrence without requiring a dispatch AttemptId",
-  "resume_instruction": "Session 231 sealed. Local recovery carries the exact selected ledger occurrence into StorageJob and uses that ID when atomically committing verified storage placement. Ordinary Central-to-worker dispatch still requires its AttemptId and exact sender receipt. No audit/reconciler/relog policy changes. Owner builds/live-tests. Next journal seq522.",
-  "base_commit": "c874ea0"
+  "transaction": "session-232-sender-verified-dispatch-retry",
+  "checkpoint_commit": "d498392",
+  "task": "In progress: requeue a declined internal dispatch when Central alone proves the exact source custody never left",
+  "resume_instruction": "Session 232 owns the writer slot. For a failed dispatch-send cancellation only, allow Central's applied exact unchanged-inventory proof to create the normal fresh retry batch without waiting forever for a dispatch-receive cancellation proof that may not exist. Require the original failed attempt to still match, exact source ledger custody to remain on Central, full physical manifest to remain present, and no contradictory applied receiver success or successful storage result. All uncertain cases keep the existing paired-proof path. No audit/relog changes. Owner builds/live-tests. Next journal seq523.",
+  "base_commit": "d498392"
 }
