@@ -47,13 +47,155 @@ namespace CityBankers
             if (proof.Direction != 0 || (proof.Kind != "dispatch-send" && proof.Kind != "dispatch-receive")) return;
             if (!IsCancellationProof(proof))
                 throw new InvalidOperationException("Cancelled dispatch lacks attempt-bound physical evidence.");
-            // The applied receipt is already flushed to its durable custody
-            // directory. Keep retrying its IPC acknowledgement without reserving
-            // unrelated transfers on this banker.
+
+            // Central already has the strongest possible evidence for a failed
+            // outgoing trade when its exact attempt-bound ledger occurrences and
+            // complete physical manifest are still present after AO closes the
+            // trade. In that case the transfer never happened, even if the
+            // worker never entered the trade deeply enough to produce a matching
+            // dispatch-receive cancellation receipt.
+            if (_isCentral &&
+                proof.Kind == "dispatch-send" &&
+                TryRequeueSenderVerifiedCancellation(proof))
+            {
+                return;
+            }
+
+            // Uncertain cases keep the existing paired-proof path.
             _cancellationOutbox[proof.AttemptId] = new CancellationPending { Proof = proof };
             Logger.Information("[CityBankers] DISPATCH CANCELLATION VERIFIED character=" + proof.Character +
                 "; batch=" + proof.BatchId + "; attempt=" + proof.AttemptId +
                 "; inventory unchanged; exchanging peer evidence for automatic retry.");
+        }
+
+        private bool TryRequeueSenderVerifiedCancellation(ReceiptEvidence source)
+        {
+            if (!_isCentral || source == null || source.Kind != "dispatch-send" ||
+                !IsCancellationProof(source))
+            {
+                return false;
+            }
+
+            try
+            {
+                return CityDwellers.Shared.ManagerAccounting.Transaction(
+                    "Dispatch sender-verified cancellation retry",
+                    () =>
+                    {
+                        var owner = CityDwellers.Shared.ManagerMemory.Current;
+                        string transaction = CityDwellers.Shared.ManagerAccounting.TransactionId;
+
+                        ReceiptEvidence retained = owner.ReadCancellationReceipt(
+                            transaction,
+                            source.AttemptId,
+                            "dispatch-send");
+                        if (retained == null ||
+                            JsonConvert.SerializeObject(retained) != JsonConvert.SerializeObject(source))
+                        {
+                            return false;
+                        }
+
+                        CancellationPair existingPair =
+                            owner.ReadCancellation(transaction, source.AttemptId);
+                        if (existingPair?.Outcome != null)
+                            return true;
+                        if (existingPair != null)
+                            return false;
+
+                        // A physically applied receive is contradictory evidence:
+                        // never sender-only retry in that case.
+                        ReceiptEvidence receiver = owner.ReadCancellationReceipt(
+                            transaction,
+                            source.AttemptId,
+                            "dispatch-receive");
+                        if (IsAppliedDispatchProof(receiver, false))
+                            return false;
+
+                        DispatchQueueState queue =
+                            RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+                        DispatchBatchState batch = queue?.Batches?.SingleOrDefault(value =>
+                            value != null &&
+                            value.BatchId == source.BatchId);
+                        if (batch == null ||
+                            batch.AttemptId != source.AttemptId ||
+                            batch.Status != "failed" ||
+                            batch.TransactionId != source.TransactionId ||
+                            !SameManifest(batch.Items, source.PreparedItems))
+                        {
+                            return false;
+                        }
+
+                        StorageBatchResult result =
+                            RuntimeStateStore.ReadStorageResult(
+                                _settingsDir,
+                                batch.Character);
+                        if (result != null &&
+                            result.BatchId == batch.BatchId &&
+                            result.Success)
+                        {
+                            return false;
+                        }
+
+                        if (!CancelledSourceStillAvailable(source))
+                            return false;
+
+                        string retryId = "retry-" + source.AttemptId;
+                        if (queue.Batches.Any(value =>
+                            value != null &&
+                            value.BatchId == retryId))
+                        {
+                            return false;
+                        }
+
+                        DispatchBatchState original =
+                            JsonConvert.DeserializeObject<DispatchBatchState>(
+                                JsonConvert.SerializeObject(batch));
+                        DispatchBatchState retry =
+                            JsonConvert.DeserializeObject<DispatchBatchState>(
+                                JsonConvert.SerializeObject(batch));
+                        retry.BatchId = retryId;
+                        retry.LastCancelledAttempt = source.AttemptId;
+                        retry.AttemptId = null;
+                        retry.Status = "queued";
+                        retry.TransferNeverStarted = false;
+                        retry.LastError = null;
+                        retry.UpdatedUtc = DateTime.UtcNow;
+
+                        queue.Batches.Remove(batch);
+                        queue.Batches.Add(retry);
+                        RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                        _workerRetries[batch.Character] = Stopwatch.StartNew();
+
+                        owner.ChangeCancellation(
+                            transaction,
+                            new CancellationPair
+                            {
+                                AttemptId = source.AttemptId,
+                                Outcome = "sender-verified-retry-queued",
+                                Sender = source,
+                                Receiver = IsCancellationProof(receiver) ? receiver : null,
+                                OriginalBatch = original
+                            });
+
+                        _cancellationSignatures.Remove(source.AttemptId);
+                        _cancellationSettling.Remove(source.AttemptId);
+
+                        Logger.Information(
+                            "[CityBankers] DISPATCH CANCELLATION RECONCILED " +
+                            source.BatchId + "; attempt=" + source.AttemptId +
+                            "; sender-verified-retry-queued. Central exact inventory " +
+                            "and attempt-bound ledger custody remained unchanged; " +
+                            "receiver cancellation proof was not required.");
+                        return true;
+                    });
+            }
+            catch (Exception ex)
+            {
+                Logger.Warning(
+                    "[CityBankers] Sender-verified dispatch retry remained cautious: " +
+                    ex.Message);
+                return false;
+            }
         }
 
         private string CancellationDirectory(string attempt) => Path.Combine(
