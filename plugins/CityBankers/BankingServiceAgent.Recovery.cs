@@ -67,6 +67,7 @@ namespace CityBankers
                 _storageJob = new StorageJob
                 {
                     LocalRecovery = true, RecoverySlot = item.Slot.Instance,
+                    RecoveryLedgerId = entryToStore.Id,
                     Command = new DispatchCommand
                     {
                         BatchId = "local-" + entryToStore.Id, TransactionId = entryToStore.TransactionId,

@@ -2556,38 +2556,58 @@ namespace CityBankers
                             throw new InvalidOperationException(
                                 "Storage state update failed: " + (placementError ?? "unknown error"));
 
-                        if (string.IsNullOrWhiteSpace(_storageJob.Command.AttemptId))
-                            throw new InvalidOperationException(
-                                "Verified storage placement has no dispatch attempt identity.");
+                        string sourceCharacter;
+                        IEnumerable<string> ledgerIds;
+                        if (_storageJob.LocalRecovery)
+                        {
+                            if (string.IsNullOrWhiteSpace(_storageJob.RecoveryLedgerId))
+                                throw new InvalidOperationException(
+                                    "Verified local-recovery storage placement has no exact ledger occurrence.");
 
-                        ReceiptEvidence senderReceipt =
-                            CityDwellers.Shared.ManagerMemory.Current.ReadCancellationReceipt(
-                                CityDwellers.Shared.ManagerAccounting.TransactionId,
-                                _storageJob.Command.AttemptId,
-                                "dispatch-send");
-                        if (senderReceipt == null ||
-                            !string.Equals(senderReceipt.AttemptId, _storageJob.Command.AttemptId, StringComparison.Ordinal) ||
-                            !string.Equals(senderReceipt.BatchId, _storageJob.Command.BatchId, StringComparison.Ordinal) ||
-                            !string.Equals(senderReceipt.TransactionId, _storageJob.Command.TransactionId, StringComparison.Ordinal) ||
-                            !string.Equals(senderReceipt.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase) ||
-                            !SameManifest(senderReceipt.PreparedItems, _storageJob.Command.Items) ||
-                            senderReceipt.LedgerIds == null ||
-                            senderReceipt.LedgerIds.Count != (_storageJob.Command.Items?.Count ?? 0) ||
-                            senderReceipt.LedgerIds.Any(string.IsNullOrWhiteSpace) ||
-                            senderReceipt.LedgerIds.Distinct().Count() != senderReceipt.LedgerIds.Count)
-                            throw new InvalidOperationException(
-                                "Verified storage placement lacks the exact sender ledger receipt for this dispatch attempt.");
+                            // Local recovery starts from one exact active-ledger
+                            // occurrence already observed loose on this worker. It
+                            // has no Central dispatch attempt or sender receipt.
+                            sourceCharacter = Client.CharacterName;
+                            ledgerIds = new[] { _storageJob.RecoveryLedgerId };
+                        }
+                        else
+                        {
+                            if (string.IsNullOrWhiteSpace(_storageJob.Command.AttemptId))
+                                throw new InvalidOperationException(
+                                    "Verified storage placement has no dispatch attempt identity.");
+
+                            ReceiptEvidence senderReceipt =
+                                CityDwellers.Shared.ManagerMemory.Current.ReadCancellationReceipt(
+                                    CityDwellers.Shared.ManagerAccounting.TransactionId,
+                                    _storageJob.Command.AttemptId,
+                                    "dispatch-send");
+                            if (senderReceipt == null ||
+                                !string.Equals(senderReceipt.AttemptId, _storageJob.Command.AttemptId, StringComparison.Ordinal) ||
+                                !string.Equals(senderReceipt.BatchId, _storageJob.Command.BatchId, StringComparison.Ordinal) ||
+                                !string.Equals(senderReceipt.TransactionId, _storageJob.Command.TransactionId, StringComparison.Ordinal) ||
+                                !string.Equals(senderReceipt.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase) ||
+                                !SameManifest(senderReceipt.PreparedItems, _storageJob.Command.Items) ||
+                                senderReceipt.LedgerIds == null ||
+                                senderReceipt.LedgerIds.Count != (_storageJob.Command.Items?.Count ?? 0) ||
+                                senderReceipt.LedgerIds.Any(string.IsNullOrWhiteSpace) ||
+                                senderReceipt.LedgerIds.Distinct().Count() != senderReceipt.LedgerIds.Count)
+                                throw new InvalidOperationException(
+                                    "Verified storage placement lacks the exact sender ledger receipt for this dispatch attempt.");
+
+                            sourceCharacter = senderReceipt.Character;
+                            ledgerIds = senderReceipt.LedgerIds;
+                        }
 
                         ActiveLedgerStore.RecordStoredPlacement(
                             _settingsDir,
                             _storageJob.Command.TransactionId,
-                            senderReceipt.Character,
+                            sourceCharacter,
                             Client.CharacterName,
                             _storageJob.Bag.Source,
                             _storageJob.Bag.OuterSlotInstance,
                             _storageJob.InnerSlot,
                             _storageJob.Expected,
-                            senderReceipt.LedgerIds);
+                            ledgerIds);
                     });
             }
             catch (Exception ex)
@@ -3615,6 +3635,7 @@ namespace CityBankers
         {
             public bool LocalRecovery;
             public int RecoverySlot;
+            public string RecoveryLedgerId;
             public DispatchCommand Command;
             public int Index;
             public int StoredCount;
