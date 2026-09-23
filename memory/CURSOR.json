@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 230,
+  "current_session": 231,
   "last_completed_session": 230,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-230-reapermann-two-ns-everywhere",
-  "checkpoint_commit": "78e0964",
-  "task": "Completed: #thanks uses Reapermann with two Ns for both display and sent Bobsan command",
-  "resume_instruction": "Session 230 sealed. #thanks uses one literal Reapermann value for both the visible memorial link text and the clickable Bobsan !whois argument. The one-N Reaperman lookup string has been removed from this command. seq519 supersedes seq517. Owner builds/live-tests. Next journal seq520.",
-  "base_commit": "706b356"
+  "transaction": "session-231-local-recovery-storage-ledger",
+  "checkpoint_commit": "c874ea0",
+  "task": "In progress: allow verified local-recovery storage to commit its exact active-ledger occurrence without a dispatch AttemptId",
+  "resume_instruction": "Session 231 owns the writer slot. Fix only the local-recovery contradiction: local recovery already selects one exact active-ledger occurrence and does not have a Central dispatch attempt. Carry that ledger ID into StorageJob and use it for the atomic storage/ledger placement; keep ordinary dispatch receipt/AttemptId validation unchanged. Owner builds/live-tests. Next journal seq521.",
+  "base_commit": "c874ea0"
 }
