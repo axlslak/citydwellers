@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 232,
-  "last_completed_session": 231,
-  "status": "in_progress",
+  "last_completed_session": 232,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-232-sender-verified-dispatch-retry",
-  "checkpoint_commit": "d498392",
-  "task": "In progress: requeue a declined internal dispatch when Central alone proves the exact source custody never left",
-  "resume_instruction": "Session 232 owns the writer slot. For a failed dispatch-send cancellation only, allow Central's applied exact unchanged-inventory proof to create the normal fresh retry batch without waiting forever for a dispatch-receive cancellation proof that may not exist. Require the original failed attempt to still match, exact source ledger custody to remain on Central, full physical manifest to remain present, and no contradictory applied receiver success or successful storage result. All uncertain cases keep the existing paired-proof path. No audit/relog changes. Owner builds/live-tests. Next journal seq523.",
+  "checkpoint_commit": "834721a",
+  "task": "Completed: declined dispatches can requeue from Central's exact unchanged-custody proof without waiting for nonexistent receiver evidence",
+  "resume_instruction": "Session 232 sealed. After an applied dispatch-send cancellation, Central may replace the matching failed batch with a fresh retry-* batch when the exact attempt-bound ledger occurrences and complete physical manifest remain on Central and there is no applied receiver success or successful storage result. All contradictory/uncertain cases retain the existing paired cancellation path. No audit/relog/trade-handshake changes. Owner builds/live-tests. Next journal seq524.",
   "base_commit": "d498392"
 }
