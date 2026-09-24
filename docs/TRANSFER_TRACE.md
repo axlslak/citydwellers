@@ -9,15 +9,27 @@ trade or storage behaviour.
 On Manager, as an administrator:
 
 - `trace` — index of retained spans, newest last.
-- `trace <n>` — print span *n* by its index number.
-- `trace <transaction|batch|attempt>` — print every span matching that id. Both
-  sides of one transfer share a batch id, so a batch selector returns Central's
+- `trace <n>` — write span *n* to the runtime log.
+- `trace <transaction|batch|attempt>` — write every span matching that id. Both
+  sides of one transfer share a batch id, so a batch selector writes Central's
   span and the worker's together, which is how they should be read.
 
-The index is a bounded in-memory ring of the last 64 spans on Manager. It is
-convenience, not an archive: it is lost on restart. For a durable archive, enable
-`Syslog` in `citydwellers.json` (`Enabled`, `Host`, `Port`, `Transport`); every
-span is one structured syslog record with the same JSON payload.
+A timeline is written to the **runtime log**, not to chat, and the chat reply is
+only a confirmation with a character count. A ten-item span is roughly 15 KB, far
+past any proven organization or tell blob size; replying it would silently cut it
+and lose the measurement. Look for `TRACE SPAN BEGIN` in the log. The chat index is
+capped at twelve lines for the same reason.
+
+`[INVARIANT]` If a span reports `Truncated: true`, its timeline is incomplete and
+must not be used as a measurement. The index and the dump confirmation both say so.
+Fix the tracer and re-run instead.
+
+Retention is a bounded in-memory ring of the last 64 spans on Manager. It is
+convenience, not an archive: it is lost on restart. Current state is therefore
+**live structured capture implemented; durable capture only when an external
+syslog sink is configured** (`Syslog` in `citydwellers.json` — `Enabled`, `Host`,
+`Port`, `Transport`). Durable JSON diagnostics in general is a separate problem and
+is not solved by this session.
 
 ## Why it is shaped this way
 
@@ -46,12 +58,39 @@ Outcome: `Outcome` (`completed`, `failed`, `superseded`, `abandoned`), `Error`,
 
 Each `Stages[]` entry carries `Name`, `AtMs` (monotonic ms since span start),
 `SinceMs` (since the previous stage), and where relevant `Attempt`, `Detail`,
-`AoId`, `Ql`, `Occurrence`.
+`AoId`, `Ql`, `Occurrence`. Empty fields are suppressed, so an ordinary action
+stage serializes to three fields.
 
-A wait stage is named `wait:<condition>` and carries `WaitedMs` plus
-`Observations` — how many times the state machine looked at the unmet condition.
 Wait totals and stage deltas are additive: closing a wait before recording an
 action means nothing is counted twice.
+
+### Classifying a wait
+
+A wait stage is named `wait:<condition>` and carries:
+
+| Field | Meaning |
+| --- | --- |
+| `WaitedMs` | how long the condition stayed unmet |
+| `Observations` | how many times the machine evaluated it |
+| `FirstLookMs` / `LastLookMs` | when it first and last saw the condition unmet |
+| `MaxLookGapMs` | largest interval between consecutive looks |
+
+`WaitedMs` alone **cannot** tell you whose latency it is. The discriminator is the
+**blind spot**, `AtMs - LastLookMs`: the window in which the condition may already
+have been satisfied with nobody looking.
+
+- Small blind spot, small `MaxLookGapMs` → we were watching closely; the wait is
+  genuinely **external** (AO, IPC, or SQL, depending on the condition).
+- Large blind spot or large `MaxLookGapMs` → we were not looking; that time is
+  **our polling cadence**, not AO's latency. `wait:settle-timer-500ms` and
+  `wait:ipc-retry-floor-1000ms` are **artificial delay** by construction.
+
+So each wait resolves to one of: external/AO, our polling, artificial delay, IPC,
+SQL/accounting, or unknown. Do not attribute a wait without checking its blind spot.
+
+`WaitTotals` gives the same grouped by condition: `TotalMs`, `Episodes`,
+`Observations`, `MaxEpisodeMs`, `MaxLookGapMs`, `BlindSpotMs`, ordered by total
+descending. That is the critical-path idle breakdown, ready to read.
 
 ## Counters
 
