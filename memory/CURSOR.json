@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 234,
-  "last_completed_session": 233,
-  "status": "in_progress",
+  "last_completed_session": 234,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-234-transfer-instrumentation",
-  "checkpoint_commit": "d199058",
-  "task": "Phase 1: instrument internal transfer with monotonic per-stage tracing. No behaviour change.",
-  "resume_instruction": "Journal BEGIN is seq526. New file shared/TradeTrace.cs plus instrumentation call sites in plugins/CityBankers and a collector in plugins/CityManager. Instrumentation only - if any trade or storage behaviour changed, that is a bug. If in_progress with no seq527, inspect against d199058.",
+  "checkpoint_commit": "020a189",
+  "task": "Completed phase 1: internal transfer instrumented. No behaviour change.",
+  "resume_instruction": "Read docs/TRANSFER_TRACE.md. Manager answers 'trace' (index) and 'trace <n|transaction|batch|attempt>' (one timeline as JSON); a batch selector returns both sides. Durable archive requires Syslog.Enabled in citydwellers.json. Phase 2 awaits one owner-run ten-item transfer; draw no performance conclusions before that trace exists. Phase 3 is an independent minimum-safe-protocol proposal built up from the minimum, not pruned from the current code. Next journal seq528.",
   "base_commit": "d199058"
 }
