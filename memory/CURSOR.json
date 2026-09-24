@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 232,
+  "current_session": 233,
   "last_completed_session": 232,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-232-sender-verified-dispatch-retry",
-  "checkpoint_commit": "834721a",
-  "task": "Completed: declined dispatches can requeue from Central's exact unchanged-custody proof without waiting for nonexistent receiver evidence",
-  "resume_instruction": "Session 232 sealed. After an applied dispatch-send cancellation, Central may replace the matching failed batch with a fresh retry-* batch when the exact attempt-bound ledger occurrences and complete physical manifest remain on Central and there is no applied receiver success or successful storage result. All contradictory/uncertain cases retain the existing paired cancellation path. No audit/relog/trade-handshake changes. Owner builds/live-tests. Next journal seq524.",
-  "base_commit": "d498392"
+  "transaction": "session-233-trade-cost-observability-findings",
+  "checkpoint_commit": "b7cbd27",
+  "task": "Record read-only findings on internal transfer cost and observability",
+  "resume_instruction": "Journal BEGIN is seq524. Documentation only, docs/PROJECT_STATE.md. No code. If in_progress with no seq525, inspect against b7cbd27.",
+  "base_commit": "b7cbd27"
 }
