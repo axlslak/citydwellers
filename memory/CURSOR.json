@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 233,
-  "last_completed_session": 232,
-  "status": "in_progress",
+  "last_completed_session": 233,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-233-trade-cost-observability-findings",
-  "checkpoint_commit": "b7cbd27",
-  "task": "Record read-only findings on internal transfer cost and observability",
-  "resume_instruction": "Journal BEGIN is seq524. Documentation only, docs/PROJECT_STATE.md. No code. If in_progress with no seq525, inspect against b7cbd27.",
+  "checkpoint_commit": "dcfa768",
+  "task": "Completed: findings on internal transfer cost and observability. No code changed.",
+  "resume_instruction": "Findings are in the session 233 section of docs/PROJECT_STATE.md. Before trying to speed up internal transfer, note that TraceTrade is an empty body, IncidentJournal is inert, ServiceEvents has no banker sink, cd_event_lines is retired, and no elapsed time is emitted anywhere - so there is currently no way to attribute the time. The per-item bag cycle is the prime suspect and the one-open-per-batch idea is explicitly untraced. Next journal seq526.",
   "base_commit": "b7cbd27"
 }
