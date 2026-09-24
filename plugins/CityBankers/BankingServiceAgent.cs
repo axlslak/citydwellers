@@ -53,6 +53,11 @@ namespace CityBankers
 
         // Central: Central -> worker serialized dispatch state.
         private DispatchBatchState _activeBatch;
+        // Transfer instrumentation only. Central owns _dispatchSpan, a worker owns
+        // _storageSpan; both may be null and every TradeTrace call tolerates that,
+        // so no code path depends on a span existing.
+        private TradeTrace.Span _dispatchSpan;
+        private TradeTrace.Span _storageSpan;
         private Identity _activeWorkerIdentity = Identity.None;
         private readonly Stopwatch _dispatchTradeAge = Stopwatch.StartNew();
         private bool _outgoingOpened;
@@ -942,6 +947,8 @@ namespace CityBankers
                 {
                     if (_activeBatch != null && target == _activeWorkerIdentity)
                     {
+                        // Stage 5: AO confirms the trade is open on Central.
+                        TradeTrace.Mark(_dispatchSpan, "trade.open.observed");
                         _outgoingOpened = true;
                         _dispatchTradeAge.Restart();
                         return;
@@ -1006,6 +1013,13 @@ namespace CityBankers
 
             TraceTrade("trade.status", new { Partner = target.ToString(), Status = status.ToString() },
                 status == TradeStatus.Declined);
+            // Stage 16 on Central, stage 15 on the worker: the AO terminal callback.
+            // Both spans record it; whichever side this is, it is the same event.
+            if (status == TradeStatus.Finished || status == TradeStatus.Declined)
+            {
+                TradeTrace.Mark(_dispatchSpan, "trade." + status.ToString().ToLowerInvariant());
+                TradeTrace.Mark(_storageSpan, "trade." + status.ToString().ToLowerInvariant());
+            }
             if (status == TradeStatus.Finished || status == TradeStatus.Declined) _tradeTrace = null;
 
             RuntimeStateStore.AppendActivity(
@@ -1873,16 +1887,32 @@ namespace CityBankers
             if (worker == null)
                 return;
 
+            // Stage 1: this batch is eligible. The span opens here so preparation,
+            // trade and completion are all measured against one monotonic origin.
+            if (_dispatchSpan == null ||
+                !string.Equals(_dispatchSpan.BatchId, next.BatchId, StringComparison.Ordinal))
+            {
+                TradeTrace.End(_dispatchSpan, "abandoned", "A newer batch became eligible first.");
+                _dispatchSpan = TradeTrace.Begin("dispatch", next.TransactionId, next.BatchId,
+                    next.AttemptId, Client.CharacterName, next.Character, next.Role,
+                    next.Items?.Count ?? 0);
+                TradeTrace.Mark(_dispatchSpan, "batch.eligible");
+            }
+
             if (string.IsNullOrWhiteSpace(next.AttemptId))
             {
                 next.AttemptId = Guid.NewGuid().ToString("N");
                 RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
             }
+            TradeTrace.Identify(_dispatchSpan, attemptId: next.AttemptId);
             if (!WorkerPrepared(next))
             {
+                // Stages 2-3 are marked inside WorkerPrepared, which owns the IPC.
+                TradeTrace.Wait(_dispatchSpan, "worker-prepared");
                 ReportTransferWait(next, WorkerPreparationReason(next.Character, "Awaiting worker preparation acknowledgement; items remain on Central."));
                 return;
             }
+            TradeTrace.Mark(_dispatchSpan, "worker.prepared");
             _transferWaits.Remove(next.BatchId);
 
             List<Item> centralItems = FindDistinctInventoryItems(next.Items);
@@ -1939,6 +1969,9 @@ namespace CityBankers
             PrepareReceipt("dispatch-send", next.TransactionId, next.BatchId, next.Items, -1);
             // Persistence/reporting above is preparation, not time spent trading.
             _dispatchTradeAge.Restart();
+            // Stage 4: Central asks AO to open the trade. Stage 5 is the callback.
+            TradeTrace.Mark(_dispatchSpan, "trade.open.requested");
+            TradeTrace.Count(_dispatchSpan, TradeTrace.AoOperations);
             Trade.Open(worker.Identity);
         }
 
@@ -1962,10 +1995,21 @@ namespace CityBankers
                 // visible locally, do not ask the peer to re-confirm the same fact.
                 if (!_outgoingAccepted)
                 {
+                    // Stages 11-12, separated: deciding the manifest is complete is
+                    // not the same instant as AO being told to accept.
+                    TradeTrace.Mark(_dispatchSpan, "manifest.complete",
+                        detail: offered.Count + " of " + (_activeBatch.Items?.Count ?? 0));
                     _outgoingAccepted = true;
                     _localDispatchAcceptAge.Restart();
                     PersistReceipt("local-offer-accepted");
+                    TradeTrace.Mark(_dispatchSpan, "accept.requested");
+                    TradeTrace.Count(_dispatchSpan, TradeTrace.AoOperations);
                     Trade.Accept();
+                }
+                else
+                {
+                    // Stage 15-16: accepted locally, waiting on AO to finish.
+                    TradeTrace.Wait(_dispatchSpan, "finished-callback");
                 }
                 return;
             }
@@ -1995,6 +2039,13 @@ namespace CityBankers
                     // AO can drop an AddItem request without changing the local window.
                     // Resend only the same pending slot: never advance to another item
                     // until the expected offered count acknowledges this occurrence.
+                    // Stage 10. This is the resend the owner specifically wants
+                    // counted: if it never appears in a healthy batch, the 1200ms
+                    // timer costs nothing and is not what makes transfer slow.
+                    TradeTrace.Mark(_dispatchSpan, "item.add.resent",
+                        attempt: _outgoingPendingAddAttempts + 1);
+                    TradeTrace.Count(_dispatchSpan, TradeTrace.Retries);
+                    TradeTrace.Count(_dispatchSpan, TradeTrace.AoOperations);
                     Trade.AddItem(_outgoingPendingSlot);
                     _outgoingPendingAddAttempts++;
                     _outgoingAddAge.Restart();
@@ -2007,9 +2058,19 @@ namespace CityBankers
                         _outgoingPendingAddAttempts + "/" +
                         ServicePolicy.InternalAddItemMaxAttempts + ".");
                 }
+                else
+                {
+                    // Stage 8 not yet satisfied: AO has not shown the requested
+                    // occurrence in Central's own window.
+                    TradeTrace.Wait(_dispatchSpan, "local-trade-window");
+                }
                 return;
             }
 
+            // Stage 8: the previously requested occurrence is now visible locally.
+            if (_outgoingPendingSlotSet)
+                TradeTrace.Mark(_dispatchSpan, "item.add.observed",
+                    attempt: _outgoingPendingAddAttempts + 1);
             _outgoingPendingSlot = Identity.None;
             _outgoingPendingSlotSet = false;
             _outgoingPendingAddAttempts = 0;
@@ -2039,6 +2100,11 @@ namespace CityBankers
                 return;
             }
 
+            // Stage 7: Central asks AO to add one occurrence.
+            TradeTrace.Mark(_dispatchSpan, "item.add.requested", attempt: 1,
+                aoId: missing[0].AoId, ql: missing[0].Ql,
+                occurrence: missing[0].UniqueIdentity);
+            TradeTrace.Count(_dispatchSpan, TradeTrace.AoOperations);
             Trade.AddItem(next.Slot);
             _outgoingRequestedSlots.Add(next.Slot.Instance);
             _outgoingAwaitingOfferCount = offered.Count + 1;
@@ -2116,6 +2182,12 @@ namespace CityBankers
             }
             if (result.Success)
             {
+                // Stage 30: Central accepts the worker's storage completion. This is
+                // the end of the whole transfer from Central's point of view.
+                TradeTrace.Mark(_dispatchSpan, "storage.accepted",
+                    detail: "stored=" + result.StoredCount + "/" + result.ExpectedCount);
+                TradeTrace.End(_dispatchSpan, "completed");
+                _dispatchSpan = null;
                 if (stored != null)
                     queue.Batches.Remove(stored);
                 RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
@@ -2154,6 +2226,10 @@ namespace CityBankers
 
         private void FailActiveBatch(string error)
         {
+            // Ship the timeline before unwinding; the run-up to a failure is the
+            // most useful trace there is.
+            TradeTrace.End(_dispatchSpan, "failed", error);
+            _dispatchSpan = null;
             VerifyCancelledReceipt();
             if (_activeBatch == null)
                 return;
@@ -2232,6 +2308,13 @@ namespace CityBankers
                 Trade.Decline();
                 return;
             }
+            // The worker's span opens here so stage 6 (AO showed the trade open on
+            // this side) and its own accept are measured, not inferred from Central.
+            TradeTrace.End(_storageSpan, "superseded", "A newer dispatch trade opened.");
+            _storageSpan = TradeTrace.Begin("worker", command.TransactionId, command.BatchId,
+                command.AttemptId, command.SourceCharacter, Client.CharacterName, _role,
+                command.Items?.Count ?? 0);
+            TradeTrace.Mark(_storageSpan, "trade.open.observed");
             _workerCommand = command;
             _reservedDispatch = null;
             PrepareReceipt("dispatch-receive", command.TransactionId, command.BatchId, command.Items, 1);
@@ -2265,10 +2348,26 @@ namespace CityBankers
             // Trust this client's AO trade window. A partial cache is not enough,
             // but once the exact prepared manifest is visible there is no reason
             // to ask Central over IPC whether Central can also see it.
-            if (!SameManifest(offered, _workerCommand.Items) || _workerAccepted) return;
+            if (!SameManifest(offered, _workerCommand.Items))
+            {
+                // Stage 9: the worker is watching Central's items appear in the
+                // remote window. Its count is recorded so partial progress is visible.
+                TradeTrace.Wait(_storageSpan, "remote-trade-window",
+                    detail: offered.Count + " of " + (_workerCommand.Items?.Count ?? 0));
+                return;
+            }
+            if (_workerAccepted)
+            {
+                TradeTrace.Wait(_storageSpan, "finished-callback");
+                return;
+            }
+            // Stage 13.
+            TradeTrace.Mark(_storageSpan, "manifest.complete");
             _workerAccepted = true;
             _localDispatchAcceptAge.Restart();
             PersistReceipt("local-offer-accepted");
+            TradeTrace.Mark(_storageSpan, "accept.requested");
+            TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
             Trade.Accept();
         }
 
@@ -2281,6 +2380,15 @@ namespace CityBankers
             _workerCommand = null;
             _workerAccepted = false;
             RuntimeStateStore.DeleteDispatchCommand(_settingsDir, Client.CharacterName);
+            // One worker span covers receive and storage. Started when AO opened the
+            // trade on this side; it is not restarted here, so the storage phases can
+            // be read against the same monotonic origin as the trade that fed them.
+            if (_storageSpan == null)
+                _storageSpan = TradeTrace.Begin("worker", command.TransactionId, command.BatchId,
+                    command.AttemptId, command.SourceCharacter, Client.CharacterName, _role,
+                    command.Items?.Count ?? 0);
+            TradeTrace.Mark(_storageSpan, "storage.received",
+                detail: (command.Items?.Count ?? 0) + " item(s) in worker inventory");
             _storageJob = new StorageJob
             {
                 Command = command,
@@ -2350,7 +2458,10 @@ namespace CityBankers
             if (inventoryItem == null)
             {
                 if (DateTime.UtcNow < _storageJob.DeadlineUtc)
+                {
+                    TradeTrace.Wait(_storageSpan, "inventory-delta");
                     return;
+                }
                 FailStorageJob(
                     "Received item is not visible in worker normal inventory: " +
                     expected.Name + " AOID=" + expected.AoId + ".");
@@ -2370,6 +2481,14 @@ namespace CityBankers
             _storageJob.BagLiveIdentity = null;
             _storageJob.ReturnBankSlots = null;
             _storageJob.InnerSlot = -1;
+            // Stage 18. Emitted once per ITEM, not once per bag, because that is what
+            // the current design does: it reselects and re-extracts the destination
+            // bag for every item. If a ten-item batch shows ten of these for one
+            // outer slot, that is the finding, stated by the machine rather than by us.
+            TradeTrace.Mark(_storageSpan, "bag.selected",
+                detail: bag.Source + "/outer=" + bag.OuterSlotInstance +
+                    "; item " + (_storageJob.Index + 1) + " of " + _storageJob.Command.Items.Count,
+                aoId: expected.AoId, ql: expected.Ql, occurrence: expected.UniqueIdentity);
             if (string.Equals(bag.Source, "bank", StringComparison.OrdinalIgnoreCase))
             {
                 Item liveBag = FindBankBagAtOuterSlot(bag.OuterSlotInstance);
@@ -2383,6 +2502,11 @@ namespace CityBankers
                 _storageJob.BagLiveIdentity = liveBag.UniqueIdentity.ToString();
                 _storageJob.Phase = StoragePhase.MovingBagToInventory;
                 SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
+                // Stage 19.
+                TradeTrace.Mark(_storageSpan, "bag.out.requested",
+                    detail: "outer=" + bag.OuterSlotInstance);
+                TradeTrace.Count(_storageSpan, TradeTrace.BagOutOfBank);
+                TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
                 BagOriginTrace.MoveToInventory(liveBag);
                 return;
             }
@@ -2397,6 +2521,10 @@ namespace CityBankers
             _storageJob.BagLiveIdentity = inventoryBag.UniqueIdentity.ToString();
             _storageJob.Phase = StoragePhase.OpeningBag;
             SetStorageDeadline(ServicePolicy.BagOpenTimeoutMs);
+            // Stage 21 for a bag that already lives in inventory: no extraction needed.
+            TradeTrace.Mark(_storageSpan, "bag.open.requested", detail: "inventory bag");
+            TradeTrace.Count(_storageSpan, TradeTrace.BagOpens);
+            TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
             inventoryBag.Use();
         }
 
@@ -2405,21 +2533,32 @@ namespace CityBankers
             Item bag = FindInventoryBagByIdentity(_storageJob.BagLiveIdentity);
             if (bag != null)
             {
+                // Stage 20, then 21.
+                TradeTrace.Mark(_storageSpan, "bag.out.observed");
                 _storageJob.Phase = StoragePhase.OpeningBag;
                 SetStorageDeadline(ServicePolicy.BagOpenTimeoutMs);
+                TradeTrace.Mark(_storageSpan, "bag.open.requested");
+                TradeTrace.Count(_storageSpan, TradeTrace.BagOpens);
+                TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
                 bag.Use();
                 return;
             }
             if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
                 FailStorageJob(
                     "Bank bag did not arrive in normal inventory before staging timeout; stopping before touching another bag.");
+            else
+                TradeTrace.Wait(_storageSpan, "bag-move-out");
         }
 
         private void ProcessStorageBagOpen()
         {
             Container container = FindContainerByIdentity(_storageJob.BagLiveIdentity);
+            if (container == null || !container.IsOpen)
+                TradeTrace.Wait(_storageSpan, "bag-contents");
             if (container != null && container.IsOpen)
             {
+                // Stage 22.
+                TradeTrace.Mark(_storageSpan, "bag.open.observed");
                 Item item = FindStorageInventoryItem(_storageJob.Expected);
                 if (item == null)
                 {
@@ -2434,6 +2573,11 @@ namespace CityBankers
                 }
                 _storageJob.Phase = StoragePhase.MovingItemIntoBag;
                 SetStorageDeadline(ServicePolicy.ItemMoveTimeoutMs);
+                // Stage 23.
+                TradeTrace.Mark(_storageSpan, "item.move.requested",
+                    aoId: _storageJob.Expected.AoId, ql: _storageJob.Expected.Ql,
+                    occurrence: _storageJob.ActualItemIdentity);
+                TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
                 BagOriginTrace.MoveToContainer(item, container);
                 return;
             }
@@ -2455,6 +2599,12 @@ namespace CityBankers
                     !occupiedInnerSlots.Contains(item.Slot.Instance & 0xFFFF));
                 if (observed != null)
                 {
+                    // Stage 24.
+                    TradeTrace.Mark(_storageSpan, "item.move.observed",
+                        detail: "inner=" + (observed.Slot.Instance & 0xFFFF),
+                        aoId: _storageJob.Expected.AoId, ql: _storageJob.Expected.Ql,
+                        occurrence: _storageJob.ActualItemIdentity);
+                    TradeTrace.Count(_storageSpan, TradeTrace.ItemsPlaced);
                     _storageJob.InnerSlot = observed.Slot.Instance & 0xFFFF;
                     _storageJob.ObservedStoredItemIdentity = IsUsableIdentity(observed.UniqueIdentity.ToString())
                         ? observed.UniqueIdentity.ToString()
@@ -2480,6 +2630,12 @@ namespace CityBankers
                         _storageJob.ReturnInventoryCount = beforeReturn.Count;
                         _storageJob.ReturnSourceSlot = liveBag.Slot.Instance;
                         _storageJob.ReturnSourceCount = beforeReturn.Count(b => b.Slot.Instance == liveBag.Slot.Instance);
+                        // Stage 27. Sent after EVERY item, before the next item's
+                        // extraction, which is the cycle under investigation.
+                        TradeTrace.Mark(_storageSpan, "bag.return.requested",
+                            detail: "outer=" + _storageJob.Bag.OuterSlotInstance);
+                        TradeTrace.Count(_storageSpan, TradeTrace.BagIntoBank);
+                        TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
                         BagOriginTrace.MoveToBank(liveBag);
                         return;
                     }
@@ -2489,6 +2645,8 @@ namespace CityBankers
             }
             if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
                 FailStorageJob("AO did not confirm the item in a newly occupied bag slot before timeout.");
+            else
+                TradeTrace.Wait(_storageSpan, "item-move-into-bag");
         }
 
         private void ProcessStorageBagReturn()
@@ -2515,6 +2673,9 @@ namespace CityBankers
             {
                 if (arrivals[0].Key == _storageJob.Bag.OuterSlotInstance)
                 {
+                    // Stage 28.
+                    TradeTrace.Mark(_storageSpan, "bag.return.observed",
+                        detail: "outer=" + arrivals[0].Key);
                     CommitStoredItem();
                     return;
                 }
@@ -2526,10 +2687,17 @@ namespace CityBankers
             }
             if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
                 FailStorageJob("Staged bank bag did not return to bank before timeout.");
+            else
+                TradeTrace.Wait(_storageSpan, "bag-return");
         }
 
         private void CommitStoredItem()
         {
+            // Stages 25-26 bracket the accounting commit so its cost is separable
+            // from AO latency. One commit per item is deliberate; whether it is
+            // expensive is a question for the measurement, not for either of us.
+            TradeTrace.Mark(_storageSpan, "commit.begin");
+            TradeTrace.Wait(_storageSpan, "accounting-commit");
             try
             {
                 // AO has already verified the physical placement. Publish the storage
@@ -2612,10 +2780,14 @@ namespace CityBankers
             }
             catch (Exception ex)
             {
+                TradeTrace.Mark(_storageSpan, "commit.failed", detail: ex.Message);
                 FailStorageJob(
                     "AO placement succeeded but atomic storage/ledger update failed: " + ex.Message);
                 return;
             }
+            // Stage 26.
+            TradeTrace.Mark(_storageSpan, "commit.end");
+            TradeTrace.Count(_storageSpan, TradeTrace.AccountingCommits);
 
             // A mismatch observation from before this legitimate custody mutation
             // cannot confirm one after it. Force the detector to establish two new,
@@ -2699,6 +2871,11 @@ namespace CityBankers
             ReportTransferProgress("STORAGE BATCH COMPLETE", job.Command.BatchId,
                 "destination=" + Client.CharacterName + "; verified stored=" + job.StoredCount +
                 "/" + (job.Command.Items?.Count ?? 0));
+            // Stage 29. The worker's span ends here and ships its whole timeline.
+            TradeTrace.Mark(_storageSpan, "storage.batch.complete",
+                detail: "stored=" + job.StoredCount + "/" + (job.Command.Items?.Count ?? 0));
+            TradeTrace.End(_storageSpan, "completed");
+            _storageSpan = null;
             if (job.Command?.AttemptId != null)
             {
                 ReceiptEvidence storedReceipt;
@@ -2714,6 +2891,10 @@ namespace CityBankers
             if (_storageJob == null)
                 return;
             StorageJob job = _storageJob;
+            // A failed span ships immediately: the timeline leading up to a failure
+            // is the most useful trace there is, and must not be lost with the job.
+            TradeTrace.End(_storageSpan, "failed", error);
+            _storageSpan = null;
             Logger.Error(
                 $"BANKING SERVICE storage failure character={Client.CharacterName} " +
                 $"batch={job.Command?.BatchId}: {error}");
@@ -2762,6 +2943,8 @@ namespace CityBankers
 
         private void FailWorkerCommand(string error)
         {
+            TradeTrace.End(_storageSpan, "failed", error);
+            _storageSpan = null;
             VerifyCancelledReceipt();
             if (_workerCommand == null)
                 return;

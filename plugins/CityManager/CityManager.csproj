@@ -41,6 +41,7 @@
     <Compile Include="CityManager.Items.cs" />
     <Compile Include="CityManager.Events.cs" />
     <Compile Include="SyslogSender.cs" />
+    <Compile Include="TraceCollector.cs" />
     <Compile Include="CityManager.Buffers.cs" />
     <Compile Include="CityManager.Admins.cs" />
     <Compile Include="CityManager.Alts.cs" />

@@ -95,6 +95,7 @@ namespace CityManager
                 "ban",
                 "unban",
                 "dump",
+                "trace",
                 "restart",
                 "inventory",
                 "inv"
@@ -537,6 +538,7 @@ namespace CityManager
                   command == "dump" ||
                   command == "restart" ||
                   command == "shutdown") && parts.Length == 1) ||
+                (command == "trace" && parts.Length <= 2) ||
                 ((command == "inventory" || command == "inv") && parts.Length <= 2) ||
                 (command == "help" && parts.Length <= 3) ||
                 (command == "donor" && parts.Length <= 2) ||
@@ -975,6 +977,16 @@ namespace CityManager
 
                 case "dump":
                     BeginDiagnosticDump(senderName, parts, replyTarget);
+                    break;
+
+                case "trace":
+                    // Read-only transfer instrumentation. Bare 'trace' indexes the
+                    // retained spans; 'trace <n|transaction|batch|attempt>' prints one
+                    // timeline. Both sides of a transfer share a batch, so a batch
+                    // selector prints Central's span and the worker's together.
+                    Reply(replyTarget, parts.Length == 1
+                        ? _traces.Index()
+                        : _traces.Dump(parts[1]));
                     break;
 
                 case "shutdown":

@@ -249,10 +249,19 @@ namespace CityBankers
                 string.Join(";", (batch.Items ?? new List<TransferItemState>()).Select(CustodyKey).OrderBy(key => key));
             if (_dispatchPreparation == null || _preparingBatch != batch.BatchId || _preparingContents != contents)
             {
-                if (_ipcRetry.ElapsedMilliseconds < 1000) return false;
+                // A 1000ms floor between preparation attempts, named with its
+                // constant: on a first attempt this can gate the whole batch.
+                if (_ipcRetry.ElapsedMilliseconds < 1000)
+                {
+                    TradeTrace.Wait(_dispatchSpan, "ipc-retry-floor-1000ms");
+                    return false;
+                }
                 _preparingBatch = batch.BatchId;
                 _preparingContents = contents;
                 _preparingAge.Restart();
+                // Stage 2.
+                TradeTrace.Mark(_dispatchSpan, "worker.prepare.requested");
+                TradeTrace.Count(_dispatchSpan, TradeTrace.IpcRoundTrips);
                 _dispatchPreparation = AskWorkerToPrepare(new DispatchCommand
                 {
                     BatchId = batch.BatchId, AttemptId = batch.AttemptId, TransactionId = batch.TransactionId, Role = batch.Role,
@@ -261,9 +270,17 @@ namespace CityBankers
                 });
                 return false;
             }
-            if (!_dispatchPreparation.IsCompleted) return false;
+            if (!_dispatchPreparation.IsCompleted)
+            {
+                TradeTrace.Wait(_dispatchSpan, "worker-prepare-ipc-reply");
+                return false;
+            }
             string reply = _dispatchPreparation.Status == TaskStatus.RanToCompletion ? _dispatchPreparation.Result : null;
             bool ready = _preparingAge.ElapsedMilliseconds < 10000 && reply == "ready:" + batch.BatchId;
+            // Stage 3.
+            TradeTrace.Mark(_dispatchSpan,
+                ready ? "worker.prepare.ready" : "worker.prepare.refused",
+                detail: ready ? null : (reply ?? "no reply"));
             if (!ready && reply != null && reply.StartsWith("busy:", StringComparison.Ordinal))
                 _workerPreparationReasons[batch.Character] = reply.Substring(5);
             else

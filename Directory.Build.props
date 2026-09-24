@@ -41,6 +41,11 @@
     <Compile Include="$(MSBuildThisFileDirectory)shared\ServiceEvents.cs">
       <Link>ServiceEvents.cs</Link>
     </Compile>
+    <!-- Transfer instrumentation. Reports through ServiceEvents above; it adds no
+         sink of its own and never touches accounting state. -->
+    <Compile Include="$(MSBuildThisFileDirectory)shared\TradeTrace.cs">
+      <Link>TradeTrace.cs</Link>
+    </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)shared\LocalIpc.cs">
       <Link>LocalIpc.cs</Link>
     </Compile>

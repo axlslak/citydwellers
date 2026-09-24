@@ -520,6 +520,8 @@ namespace CityManager
                 body.Append(HelpSyntaxLine(target, "unban [character]", "Remove a bot ban."));
                 body.Append(HelpSyntaxLine(target, "recoverraid [owner] [all|general] [level] [count]", "Recover a raid after restart."));
                 body.Append(HelpSyntaxLine(target, "dump", "Save a diagnostic snapshot."));
+                body.Append(HelpSyntaxLine(target, "trace [n|id]",
+                    "List recent transfer timings, or print one transfer's timeline."));
                 body.Append(HelpSyntaxLine(target, "restart", "Restart Apcmanager and its AO session."));
                 body.Append(HelpSyntaxLine(target,
                     "phatz add [linked item] [-1|positive max]", "Accept the linked item family on Kbphatz; -1 keeps all. A finite limit counts known QL variants together. Excess incoming copies are deleted after receipt; existing stock is not trimmed."));

@@ -223,9 +223,22 @@ namespace CityBankers
                         _receipt.Kind + " transaction " + _receipt.TransactionId +
                         ". Evidence retained; no receipt inferred from the trade window.");
                 }
+                TradeTrace.Wait(_dispatchSpan, "inventory-delta-exact");
+                TradeTrace.Wait(_storageSpan, "inventory-delta-exact");
                 return true;
             }
-            if (_inventoryStableFor.ElapsedMilliseconds < 500) return true;
+            // An artificial settle delay, named with its constant so the trace says
+            // what it is. The inventory delta already matched; this is 500ms of
+            // deliberate waiting on top of that, per receipt.
+            if (_inventoryStableFor.ElapsedMilliseconds < 500)
+            {
+                TradeTrace.Wait(_dispatchSpan, "settle-timer-500ms");
+                TradeTrace.Wait(_storageSpan, "settle-timer-500ms");
+                return true;
+            }
+            // Stage 17: post-trade physical evidence is complete on this side.
+            TradeTrace.Mark(_dispatchSpan, "posttrade.evidence.complete");
+            TradeTrace.Mark(_storageSpan, "posttrade.evidence.complete");
             PersistReceipt("inventory-verified");
             Action apply = _afterReceipt;
             // An exception after an AO action must not automatically replay it next tick.
