@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 235,
-  "last_completed_session": 234,
-  "status": "in_progress",
+  "last_completed_session": 235,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-235-trace-first-light-hardening",
-  "checkpoint_commit": "d243a71",
-  "task": "Harden the tracer before first light: wait resolution, wait totals, no chat blob, no size-dropped events",
-  "resume_instruction": "Journal BEGIN is seq528. shared/TradeTrace.cs plus the Manager trace command. Instrumentation only. If in_progress with no seq529, inspect against d243a71.",
+  "checkpoint_commit": "ceec0d8",
+  "task": "Completed: tracer hardened before first light. No behaviour change.",
+  "resume_instruction": "Read docs/TRANSFER_TRACE.md, especially 'Classifying a wait': WaitedMs alone cannot tell AO latency from our polling - the discriminator is the blind spot AtMs minus LastLookMs. A span marked Truncated is not a measurement. 'trace <n|id>' writes to the runtime log, never chat. Phase 2 still awaits one owner-run boring ten-item transfer; draw no performance conclusions before that trace exists, and convict no timer before the trace shows it on the critical path. Next journal seq530.",
   "base_commit": "d243a71"
 }
