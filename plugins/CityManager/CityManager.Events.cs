@@ -9,7 +9,6 @@ namespace CityManager
     {
         private SyslogSender _syslog;
         private readonly TraceCollector _traces = new TraceCollector();
-        internal TraceCollector Traces => _traces;
         private void InitializeEventReporting()
         {
             // Diagnostic reporting must not scan/export every historical incident.

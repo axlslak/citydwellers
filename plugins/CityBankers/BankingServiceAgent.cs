@@ -1,4 +1,7 @@
 using File = CityDwellers.Shared.DiskFiles;
+// Instrumentation lives in CityDwellers.Shared; this file deliberately does not
+// import that namespace, so alias it the same way DiskFiles is aliased above.
+using TradeTrace = CityDwellers.Shared.TradeTrace;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;

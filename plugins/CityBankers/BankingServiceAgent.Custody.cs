@@ -1,4 +1,5 @@
 using Directory = System.IO.Directory;
+using TradeTrace = CityDwellers.Shared.TradeTrace;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
