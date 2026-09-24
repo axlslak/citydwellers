@@ -2696,8 +2696,12 @@ namespace CityBankers
             // Stages 25-26 bracket the accounting commit so its cost is separable
             // from AO latency. One commit per item is deliberate; whether it is
             // expensive is a question for the measurement, not for either of us.
+            //
+            // Deliberately a pair of marks and not a wait. The commit is synchronous,
+            // not a polled condition, so a wait stage would report a blind spot equal
+            // to its whole duration and the classifier would read blocking SQL as our
+            // polling latency. commit.end's SinceMs is the duration.
             TradeTrace.Mark(_storageSpan, "commit.begin");
-            TradeTrace.Wait(_storageSpan, "accounting-commit");
             try
             {
                 // AO has already verified the physical placement. Publish the storage

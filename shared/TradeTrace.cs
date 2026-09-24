@@ -50,14 +50,26 @@ namespace CityDwellers.Shared
             // distinguish "AO took 503ms" from "AO took 70ms and we only looked
             // again at 503ms", so the look pattern is recorded with it:
             //   Observations  - how many times the machine evaluated the condition
-            //   FirstLookMs   - when it first saw the condition unmet
-            //   LastLookMs    - when it last saw it unmet
-            //   MaxLookGapMs  - the largest interval between consecutive looks
+            //   FirstLookMs   - first look that found the condition UNSATISFIED
+            //   LastLookMs    - last look that found the condition UNSATISFIED
+            //   MaxLookGapMs  - largest interval between consecutive unsatisfied looks
+            //
+            // `[INVARIANT]` LastLookMs is LastUnsatisfiedLookMs. Wait() is only ever
+            // called on a not-yet-satisfied path; the satisfying observation calls
+            // Mark(), which closes the wait without touching LastLookMs. If the
+            // satisfying look were recorded here the blind spot would collapse toward
+            // zero and falsely exonerate our own polling, which is the single thing
+            // this field exists to expose. Any new Wait() call site must be on an
+            // unsatisfied path, and must not wrap a synchronous call: a blocking
+            // operation has no unsatisfied looks, so its blind spot would equal its
+            // whole duration and read as our latency. Bracket those with two Marks.
             //
             // The blind spot is AtMs - LastLookMs: the window in which the condition
-            // may already have been satisfied without anyone looking. A small blind
-            // spot and a small MaxLookGapMs mean the wait is genuinely external; a
-            // large one means we were not watching, which is our latency, not AO's.
+            // may already have been satisfied without anyone looking. That window,
+            // not WaitedMs, is the real uncertainty about when the external condition
+            // changed. A small blind spot and a small MaxLookGapMs mean the wait is
+            // genuinely external; a large one means we were not watching, which is our
+            // latency, not AO's.
             public double WaitedMs;
             public int Observations;
             public double FirstLookMs;
@@ -236,6 +248,13 @@ namespace CityDwellers.Shared
         // same condition coalesces into one stage; a different one closes the
         // previous wait and opens a new one. This is what turns "nothing happened
         // for two seconds" into "waited 2043ms for local-trade-window, 33 looks".
+        //
+        // `[INVARIANT]` A span has at most one open wait, because a different
+        // condition closes the previous one and any Mark closes whatever is open.
+        // Waits within a span therefore cannot overlap, so summing them is
+        // critical-path waiting with no double counting. This does NOT hold across
+        // spans: Central and the worker run concurrently, so adding a wait from each
+        // would double-count real wall time.
         public static void Wait(Span span, string condition, string detail = null)
         {
             if (span == null || string.IsNullOrEmpty(condition)) return;
@@ -323,8 +342,15 @@ namespace CityDwellers.Shared
                     span.Ended = true;
                     span.Outcome = outcome;
                     span.Error = error;
-                    span.TotalMs = Round(span.Clock.Elapsed.TotalMilliseconds);
+                    // The final stage first, then TotalMs from that same stage, so no
+                    // stage can read above the span total. Everything after this
+                    // point - serializing, relaying, storing - is trace transport and
+                    // is deliberately outside the measurement: a span must never
+                    // include the cost of shipping itself.
                     AddLocked(span, new Stage { Name = "span.end", Detail = outcome });
+                    span.TotalMs = span.Stages.Count > 0
+                        ? span.Stages[span.Stages.Count - 1].AtMs
+                        : Round(span.Clock.Elapsed.TotalMilliseconds);
                     severity = string.Equals(outcome, "completed", StringComparison.Ordinal)
                         ? "info" : "warning";
                     summary = Summary(span);

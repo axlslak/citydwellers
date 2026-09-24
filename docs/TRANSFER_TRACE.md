@@ -72,8 +72,20 @@ A wait stage is named `wait:<condition>` and carries:
 | --- | --- |
 | `WaitedMs` | how long the condition stayed unmet |
 | `Observations` | how many times the machine evaluated it |
-| `FirstLookMs` / `LastLookMs` | when it first and last saw the condition unmet |
-| `MaxLookGapMs` | largest interval between consecutive looks |
+| `FirstLookMs` / `LastLookMs` | first and last look that found the condition **unsatisfied** |
+| `MaxLookGapMs` | largest interval between consecutive unsatisfied looks |
+
+`[INVARIANT]` `LastLookMs` is the *last unsatisfied* look, never the satisfying
+one. `Wait()` is only called on a not-yet-satisfied path; the satisfying
+observation calls `Mark()`, which closes the wait without touching it. Were the
+satisfying look recorded there, the blind spot would collapse toward zero and
+falsely exonerate our own polling — the one thing the field exists to expose.
+
+`[INVARIANT]` A wait must never wrap a synchronous call. A blocking operation has
+no unsatisfied looks, so its blind spot would equal its whole duration and read as
+our latency. Bracket those with two marks instead — which is why the accounting
+commit is `commit.begin` / `commit.end` and its duration is `commit.end`'s
+`SinceMs`.
 
 `WaitedMs` alone **cannot** tell you whose latency it is. The discriminator is the
 **blind spot**, `AtMs - LastLookMs`: the window in which the condition may already
@@ -90,7 +102,21 @@ SQL/accounting, or unknown. Do not attribute a wait without checking its blind s
 
 `WaitTotals` gives the same grouped by condition: `TotalMs`, `Episodes`,
 `Observations`, `MaxEpisodeMs`, `MaxLookGapMs`, `BlindSpotMs`, ordered by total
-descending. That is the critical-path idle breakdown, ready to read.
+descending.
+
+### Summing waits
+
+`[INVARIANT]` A span has at most one open wait: a different condition closes the
+previous one, and any `Mark` closes whatever is open. So **within one span**, waits
+cannot overlap and their sum is critical-path waiting with no double counting.
+
+This does **not** hold across spans. Central and the worker run concurrently, so
+adding a wait from each double-counts real wall time. Report the two spans'
+critical-path waiting separately.
+
+`[INVARIANT]` `TotalMs` is taken from the final stage, inside the span lock, before
+any serialization, relay or storage. A span never includes the cost of shipping
+itself, and no stage can read above the span total.
 
 ## Counters
 
