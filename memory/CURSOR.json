@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 236,
+  "current_session": 237,
   "last_completed_session": 236,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-236-trace-integrity-checks",
-  "checkpoint_commit": "9282f19",
-  "task": "Completed: pre-first-light integrity checks. Instrumentation finished.",
-  "resume_instruction": "Instrumentation is finished at 9282f19; build that. Invariants in shared/TradeTrace.cs: a wait must be on an unsatisfied path and must never wrap a synchronous call; a span has at most one open wait so within-span wait sums are critical-path waiting, but never sum across spans; TotalMs excludes trace transport. Phase 2 is the owner's boring ten-item run, then raw spans to both reviewers before any analysis. Next journal seq532.",
-  "base_commit": "539567d"
+  "transaction": "session-237-tradetrace-namespace-fix",
+  "checkpoint_commit": "142b382",
+  "task": "Fix CS0246 on TradeTrace in CityBankers",
+  "resume_instruction": "Journal BEGIN is seq532. Three CityBankers files need a using alias for CityDwellers.Shared.TradeTrace. If in_progress with no seq533, inspect against 142b382.",
+  "base_commit": "142b382"
 }
