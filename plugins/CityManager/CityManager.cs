@@ -981,12 +981,15 @@ namespace CityManager
 
                 case "trace":
                     // Read-only transfer instrumentation. Bare 'trace' indexes the
-                    // retained spans; 'trace <n|transaction|batch|attempt>' prints one
-                    // timeline. Both sides of a transfer share a batch, so a batch
-                    // selector prints Central's span and the worker's together.
+                    // retained spans in chat; 'trace <n|transaction|batch|attempt>'
+                    // writes the timeline to the runtime log and replies with a short
+                    // confirmation. The JSON is far larger than any proven chat blob,
+                    // so it must not be replied into AO. Both sides of a transfer share
+                    // a batch id, so a batch selector writes Central's span and the
+                    // worker's together.
                     Reply(replyTarget, parts.Length == 1
                         ? _traces.Index()
-                        : _traces.Dump(parts[1]));
+                        : _traces.DumpToLog(parts[1], line => Logger.Information(line)));
                     break;
 
                 case "shutdown":

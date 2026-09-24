@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using Newtonsoft.Json;
 
 namespace CityDwellers.Shared
 {
@@ -27,10 +28,13 @@ namespace CityDwellers.Shared
     // failures: a broken tracer must not fail a transfer.
     public static class TradeTrace
     {
-        // Bounded so a stuck span cannot grow without limit. A ten-item batch
-        // needs roughly 120 stages; this leaves room for retries and waits while
-        // keeping the serialized span far below the relay's 60000-character cap.
-        private const int MaxStages = 600;
+        // Bounded so a stuck span cannot grow without limit. A ten-item batch needs
+        // roughly 120 stages. ServiceEvents.Router.Add silently discards any report
+        // serializing over 60000 characters, so the cap plus the empty-field
+        // suppression below must keep a full span well under that; End also
+        // re-emits a trimmed span rather than let one be dropped for size.
+        private const int MaxStages = 400;
+        private const int MaxPayloadCharacters = 50000;
 
         public sealed class Stage
         {
@@ -39,15 +43,59 @@ namespace CityDwellers.Shared
             public double AtMs;
             // Monotonic milliseconds since the previous stage.
             public double SinceMs;
-            // Present on wait stages only: how long the condition stayed unmet and
-            // how many times the state machine looked at it.
+
+            // Wait stages only.
+            //
+            // WaitedMs is how long the condition stayed unmet. On its own it cannot
+            // distinguish "AO took 503ms" from "AO took 70ms and we only looked
+            // again at 503ms", so the look pattern is recorded with it:
+            //   Observations  - how many times the machine evaluated the condition
+            //   FirstLookMs   - when it first saw the condition unmet
+            //   LastLookMs    - when it last saw it unmet
+            //   MaxLookGapMs  - the largest interval between consecutive looks
+            //
+            // The blind spot is AtMs - LastLookMs: the window in which the condition
+            // may already have been satisfied without anyone looking. A small blind
+            // spot and a small MaxLookGapMs mean the wait is genuinely external; a
+            // large one means we were not watching, which is our latency, not AO's.
             public double WaitedMs;
             public int Observations;
+            public double FirstLookMs;
+            public double LastLookMs;
+            public double MaxLookGapMs;
+
             public int Attempt;
             public string Detail;
             public int? AoId;
             public int? Ql;
             public string Occurrence;
+
+            // Newtonsoft honours these through JObject.FromObject, so an ordinary
+            // action stage serializes to a handful of fields instead of fourteen.
+            // Without this a full span can exceed the relay's size limit and be
+            // dropped without trace - the one failure this file cannot tolerate.
+            public bool ShouldSerializeWaitedMs() => WaitedMs != 0;
+            public bool ShouldSerializeObservations() => Observations != 0;
+            public bool ShouldSerializeFirstLookMs() => Observations != 0;
+            public bool ShouldSerializeLastLookMs() => Observations != 0;
+            public bool ShouldSerializeMaxLookGapMs() => Observations != 0;
+            public bool ShouldSerializeAttempt() => Attempt != 0;
+            public bool ShouldSerializeDetail() => Detail != null;
+            public bool ShouldSerializeAoId() => AoId.HasValue;
+            public bool ShouldSerializeQl() => Ql.HasValue;
+            public bool ShouldSerializeOccurrence() => Occurrence != null;
+        }
+
+        // Idle time by reason, so the critical-path idle breakdown does not have to
+        // be re-derived by summing stages by hand.
+        public sealed class WaitTotal
+        {
+            public double TotalMs;
+            public int Episodes;
+            public int Observations;
+            public double MaxEpisodeMs;
+            public double MaxLookGapMs;
+            public double BlindSpotMs;
         }
 
         public sealed class Span
@@ -58,6 +106,9 @@ namespace CityDwellers.Shared
             internal string OpenWaitCondition;
             internal double OpenWaitStartMs;
             internal int OpenWaitObservations;
+            internal double OpenWaitFirstLookMs;
+            internal double OpenWaitLastLookMs;
+            internal double OpenWaitMaxGapMs;
             internal bool Ended;
 
             public string Kind;
@@ -193,14 +244,21 @@ namespace CityDwellers.Shared
                 lock (span.Sync)
                 {
                     if (span.Ended) return;
+                    double at = span.Clock.Elapsed.TotalMilliseconds;
                     if (string.Equals(span.OpenWaitCondition, condition, StringComparison.Ordinal))
                     {
+                        double gap = at - span.OpenWaitLastLookMs;
+                        if (gap > span.OpenWaitMaxGapMs) span.OpenWaitMaxGapMs = gap;
+                        span.OpenWaitLastLookMs = at;
                         span.OpenWaitObservations++;
                         return;
                     }
                     CloseWaitLocked(span);
                     span.OpenWaitCondition = condition;
-                    span.OpenWaitStartMs = span.Clock.Elapsed.TotalMilliseconds;
+                    span.OpenWaitStartMs = at;
+                    span.OpenWaitFirstLookMs = at;
+                    span.OpenWaitLastLookMs = at;
+                    span.OpenWaitMaxGapMs = 0;
                     span.OpenWaitObservations = 1;
                     if (detail != null)
                         AddLocked(span, new Stage { Name = "wait.begin:" + condition, Detail = detail });
@@ -217,10 +275,14 @@ namespace CityDwellers.Shared
             {
                 Name = "wait:" + span.OpenWaitCondition,
                 WaitedMs = Round(now - span.OpenWaitStartMs),
-                Observations = span.OpenWaitObservations
+                Observations = span.OpenWaitObservations,
+                FirstLookMs = Round(span.OpenWaitFirstLookMs),
+                LastLookMs = Round(span.OpenWaitLastLookMs),
+                MaxLookGapMs = Round(span.OpenWaitMaxGapMs)
             };
             span.OpenWaitCondition = null;
             span.OpenWaitObservations = 0;
+            span.OpenWaitMaxGapMs = 0;
             int current;
             span.Counters.TryGetValue(Waits, out current);
             span.Counters[Waits] = current + 1;
@@ -249,9 +311,11 @@ namespace CityDwellers.Shared
             if (span == null) return;
             try
             {
-                object payload;
                 string severity;
                 string summary;
+                List<Stage> stages;
+                Dictionary<string, int> counters;
+                Dictionary<string, WaitTotal> waitTotals;
                 lock (span.Sync)
                 {
                     if (span.Ended) return;
@@ -264,29 +328,88 @@ namespace CityDwellers.Shared
                     severity = string.Equals(outcome, "completed", StringComparison.Ordinal)
                         ? "info" : "warning";
                     summary = Summary(span);
-                    payload = new
-                    {
-                        Kind = span.Kind,
-                        StartedUtc = span.StartedUtc,
-                        TransactionId = span.TransactionId,
-                        BatchId = span.BatchId,
-                        AttemptId = span.AttemptId,
-                        Source = span.Source,
-                        Destination = span.Destination,
-                        Role = span.Role,
-                        ManifestCount = span.ManifestCount,
-                        Outcome = span.Outcome,
-                        Error = span.Error,
-                        TotalMs = span.TotalMs,
-                        Truncated = span.Truncated,
-                        Counters = span.Counters.OrderBy(p => p.Key, StringComparer.Ordinal)
-                            .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal),
-                        Stages = span.Stages
-                    };
+                    stages = new List<Stage>(span.Stages);
+                    counters = span.Counters.OrderBy(p => p.Key, StringComparer.Ordinal)
+                        .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+                    waitTotals = WaitTotals(span.Stages);
                 }
-                ServiceEvents.Report("bank.trace", severity, summary, payload);
+
+                // A span that is too large to relay is worse than a coarse one: the
+                // relay drops an oversized report without saying so. Shed stage
+                // detail until it fits, and mark the span so nobody reads a trimmed
+                // timeline as a complete one.
+                bool trimmed = span.Truncated;
+                string serialized = null;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    serialized = JsonConvert.SerializeObject(new
+                    {
+                        Kind = span.Kind, StartedUtc = span.StartedUtc,
+                        TransactionId = span.TransactionId, BatchId = span.BatchId,
+                        AttemptId = span.AttemptId, Source = span.Source,
+                        Destination = span.Destination, Role = span.Role,
+                        ManifestCount = span.ManifestCount, Outcome = span.Outcome,
+                        Error = span.Error, TotalMs = span.TotalMs, Truncated = trimmed,
+                        Counters = counters, WaitTotals = waitTotals, Stages = stages
+                    });
+                    if (serialized.Length <= MaxPayloadCharacters) break;
+                    trimmed = true;
+                    // Drop the least diagnostic detail first, then halve the stage
+                    // list from the middle, keeping the beginning and the end.
+                    if (attempt == 0)
+                        foreach (var stage in stages) { stage.Detail = null; stage.Occurrence = null; }
+                    else
+                        stages = stages.Take(stages.Count / 4)
+                            .Concat(stages.Skip(stages.Count - stages.Count / 4)).ToList();
+                }
+
+                ServiceEvents.Report("bank.trace", severity, summary, new
+                {
+                    Kind = span.Kind,
+                    StartedUtc = span.StartedUtc,
+                    TransactionId = span.TransactionId,
+                    BatchId = span.BatchId,
+                    AttemptId = span.AttemptId,
+                    Source = span.Source,
+                    Destination = span.Destination,
+                    Role = span.Role,
+                    ManifestCount = span.ManifestCount,
+                    Outcome = span.Outcome,
+                    Error = span.Error,
+                    TotalMs = span.TotalMs,
+                    Truncated = trimmed,
+                    PayloadCharacters = serialized == null ? 0 : serialized.Length,
+                    Counters = counters,
+                    WaitTotals = waitTotals,
+                    Stages = stages
+                });
             }
             catch (Exception) { }
+        }
+
+        // Groups wait stages by condition. BlindSpotMs is the total time in which a
+        // condition may already have been satisfied with nobody looking - the part of
+        // a wait that is our polling cadence rather than external latency.
+        private static Dictionary<string, WaitTotal> WaitTotals(List<Stage> stages)
+        {
+            var totals = new Dictionary<string, WaitTotal>(StringComparer.Ordinal);
+            foreach (Stage stage in stages)
+            {
+                if (stage.Name == null || !stage.Name.StartsWith("wait:", StringComparison.Ordinal))
+                    continue;
+                string condition = stage.Name.Substring(5);
+                WaitTotal total;
+                if (!totals.TryGetValue(condition, out total))
+                    totals[condition] = total = new WaitTotal();
+                total.TotalMs = Round(total.TotalMs + stage.WaitedMs);
+                total.Episodes++;
+                total.Observations += stage.Observations;
+                if (stage.WaitedMs > total.MaxEpisodeMs) total.MaxEpisodeMs = stage.WaitedMs;
+                if (stage.MaxLookGapMs > total.MaxLookGapMs) total.MaxLookGapMs = stage.MaxLookGapMs;
+                total.BlindSpotMs = Round(total.BlindSpotMs + Math.Max(0, stage.AtMs - stage.LastLookMs));
+            }
+            return totals.OrderByDescending(p => p.Value.TotalMs)
+                .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
         }
 
         // One readable line for the chat/log path; the JSON payload carries the detail.
