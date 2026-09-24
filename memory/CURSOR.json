@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 237,
-  "last_completed_session": 236,
-  "status": "in_progress",
+  "last_completed_session": 237,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-237-tradetrace-namespace-fix",
-  "checkpoint_commit": "142b382",
-  "task": "Fix CS0246 on TradeTrace in CityBankers",
-  "resume_instruction": "Journal BEGIN is seq532. Three CityBankers files need a using alias for CityDwellers.Shared.TradeTrace. If in_progress with no seq533, inspect against 142b382.",
+  "checkpoint_commit": "e14b799",
+  "task": "Completed: TradeTrace namespace build fix.",
+  "resume_instruction": "Build e14b799. CityBankers files reach TradeTrace through a using alias; a new file using it needs that alias or the CityDwellers.Shared import. Phase 2 still awaits the owner's boring ten-item run, then raw spans to both reviewers before any analysis. Next journal seq534.",
   "base_commit": "142b382"
 }
