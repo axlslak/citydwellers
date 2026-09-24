@@ -3310,3 +3310,65 @@ and runs live validation. CRU diagnostic state remains unchanged.
   confirmation is not reversible by a later generic sentence.
 - Validation was source review only. No assistant build, no AO run, no automated
   tests; the owner rebuilds and live-verifies.
+
+## Session 233 — internal transfer cost and observability (findings only, no code)
+
+Read-only investigation at the owner's request: internal banker-to-banker transfer
+is far slower than filing a bank by hand, and the owner asked whether tracing
+would help fix it before anyone changes code.
+
+- `[VERIFIED]` The dominant remaining cost is the **per-item bag cycle on the
+  worker**. For each item in a batch `TickStorageJob` runs `FindBag` →
+  `MovingBagToInventory` → `OpeningBag` → `MovingItemIntoBag` → `ReturningBag`,
+  then `CommitStoredItem`. The bag goes bank → inventory → bank *every item*, with
+  full before/after slot-count evidence on the return. That is five AO operations
+  and one MySQL accounting commit per item; a ten-item batch is ~50 AO round trips.
+  Filing by hand opens the bag once.
+- `[VERIFIED]` Central-side latency is already much reduced. Session 225 removed
+  the `DispatchPeerReady("opened")` / `("accepted")` IPC round-trips and
+  `InternalOfferSettled` from the ordinary dispatch and withdrawal paths, and
+  session 224 raised `MaxInternalTradeItems` to `MaxTradeItems` (10). Adds remain
+  strictly serial with a 1200ms resend up to `InternalAddItemMaxAttempts` (4),
+  which is correct and cheap when AO acknowledges first time.
+- `[VERIFIED]` The tick governor is not a suspect. `BankerActivityGovernor.Due`
+  wakes on `localWork`, and `HasLiveBankingWork()` is true whenever `_storageJob`,
+  `_activeBatch` or `Trade.IsTrading` is set, so an in-flight transfer ticks at
+  `ActiveTickMilliseconds` (62ms), not the 2000ms vegetative cadence.
+- `[HAZARD]` The trade tracer exists only as call sites. `TraceTrade` at
+  `BankingServiceAgent.cs:185` has an **empty body**; its five callers
+  (`trade.opened`, `trade.status`, `recovery.requested`, `recovery.quiescing`,
+  `recovery.local`) are no-ops. `IncidentJournal.Record` and `ObserveWrite` are
+  likewise inert under `[Conditional("CITYDWELLERS_RETIRED_INCIDENT_TRACING")]`,
+  which also compiles out their argument construction. Anyone reading the call
+  sites will reasonably believe tracing is on. It is not.
+- `[VERIFIED]` `ServiceEvents` is live and already structured —
+  `{Id, TimeUtc, Character, CharacterId, Role, Event, Severity, Message, Data}`
+  with `Data` as a `JObject` — and `ReportTransferProgress` populates it. But
+  bankers call `ServiceEvents.Start` with **no sink**, so events route to Central →
+  Manager → chat and syslog and are never persisted. `cd_event_lines`, the table
+  that once held them, is in the retired-table drop list at
+  `ManagerDatabase.cs:128`.
+- `[VERIFIED]` **No banker code emits an elapsed time anywhere.**
+  `_dispatchTradeAge`, `_preparingAge`, `_outgoingAddAge` and the storage
+  deadlines exist only to trip timeouts; their values are never written. The
+  storage path logs one line per *batch*, nothing per phase, so wall-clock deltas
+  in the log cannot attribute time to a phase.
+- `[OPEN]` Three measurements do not exist and cannot be derived from source:
+  whether the 1200ms `AddItem` resends actually fire; what AO really takes to
+  acknowledge a bag move, bag open and item move against 3–5s timeouts; and what
+  the now-atomic per-item `CommitStoredItem` costs. Those three decide whether the
+  fix is amortising the bag cycle, stopping resends, or the database.
+- `[DECISION]` Recommended sequencing, owner's call: give `ServiceEvents` a
+  durable MySQL sink and add an elapsed field to events that already fire; measure
+  one real batch; then simplify with numbers. This is additive and touches no
+  custody logic. Two earlier attempts to fix trading were made without numbers.
+- `[OPEN]` `[DO-NOT-GUESS]` The per-item bag return may not be required by the
+  evidence model: items routed to the same bag in one batch could plausibly be
+  placed while it is open once, keeping per-item before/after slot-count proof and
+  returning the bag once — roughly 50 AO operations down to ~8. **Not traced.**
+  What depends on the per-item return is unknown; treat this as a question.
+- `[DECISION]` Do not batch away the per-item atomic `CommitStoredItem` from
+  session 220 to gain speed. Commit per item; amortise the bag, not the commit.
+  They are separable.
+- Findings only. No code was changed and nothing was built, run or measured;
+  there is no .NET toolchain in that container.
