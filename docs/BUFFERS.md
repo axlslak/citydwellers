@@ -93,10 +93,17 @@ City Dwellers equivalent and is therefore false; it was not repurposed into an
 unrelated organization rank. Existing legacy UserRanks records are ignored rather
 than rewritten or deleted.
 
-Mali's existing `BanJson` API remains the call-site seam, but live ban membership
-is now shared through ManagerMemory instead of Mali IPC. Existing per-character
-`BanList.json` files are retained only as restart persistence and are synchronized
-on explicit ban/unban changes; they are not polled for live coordination. Team
+Buffer access now uses City Dwellers' existing Manager-owned ban authority.
+CityManager expands its canonical ban list through the alt cache and publishes the
+effective banned identities with the other buffer authority data in ManagerMemory.
+Mali's local `BanJson`, buffer `ban`/`unban` commands, ban IPC messages and
+per-character `BanList.json` runtime path are retired. Existing old per-character
+BanList files, if still present on disk from an earlier build, are ignored.
+
+The optional Mali meeper detector may still request an automatic ban, but it does
+not write authority itself: the request goes to Manager through ManagerMemory and
+Manager applies the normal City Dwellers canonicalization, administrator protection
+and `banlist.json` persistence before republishing buffer authority. Team
 coordination is deliberately still Mali IPC and is the remaining migration area.
 
 ## Dependency trial
