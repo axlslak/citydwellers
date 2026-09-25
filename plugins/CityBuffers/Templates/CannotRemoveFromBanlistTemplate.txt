@@ -1,1 +1,0 @@
-<font color =#{{ red }}>'<font color =#{{ green }}>{{ name }}</font>' wasn't banned, cannot remove.</font>
