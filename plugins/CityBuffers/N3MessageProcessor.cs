@@ -7,6 +7,7 @@ using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 using System;
 using System.IO;
 using System.Linq;
+using CityDwellers.Shared;
 
 namespace MalisBuffBots
 {
@@ -102,7 +103,8 @@ namespace MalisBuffBots
 
             var formattedName = teamMember.Name.ToLower();
 
-            Main.BanJson.TryAdd(formattedName);
+            if (!ManagerMemory.Current.RequestBufferBan(formattedName, Client.CharacterName))
+                Logger.Warning($"Unable to queue City Dwellers auto-ban request for '{formattedName}'.");
             Main.QueueProcessor.ResetBotQueue();
         }
 
