@@ -1,4 +1,4 @@
-# Froob buffers
+# Buffers
 
 CityBuffers imports Mali's buff engine into the unified CityDwellers host.
 Build and run the solution as usual. The owner performs compilation and AO testing.
@@ -19,16 +19,37 @@ local runtime `citydwellers.json` (replace the example values):
       "Character": "Yourbuffer"
     }
   ],
+  "Paid": [
+    {
+      "Enabled": true,
+      "Username": "your-paid-account",
+      "Password": "your-local-password",
+      "Character": "Yourhighlevelbuffer"
+    }
+  ],
   "Behavior": {}
 }
 ```
 
-Missing `Buffers`, or `Enabled: false`, starts no buffers. Individual entries can
-also be disabled. Restart the host after configuration changes. Each enabled
-entry needs a separate froob account; duplicate accounts/characters and accounts
-already assigned to other City Dwellers services are rejected. Start with one
-character; add one froob of each profession as they become ready. Paid characters
-and their shared Flipper account are not supported by this first integration.
+Missing `Buffers`, or `Enabled: false`, starts no froob buffers. Individual
+entries can also be disabled. Restart the host after configuration changes. Each
+enabled `Froobs` entry needs a dedicated froob account; duplicate froob
+accounts/characters and froob accounts already assigned to other City Dwellers
+services are rejected. Start with one character; add one froob of each profession
+as they become ready.
+
+`Paid` is a separate credential category for high-level buffer characters. Each
+enabled paid entry has its own explicit `Username`, `Password` and `Character`.
+Paid entries may intentionally share a username with another paid character or
+with another City Dwellers service such as Flipper; that shared-account
+exclusivity will be handled by later scheduling. Paid character names must still
+be unique across `Froobs` and `Paid`.
+
+In the current implementation `Paid` is **configuration-only**. Paid entries are
+not part of `BufferSettings.Active`, are not started by BuffersHost, are not
+listed by `#buffers`, and cannot yet be started by buffer `#wakeup`. This is
+intentional: this step records credentials only and adds no paid login,
+scheduling, account arbitration, or buff behavior.
 
 Each character gets a clientless AppDomain/update loop and normally remains online
 until host shutdown. Administrators may temporarily hand one configured buffer
@@ -117,9 +138,10 @@ historical ChatHeader.Size failure involved a newer SDK and does not establish
 Use a full solution rebuild and deploy its complete output rather than mixing
 old and new dependency DLLs. Report compile or runtime errors for correction.
 
-Composite/duplicate buff balancing, paid scheduling, paid catalogue discovery
-and Manager-mediated buff selection remain later work. Paid bots must never be
-selected for froob requests when that layer is introduced.
+Composite/duplicate buff balancing, paid login/scheduling, shared-account
+arbitration, paid catalogue discovery and Manager-mediated buff selection remain
+later work. Declaring a character under `Paid` does not make it runnable yet.
+Paid bots must never be selected for froob requests when that layer is introduced.
 
 Scriban is pinned to 7.4.0 in the shared project configuration for the plugin and
 host, replacing the imported 5.7.0 version reported by NuGet audit. Its package
