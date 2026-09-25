@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 245,
+  "current_session": 246,
   "last_completed_session": 245,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-245-manager-banker-memory-signalling",
-  "checkpoint_commit": "95f68db",
-  "task": "Completed: Manager-to-banker wake and CRU signalling uses ManagerMemory; legacy banker pipe remains dormant backup.",
-  "resume_instruction": "Build current sealed master. Exercise tell-queue banker wake and #cru, plus a normal banker transfer/#get. Normal banker signalling should remain in ManagerMemory; legacy banker pipe listener is retained but unused by these paths. Next journal seq550.",
-  "base_commit": "cf96e66"
+  "transaction": "session-246-zero-recipient-tell-guard",
+  "checkpoint_commit": "3ab2994",
+  "task": "Guard zero-recipient tells at CityBuffers producer and shared tell-queue boundary.",
+  "resume_instruction": "Resume session 246 only. Complete zero-recipient tell guards without changing valid tell routing/retry behavior. Next journal seq551.",
+  "base_commit": "3ab2994"
 }
