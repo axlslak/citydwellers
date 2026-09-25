@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 237,
+  "current_session": 238,
   "last_completed_session": 237,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-237-tradetrace-namespace-fix",
-  "checkpoint_commit": "e14b799",
-  "task": "Completed: TradeTrace namespace build fix.",
-  "resume_instruction": "Build e14b799. CityBankers files reach TradeTrace through a using alias; a new file using it needs that alias or the CityDwellers.Shared import. Phase 2 still awaits the owner's boring ten-item run, then raw spans to both reviewers before any analysis. Next journal seq534.",
-  "base_commit": "142b382"
+  "transaction": "session-238-temporary-buffer-sleep-wakeup",
+  "checkpoint_commit": "a780a3e",
+  "task": "Implement temporary per-buffer sleep/wakeup without changing Buddy behavior.",
+  "resume_instruction": "Journal BEGIN is seq534. Add host-lifetime-only buffer control through ManagerMemory; sleep <buffer-character> and wakeup <buffer-character> must not alter existing Buddy command semantics. Refactor BuffersHost for per-character unload/restart. No persistent sleep state. Owner builds/tests. Next journal seq535.",
+  "base_commit": "2a8f7dc"
 }
