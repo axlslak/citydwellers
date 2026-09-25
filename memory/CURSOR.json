@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 247,
+  "current_session": 248,
   "last_completed_session": 247,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-247-mali-memory-stage1-botinfo",
-  "checkpoint_commit": "538a121",
-  "task": "Completed: Mali BotInfo/capability replication uses ManagerMemory; remaining Mali IPC stays for later staged migration.",
-  "resume_instruction": "Build current sealed master and verify buffers still discover each other's professions/spell capabilities and normal buff routing works. Next Mali IPC stage should be isolated separately. Next journal seq554.",
-  "base_commit": "07c0405"
+  "transaction": "session-248-mali-memory-stage2-presence",
+  "checkpoint_commit": "20824cc",
+  "task": "Stage 2 Mali IPC migration: replace Ping/Pong peer liveness with ManagerMemory buffer presence.",
+  "resume_instruction": "Resume session 248 only. Complete ManagerMemory presence migration; do not touch team coordination/queue/cast/ban IPC. Next journal seq555.",
+  "base_commit": "20824cc"
 }
