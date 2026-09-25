@@ -125,7 +125,7 @@ namespace CityManager
                     return false;
                 }
 
-                message = $"Unbanned {existing}.";
+                message = $"Removed {existing} from the ban list.";
                 return true;
             }
         }
