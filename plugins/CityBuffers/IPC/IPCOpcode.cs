@@ -16,7 +16,5 @@ namespace MalisBuffBots
         Pong = 5,
         UpdateTeamMember = 6,
         RegisterTeamTracker = 7,
-        BanRequest = 8,
-        BanRemove = 9,
     }
 }
