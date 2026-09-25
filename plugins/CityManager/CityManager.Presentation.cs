@@ -367,7 +367,12 @@ namespace CityManager
                     return true;
 
                 case "ban":
-                case "unban":
+                case "ban add":
+                case "ban del":
+                case "ban rem":
+                case "ban remove":
+                case "ban list":
+                case "ban print":
                     if (!isAdmin)
                         return false;
                     title = "Access Control";
@@ -518,8 +523,9 @@ namespace CityManager
                 body.Append(HelpSyntaxLine(target, "member [add|del] [character]", "Change live membership."));
                 body.Append(HelpSyntaxLine(target, "adminlist", "Show administrators."));
                 body.Append(HelpSyntaxLine(target, "admin [add|del] [character]", "Change administrators."));
-                body.Append(HelpSyntaxLine(target, "ban [character]", "Deny bot access."));
-                body.Append(HelpSyntaxLine(target, "unban [character]", "Remove a bot ban."));
+                body.Append(HelpSyntaxLine(target, "ban add [character]", "Deny bot access."));
+                body.Append(HelpSyntaxLine(target, "ban del [character]", "Remove a bot ban."));
+                body.Append(HelpSyntaxLine(target, "ban list", "Show banned canonical identities."));
                 body.Append(HelpSyntaxLine(target, "recoverraid [owner] [all|general] [level] [count]", "Recover a raid after restart."));
                 body.Append(HelpSyntaxLine(target, "dump", "Save a diagnostic snapshot."));
                 body.Append(HelpSyntaxLine(target, "trace [n|id]",
@@ -635,9 +641,11 @@ namespace CityManager
         {
             return HelpHeader(
                     "Access control",
-                    "A ban is an explicit deny and overrides ordinary member access. Administrators cannot be banned.") +
-                HelpSyntaxLine(target, "ban [character]", "Add a canonical character identity to the ban list.") +
-                HelpSyntaxLine(target, "unban [character]", "Remove the canonical identity from the ban list.");
+                    "A ban is an explicit deny and overrides ordinary member access. Administrators cannot be banned. Known alts resolve to their canonical main.") +
+                HelpSyntaxLine(target, "ban add [character]", "Add a canonical character identity to the ban list.") +
+                HelpSyntaxLine(target, "ban del [character]", "Remove the canonical identity from the ban list.") +
+                HelpSyntaxLine(target, "ban list", "Show every canonical identity currently banned.") +
+                "\n<font color='" + ColorMuted + "'>rem and remove are accepted aliases for del; print is an alias for list.</font>";
         }
 
         private string BuildAdministratorListHelp(ReplyTarget target)
