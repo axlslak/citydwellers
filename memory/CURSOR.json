@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 245,
-  "last_completed_session": 244,
-  "status": "in_progress",
+  "last_completed_session": 245,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-245-manager-banker-memory-signalling",
-  "checkpoint_commit": "cf96e66",
-  "task": "Move Manager-originated banker wake/#cru signalling to ManagerMemory; retain pipe as dormant backup.",
-  "resume_instruction": "Resume session 245 only. Complete Manager->banker wake/#cru memory migration; do not delete dormant pipe fallback. Next journal seq549.",
+  "checkpoint_commit": "95f68db",
+  "task": "Completed: Manager-to-banker wake and CRU signalling uses ManagerMemory; legacy banker pipe remains dormant backup.",
+  "resume_instruction": "Build current sealed master. Exercise tell-queue banker wake and #cru, plus a normal banker transfer/#get. Normal banker signalling should remain in ManagerMemory; legacy banker pipe listener is retained but unused by these paths. Next journal seq550.",
   "base_commit": "cf96e66"
 }
