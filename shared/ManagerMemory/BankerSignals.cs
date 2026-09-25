@@ -69,17 +69,18 @@ namespace CityDwellers.Shared
         public bool EnqueueBankerSignal(string character, BankerSignalRequest request)
         {
             if (string.IsNullOrWhiteSpace(character) || request == null) return false;
-            BankerSignalWake wake = null;
+            BankerSignalWake wake;
             lock (_bankerSignalSync)
             {
+                if (!_bankerSignalWakes.TryGetValue(character, out wake))
+                    return false;
                 Queue<BankerSignalRequest> queue;
                 if (!_bankerSignals.TryGetValue(character, out queue))
                     _bankerSignals.Add(character, queue = new Queue<BankerSignalRequest>());
                 if (queue.Count >= BankerSignalLimit) return false;
                 queue.Enqueue(request);
-                _bankerSignalWakes.TryGetValue(character, out wake);
             }
-            try { wake?.Wake(); } catch { }
+            try { wake.Wake(); } catch { }
             return true;
         }
 
