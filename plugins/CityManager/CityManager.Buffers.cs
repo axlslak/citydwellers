@@ -56,11 +56,16 @@ namespace CityManager
             members.UnionWith(admins);
             ranked.UnionWith(admins);
 
+            var banned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string bannedCharacter in BanListStore.Snapshot())
+                AddBufferAuthorityIdentities(bannedCharacter, banned);
+
             ManagerMemory.Current.PublishBufferAuthority(
                 admins.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray(),
                 ranked.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray(),
                 members.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray(),
-                new string[0]);
+                new string[0],
+                banned.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray());
         }
 
         private void AddBufferAuthorityIdentities(string character, HashSet<string> target)
