@@ -138,6 +138,7 @@ namespace MalisBuffBots
         {
             try
             {
+                Main.Ipc?.DrainMemorySignals();
                 DateTime now = DateTime.UtcNow;
                 if (_lastSent > now.AddSeconds(5)) _lastSent = null;
                 if (now >= _nextHeartbeat)
