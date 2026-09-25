@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 241,
-  "last_completed_session": 240,
-  "status": "in_progress",
+  "last_completed_session": 241,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-241-buffer-authority-adapter",
-  "checkpoint_commit": "c4dfab4",
-  "task": "Replace Mali UserRanks.json lookup with City Dwellers ManagerMemory authority, in place.",
-  "resume_instruction": "Journal BEGIN is seq540. Preserve Mali Rank/UserRank call sites; publish alt-aware Manager admin/ranked/member authority into ManagerMemory; remove only UserRanks.json plumbing. Warper has no City Dwellers equivalent and must not be repurposed. Leave BanList and Mali IPC untouched. Next journal seq541.",
+  "checkpoint_commit": "f58cb40",
+  "task": "Completed: Mali buffer authority now uses City Dwellers ManagerMemory; UserRanks.json retired.",
+  "resume_instruction": "Build f58cb40 or current sealed master. Verify Kavem can use buffer debug through City Dwellers admin authority and a normal AP member can use ordinary help/cast while non-members are denied. Mali IPC/BotCache remains unchanged and is the next isolated topic. Preserve the owner rule: do not rewrite Mali; replace standalone infrastructure underneath existing seams. Next journal seq542.",
   "base_commit": "c4dfab4"
 }
