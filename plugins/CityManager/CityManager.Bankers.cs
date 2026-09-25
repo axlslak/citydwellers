@@ -7,6 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
@@ -766,9 +767,17 @@ namespace CityManager
                     var central = roles?.Properties().FirstOrDefault(p => p.Name.Equals("central", StringComparison.OrdinalIgnoreCase))?.Value as JObject;
                     string character = (string)central?.GetValue("Character", StringComparison.OrdinalIgnoreCase);
                     if (string.IsNullOrWhiteSpace(character)) { Reply(target, "Central is not configured."); return; }
-                    string pipe = "CityDwellers.Bankers." + Process.GetCurrentProcess().Id + "." + character.ToLowerInvariant();
-                    string result = await LocalIpc.RequestLineAsync(pipe,
-                        Newtonsoft.Json.JsonConvert.SerializeObject(new { Kind = "cru", CruRequest = request }), 1000, 5000).ConfigureAwait(false);
+                    var signal = new BankerSignalRequest(
+                        Newtonsoft.Json.JsonConvert.SerializeObject(new { Kind = "cru", CruRequest = request }));
+                    if (!ManagerMemory.Current.EnqueueBankerSignal(character, signal))
+                    {
+                        Reply(target, "Central is busy. Please try #cru again shortly.");
+                        return;
+                    }
+                    Task completed = await Task.WhenAny(signal.ReplyTask, Task.Delay(5000)).ConfigureAwait(false);
+                    string result = completed == signal.ReplyTask
+                        ? await signal.ReplyTask.ConfigureAwait(false)
+                        : signal.TryCancel() ? "busy" : "pending";
                     Reply(target, result == "pending" || string.IsNullOrWhiteSpace(result)
                         ? "Central is processing your CRU request. Wait for the ready tell before requesting another."
                         : result == "busy" ? "Central is busy; this request was not queued. Please try #cru again shortly." : result);
