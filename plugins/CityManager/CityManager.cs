@@ -572,8 +572,8 @@ namespace CityManager
                   command == "kick" ||
                   command == "sleep" ||
                   command == "spindown") && parts.Length == 2) ||
-                ((command == "wakeup" ||
-                  command == "spinup") && parts.Length == 3);
+                (command == "wakeup" && (parts.Length == 2 || parts.Length == 3)) ||
+                (command == "spinup" && parts.Length == 3);
 
             if (!hasCommandShape)
                 return false;
