@@ -112,9 +112,8 @@ namespace CityBankers
         {
             try
             {
-                return await CityDwellers.Shared.LocalIpc.RequestLineAsync(BankerPipe(_centralCharacter),
-                    JsonConvert.SerializeObject(new DispatchProposal { Kind = "storage-recovery", StorageRecovery = request }),
-                    1000, 4000).ConfigureAwait(false);
+                return await SendBankerMemory(_centralCharacter,
+                    new DispatchProposal { Kind = "storage-recovery", StorageRecovery = request }).ConfigureAwait(false);
             }
             catch (Exception) { return "pending"; }
         }
