@@ -3472,4 +3472,12 @@ affected-only recovery policy and leaves broad automatic audits disabled.
 - [BOUNDARY] The banker named-pipe listener is deliberately retained for unrelated Manager-originated compatibility paths such as wake/#cru. Manager/buffer/ServiceEvents IPC was not migrated in this session. No durable transaction state was moved into the mailbox.
 - [RECOVERY] Teardown and ManagerMemory client disconnect unregister the banker wake endpoint and cancel queued unclaimed requests, so a dead AppDomain cannot retain an active mailbox endpoint.
 - [VALIDATION] Source/call-path review only. Current banker peer sender files no longer call LocalIpc.RequestLineAsync or BankerPipe; the remaining banker pipe is the listener/Manager compatibility path. No assistant build or live AO test; owner retains compiler/live validation.
+## Session 245 — Manager-to-banker wake/CRU signalling uses ManagerMemory
+
+- [OWNER-DIRECTION] Complete the normal in-host signalling path by moving Manager-originated banker wake and CRU request/reply traffic to ManagerMemory. Keep the old banker pipe implementation in source as dormant backup; do not remove it merely because normal callers no longer use it.
+- [IMPLEMENTED] Tell-queue banker wake now enqueues a one-way ManagerMemory banker signal. Manager #cru now sends the existing CRU payload through the same bounded banker mailbox and waits for the existing banker handler reply with the same 5-second outer timeout behavior.
+- [IMPLEMENTED] ManagerMemory rejects signals when the destination banker has no registered in-process endpoint, preventing undeliverable wake requests from accumulating and causing #cru to fail cleanly when Central is not running.
+- [BOUNDARY] The legacy BankerPipe/ServeBankerIpc listener and LocalIpc code remain available as backup code, but normal banker-to-banker and Manager-to-banker wake/CRU paths no longer call them. No buffer or ServiceEvents IPC was changed.
+- [UNCHANGED] CRU business handling, AO-thread ownership, custody/accounting, durable recovery state and physical trade semantics are unchanged.
+- [VALIDATION] Source/call-path review confirms current CityManager wake and CRU files contain no LocalIpc.RequestLineAsync or CityDwellers.Bankers pipe construction; BankingServiceAgent still contains the dormant listener. No assistant build or live AO test; owner retains compiler/runtime validation.
 
