@@ -18,6 +18,13 @@ namespace CityDwellers.Shared
         public bool? Success;
         internal BufferControlOperation Copy() => (BufferControlOperation)MemberwiseClone();
     }
+
+    [Serializable]
+    public sealed class BufferBanRequest
+    {
+        public string Character, Source;
+        internal BufferBanRequest Copy() => (BufferBanRequest)MemberwiseClone();
+    }
     public sealed partial class ManagerMemory
     {
         private readonly object _serviceSync = new object();
@@ -37,6 +44,8 @@ namespace CityDwellers.Shared
         private readonly HashSet<string> _bufferBanned =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private bool _bufferAuthorityReady;
+        private readonly Queue<BufferBanRequest> _bufferBanRequests =
+            new Queue<BufferBanRequest>();
         private readonly Dictionary<string, BuddyPositionSnapshot> _buddyPositions = new Dictionary<string, BuddyPositionSnapshot>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, BuddyHomeDirective> _buddyHomes = new Dictionary<string, BuddyHomeDirective>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _readyBuddies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -176,6 +185,34 @@ namespace CityDwellers.Shared
         { lock (_serviceSync) return _bufferAuthorityReady && HasName(_bufferWarpers, character); }
         public bool BufferIsBanned(string character)
         { lock (_serviceSync) return _bufferAuthorityReady && HasName(_bufferBanned, character); }
+
+        public bool RequestBufferBan(string character, string source)
+        {
+            if (string.IsNullOrWhiteSpace(character)) return false;
+            lock (_serviceSync)
+            {
+                if (_bufferBanRequests.Count >= 64) return false;
+                _bufferBanRequests.Enqueue(new BufferBanRequest
+                {
+                    Character = character.Trim(),
+                    Source = source
+                });
+                return true;
+            }
+        }
+
+        public List<BufferBanRequest> TakeBufferBanRequests(int maximum)
+        {
+            var result = new List<BufferBanRequest>();
+            if (maximum <= 0) return result;
+            lock (_serviceSync)
+            {
+                while (result.Count < maximum && _bufferBanRequests.Count > 0)
+                    result.Add(_bufferBanRequests.Dequeue().Copy());
+            }
+            return result;
+        }
+
         private static bool HasName(HashSet<string> names, string character) =>
             !string.IsNullOrWhiteSpace(character) && names.Contains(character);
         private static void ReplaceNames(HashSet<string> target, IEnumerable<string> source)
