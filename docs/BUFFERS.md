@@ -54,11 +54,14 @@ buffer and try `/tell Yourbuffer help`, then use its menu or `cast <tag>`.
 The inherited startup delay is 30 seconds after entering play.
 
 Use `#buffers` through Manager (or tell Manager `buffers`) to query each configured
-buffer over City Dwellers local IPC. It reports readiness, known nano count and
-buff queue length. Manager's existing command authorization still applies.
-This is an initial status connection, not Manager-mediated buff requests or an
-offline paid-buff catalogue. Mali's separate AOSharp IPC still coordinates its
-froob casting group; its default channel is 255.
+buffer over the existing City Dwellers status bridge. It reports readiness, known
+nano count and buff queue length. Manager's existing command authorization still
+applies. This status bridge is separate from peer coordination.
+
+Same-host buffer coordination now uses ManagerMemory for bot identity/capability,
+presence, queue snapshots, cross-buffer cast routing, bans and the shared tell
+queue. Mali AOSharp IPC remains active only for the team-coordination paths
+(`TeamInfo`, `TeamTracker` and `RequestTeamInvite`); its default channel is 255.
 
 All buffer tells enter the shared Manager-scheduled tell queue. Mali's own replies
 remain pinned to their originating buffer so team prompts and menu links retain
@@ -78,7 +81,8 @@ for queued output to be delivered; no direct-send fallback bypasses pacing.
 
 Other original options remain in the packaged `Buffers/JSON/Settings.json`.
 Use the unified `Behavior` overrides for local configuration; builds may refresh
-packaged assets. All froobs in the group must use the same IPC channel.
+packaged assets. The IPC channel now matters only to the retained Mali team
+coordination, so all froobs participating in that team layer must still share it.
 Mali's command/rank call sites remain in place, but `UserRanks.json` is retired.
 CityManager publishes its effective alt-aware authority into ManagerMemory and
 Mali's existing `UserRank.MeetsRank` seam reads it directly: `Admin` uses City
@@ -89,9 +93,11 @@ City Dwellers equivalent and is therefore false; it was not repurposed into an
 unrelated organization rank. Existing legacy UserRanks records are ignored rather
 than rewritten or deleted.
 
-Per-character `BanList.json` remains unchanged for now, including Mali's existing
-IPC propagation. The IPC transport itself is a separate follow-up; this authority
-change deliberately does not rewrite Mali's casting, queue, team or IPC engine.
+Mali's existing `BanJson` API remains the call-site seam, but live ban membership
+is now shared through ManagerMemory instead of Mali IPC. Existing per-character
+`BanList.json` files are retained only as restart persistence and are synchronized
+on explicit ban/unban changes; they are not polled for live coordination. Team
+coordination is deliberately still Mali IPC and is the remaining migration area.
 
 ## Dependency trial
 
