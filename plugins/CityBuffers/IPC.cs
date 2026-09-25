@@ -10,6 +10,7 @@ using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using AOSharp.Core.IPC;
 using CityDwellers.Shared;
+using Newtonsoft.Json;
 
 namespace MalisBuffBots
 {
@@ -21,13 +22,10 @@ namespace MalisBuffBots
 
         public IPC(byte channelId, int pingPongUpdateMs) : base(channelId)
         {
-            RegisterCallback((int)IPCOpcode.CastRequest, OnCastRequestReceived);
-            RegisterCallback((int)IPCOpcode.ReceiveQueueInfo, OnReceiveQueueInfoReceived);
-            RegisterCallback((int)IPCOpcode.UpdateBotInfo, OnReceivedBotInfoMessage);
+            // Only team coordination remains on Mali IPC. Bot/capability presence,
+            // queue state, cast routing and bans are now same-host ManagerMemory.
             RegisterCallback((int)IPCOpcode.UpdateTeamMember, OnReceivedTeamInfoMessage);
             RegisterCallback((int)IPCOpcode.RequestTeamInvite, OnRequestTeamInviteReceived);
-            RegisterCallback((int)IPCOpcode.BanRequest, OnBanRequestReceived);
-            RegisterCallback((int)IPCOpcode.BanRemove, OnBanRemoveReceived);
             RegisterCallback((int)IPCOpcode.RegisterTeamTracker, OnRegisterTeamTracker);
         }
 
@@ -41,6 +39,54 @@ namespace MalisBuffBots
         {
             BanRequestMessage banMsg = (BanRequestMessage)msg;
             Main.BanJson.TryAdd(banMsg.Name);
+        }
+
+        private sealed class MemoryCastRequest
+        {
+            public int Caster;
+            public int Requester;
+            public NanoEntry[] Entries;
+        }
+
+        public bool SendCastRequest(Profession caster, int requester, IEnumerable<NanoEntry> entries)
+        {
+            var request = new MemoryCastRequest
+            {
+                Caster = (int)caster,
+                Requester = requester,
+                Entries = (entries ?? Enumerable.Empty<NanoEntry>()).ToArray()
+            };
+            return ManagerMemory.Current.EnqueueBufferSignalForProfession(
+                (int)caster, "cast", JsonConvert.SerializeObject(request));
+        }
+
+        public void DrainMemorySignals()
+        {
+            if (!Client.InPlay || DynelManager.LocalPlayer == null || Main.QueueProcessor == null)
+                return;
+
+            foreach (BufferMemorySignal signal in
+                ManagerMemory.Current.TakeBufferSignals(Client.CharacterName, 32))
+            {
+                if (!string.Equals(signal.Kind, "cast", StringComparison.Ordinal))
+                    continue;
+
+                MemoryCastRequest request;
+                try { request = JsonConvert.DeserializeObject<MemoryCastRequest>(signal.Payload ?? "null"); }
+                catch (JsonException) { continue; }
+                if (request == null ||
+                    request.Caster != (int)DynelManager.LocalPlayer.Profession ||
+                    request.Requester == 0 ||
+                    request.Entries == null || request.Entries.Length == 0)
+                    continue;
+
+                var requester = DynelManager.Players.FirstOrDefault(
+                    x => x.Identity.Instance == request.Requester);
+                if (requester == null)
+                    continue;
+
+                Main.QueueProcessor.LocalEnqueue(requester, request.Entries);
+            }
         }
 
         // Retained for Mali's existing surface. Presence now comes from ManagerMemory;
@@ -168,6 +214,23 @@ namespace MalisBuffBots
                     : Identity.None;
                 _entries[profession].SpellData = fresh ? snapshot.SpellData ?? new int[0] : new int[0];
                 _entries[profession].LastUpdateInTicks = fresh ? snapshot.ObservedUtc.Ticks : 0;
+                if (fresh && !string.IsNullOrWhiteSpace(snapshot.QueueJson))
+                {
+                    try
+                    {
+                        _entries[profession].Queue =
+                            JsonConvert.DeserializeObject<BuffEntry[]>(snapshot.QueueJson) ??
+                            new BuffEntry[0];
+                    }
+                    catch (JsonException)
+                    {
+                        _entries[profession].Queue = new BuffEntry[0];
+                    }
+                }
+                else
+                {
+                    _entries[profession].Queue = new BuffEntry[0];
+                }
             }
 
             foreach (Profession profession in _entries.Keys.Where(x => !present.Contains(x)).ToArray())
@@ -215,12 +278,10 @@ namespace MalisBuffBots
             BuffEntry[] queue = Main.QueueProcessor.Queue.AllEntries.ToArray();
 
             UpdateQueueInfo(prof, queue);
-
-            Main.Ipc.Broadcast(new QueueInfoMessage
-            {
-                Profession = prof,
-                Entries  = queue
-            });
+            ManagerMemory.Current.PublishBufferQueue(
+                Client.CharacterName,
+                (int)prof,
+                JsonConvert.SerializeObject(queue));
         }
 
         public void BroadcastTeamTrackerMessage(Profession prof, int requester)
