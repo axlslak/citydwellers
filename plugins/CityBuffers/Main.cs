@@ -5,6 +5,7 @@ using AOSharp.Common.GameData;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CityDwellers.Shared;
 
 namespace MalisBuffBots
 {
@@ -14,7 +15,6 @@ namespace MalisBuffBots
         public static SettingsJson SettingsJson;            // Behavior defaults plus citydwellers.json Buffers.Behavior overrides
         public static BuffsJson BuffsJson;                  // All bot nanos (configurable in JSON/BuffsDb.json)
         public static RebuffJson RebuffJson;                // Rebuff info (configurable in JSON/RebuffInfo.json)
-        public static BanJson BanJson;                      // Ban list (use admin commands ban 'name' and unban 'name' to manipulate
         public static QueueProcessor QueueProcessor;        // Queue processing logic
         public static RebuffProcessor RebuffProcessor;      // Rebuff processing logic
         public static CommandProcessor _commandProcessor;   // Command processing logic
@@ -36,7 +36,6 @@ namespace MalisBuffBots
                 Ipc = new IPC(SettingsJson.Data.IPCChannelId, 5000);
                 BuffsJson = new BuffsJson(Path.BUFF_JSON);
                 RebuffJson = new RebuffJson(Path.REBUFF_JSON);
-                BanJson = new BanJson(Path.BAN_JSON);
                 UserRank = new UserRank();
                 _commandProcessor = new CommandProcessor();
                 QueueProcessor = new QueueProcessor();
@@ -104,9 +103,9 @@ namespace MalisBuffBots
                 return;
             }
 
-            if (BanJson.Contains(simpleChar.Name.ToLower()) || simpleChar.OrgName != null && BanJson.Contains(simpleChar.OrgName.ToLower()))
+            if (ManagerMemory.Current.BufferIsBanned(simpleChar.Name))
             {
-                Logger.Error($"Banned user '{msg.SenderName}' command rejected.");
+                Logger.Error($"Banned user '{msg.SenderName}' command rejected by City Dwellers authority.");
                 return;
             }
 
@@ -143,52 +142,8 @@ namespace MalisBuffBots
                 case Command.Clear:
                     ProcessClearRequest(requester);
                     break;
-                case Command.Ban:
-                    ProcessBanRequest(requester, commandParts);
-                    break;
-                case Command.Unban:
-                    ProcessUnbanRequest(requester, commandParts);
-                    break;
             }
         }
-        private void ProcessBanRequest(int requester, string[] name)
-        {
-            if (name == null)
-            {
-                CityBufferBridge.SendPrivateMessage((uint)requester, "Error processing name");
-                return;
-            }
-
-            string formattedName = string.Join(" ", name).ToLower();
-
-            if (!BanJson.TryAdd(formattedName))
-            {
-                CityBufferBridge.SendPrivateMessage((uint)requester, ScriptTemplate.AlreadyBanned(formattedName));
-                return;
-            }
-
-            CityBufferBridge.SendPrivateMessage((uint)requester, ScriptTemplate.AddToBanlist(formattedName));
-        }
-
-        private void ProcessUnbanRequest(int requester, string[] name)
-        {
-            if (name == null)
-            {
-                CityBufferBridge.SendPrivateMessage((uint)requester, "Error processing name");
-                return;
-            }
-
-            string formattedName = string.Join(" ", name).ToLower();
-
-            if (!BanJson.TryRemove(formattedName))
-            {
-                CityBufferBridge.SendPrivateMessage((uint)requester, ScriptTemplate.CannotRemoveFromBanlist(formattedName));
-                return;
-            }
-
-            CityBufferBridge.SendPrivateMessage((uint)requester, ScriptTemplate.RemoveFromBanlist(formattedName));
-        }
-
         private void ProcessClearRequest(int requester)
         {
             QueueProcessor.ResetBotQueue();
