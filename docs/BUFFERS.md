@@ -96,7 +96,7 @@ than rewritten or deleted.
 Buffer access now uses City Dwellers' existing Manager-owned ban authority.
 CityManager expands its canonical ban list through the alt cache and publishes the
 effective banned identities with the other buffer authority data in ManagerMemory.
-Mali's local `BanJson`, buffer `ban`/`unban` commands, ban IPC messages and
+Mali's local `BanJson`, buffer-local ban commands, ban IPC messages and
 per-character `BanList.json` runtime path are retired. Existing old per-character
 BanList files, if still present on disk from an earlier build, are ignored.
 
