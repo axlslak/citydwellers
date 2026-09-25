@@ -2,11 +2,11 @@
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 242,
   "last_completed_session": 241,
-  "status": "in_progress",
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-242-citybuffers-conversation-memory",
   "checkpoint_commit": "afa3589",
-  "task": "Create encrypted conversation #6 for CityBuffers/ManagerMemory integration rationale.",
-  "resume_instruction": "Journal BEGIN is seq542. Create conversation #6 encrypted memory and manifest entry; never store the supplied password. Seal to idle with seq543.",
+  "task": "Aborted: conversation-memory archive update was not published.",
+  "resume_instruction": "Repository is clean and idle. Session 241 state/history remains authoritative for the CityBuffers no-rewrite rule. Mali IPC/BotCache is the next isolated issue. Next journal seq544.",
   "base_commit": "afa3589"
 }
