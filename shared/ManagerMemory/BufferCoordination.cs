@@ -20,8 +20,6 @@ namespace CityDwellers.Shared
         private const int BufferSignalLimit = 256;
         private readonly Dictionary<string, Queue<BufferMemorySignal>> _bufferSignals =
             new Dictionary<string, Queue<BufferMemorySignal>>(StringComparer.OrdinalIgnoreCase);
-        private readonly HashSet<string> _bufferBans =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         public void PublishBufferQueue(string character, int profession, string queueJson)
         {
@@ -92,36 +90,5 @@ namespace CityDwellers.Shared
             lock (_bufferBotSync) _bufferSignals.Remove(character);
         }
 
-        public void MergeBufferBans(IEnumerable<string> names)
-        {
-            if (names == null) return;
-            lock (_bufferBotSync)
-                foreach (string name in names.Where(x => !string.IsNullOrWhiteSpace(x)))
-                    _bufferBans.Add(name.Trim());
-        }
-
-        public bool BufferBanContains(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return false;
-            lock (_bufferBotSync) return _bufferBans.Contains(name.Trim());
-        }
-
-        public bool TryAddBufferBan(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return false;
-            lock (_bufferBotSync) return _bufferBans.Add(name.Trim());
-        }
-
-        public bool TryRemoveBufferBan(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return false;
-            lock (_bufferBotSync) return _bufferBans.Remove(name.Trim());
-        }
-
-        public List<string> BufferBans()
-        {
-            lock (_bufferBotSync)
-                return _bufferBans.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
-        }
     }
 }
