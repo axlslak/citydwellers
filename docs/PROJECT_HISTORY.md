@@ -3394,3 +3394,17 @@ confirmation is not confirmation of absence" has an inverse of equal weight: onc
 physical removal is confirmed, nothing may later assert physical presence. A
 generic reassurance appended to every failure is how a system talks itself out of
 evidence it already had.
+
+## Session 238 — buffer accounts can be handed back to the owner temporarily
+
+Buffer characters no longer require a whole-host stop or two configuration edits
+when the owner needs to log one normally for nano uploads or quests. Manager now
+accepts a character form of the existing commands: `sleep Kbdoc` unloads only
+that configured buffer AppDomain, and `wakeup Kbdoc` recreates it. The numeric
+Buddy command forms and their existing rules were deliberately left alone.
+
+The control path is host-lifetime ManagerMemory state, not another local IPC
+protocol and not durable state. Consequently a City Dwellers restart deliberately
+forgets manual buffer sleeps and returns to configuration truth by starting all
+enabled buffers. The buffer status command identifies manual sleep instead of
+reporting a generic unavailable status.

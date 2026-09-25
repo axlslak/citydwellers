@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace CityDwellers.Shared
 {
@@ -9,11 +10,22 @@ namespace CityDwellers.Shared
         public string Id, Action, Result;
         internal FlipperOperation Copy() => (FlipperOperation)MemberwiseClone();
     }
+
+    [Serializable]
+    public sealed class BufferControlOperation
+    {
+        public string Id, Action, Character, Result;
+        public bool? Success;
+        internal BufferControlOperation Copy() => (BufferControlOperation)MemberwiseClone();
+    }
     public sealed partial class ManagerMemory
     {
         private readonly object _serviceSync = new object();
         private FlipperOperation _flipperOperation;
         private string _flipperCancellation;
+        private BufferControlOperation _bufferControl;
+        private readonly HashSet<string> _sleepingBuffers =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, BuddyPositionSnapshot> _buddyPositions = new Dictionary<string, BuddyPositionSnapshot>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, BuddyHomeDirective> _buddyHomes = new Dictionary<string, BuddyHomeDirective>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _readyBuddies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -41,6 +53,88 @@ namespace CityDwellers.Shared
                 if (_flipperCancellation == id) _flipperCancellation = null;
             }
         }
+        // Buffer sleep is deliberately host-lifetime only. Nothing here is persisted;
+        // a full City Dwellers restart starts every configured enabled buffer normally.
+        public bool BeginBufferControl(string id, string action, string character)
+        {
+            lock (_serviceSync)
+            {
+                if (_bufferControl != null) return false;
+                _bufferControl = new BufferControlOperation
+                {
+                    Id = id,
+                    Action = action,
+                    Character = character
+                };
+                Monitor.PulseAll(_serviceSync);
+                return true;
+            }
+        }
+        public BufferControlOperation WaitForBufferControl(int timeoutMilliseconds)
+        {
+            lock (_serviceSync)
+            {
+                if (_bufferControl == null || _bufferControl.Result != null)
+                    Monitor.Wait(_serviceSync, Math.Max(0, timeoutMilliseconds));
+                return _bufferControl != null && _bufferControl.Result == null
+                    ? _bufferControl.Copy()
+                    : null;
+            }
+        }
+        public BufferControlOperation WaitForBufferControlResult(string id, int timeoutMilliseconds)
+        {
+            lock (_serviceSync)
+            {
+                if (_bufferControl == null ||
+                    !string.Equals(_bufferControl.Id, id, StringComparison.Ordinal))
+                    return null;
+                if (_bufferControl.Result == null)
+                    Monitor.Wait(_serviceSync, Math.Max(0, timeoutMilliseconds));
+                return _bufferControl != null &&
+                       string.Equals(_bufferControl.Id, id, StringComparison.Ordinal)
+                    ? _bufferControl.Copy()
+                    : null;
+            }
+        }
+        public void PublishBufferControlResult(string id, bool success, string result)
+        {
+            lock (_serviceSync)
+            {
+                if (_bufferControl == null ||
+                    !string.Equals(_bufferControl.Id, id, StringComparison.Ordinal))
+                    return;
+                _bufferControl.Success = success;
+                _bufferControl.Result = result ?? string.Empty;
+                Monitor.PulseAll(_serviceSync);
+            }
+        }
+        public void FinishBufferControl(string id)
+        {
+            lock (_serviceSync)
+            {
+                if (_bufferControl != null &&
+                    string.Equals(_bufferControl.Id, id, StringComparison.Ordinal))
+                {
+                    _bufferControl = null;
+                    Monitor.PulseAll(_serviceSync);
+                }
+            }
+        }
+        public void SetBufferSleeping(string character, bool sleeping)
+        {
+            if (string.IsNullOrWhiteSpace(character)) return;
+            lock (_serviceSync)
+            {
+                if (sleeping) _sleepingBuffers.Add(character);
+                else _sleepingBuffers.Remove(character);
+            }
+        }
+        public bool BufferSleeping(string character)
+        {
+            lock (_serviceSync)
+                return !string.IsNullOrWhiteSpace(character) && _sleepingBuffers.Contains(character);
+        }
+
         public void PublishBuddyPosition(string character, BuddyPositionSnapshot snapshot)
         {
             lock (_serviceSync)

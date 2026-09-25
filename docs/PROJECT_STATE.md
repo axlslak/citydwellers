@@ -3372,3 +3372,21 @@ would help fix it before anyone changes code.
   They are separable.
 - Findings only. No code was changed and nothing was built, run or measured;
   there is no .NET toolchain in that container.
+
+## Session 238 — temporary per-buffer sleep/wakeup
+
+- [OWNER-DIRECTION] Buffer sleep is temporary maintenance ownership only. It is
+  never persisted; a full City Dwellers restart starts configured enabled
+  buffers normally.
+- [IMPLEMENTED] Administrators can use `sleep <buffer-character>` and
+  `wakeup <buffer-character>`. Existing Buddy forms remain unchanged:
+  `sleep <index>` and `wakeup <level> <index>` still enter the original
+  Buddies host with all of its lease, capacity, navigation and cleanup rules.
+- [IMPLEMENTED] BuffersHost now owns each configured buffer ClientDomain
+  individually. Sleep unloads only the selected domain; wakeup recreates it from
+  the already-loaded configuration. Other buffers stay online.
+- [DECISION] Same-host lifecycle coordination uses ManagerMemory. No new named
+  pipe, SQL row, config flag, file or recovery state was added. `buffers`
+  reports a manually sleeping buffer explicitly.
+- Validation is source review only. The owner performs the first build and AO
+  test.

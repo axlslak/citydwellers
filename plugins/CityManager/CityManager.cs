@@ -842,11 +842,17 @@ namespace CityManager
                 {
                     int level;
                     int index;
+                    if (parts.Length == 2 && !int.TryParse(parts[1], out index))
+                    {
+                        BeginBufferControl(replyTarget, "wakeup", parts[1]);
+                        break;
+                    }
                     if (parts.Length != 3 ||
                         !int.TryParse(parts[1], out level) ||
                         !int.TryParse(parts[2], out index))
                     {
-                        Reply(replyTarget, Usage(replyTarget, "wakeup [level] [index]"));
+                        Reply(replyTarget, Usage(replyTarget,
+                            "wakeup [level] [index] | wakeup [buffer]"));
                         break;
                     }
 
@@ -857,13 +863,19 @@ namespace CityManager
                 case "sleep":
                 {
                     int index;
-                    if (parts.Length != 2 || !int.TryParse(parts[1], out index))
+                    if (parts.Length == 2 && int.TryParse(parts[1], out index))
                     {
-                        Reply(replyTarget, Usage(replyTarget, "sleep [index]"));
+                        BeginBuddiesCommand(replyTarget, "sleep", null, index);
+                        break;
+                    }
+                    if (parts.Length == 2)
+                    {
+                        BeginBufferControl(replyTarget, "sleep", parts[1]);
                         break;
                     }
 
-                    BeginBuddiesCommand(replyTarget, "sleep", null, index);
+                    Reply(replyTarget, Usage(replyTarget,
+                        "sleep [index] | sleep [buffer]"));
                     break;
                 }
 

@@ -510,6 +510,8 @@ namespace CityManager
                 body.Append(HelpSyntaxLine(target, "home [level|all|status]", "Start or inspect home movement."));
                 body.Append(HelpSyntaxLine(target, "wakeup [level] [index]", "Start one Buddy."));
                 body.Append(HelpSyntaxLine(target, "sleep [index]", "Stop one Buddy."));
+                body.Append(HelpSyntaxLine(target, "wakeup [buffer]", "Restart one temporarily sleeping buffer."));
+                body.Append(HelpSyntaxLine(target, "sleep [buffer]", "Temporarily unload one buffer for manual owner use."));
                 body.Append(HelpSyntaxLine(target, "spinup [level] [count]", "Start a Buddy group."));
                 body.Append(HelpSyntaxLine(target, "spindown [count]", "Stop a Buddy group."));
                 body.Append(HelpSyntaxLine(target, "memberlist", "Show effective members."));

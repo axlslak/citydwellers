@@ -30,10 +30,22 @@ already assigned to other City Dwellers services are rejected. Start with one
 character; add one froob of each profession as they become ready. Paid characters
 and their shared Flipper account are not supported by this first integration.
 
-Each character gets a clientless AppDomain/update loop, remains online until host
-shutdown, and uses the existing host log pipeline. Lines include the character
-and CityBuffers assembly names. Static game data is preloaded under the same
-mutex as the other clients. No separate TestClient or Mali clientless fork is used.
+Each character gets a clientless AppDomain/update loop and normally remains online
+until host shutdown. Administrators may temporarily hand one configured buffer
+account back to the normal AO client without changing configuration:
+
+- `#sleep Yourbuffer` unloads only that buffer's clientless AppDomain.
+- `#wakeup Yourbuffer` recreates that buffer from its existing configuration.
+
+This sleep state exists only in ManagerMemory for the current host lifetime. It is
+not written to configuration or SQL; a full City Dwellers restart forgets it and
+starts every configured enabled buffer normally. Numeric Buddy forms are unchanged:
+`sleep <index>` and `wakeup <level> <index>` still use the existing Buddy rules.
+Buffer lifecycle control uses ManagerMemory rather than a new named pipe.
+
+Buffer log lines include the character and CityBuffers assembly names. Static game
+data is preloaded under the same mutex as the other clients. No separate TestClient
+or Mali clientless fork is used.
 
 Mali discovers profession and known nanos from the logged-in character. Its
 BuffsDb supplies tags and casting rules, not a configured per-character list.
