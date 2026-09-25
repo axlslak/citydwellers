@@ -351,8 +351,7 @@ namespace CityBankers
 
         private async Task<string> SendDispatchCensus(string character, DispatchProposal proposal)
         {
-            try { return await CityDwellers.Shared.LocalIpc.RequestLineAsync(BankerPipe(character),
-                JsonConvert.SerializeObject(proposal), 1000, 4000).ConfigureAwait(false); }
+            try { return await SendBankerMemory(character, proposal).ConfigureAwait(false); }
             catch (Exception) { return "pending"; }
         }
 
