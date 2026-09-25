@@ -103,7 +103,9 @@ BanList files, if still present on disk from an earlier build, are ignored.
 The optional Mali meeper detector may still request an automatic ban, but it does
 not write authority itself: the request goes to Manager through ManagerMemory and
 Manager applies the normal City Dwellers canonicalization, administrator protection
-and `banlist.json` persistence before republishing buffer authority. Team
+and `banlist.json` persistence before republishing buffer authority. Administrators
+manage this authority with `ban add <character>`, `ban del|rem|remove <character>`
+and `ban list|print`. Team
 coordination is deliberately still Mali IPC and is the remaining migration area.
 
 ## Dependency trial
