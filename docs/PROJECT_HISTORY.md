@@ -3464,3 +3464,12 @@ exact identity while the withdrawal is active. Central can make one conservative
 automatic resume from a fresh same-host inventory heartbeat proving exactly one
 matching loose item, without replaying the old bag slot. This preserves the
 affected-only recovery policy and leaves broad automatic audits disabled.
+## Session 244 — banker peer signalling moves to ManagerMemory
+
+- [OWNER-DIRECTION] Replace same-host ephemeral banker-to-banker signalling with the existing in-process ManagerMemory system rather than using the legacy banker named-pipe round trip. Durable custody, accounting and recovery state remain durable; this change is signalling only.
+- [IMPLEMENTED] Added a bounded ManagerMemory banker mailbox. Requests remain owned by the sending AppDomain, cross domains by reference, are claimed by the destination AO thread, and complete through an in-process reply object. Enqueue wakes the destination banker immediately through a registered MarshalByRef wake endpoint.
+- [IMPLEMENTED] Worker prepare, trade-stage, extraction commit, return coordination, cancellation, withdrawal prepare, storage-result inquiry, storage-recovery and retained paired-census peer messages now use ManagerMemory. The existing DispatchProposal handlers and AO-thread ownership are preserved; handlers still execute from TickBankerIpc after the memory mailbox is drained.
+- [BOUNDARY] The banker named-pipe listener is deliberately retained for unrelated Manager-originated compatibility paths such as wake/#cru. Manager/buffer/ServiceEvents IPC was not migrated in this session. No durable transaction state was moved into the mailbox.
+- [RECOVERY] Teardown and ManagerMemory client disconnect unregister the banker wake endpoint and cancel queued unclaimed requests, so a dead AppDomain cannot retain an active mailbox endpoint.
+- [VALIDATION] Source/call-path review only. Current banker peer sender files no longer call LocalIpc.RequestLineAsync or BankerPipe; the remaining banker pipe is the listener/Manager compatibility path. No assistant build or live AO test; owner retains compiler/live validation.
+
