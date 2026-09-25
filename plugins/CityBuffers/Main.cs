@@ -10,7 +10,7 @@ namespace MalisBuffBots
 {
     public class Main : ClientlessPluginEntry
     {
-        public static IPC Ipc;                              // Used to communicate between different bots
+        public static IPC Ipc;                              // Team IPC compatibility plus ManagerMemory buffer coordination
         public static SettingsJson SettingsJson;            // Behavior defaults plus citydwellers.json Buffers.Behavior overrides
         public static BuffsJson BuffsJson;                  // All bot nanos (configurable in JSON/BuffsDb.json)
         public static RebuffJson RebuffJson;                // Rebuff info (configurable in JSON/RebuffInfo.json)
@@ -167,7 +167,6 @@ namespace MalisBuffBots
                 return;
             }
 
-            Ipc.Broadcast(new BanRequestMessage { Name = formattedName });
             CityBufferBridge.SendPrivateMessage((uint)requester, ScriptTemplate.AddToBanlist(formattedName));
         }
 
@@ -187,7 +186,6 @@ namespace MalisBuffBots
                 return;
             }
 
-            Ipc.Broadcast(new BanRemoveMessage { Name = formattedName });
             CityBufferBridge.SendPrivateMessage((uint)requester, ScriptTemplate.RemoveFromBanlist(formattedName));
         }
 
