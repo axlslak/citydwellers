@@ -121,6 +121,11 @@ namespace MalisBuffBots
         // Match Mali's overload, including the existing suppress-log argument.
         public static void SendPrivateMessage(uint recipient, string message, bool logMessage = true)
         {
+            if (recipient == 0)
+            {
+                Logger.Warning("BUFFER tell dropped: recipient id 0 is invalid.");
+                return;
+            }
             TellQueue.Enqueue(_dataDir, Client.CharacterName, null, recipient, message,
                 Client.CharacterName); // Help links/team prompts belong to this buffer.
         }
