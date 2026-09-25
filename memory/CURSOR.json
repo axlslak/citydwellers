@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 253,
-  "last_completed_session": 252,
-  "status": "in_progress",
+  "last_completed_session": 253,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-253-paid-buffer-config",
-  "checkpoint_commit": "4311b7b",
-  "task": "Add Buffers.Paid credentials only; no paid logins or scheduling.",
-  "resume_instruction": "Resume session 253 only. Add paid buffer credential schema while keeping runtime Active froob-only. Next journal seq565.",
+  "checkpoint_commit": "830e0cd",
+  "task": "Completed: Buffers.Paid credentials supported but never logged in yet.",
+  "resume_instruction": "Owner may add paid/high-level buffer credentials under Buffers.Paid. They are configuration-only and will not start. Design paid lifecycle/account arbitration separately before enabling login. Next journal seq566.",
   "base_commit": "4311b7b"
 }
