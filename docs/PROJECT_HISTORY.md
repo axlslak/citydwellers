@@ -3514,4 +3514,14 @@ affected-only recovery policy and leaves broad automatic audits disabled.
 - [UNCHANGED] TeamInfo, TeamTracker and RequestTeamInvite remain on Mali IPC. Team selection, invitations, TeamTrackerId behavior and AO team side effects were not changed.
 - [TELLS] CityBuffers already uses CityDwellers.Shared.TellQueue, which is ManagerMemory-backed; pinned buffer replies and Manager scheduling remain unchanged.
 - [VALIDATION] Source audit shows only the three team callbacks active in IPC.cs; no active cast/queue/ban/ping/bot IPC broadcast remains. Brace/paren checks passed. No assistant build or live AO test; owner retains compiler/runtime validation.
+## Session 250 — City Dwellers ban authority replaces Mali bans
+
+- [OWNER-DIRECTION] Abandon Mali's independent ban subsystem and use City Dwellers' existing ban authority for buffers.
+- [IMPLEMENTED] The existing ManagerMemory buffer-authority snapshot now includes banned identities. CityManager expands each canonical BanListStore entry through the alt cache before publishing, so buffers apply the same effective alt-aware bans as Manager.
+- [IMPLEMENTED] Explicit Manager #ban/#unban changes force an immediate buffer-authority refresh. Manager remains the sole persistent writer to config/banlist.json.
+- [IMPLEMENTED] CityBuffers checks ManagerMemory.BufferIsBanned for incoming users. Mali BanJson initialization/checks, local buffer ban/unban commands, per-character BAN_JSON path, mutable BanList persistence and ban rendering templates were removed.
+- [IMPLEMENTED] AutoBanMeepers no longer mutates a Mali list. It submits a bounded ManagerMemory ban request; CityManager canonicalizes the target, refuses administrators, writes BanListStore through the existing authority path and republishes the buffer snapshot.
+- [REMOVED] Retired Mali BanRequest/BanRemove IPC message classes and opcode entries were removed. The temporary session249 ManagerMemory buffer-ban set was also removed.
+- [UNCHANGED] TeamInfo, TeamTracker and RequestTeamInvite remain the only active Mali IPC coordination. Casting/queue/tell memory paths are unchanged.
+- [VALIDATION] Current-source audit finds no live BanJson, BAN_JSON, BanRequestMessage or BanRemoveMessage references in the buffer runtime. Modified C# files have balanced braces/parentheses. No assistant build/live AO test; owner retains compiler/runtime validation.
 
