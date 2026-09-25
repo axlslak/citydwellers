@@ -37,6 +37,9 @@ namespace CityManager
             else
                 changed = BanListStore.TryAdd(canonicalName, out message);
 
+            if (changed)
+                PublishBufferAuthoritySnapshot(true);
+
             DevTrace(
                 $"BAN LIST {(unban ? "REMOVE" : "ADD")} actor={senderName} " +
                 $"target={canonicalName} requested={parts[1]} changed={changed}; {message}");
