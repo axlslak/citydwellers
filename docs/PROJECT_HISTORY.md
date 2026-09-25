@@ -3416,3 +3416,17 @@ mismatch introduced by the refactor: an internal helper widened the logger to
 `Serilog.ILogger`, but AOSharp Clientless requires `Serilog.Core.Logger` when
 creating a client domain. The helper now keeps the concrete logger type. No
 runtime behavior changed.
+
+## Session 240 — idle Central no longer strands requested withdrawals
+
+A Manager-created withdrawal was visible in shared state and woke its source
+banker, but an idle Central could remain vegetative indefinitely because the
+fallback only looked for withdrawals whose `SourceCharacter` matched the local
+banker. The source worker cannot move until Central changes the row to
+`extracting`, producing a two-party wait with no legitimate gate visible in
+status.
+
+Central's existing vegetative fallback now treats any active withdrawal as local
+orchestration work. Workers still wake only for rows sourced from themselves.
+This keeps the fix in the shared-state pull path rather than adding another IPC
+message.

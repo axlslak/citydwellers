@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 240,
-  "last_completed_session": 239,
-  "status": "in_progress",
+  "last_completed_session": 240,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-240-withdrawal-central-wake",
-  "checkpoint_commit": "be1568c",
-  "task": "Fix vegetative Central wake for Manager-created withdrawals.",
-  "resume_instruction": "Journal BEGIN is seq538. In BankingServiceAgent.Tick vegetative fallback, Central must wake for any active withdrawal while workers keep source-character matching. Do not add IPC or alter custody/recovery semantics. Next journal seq539.",
+  "checkpoint_commit": "82f1f36",
+  "task": "Completed: Central vegetative wake for active withdrawals.",
+  "resume_instruction": "Build 82f1f36 or current sealed master. Re-test a single #get from an idle worker: Central should wake within its vegetative fallback window, promote requested -> extracting, and the source worker should proceed. No new IPC was added. Next journal seq540.",
   "base_commit": "0ee9aa2"
 }

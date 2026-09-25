@@ -3401,3 +3401,15 @@ would help fix it before anyone changes code.
   `Serilog.Core.Logger` type again. No buffer lifecycle, ManagerMemory,
   command-routing or Buddy behavior changed.
 - Owner rebuild is the first compiler verification of this correction.
+
+## Session 240 — Central wakes for Manager-created withdrawals
+
+- [VERIFIED] A live `#get` could remain `requested` while every banker was
+  usable and Central had free inventory. Manager explicitly woke only the source
+  banker, while Central is the actor that promotes `requested` to `extracting`.
+- [IMPLEMENTED] The existing two-second vegetative fallback now wakes Central
+  whenever any active withdrawal exists. Non-Central bankers retain the prior
+  source-character filter.
+- [UNCHANGED] No new IPC, custody transition, extraction rule, recovery path,
+  pickup rule or Buddy/buffer behavior was added or changed.
+- Validation was source/diff/call-path review only; the owner builds and live-tests.
