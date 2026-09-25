@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 246,
-  "last_completed_session": 245,
-  "status": "in_progress",
+  "last_completed_session": 246,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-246-zero-recipient-tell-guard",
-  "checkpoint_commit": "3ab2994",
-  "task": "Guard zero-recipient tells at CityBuffers producer and shared tell-queue boundary.",
-  "resume_instruction": "Resume session 246 only. Complete zero-recipient tell guards without changing valid tell routing/retry behavior. Next journal seq551.",
+  "checkpoint_commit": "a466e7f",
+  "task": "Completed: zero-recipient tells are blocked at CityBuffers producer and shared tell queue.",
+  "resume_instruction": "Build current sealed master. Reproduce Kbsol reconnect/in-play if convenient; no tell with recipient id 0 should enter the queue or retry. Next journal seq552.",
   "base_commit": "3ab2994"
 }
