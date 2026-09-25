@@ -9,6 +9,7 @@ using SmokeLounge.AOtomation.Messaging.GameData;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using AOSharp.Core.IPC;
+using CityDwellers.Shared;
 
 namespace MalisBuffBots
 {
@@ -149,11 +150,51 @@ namespace MalisBuffBots
 
     public class IPCBotCacheData
     {
-        public Dictionary<Profession, BotData> Entries = new Dictionary<Profession, BotData>();
+        private readonly Dictionary<Profession, BotData> _entries = new Dictionary<Profession, BotData>();
+        public Dictionary<Profession, BotData> Entries
+        {
+            get
+            {
+                RefreshBotInfoFromMemory();
+                return _entries;
+            }
+        }
 
-        public bool ContainsKey(Profession prof) => Entries.ContainsKey(prof);
+        private void RefreshBotInfoFromMemory()
+        {
+            List<BufferBotInfo> snapshots;
+            try { snapshots = ManagerMemory.Current.BufferBotInfos(); }
+            catch { return; }
 
-        public bool ContainsIdentity(int identityInstance) => Entries.Count() > 0 && Entries.Values.Any(x => x.Identity.Instance == identityInstance);
+            var present = new HashSet<Profession>();
+            foreach (BufferBotInfo snapshot in snapshots)
+            {
+                Profession profession = (Profession)snapshot.Profession;
+                present.Add(profession);
+                TryAddLocal(profession);
+                _entries[profession].Identity = new Identity(
+                    (IdentityType)snapshot.IdentityType, snapshot.IdentityInstance);
+                _entries[profession].SpellData = snapshot.SpellData ?? new int[0];
+            }
+
+            foreach (Profession profession in _entries.Keys.Where(x => !present.Contains(x)).ToArray())
+            {
+                _entries[profession].Identity = Identity.None;
+                _entries[profession].SpellData = new int[0];
+            }
+        }
+
+        public bool ContainsKey(Profession prof)
+        {
+            RefreshBotInfoFromMemory();
+            return _entries.ContainsKey(prof) && _entries[prof].Identity != Identity.None;
+        }
+
+        public bool ContainsIdentity(int identityInstance)
+        {
+            RefreshBotInfoFromMemory();
+            return _entries.Values.Any(x => x.Identity.Instance == identityInstance);
+        }
 
         public void BroadcastBotInfoMessage()
         {
@@ -162,12 +203,13 @@ namespace MalisBuffBots
             int[] spellList = DynelManager.LocalPlayer.SpellList;
 
             UpdateBotInfo(prof, identity, spellList);
-
-            Main.Ipc.Broadcast(new BotInfoMessage
+            ManagerMemory.Current.PublishBufferBotInfo(new BufferBotInfo
             {
-                Profession = prof,
-                Identity = identity,
-                SpellData = spellList,
+                Character = Client.CharacterName,
+                Profession = (int)prof,
+                IdentityType = (int)identity.Type,
+                IdentityInstance = identity.Instance,
+                SpellData = spellList
             });
         }
 
@@ -215,40 +257,52 @@ namespace MalisBuffBots
 
         public void TeamTracker(Profession prof, int trackId)
         {
-            TryAdd(prof);
-            Entries[prof].TeamTrackerId = trackId;
+            TryAddLocal(prof);
+            _entries[prof].TeamTrackerId = trackId;
         }
 
         public void PingPong(Profession prof)
         {
-            TryAdd(prof);
-            Entries[prof].LastUpdateInTicks = DateTime.Now.Ticks;
+            TryAddLocal(prof);
+            _entries[prof].LastUpdateInTicks = DateTime.Now.Ticks;
+        }
+
+        private void TryAddLocal(Profession prof)
+        {
+            if (!_entries.ContainsKey(prof))
+                _entries.Add(prof, new BotData
+                {
+                    Identity = Identity.None,
+                    SpellData = new int[0],
+                    Queue = new BuffEntry[0]
+                });
         }
 
         public void TryAdd(Profession prof)
         {
-            if (!Entries.ContainsKey(prof))
-                Entries.Add(prof, new BotData());
+            RefreshBotInfoFromMemory();
+            TryAddLocal(prof);
         }
 
         public bool ContainsNanoEntry(Profession prof, NanoEntry nanoEntry)
         {
-            if (!Entries.TryGetValue(prof, out BotData botCache))
+            RefreshBotInfoFromMemory();
+            if (!_entries.TryGetValue(prof, out BotData botCache))
                 return false;
 
             return botCache.SpellData.Any(s => nanoEntry.ContainsId(s));
         }
 
-        public Dictionary<Profession, BotData> OutOfTeamBots() => Entries.Count == 0 ? new Dictionary<Profession, BotData>() : Entries.Where(x => x.Value.TeamMemberId == 0).ToDictionary(kv => kv.Key, kv => kv.Value);
+        public Dictionary<Profession, BotData> OutOfTeamBots() { RefreshBotInfoFromMemory(); return _entries.Count == 0 ? new Dictionary<Profession, BotData>() : _entries.Where(x => x.Value.TeamMemberId == 0).ToDictionary(kv => kv.Key, kv => kv.Value); }
 
-        public Dictionary<Profession, BotData> NonTeamTrackerBots() => Entries.Count == 0 ? new Dictionary<Profession, BotData>() : Entries.Where(x => x.Value.TeamTrackerId == 0).ToDictionary(kv => kv.Key, kv => kv.Value);
+        public Dictionary<Profession, BotData> NonTeamTrackerBots() { RefreshBotInfoFromMemory(); return _entries.Count == 0 ? new Dictionary<Profession, BotData>() : _entries.Where(x => x.Value.TeamTrackerId == 0).ToDictionary(kv => kv.Key, kv => kv.Value); }
 
 
         public bool IsTeamQueueEmpty(int charId)
         {
             try
             {
-                return Entries.Values.SelectMany(x => x.Queue).Where(x => x != null && x.NanoEntry != null && x.NanoEntry.Type == CastType.Team && x.Requester.Instance == charId).ToList().Count == 0;
+                return Entries.Values.SelectMany(x => x.Queue ?? new BuffEntry[0]).Where(x => x != null && x.NanoEntry != null && x.NanoEntry.Type == CastType.Team && x.Requester.Instance == charId).ToList().Count == 0;
             }
             catch
             {
@@ -256,25 +310,25 @@ namespace MalisBuffBots
             }
         }
 
-        public IOrderedEnumerable<KeyValuePair<Profession, BotData>> OrderByQueueEntries() => Entries.OrderBy(x => x.Value.Queue.Count());
+        public IOrderedEnumerable<KeyValuePair<Profession, BotData>> OrderByQueueEntries() => Entries.OrderBy(x => (x.Value.Queue ?? new BuffEntry[0]).Count());
 
         internal void UpdateBotInfo(Profession profession, Identity identity, int[] spellData)
         {
-            TryAdd(profession);
-            Entries[profession].Identity = identity;
-            Entries[profession].SpellData = spellData;
+            TryAddLocal(profession);
+            _entries[profession].Identity = identity;
+            _entries[profession].SpellData = spellData ?? new int[0];
         }
 
         internal void UpdateTeamInfo(Profession profession, int teamMemberId)
         {
-            TryAdd(profession);
-            Entries[profession].TeamMemberId = teamMemberId;
+            TryAddLocal(profession);
+            _entries[profession].TeamMemberId = teamMemberId;
         }
 
         internal void UpdateQueueInfo(Profession profession, BuffEntry[] entries)
         {
-            TryAdd(profession);
-            Entries[profession].Queue = entries;
+            TryAddLocal(profession);
+            _entries[profession].Queue = entries ?? new BuffEntry[0];
         }
     }
 }
