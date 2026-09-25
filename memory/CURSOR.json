@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 244,
+  "current_session": 245,
   "last_completed_session": 244,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-244-banker-memory-signalling",
-  "checkpoint_commit": "1ecd177",
-  "task": "Completed: banker-to-banker ephemeral signalling uses ManagerMemory instead of named-pipe request/reply.",
-  "resume_instruction": "Build current sealed master and exercise a normal banker dispatch plus #get withdrawal. Banker peer handshakes should use ManagerMemory; remaining banker pipe listener is only Manager-originated compatibility. Next journal seq548.",
-  "base_commit": "4a0f60e"
+  "transaction": "session-245-manager-banker-memory-signalling",
+  "checkpoint_commit": "cf96e66",
+  "task": "Move Manager-originated banker wake/#cru signalling to ManagerMemory; retain pipe as dormant backup.",
+  "resume_instruction": "Resume session 245 only. Complete Manager->banker wake/#cru memory migration; do not delete dormant pipe fallback. Next journal seq549.",
+  "base_commit": "cf96e66"
 }
