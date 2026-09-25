@@ -285,25 +285,16 @@ namespace CityManager
         {
             if (string.IsNullOrWhiteSpace(character))
                 return;
-            WakeBankerActivityAsync(character);
-        }
-
-        private async Task WakeBankerActivityAsync(string character)
-        {
             try
             {
-                string pipe = "CityDwellers.Bankers." + Process.GetCurrentProcess().Id + "." +
-                    character.ToLowerInvariant();
-                await LocalIpc.RequestLineAsync(
-                    pipe,
-                    "{\"Kind\":\"wake\"}",
-                    250,
-                    750).ConfigureAwait(false);
+                // Not every tell sender is a banker. A missing banker endpoint is harmless;
+                // vegetative polling remains the fallback if no in-process wake receiver exists.
+                ManagerMemory.Current.EnqueueBankerSignal(
+                    character,
+                    new BankerSignalRequest("{\"Kind\":\"wake\"}"));
             }
             catch
             {
-                // Not every tell sender is a banker (Manager/Buffer are valid senders).
-                // Banker vegetative polling remains the fallback if a wake is missed.
             }
         }
 
