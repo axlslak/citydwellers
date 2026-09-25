@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 252,
+  "current_session": 253,
   "last_completed_session": 252,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-252-ban-build-fix",
-  "checkpoint_commit": "18fd832",
-  "task": "Completed: fixed CS0136 local-name collision in structured ban command.",
-  "resume_instruction": "Rebuild current sealed master. The previous CityManager.Bans.cs CS0136 should be gone. Next journal seq564.",
-  "base_commit": "72ddd41"
+  "transaction": "session-253-paid-buffer-config",
+  "checkpoint_commit": "4311b7b",
+  "task": "Add Buffers.Paid credentials only; no paid logins or scheduling.",
+  "resume_instruction": "Resume session 253 only. Add paid buffer credential schema while keeping runtime Active froob-only. Next journal seq565.",
+  "base_commit": "4311b7b"
 }
