@@ -25,8 +25,6 @@ namespace MalisBuffBots
             { Command.Help, new CommandInfo(Rank.Unranked, HelpRequest) },
             { Command.Debug, new CommandInfo(Rank.Admin, Debug) },
             { Command.Clear, new CommandInfo(Rank.Admin, ClearRequest) },
-            { Command.Ban, new CommandInfo(Rank.Admin, BanRequest) },
-            { Command.Unban, new CommandInfo(Rank.Admin, UnbanRequest) },
         };
 
 
@@ -68,28 +66,6 @@ namespace MalisBuffBots
             return _commandActions[command].Action.Invoke(msg);
         }
 
-
-        private static bool BanRequest(PrivateMessage msg)
-        {
-            //if (msg.Message.Split(' ').Length != 2)
-            //{
-            //    CityBufferBridge.SendPrivateMessage(msg.SenderId, ScriptTemplate.InvalidParams());
-            //    return false;
-            //}
-
-            return true;
-        }
-
-        private static bool UnbanRequest(PrivateMessage msg)
-        {
-            //if (msg.Message.Split(' ').Length != 2)
-            //{
-            //    CityBufferBridge.SendPrivateMessage(msg.SenderId, ScriptTemplate.InvalidParams());
-            //    return false;
-            //}
-
-            return true;
-        }
 
         private static bool CastRequest(PrivateMessage msg)
         {
@@ -168,9 +144,7 @@ namespace MalisBuffBots
         Help,
         Reload,
         Debug,
-        Clear,
-        Ban,
-        Unban
+        Clear
     }
 
     public enum Rank
