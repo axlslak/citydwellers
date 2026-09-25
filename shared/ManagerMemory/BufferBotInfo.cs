@@ -15,6 +15,8 @@ namespace CityDwellers.Shared
         public DateTime ObservedUtc;
         public bool InPlay;
         public bool Ready;
+        public string QueueJson;
+        public DateTime QueueObservedUtc;
 
         internal BufferBotInfo Copy() => new BufferBotInfo
         {
@@ -25,7 +27,9 @@ namespace CityDwellers.Shared
             SpellData = SpellData == null ? new int[0] : SpellData.ToArray(),
             ObservedUtc = ObservedUtc,
             InPlay = InPlay,
-            Ready = Ready
+            Ready = Ready,
+            QueueJson = QueueJson,
+            QueueObservedUtc = QueueObservedUtc
         };
     }
 
@@ -46,6 +50,7 @@ namespace CityDwellers.Shared
         {
             if (string.IsNullOrWhiteSpace(character)) return;
             lock (_bufferBotSync) _bufferBots.Remove(character);
+            ClearBufferSignals(character);
         }
 
         public List<BufferBotInfo> BufferBotInfos()
