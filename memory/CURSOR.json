@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 249,
+  "current_session": 250,
   "last_completed_session": 249,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-249-mali-memory-nonteam",
-  "checkpoint_commit": "6ae3dd3",
-  "task": "Completed: all non-team Mali peer coordination uses ManagerMemory/shared TellQueue; only team coordination remains on Mali IPC.",
-  "resume_instruction": "Build current sealed master and verify help/capability discovery, generic and profession-specific buff routing, queue balancing, ban/unban propagation and buffer tells. Team coordination remains intentionally unchanged on Mali IPC. Next journal seq558.",
-  "base_commit": "1ebf19c"
+  "transaction": "session-250-buffers-city-ban-authority",
+  "checkpoint_commit": "5674182",
+  "task": "Replace Mali buffer ban authority with CityManager BanListStore published through ManagerMemory.",
+  "resume_instruction": "Resume session 250 only. Remove Mali ban authority and use City Dwellers ban authority; do not touch team IPC. Next journal seq559.",
+  "base_commit": "5674182"
 }
