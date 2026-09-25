@@ -784,9 +784,8 @@ namespace CityBankers
         {
             try
             {
-                return await CityDwellers.Shared.LocalIpc.RequestLineAsync(BankerPipe(_centralCharacter),
-                    Newtonsoft.Json.JsonConvert.SerializeObject(new DispatchProposal { Kind = "withdrawal-prepare", Command = command }),
-                    1000, 4000).ConfigureAwait(false);
+                return await SendBankerMemory(_centralCharacter,
+                    new DispatchProposal { Kind = "withdrawal-prepare", Command = command }).ConfigureAwait(false);
             }
             catch (Exception ex) { return "pending:ipc-" + ex.GetType().Name; }
         }
