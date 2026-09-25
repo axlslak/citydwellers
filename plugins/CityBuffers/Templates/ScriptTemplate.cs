@@ -94,45 +94,9 @@ namespace MalisBuffBots
             });
         }
 
-        public static string AddToBanlist(string name)
-        {
-            return GetTemplate("BanUserTemplate").Render(new
-            {
-                Name = name,
-                Red = Colors.Red,
-                Green = Colors.Green
-            });
-        }
 
-        public static string AlreadyBanned(string name)
-        {
-            return GetTemplate("AlreadyBannedTemplate").Render(new
-            {
-                Name = name,
-                Red = Colors.Red,
-                Green = Colors.Green
-            });
-        }
 
-        public static string RemoveFromBanlist(string name)
-        {
-            return GetTemplate("RemoveFromBanListTemplate").Render(new
-            {
-                Name = name,
-                Red = Colors.Red,
-                Green = Colors.Green
-            });
-        }
 
-        public static string CannotRemoveFromBanlist(string name)
-        {
-            return GetTemplate("CannotRemoveFromBanlistTemplate").Render(new
-            {
-                Name = name,
-                Red = Colors.Red,
-                Green = Colors.Green
-            });
-        }
 
         public static string AlreadyInQueue(string nanoName)
         {
