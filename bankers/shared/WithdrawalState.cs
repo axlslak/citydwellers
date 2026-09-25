@@ -189,6 +189,32 @@ namespace CityBankers.Shared
             });
         }
 
+        public static bool TryResumeFailedExtraction(string directory, WithdrawalState request)
+        {
+            return Update(directory, rows =>
+            {
+                var current = rows.SingleOrDefault(r => r.Id == request.Id);
+                if (current == null || current.Revision != request.Revision ||
+                    !HasStatus(current, "failed") || current.DeliveredUtc.HasValue ||
+                    !string.IsNullOrWhiteSpace(current.CentralItemIdentity) ||
+                    string.IsNullOrWhiteSpace(current.ExtractedItemIdentity) ||
+                    request.LiveInventoryAnchorAttempts != current.LiveInventoryAnchorAttempts + 1 ||
+                    !request.LiveInventoryAnchorSlot.HasValue ||
+                    !IsCharacterReady(directory, request.SourceCharacter) ||
+                    ReadRecovery(directory).Any(r => r.CensusCentral || r.LedgerId == request.ActiveLedgerId ||
+                        string.Equals(r.CensusCharacter, request.SourceCharacter, StringComparison.OrdinalIgnoreCase)))
+                    return false;
+
+                // The caller has a fresh unique heartbeat observation for the
+                // already-extracted occurrence. Resume from that loose custody;
+                // never replay the stale audited bag location.
+                request.Status = "extracting";
+                Touch(request);
+                rows[rows.IndexOf(current)] = request;
+                return true;
+            });
+        }
+
         public static void ReconcileQueuedRequestsAfterLocalCensus(string directory, string run,
             string character, IList<WithdrawalState> originals)
         {
