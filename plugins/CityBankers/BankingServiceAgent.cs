@@ -328,14 +328,19 @@ namespace CityBankers
                 }
 
                 // Vegetative mode deliberately stops here. IPC is still serviced,
-                // readiness stays published, and the 2s fallback below detects the
-                // one pull-only work source (a Manager-created withdrawal) even if
-                // its explicit wake message was lost.
+                // readiness stays published, and the 2s fallback below detects
+                // Manager-created withdrawal work even if the explicit source wake
+                // hint was lost. Central must wake for every active withdrawal
+                // because it owns requested -> extracting and pickup/expiry
+                // orchestration; workers wake only for withdrawals sourced from
+                // themselves.
                 if (!BankerActivityGovernor.IsActive && !liveWork)
                 {
                     if (WithdrawalStore.LoadAll(_settingsDir).Any(row =>
                         WithdrawalStore.IsActive(row) &&
-                        string.Equals(row.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase)))
+                        (_isCentral ||
+                         string.Equals(row.SourceCharacter, Client.CharacterName,
+                             StringComparison.OrdinalIgnoreCase))))
                     {
                         BankerActivityGovernor.Wake();
                     }
