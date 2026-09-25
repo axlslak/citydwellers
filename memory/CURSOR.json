@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 247,
-  "last_completed_session": 246,
-  "status": "in_progress",
+  "last_completed_session": 247,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-247-mali-memory-stage1-botinfo",
-  "checkpoint_commit": "07c0405",
-  "task": "Stage 1 Mali IPC migration: move BotInfo/capability replication to ManagerMemory only.",
-  "resume_instruction": "Resume session 247 only. Complete BotInfo ManagerMemory migration; do not migrate queue/team/action/ban IPC in this session. Next journal seq553.",
+  "checkpoint_commit": "538a121",
+  "task": "Completed: Mali BotInfo/capability replication uses ManagerMemory; remaining Mali IPC stays for later staged migration.",
+  "resume_instruction": "Build current sealed master and verify buffers still discover each other's professions/spell capabilities and normal buff routing works. Next Mali IPC stage should be isolated separately. Next journal seq554.",
   "base_commit": "07c0405"
 }
