@@ -405,12 +405,28 @@ namespace CityBankers
             }
             var ledger = CityDwellers.Shared.BankerState.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
             if (ledger?.Items == null) return;
+
+            // A withdrawal can deliberately leave its exact reserved occurrence
+            // loose in normal inventory while return-to-Central is retrying. That
+            // item is already named by positive custody evidence and must not be
+            // rediscovered as an unexplained mismatch that triggers a relog.
+            var knownWithdrawalLoose = new HashSet<string>(
+                WithdrawalStore.LoadAll(_settingsDir)
+                    .Where(row => WithdrawalStore.IsActive(row) &&
+                        string.Equals(row.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
+                        IsUsableIdentity(row.ExtractedItemIdentity) &&
+                        !IsUsableIdentity(row.CentralItemIdentity))
+                    .Select(row => row.ExtractedItemIdentity),
+                StringComparer.Ordinal);
+
             var expected = ledger.Items.Where(e => string.Equals(e.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                 e.Location == "inventory" && !e.Bag.HasValue && !CruPolicy.IsCru(e.AoId) &&
                 !BankerPersonalItems.IsPersonal(e.AoId, e.HighId ?? e.AoId)).Select(e =>
                 e.AoId + "/" + e.HighId + "/" + e.Ql).OrderBy(k => k).ToList();
             var actual = Inventory.Items.Where(i => StorageBagPolicy.IsNormalInventory(i) &&
-                i.UniqueIdentity.Type != IdentityType.Container && !CruPolicy.IsCru(i.Id) &&
+                i.UniqueIdentity.Type != IdentityType.Container &&
+                !knownWithdrawalLoose.Contains(i.UniqueIdentity.ToString()) &&
+                !CruPolicy.IsCru(i.Id) &&
                 !BankerPersonalItems.IsPersonal(i.Id, i.HighId)).Select(i =>
                 i.Id + "/" + i.HighId + "/" + i.Ql).OrderBy(k => k).ToList();
             // Donation ledger slots are intentionally null, and cancellation can
