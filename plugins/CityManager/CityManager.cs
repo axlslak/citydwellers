@@ -567,7 +567,15 @@ namespace CityManager
                 (command == "member" && parts.Length == 3 &&
                  (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
                   IsRemoveVerb(parts[1]))) ||
-                ((command == "ban" || command == "unban") && parts.Length == 2) ||
+                (command == "ban" &&
+                 ((parts.Length == 2 &&
+                   (string.Equals(parts[1], "list", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(parts[1], "print", StringComparison.OrdinalIgnoreCase))) ||
+                  (parts.Length == 3 &&
+                   (string.Equals(parts[1], "add", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(parts[1], "del", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(parts[1], "rem", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(parts[1], "remove", StringComparison.OrdinalIgnoreCase))))) ||
                 ((command == "invite" ||
                   command == "kick" ||
                   command == "sleep" ||
