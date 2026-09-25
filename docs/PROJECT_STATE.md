@@ -3436,3 +3436,25 @@ would help fix it before anyone changes code.
   encrypted conversation memory was not rewritten because its password is
   intentionally owner-held and was not supplied in this session.
 - Validation is source/diff review only; owner builds and live-tests.
+
+## Session 243 — withdrawal OpenTrade recovery hardening
+
+- [VERIFIED] Live evidence showed the reserved item successfully extracted into
+  Kbphatz normal inventory, followed by a 30-second `OpenTrade` timeout before
+  any `WITHDRAWAL TRANSFER OPENING` event. The same known loose item then
+  triggered the generic loose-inventory mismatch relog path.
+- [IMPLEMENTED] Withdrawal preparation no longer rejects an exact attempt-bound
+  ready reply solely because its round trip exceeded 1500 ms. Central now returns
+  a specific preparation blocker and the worker logs blocker changes while it
+  waits.
+- [IMPLEMENTED] A failed withdrawal may make one automatic resume only when the
+  source banker publishes a fresh same-process, in-play inventory heartbeat with
+  exactly one matching loose occurrence. Identity match is preferred; fallback
+  requires exact name, AOID, high ID and QL.
+- [IMPLEMENTED] An active withdrawal's exact `ExtractedItemIdentity` is treated
+  as known loose custody by the generic inventory-difference detector, preventing
+  a pointless relog for the item the withdrawal deliberately moved there.
+- [UNCHANGED] No broad audit was re-enabled, no IPC migration was performed, and
+  genuinely unexplained loose inventory still uses the existing affected-only
+  relog/admin-review path.
+- Validation is source/diff/call-path review only; owner builds and live-tests.

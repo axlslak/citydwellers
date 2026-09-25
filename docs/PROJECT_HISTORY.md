@@ -3447,3 +3447,20 @@ state and verified officer-rank cache.
 This also establishes the pattern for the later IPC work: preserve Mali's
 behavioral code and replace the transport/state source underneath it rather than
 redesigning its queue or team logic.
+
+## Session 243 — a failed return-to-Central no longer turns known custody into a mystery
+
+A live Energy Redistribution Unit withdrawal proved that extraction itself could
+succeed while the worker remained in `OpenTrade` long enough to hit the 30-second
+phase timeout. The preflight handshake also discarded a valid exact-attempt ready
+reply if it arrived after a narrow 1500 ms age check, and every pending result was
+opaque. Preparation now treats the immutable attempt ID as its freshness proof and
+reports the actual Central predicate that is blocking progress.
+
+More importantly, once the worker has positively recorded the extracted
+occurrence in normal inventory, that occurrence remains known custody even if the
+return trade cannot open. The generic loose-inventory watchdog now excludes that
+exact identity while the withdrawal is active. Central can make one conservative
+automatic resume from a fresh same-host inventory heartbeat proving exactly one
+matching loose item, without replaying the old bag slot. This preserves the
+affected-only recovery policy and leaves broad automatic audits disabled.
