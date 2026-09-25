@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 241,
+  "current_session": 242,
   "last_completed_session": 241,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-241-buffer-authority-adapter",
-  "checkpoint_commit": "f58cb40",
-  "task": "Completed: Mali buffer authority now uses City Dwellers ManagerMemory; UserRanks.json retired.",
-  "resume_instruction": "Build f58cb40 or current sealed master. Verify Kavem can use buffer debug through City Dwellers admin authority and a normal AP member can use ordinary help/cast while non-members are denied. Mali IPC/BotCache remains unchanged and is the next isolated topic. Preserve the owner rule: do not rewrite Mali; replace standalone infrastructure underneath existing seams. Next journal seq542.",
-  "base_commit": "c4dfab4"
+  "transaction": "session-242-citybuffers-conversation-memory",
+  "checkpoint_commit": "afa3589",
+  "task": "Create encrypted conversation #6 for CityBuffers/ManagerMemory integration rationale.",
+  "resume_instruction": "Journal BEGIN is seq542. Create conversation #6 encrypted memory and manifest entry; never store the supplied password. Seal to idle with seq543.",
+  "base_commit": "afa3589"
 }
