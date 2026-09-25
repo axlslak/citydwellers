@@ -12,6 +12,9 @@ namespace CityDwellers.Shared
         public int IdentityType;
         public int IdentityInstance;
         public int[] SpellData;
+        public DateTime ObservedUtc;
+        public bool InPlay;
+        public bool Ready;
 
         internal BufferBotInfo Copy() => new BufferBotInfo
         {
@@ -19,7 +22,10 @@ namespace CityDwellers.Shared
             Profession = Profession,
             IdentityType = IdentityType,
             IdentityInstance = IdentityInstance,
-            SpellData = SpellData == null ? new int[0] : SpellData.ToArray()
+            SpellData = SpellData == null ? new int[0] : SpellData.ToArray(),
+            ObservedUtc = ObservedUtc,
+            InPlay = InPlay,
+            Ready = Ready
         };
     }
 
