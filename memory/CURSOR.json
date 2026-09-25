@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 251,
-  "last_completed_session": 250,
-  "status": "in_progress",
+  "last_completed_session": 251,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-251-ban-command-shape",
-  "checkpoint_commit": "e916e0c",
-  "task": "Replace ban/unban with ban add/del|rem|remove/list|print command surface.",
-  "resume_instruction": "Resume session 251 only. Complete Manager ban command reshaping without changing ban authority semantics. Next journal seq561.",
+  "checkpoint_commit": "6e4e25c",
+  "task": "Completed: Manager ban command uses add/del|rem|remove/list|print; standalone unban removed.",
+  "resume_instruction": "Build current sealed master. Verify ban add <player>, ban del/rem/remove <player>, and ban list/print in tell and # command routes; unban should no longer be recognized. Next journal seq562.",
   "base_commit": "e916e0c"
 }
