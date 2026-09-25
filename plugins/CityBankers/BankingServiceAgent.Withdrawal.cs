@@ -209,7 +209,15 @@ namespace CityBankers
             }
             else if (retry)
                 next.RecoveryAttempts++;
-            if (StartupCensusGate.UsesPhysicalRecovery)
+            if (retry && liveInventoryRetry)
+            {
+                // This is not a replay of the audited bag slot. Central has a
+                // fresh unique observation of the already-extracted occurrence
+                // in the source worker's normal inventory, so resume that exact
+                // loose custody in place.
+                if (!WithdrawalStore.TryResumeFailedExtraction(_settingsDir, next)) return false;
+            }
+            else if (StartupCensusGate.UsesPhysicalRecovery)
             {
                 if (!WithdrawalStore.TryBeginExtraction(_settingsDir, next)) return false;
             }
@@ -231,17 +239,21 @@ namespace CityBankers
 
         private bool CanRetryWithdrawalExtraction(WithdrawalState row)
         {
-            // A cached heartbeat/name match is not a new physical observation
-            // or a peer acknowledgement. Paired custody recovery owns retries
-            // in normal mode; keep the legacy path out of that runtime.
-            if (StartupCensusGate.UsesPhysicalRecovery) return false;
             if (!WithdrawalStore.HasStatus(row, "failed") || row.DeliveredUtc.HasValue ||
                 !string.IsNullOrWhiteSpace(row.CentralItemIdentity))
                 return false;
 
+            // A fresh unique loose-inventory observation is positive custody
+            // evidence for the occurrence we already extracted. It is safe to
+            // resume that exact loose item even when automatic physical audits
+            // are disabled; the old bag slot is never replayed.
             if (row.LiveInventoryAnchorAttempts == 0 &&
                 FindUniqueLooseWorkerHeartbeatMatch(row) != null)
                 return true;
+
+            // Other legacy retry shapes still belong to the retired automatic
+            // physical-recovery path and remain disabled in normal operation.
+            if (StartupCensusGate.UsesPhysicalRecovery) return false;
 
             return row.RecoveryAttempts == 0 &&
                 !row.DeliveredUtc.HasValue && string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
@@ -713,11 +725,39 @@ namespace CityBankers
                 return;
             }
             if (!_withdrawalPreparation.IsCompleted) return;
-            bool ready = _withdrawalPreparation.Status == TaskStatus.RanToCompletion &&
-                _withdrawalPreparationAge.ElapsedMilliseconds < 1500 &&
-                _withdrawalPreparation.Result == "ready:" + _withdrawal.TransferAttemptId + ":prepare";
+            string preparationResult = _withdrawalPreparation.Status == TaskStatus.RanToCompletion
+                ? _withdrawalPreparation.Result
+                : "pending:task-" + _withdrawalPreparation.Status;
+            bool ready = preparationResult ==
+                "ready:" + _withdrawal.TransferAttemptId + ":prepare";
             _withdrawalPreparation = null;
-            if (!ready || CensusReservedHere()) return;
+
+            // The attempt ID is the freshness proof. Rejecting a correct reply
+            // merely because same-host IPC took more than 1500ms can livelock
+            // OpenTrade until the 30-second extraction deadline.
+            if (!ready)
+            {
+                string blocker = preparationResult ?? "pending:no-response";
+                if (!string.Equals(_withdrawalPreparationBlocker, blocker, StringComparison.Ordinal))
+                {
+                    _withdrawalPreparationBlocker = blocker;
+                    Logger.Warning("[CityBankers] WITHDRAWAL PREPARE WAIT " +
+                        (_withdrawal?.Id ?? "?") + ": " + blocker + ".");
+                }
+                return;
+            }
+            if (CensusReservedHere())
+            {
+                const string blocker = "pending:source-census-reservation";
+                if (!string.Equals(_withdrawalPreparationBlocker, blocker, StringComparison.Ordinal))
+                {
+                    _withdrawalPreparationBlocker = blocker;
+                    Logger.Warning("[CityBankers] WITHDRAWAL PREPARE WAIT " +
+                        (_withdrawal?.Id ?? "?") + ": " + blocker + ".");
+                }
+                return;
+            }
+            _withdrawalPreparationBlocker = null;
             ResetWithdrawalTrade();
             _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitTrade;
             PrepareReceipt("withdrawal-transfer", _withdrawal.DonationTransactionId,
@@ -736,7 +776,7 @@ namespace CityBankers
                     Newtonsoft.Json.JsonConvert.SerializeObject(new DispatchProposal { Kind = "withdrawal-prepare", Command = command }),
                     1000, 4000).ConfigureAwait(false);
             }
-            catch (Exception) { return "pending"; }
+            catch (Exception ex) { return "pending:ipc-" + ex.GetType().Name; }
         }
 
         private void WithdrawalTickWorkerTrade()
@@ -1213,6 +1253,7 @@ namespace CityBankers
         private void ResetWithdrawalTrade()
         {
             _withdrawalPreparation = null;
+            _withdrawalPreparationBlocker = null;
             _withdrawalTradeOpened = false;
             _withdrawalItemOffered = false;
             _withdrawalAccepted = false;
