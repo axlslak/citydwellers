@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 238,
+  "current_session": 239,
   "last_completed_session": 238,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-238-temporary-buffer-sleep-wakeup",
-  "checkpoint_commit": "0a7f061",
-  "task": "Completed: temporary per-buffer sleep/wakeup through ManagerMemory.",
-  "resume_instruction": "Build 0a7f061. Test an enabled buffer with sleep <character>, log it manually if desired, log out, then wakeup <character>; #buffers should report manual sleep while offline. Existing Buddy sleep <index> and wakeup <level> <index> were not changed. Buffer sleep is not persisted and a full host restart starts configured buffers normally. Next journal seq536.",
-  "base_commit": "2a8f7dc"
+  "transaction": "session-239-buffer-logger-build-fix",
+  "checkpoint_commit": "3b646ac",
+  "task": "Fix CS1503 Serilog logger type in BuffersHost only.",
+  "resume_instruction": "Journal BEGIN is seq536. Owner build of 3b646ac has exactly one error: BuffersHost passes Serilog.ILogger to Client.CreateInstance, which requires Serilog.Core.Logger. Change helper parameter types only; no behavior changes. Next journal seq537.",
+  "base_commit": "3b646ac"
 }
