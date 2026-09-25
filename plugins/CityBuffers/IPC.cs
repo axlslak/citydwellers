@@ -17,15 +17,10 @@ namespace MalisBuffBots
     {
         public IPCBotCacheData BotCache = new IPCBotCacheData();
 
-        private AutoResetInterval _updateInterval;
-
         protected override int _localDynelId => Client.LocalDynelId;
 
         public IPC(byte channelId, int pingPongUpdateMs) : base(channelId)
         {
-           // _updateInterval = new AutoResetInterval(updateIntervalMs);
-            _updateInterval = new AutoResetInterval(pingPongUpdateMs);
-
             RegisterCallback((int)IPCOpcode.CastRequest, OnCastRequestReceived);
             RegisterCallback((int)IPCOpcode.ReceiveQueueInfo, OnReceiveQueueInfoReceived);
             RegisterCallback((int)IPCOpcode.UpdateBotInfo, OnReceivedBotInfoMessage);
@@ -34,8 +29,6 @@ namespace MalisBuffBots
             RegisterCallback((int)IPCOpcode.BanRequest, OnBanRequestReceived);
             RegisterCallback((int)IPCOpcode.BanRemove, OnBanRemoveReceived);
             RegisterCallback((int)IPCOpcode.RegisterTeamTracker, OnRegisterTeamTracker);
-            RegisterCallback((int)IPCOpcode.Ping, OnPingMessageReceived);
-            RegisterCallback((int)IPCOpcode.Pong, OnPongMessageReceived);
         }
 
         private void OnBanRemoveReceived(int arg1, IPCMessage msg)
@@ -50,13 +43,9 @@ namespace MalisBuffBots
             Main.BanJson.TryAdd(banMsg.Name);
         }
 
-        public void OnUpdate(object _, double deltaTime)
-        {
-            if (!_updateInterval.Elapsed)
-                return;
-
-            Main.Ipc.Broadcast(new PingMessage { Requester = Client.LocalDynelId });
-        }
+        // Retained for Mali's existing surface. Presence now comes from ManagerMemory;
+        // no peer Ping/Pong traffic is generated.
+        public void OnUpdate(object _, double deltaTime) { }
 
         public void Init()
         {
@@ -172,9 +161,13 @@ namespace MalisBuffBots
                 Profession profession = (Profession)snapshot.Profession;
                 present.Add(profession);
                 TryAddLocal(profession);
-                _entries[profession].Identity = new Identity(
-                    (IdentityType)snapshot.IdentityType, snapshot.IdentityInstance);
-                _entries[profession].SpellData = snapshot.SpellData ?? new int[0];
+                bool fresh = snapshot.InPlay && snapshot.Ready &&
+                    snapshot.ObservedUtc >= DateTime.UtcNow.AddSeconds(-5);
+                _entries[profession].Identity = fresh
+                    ? new Identity((IdentityType)snapshot.IdentityType, snapshot.IdentityInstance)
+                    : Identity.None;
+                _entries[profession].SpellData = fresh ? snapshot.SpellData ?? new int[0] : new int[0];
+                _entries[profession].LastUpdateInTicks = fresh ? snapshot.ObservedUtc.Ticks : 0;
             }
 
             foreach (Profession profession in _entries.Keys.Where(x => !present.Contains(x)).ToArray())
@@ -209,7 +202,10 @@ namespace MalisBuffBots
                 Profession = (int)prof,
                 IdentityType = (int)identity.Type,
                 IdentityInstance = identity.Instance,
-                SpellData = spellList
+                SpellData = spellList,
+                ObservedUtc = DateTime.UtcNow,
+                InPlay = Client.InPlay,
+                Ready = CityBufferBridge.Ready
             });
         }
 
