@@ -3526,4 +3526,12 @@ would help fix it before anyone changes code.
 - [UNCHANGED] Canonical-alt resolution, administrator protection, BanListStore persistence, DevTrace and immediate buffer-authority refresh remain unchanged.
 - [PRESENTATION] Help/command-list text now documents the new ban forms. Removal responses say an identity was removed from the ban list rather than using the retired command name.
 - [VALIDATION] Current Manager source contains no live `unban` command reference; ban add/remove/list aliases are present and modified C# files have balanced braces/parentheses. No assistant build/live AO test; owner retains compiler/runtime validation.
+## Session 253 — paid buffer credentials only
+
+- [OWNER-DIRECTION] Buffers have two categories: persistent froobs and paid/high-level characters. Paid characters are individually configured even when several share the same AO account or an account used by Flipper.
+- [IMPLEMENTED] Added `Buffers.Paid` entries with the same explicit `Enabled`, `Username`, `Password`, and `Character` credential shape as Froobs.
+- [IMPLEMENTED] Enabled paid entries validate credentials and unique character identity. Paid usernames may intentionally overlap each other or other City Dwellers services; later account arbitration owns that exclusivity.
+- [INVARIANT] `BufferSettings.Active` remains Froobs-only. BuffersHost therefore does not start paid entries, and this session adds no paid login, scheduling, wake/sleep, routing, catalogue or buff behavior.
+- [UNCHANGED] Froob accounts remain dedicated: duplicate froob usernames and overlap with other configured services are still rejected.
+- [VALIDATION] Source inspection confirms Paid is parsed/validated while Active still enumerates only Froobs; modified C# braces/parentheses are balanced. No assistant build/live AO test.
 
