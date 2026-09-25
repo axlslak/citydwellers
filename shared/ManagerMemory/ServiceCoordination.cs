@@ -34,6 +34,8 @@ namespace CityDwellers.Shared
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _bufferWarpers =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _bufferBanned =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private bool _bufferAuthorityReady;
         private readonly Dictionary<string, BuddyPositionSnapshot> _buddyPositions = new Dictionary<string, BuddyPositionSnapshot>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, BuddyHomeDirective> _buddyHomes = new Dictionary<string, BuddyHomeDirective>(StringComparer.OrdinalIgnoreCase);
@@ -149,7 +151,8 @@ namespace CityDwellers.Shared
             string[] admins,
             string[] ranked,
             string[] members,
-            string[] warpers)
+            string[] warpers,
+            string[] banned)
         {
             lock (_serviceSync)
             {
@@ -157,6 +160,7 @@ namespace CityDwellers.Shared
                 ReplaceNames(_bufferRanked, ranked);
                 ReplaceNames(_bufferMembers, members);
                 ReplaceNames(_bufferWarpers, warpers);
+                ReplaceNames(_bufferBanned, banned);
                 _bufferAuthorityReady = true;
             }
         }
@@ -170,6 +174,8 @@ namespace CityDwellers.Shared
         { lock (_serviceSync) return _bufferAuthorityReady && HasName(_bufferMembers, character); }
         public bool BufferIsWarper(string character)
         { lock (_serviceSync) return _bufferAuthorityReady && HasName(_bufferWarpers, character); }
+        public bool BufferIsBanned(string character)
+        { lock (_serviceSync) return _bufferAuthorityReady && HasName(_bufferBanned, character); }
         private static bool HasName(HashSet<string> names, string character) =>
             !string.IsNullOrWhiteSpace(character) && names.Contains(character);
         private static void ReplaceNames(HashSet<string> target, IEnumerable<string> source)
