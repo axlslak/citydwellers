@@ -58,7 +58,7 @@ namespace MalisBuffBots
                         break;
                     case QueueState.Dequeue:
                         TeamTimeout.Reset();
-                        Main.Ipc.Broadcast(new QueueInfoMessage { Profession = (Profession)DynelManager.LocalPlayer.Profession, Entries = Main.QueueProcessor.Queue.AllEntries });
+                        Main.Ipc.BotCache.BroadcastQueueInfoMessage();
                         ProcessCurrentBuffEntry();
                         break;
                     case QueueState.Empty:
@@ -136,6 +136,7 @@ namespace MalisBuffBots
                     rejection = error; // One duplicate must not skip later distinct buffs.
             }
             if (rejection != null) NotifyQueueLimit(requester.Identity, rejection);
+            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
         }
 
         public void RequestBuffs(Dictionary<Profession, List<NanoEntry>> entries, PlayerChar requester)
@@ -192,7 +193,8 @@ namespace MalisBuffBots
             }
             else // If the caster is not our local player, broadcast to the required profession
             {
-                Main.Ipc.Broadcast(new CastRequestMessage { Caster = castProf, Requester = requester.Identity.Instance, Entries = results.ToArray() });
+                if (!Main.Ipc.SendCastRequest(castProf, requester.Identity.Instance, results))
+                    Logger.Warning($"No ready buffer accepted cast routing for {castProf}.");
             }
         }
 
@@ -228,12 +230,14 @@ namespace MalisBuffBots
                     }
                     else
                     {
-                        Main.Ipc.Broadcast(new CastRequestMessage
+                        if (!Main.Ipc.SendCastRequest(
+                                prof.Key,
+                                requester.Identity.Instance,
+                                new NanoEntry[1] { nextSpellToCast }))
                         {
-                            Caster = prof.Key,
-                            Requester = requester.Identity.Instance,
-                            Entries = new NanoEntry[1] { nextSpellToCast }
-                        });
+                            Logger.Warning($"No ready buffer accepted generic cast routing for {prof.Key}.");
+                            continue;
+                        }
                     }
 
                     spells.Dequeue();
