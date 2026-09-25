@@ -231,6 +231,9 @@ namespace CityBankers
             Trade.TradeOpened -= OnTradeOpened;
             Trade.TradeStatusChanged -= OnTradeStatusChanged;
             Client.OnUpdate -= Tick;
+            try { CityDwellers.Shared.ManagerMemory.Current.UnregisterBankerSignalWake(Client.CharacterName); }
+            catch { }
+            _bankerMemoryWake = null;
             _ipcLifetime?.Cancel();
             if (_ipcOwner == this)
             {
