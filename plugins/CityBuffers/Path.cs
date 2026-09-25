@@ -6,7 +6,7 @@ namespace MalisBuffBots
 {
     public class Path
     {
-        public static string PLUGIN_DIR, SETTINGS_JSON, BUFF_JSON, REBUFF_JSON, BAN_JSON;
+        public static string PLUGIN_DIR, SETTINGS_JSON, BUFF_JSON, REBUFF_JSON;
         public static void Init(string pluginDir)
         {
             string settings, data, error;
@@ -16,10 +16,6 @@ namespace MalisBuffBots
             SETTINGS_JSON = System.IO.Path.Combine(PLUGIN_DIR, "JSON", "Settings.json");
             BUFF_JSON = System.IO.Path.Combine(PLUGIN_DIR, "JSON", "BuffsDb.json");
             REBUFF_JSON = System.IO.Path.Combine(PLUGIN_DIR, "JSON", "RebuffInfo.json");
-            // Per-character ban state remains local to the imported Mali engine.
-            // Rank authority comes from CityManager through ManagerMemory.
-            string state = System.IO.Path.Combine(settings, "config", "buffers", Client.CharacterName.ToLowerInvariant());
-            BAN_JSON = System.IO.Path.Combine(state, "BanList.json");
         }
     }
 }
