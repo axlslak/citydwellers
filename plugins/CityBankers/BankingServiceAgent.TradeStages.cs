@@ -49,6 +49,7 @@ namespace CityBankers
 
         private readonly Stopwatch _internalOpenedAge = Stopwatch.StartNew();
         private Task<string> _withdrawalPreparation;
+        private string _withdrawalPreparationBlocker;
         private readonly Stopwatch _withdrawalPreparationAge = Stopwatch.StartNew();
         private readonly Stopwatch _managedAddWait = Stopwatch.StartNew();
 
@@ -83,15 +84,40 @@ namespace CityBankers
         private bool HandleWithdrawalPreparation(DispatchProposal proposal)
         {
             if (proposal.Kind != "withdrawal-prepare") return false;
-            var state = WithdrawalStore.LoadAll(_settingsDir).SingleOrDefault(r => r.Id == proposal.Command?.BatchId);
-            bool ready = _isCentral && StartupCensusGate.IsOpen && Client.InPlay && Inventory.Bank.IsOpen &&
-                !Trade.IsTrading && _receipt == null && _activeBatch == null && _returnOffer == null &&
-                !_donationActive && _donationCleanup == null && _extraction == null && Inventory.NumFreeSlots >= 2 &&
-                state != null && WithdrawalStore.HasStatus(state, "extracting") &&
-                !WithdrawalStore.GetCensusCharacters(_settingsDir).Contains(state.SourceCharacter) &&
-                SameDispatchAttempt(WithdrawalCommand(state), proposal.Command);
-            proposal.Reply.TrySetResult(ready ? "ready:" + state.TransferAttemptId + ":prepare" : "pending");
+            var state = WithdrawalStore.LoadAll(_settingsDir)
+                .SingleOrDefault(r => r.Id == proposal.Command?.BatchId);
+            string blocker = WithdrawalPreparationBlocker(state, proposal.Command);
+            proposal.Reply.TrySetResult(blocker == null
+                ? "ready:" + state.TransferAttemptId + ":prepare"
+                : "pending:" + blocker);
             return true;
+        }
+
+        private string WithdrawalPreparationBlocker(
+            WithdrawalState state,
+            DispatchCommand command)
+        {
+            if (!_isCentral) return "not-central";
+            if (!StartupCensusGate.IsOpen) return "census-gate";
+            if (!Client.InPlay) return "not-in-play";
+            if (!Inventory.Bank.IsOpen) return "bank-closed";
+            if (Trade.IsTrading) return "trade-open";
+            if (_receipt != null) return "receipt-" + (_receipt.Kind ?? "unknown");
+            if (_activeBatch != null) return "active-batch-" + (_activeBatch.BatchId ?? "unknown");
+            if (_returnOffer != null) return "return-offer";
+            if (_donationActive) return "donation-active";
+            if (_donationCleanup != null) return "donation-cleanup";
+            if (_extraction != null) return "extraction-active";
+            if (Inventory.NumFreeSlots < 2) return "central-inventory-space";
+            if (state == null) return "withdrawal-state-missing";
+            if (!WithdrawalStore.HasStatus(state, "extracting"))
+                return "withdrawal-status-" + (state.Status ?? "null");
+            if (WithdrawalStore.GetCensusCharacters(_settingsDir)
+                .Contains(state.SourceCharacter))
+                return "source-census-reservation";
+            if (!SameDispatchAttempt(WithdrawalCommand(state), command))
+                return "attempt-mismatch";
+            return null;
         }
 
         private void TickWithdrawalReceiver()
