@@ -293,9 +293,13 @@ namespace CityBankers
                 string.Equals(identity, row.SourceItemIdentity, StringComparison.Ordinal))
                 return true;
             string name = (string)(item["Name"] ?? item["name"]);
+            int? aoId = (int?)(item["AoId"] ?? item["aoId"]);
+            int? highId = (int?)(item["HighId"] ?? item["highId"]);
+            int? ql = (int?)(item["Ql"] ?? item["ql"]);
             return string.Equals(
-                name ?? string.Empty, row.Item.Name ?? string.Empty,
-                StringComparison.OrdinalIgnoreCase);
+                    name ?? string.Empty, row.Item.Name ?? string.Empty,
+                    StringComparison.OrdinalIgnoreCase) &&
+                aoId == row.Item.AoId && highId == row.Item.HighId && ql == row.Item.Ql;
         }
 
         private bool TickWithdrawalWorker()
