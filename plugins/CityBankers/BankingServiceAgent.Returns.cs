@@ -41,9 +41,8 @@ namespace CityBankers
         {
             try
             {
-                return await CityDwellers.Shared.LocalIpc.RequestLineAsync(BankerPipe(central),
-                    JsonConvert.SerializeObject(new DispatchProposal { Kind = kind, Return = offer }),
-                    1000, 4000).ConfigureAwait(false);
+                return await SendBankerMemory(central,
+                    new DispatchProposal { Kind = kind, Return = offer }).ConfigureAwait(false);
             }
             catch (Exception) { return "busy"; }
         }
