@@ -39,7 +39,7 @@ namespace CityManager
             {
                 Reply(target, Usage(
                     target,
-                    "ban [add] [character] | ban [del|rem|remove] [character] | ban [list|print]"));
+                    "ban add [character] | ban del|rem|remove [character] | ban list|print"));
                 return;
             }
 
