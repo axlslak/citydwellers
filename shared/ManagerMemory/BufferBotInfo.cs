@@ -43,7 +43,21 @@ namespace CityDwellers.Shared
         {
             if (info == null || string.IsNullOrWhiteSpace(info.Character))
                 throw new ArgumentException("Buffer character required.");
-            lock (_bufferBotSync) _bufferBots[info.Character] = info.Copy();
+            lock (_bufferBotSync)
+            {
+                BufferBotInfo existing;
+                string queueJson = null;
+                DateTime queueObservedUtc = default(DateTime);
+                if (_bufferBots.TryGetValue(info.Character, out existing))
+                {
+                    queueJson = existing.QueueJson;
+                    queueObservedUtc = existing.QueueObservedUtc;
+                }
+                BufferBotInfo copy = info.Copy();
+                copy.QueueJson = queueJson;
+                copy.QueueObservedUtc = queueObservedUtc;
+                _bufferBots[info.Character] = copy;
+            }
         }
 
         public void ClearBufferBotInfo(string character)
