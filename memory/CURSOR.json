@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 250,
-  "last_completed_session": 249,
-  "status": "in_progress",
+  "last_completed_session": 250,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-250-buffers-city-ban-authority",
-  "checkpoint_commit": "5674182",
-  "task": "Replace Mali buffer ban authority with CityManager BanListStore published through ManagerMemory.",
-  "resume_instruction": "Resume session 250 only. Remove Mali ban authority and use City Dwellers ban authority; do not touch team IPC. Next journal seq559.",
+  "checkpoint_commit": "c8d2b86",
+  "task": "Completed: CityBuffers uses City Dwellers BanListStore authority; Mali ban subsystem retired.",
+  "resume_instruction": "Build current sealed master. Verify a Manager #ban blocks the banned main and known alts from buffer commands, #unban restores access, and AutoBanMeepers (if enabled/tested) creates the ban through Manager. Team coordination remains unchanged on Mali IPC. Next journal seq560.",
   "base_commit": "5674182"
 }
