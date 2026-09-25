@@ -151,6 +151,20 @@ namespace MalisBuffBots
                         NanoCount = inPlay ? DynelManager.LocalPlayer.SpellList.Count() : 0,
                         QueueLength = Main.QueueProcessor?.Queue.AllEntries.Length ?? 0
                     });
+                    if (inPlay)
+                    {
+                        ManagerMemory.Current.PublishBufferBotInfo(new BufferBotInfo
+                        {
+                            Character = Client.CharacterName,
+                            Profession = (int)DynelManager.LocalPlayer.Profession,
+                            IdentityType = (int)DynelManager.LocalPlayer.Identity.Type,
+                            IdentityInstance = DynelManager.LocalPlayer.Identity.Instance,
+                            SpellData = DynelManager.LocalPlayer.SpellList,
+                            ObservedUtc = now,
+                            InPlay = true,
+                            Ready = Ready
+                        });
+                    }
                     TellQueue.WriteHeartbeatBestEffort(_dataDir, Client.CharacterName, inPlay, false, _lastSent,
                         message => Logger.Warning(message));
                 }
