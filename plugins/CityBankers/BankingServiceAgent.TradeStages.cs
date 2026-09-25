@@ -261,9 +261,8 @@ namespace CityBankers
             {
                 string peer = string.Equals(command.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase)
                 ? command.DestinationCharacter : command.SourceCharacter;
-                return await CityDwellers.Shared.LocalIpc.RequestLineAsync(BankerPipe(peer),
-                    JsonConvert.SerializeObject(new DispatchProposal { Kind = "trade-stage", Command = command, Stage = stage }),
-                    1000, 4000).ConfigureAwait(false);
+                return await SendBankerMemory(peer,
+                    new DispatchProposal { Kind = "trade-stage", Command = command, Stage = stage }).ConfigureAwait(false);
             }
             catch (Exception) { return "pending"; }
         }
