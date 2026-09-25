@@ -6,6 +6,7 @@ using AOSharp.Clientless;
 using AOSharp.Clientless.Common;
 using CityDwellers.Shared;
 using Serilog;
+using Serilog.Core;
 
 internal static class BuffersHost
 {
@@ -89,7 +90,7 @@ internal static class BuffersHost
         return exitCode;
     }
 
-    private static void StartBuffer(BufferRuntime runtime, string plugin, ILogger logger)
+    private static void StartBuffer(BufferRuntime runtime, string plugin, Logger logger)
     {
         if (runtime.Domain != null) return;
 
@@ -127,7 +128,7 @@ internal static class BuffersHost
         BufferControlOperation operation,
         Dictionary<string, BufferRuntime> byCharacter,
         string plugin,
-        ILogger logger)
+        Logger logger)
     {
         bool success = false;
         string result;
