@@ -89,6 +89,7 @@ namespace MalisBuffBots
             _lifetime?.Cancel();
             if (_server != null) try { _server.Wait(1500); } catch (AggregateException) { }
             if (_dataDir != null) TellQueue.DeleteHeartbeat(_dataDir, Client.CharacterName);
+            try { ManagerMemory.Current.ClearBufferBotInfo(Client.CharacterName); } catch { }
             _lifetime?.Dispose();
             _lifetime = null;
         }
