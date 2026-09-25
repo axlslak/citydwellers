@@ -231,9 +231,8 @@ namespace CityBankers
         {
             try
             {
-                return await CityDwellers.Shared.LocalIpc.RequestLineAsync(BankerPipe(_centralCharacter),
-                    JsonConvert.SerializeObject(new DispatchProposal { Kind = "dispatch-cancelled", Cancellation = proof }),
-                    1000, 4000).ConfigureAwait(false);
+                return await SendBankerMemory(_centralCharacter,
+                    new DispatchProposal { Kind = "dispatch-cancelled", Cancellation = proof }).ConfigureAwait(false);
             }
             catch (Exception) { return "pending"; }
         }
