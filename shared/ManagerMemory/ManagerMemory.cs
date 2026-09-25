@@ -35,6 +35,7 @@ namespace CityDwellers.Shared
             ClearBankerPresence(character);
             ClearBankerOperational(character);
             ClearBankerHealth(character);
+            UnregisterBankerSignalWake(character);
             RemoveTellSender(character);
             RelinquishTell(character);
         }
