@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 253,
+  "current_session": 254,
   "last_completed_session": 253,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-253-paid-buffer-config",
-  "checkpoint_commit": "830e0cd",
-  "task": "Completed: Buffers.Paid credentials supported but never logged in yet.",
-  "resume_instruction": "Owner may add paid/high-level buffer credentials under Buffers.Paid. They are configuration-only and will not start. Design paid lifecycle/account arbitration separately before enabling login. Next journal seq566.",
-  "base_commit": "4311b7b"
+  "transaction": "session-254-manager-owned-buffer-voice",
+  "checkpoint_commit": "0a5446b",
+  "task": "Remove buffer conversation; add ManagerMemory-backed Apcmanager bufflist.",
+  "resume_instruction": "Resume session 254 only. Buffers must become silent; bufflist belongs to Apcmanager and reads cached capability state. Do not add paid scheduling/login. Next journal seq567.",
+  "base_commit": "0a5446b"
 }
