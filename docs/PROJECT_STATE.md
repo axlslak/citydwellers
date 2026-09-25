@@ -3474,4 +3474,11 @@ would help fix it before anyone changes code.
 - [BOUNDARY] The legacy BankerPipe/ServeBankerIpc listener and LocalIpc code remain available as backup code, but normal banker-to-banker and Manager-to-banker wake/CRU paths no longer call them. No buffer or ServiceEvents IPC was changed.
 - [UNCHANGED] CRU business handling, AO-thread ownership, custody/accounting, durable recovery state and physical trade semantics are unchanged.
 - [VALIDATION] Source/call-path review confirms current CityManager wake and CRU files contain no LocalIpc.RequestLineAsync or CityDwellers.Bankers pipe construction; BankingServiceAgent still contains the dormant listener. No assistant build or live AO test; owner retains compiler/runtime validation.
+## Session 246 — zero-recipient tell guard
+
+- [OWNER-EVIDENCE] Build 3ab29945 repeatedly assigned tell fdf97bdf to Kbsol as a numeric-only recipient; Kbsol rejected it five times with "Tell has no recipient". The malformed job originated from buffer-side tell production and was then retried by the shared queue.
+- [IMPLEMENTED] CityBufferBridge.SendPrivateMessage now drops recipient id 0 before enqueue and logs one explicit warning. Valid non-zero numeric recipients are unchanged.
+- [IMPLEMENTED] ManagerMemory.EnqueueTell now requires either a non-empty recipient name or a non-zero recipient id. Legacy pending tell import applies the same rule, so a zero-only destination cannot enter Manager RAM through restart/import either.
+- [UNCHANGED] Valid tell retry, sender selection, required-sender pinning and acknowledgement behavior are unchanged.
+- [VALIDATION] Current source confirms the producer guard, live enqueue guard and legacy import guard. No assistant build or live AO test; owner retains compiler/runtime validation.
 
