@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 238,
-  "last_completed_session": 237,
-  "status": "in_progress",
+  "last_completed_session": 238,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-238-temporary-buffer-sleep-wakeup",
-  "checkpoint_commit": "a780a3e",
-  "task": "Implement temporary per-buffer sleep/wakeup without changing Buddy behavior.",
-  "resume_instruction": "Journal BEGIN is seq534. Add host-lifetime-only buffer control through ManagerMemory; sleep <buffer-character> and wakeup <buffer-character> must not alter existing Buddy command semantics. Refactor BuffersHost for per-character unload/restart. No persistent sleep state. Owner builds/tests. Next journal seq535.",
+  "checkpoint_commit": "0a7f061",
+  "task": "Completed: temporary per-buffer sleep/wakeup through ManagerMemory.",
+  "resume_instruction": "Build 0a7f061. Test an enabled buffer with sleep <character>, log it manually if desired, log out, then wakeup <character>; #buffers should report manual sleep while offline. Existing Buddy sleep <index> and wakeup <level> <index> were not changed. Buffer sleep is not persisted and a full host restart starts configured buffers normally. Next journal seq536.",
   "base_commit": "2a8f7dc"
 }
