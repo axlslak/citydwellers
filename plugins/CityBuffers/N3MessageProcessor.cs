@@ -103,7 +103,6 @@ namespace MalisBuffBots
             var formattedName = teamMember.Name.ToLower();
 
             Main.BanJson.TryAdd(formattedName);
-            Main.Ipc.Broadcast(new BanRequestMessage { Name = formattedName });
             Main.QueueProcessor.ResetBotQueue();
         }
 
