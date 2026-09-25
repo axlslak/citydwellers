@@ -79,7 +79,7 @@ namespace MalisBuffBots
             string pipeName = BufferSettings.PipeName(Client.CharacterName);
             _server = Serve(pipeName, _lifetime.Token);
             Client.OnUpdate += Tick;
-            Logger.Information("BUFFER IPC and tell sender initialized for " + Client.CharacterName + ".");
+            Logger.Information("BUFFER status bridge and shared tell sender initialized for " + Client.CharacterName + ".");
         }
 
         public static void Stop()
