@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 242,
+  "current_session": 243,
   "last_completed_session": 241,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-242-citybuffers-conversation-memory",
-  "checkpoint_commit": "afa3589",
-  "task": "Aborted: conversation-memory archive update was not published.",
-  "resume_instruction": "Repository is clean and idle. Session 241 state/history remains authoritative for the CityBuffers no-rewrite rule. Mali IPC/BotCache is the next isolated issue. Next journal seq544.",
-  "base_commit": "afa3589"
+  "transaction": "session-243-withdrawal-open-trade-recovery",
+  "checkpoint_commit": "7595d9f",
+  "task": "Fix withdrawal OpenTrade timeout recovery and known-loose custody handling.",
+  "resume_instruction": "Journal BEGIN is seq544. Keep protocol intact; remove the harmful 1500ms prepare-reply age rejection, add blocker diagnostics, allow exact fresh loose-inventory retry, and stop known ExtractedItemIdentity custody from triggering loose-mismatch relog. Next journal seq545.",
+  "base_commit": "f8646b3"
 }
