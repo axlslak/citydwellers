@@ -16,6 +16,24 @@ namespace CityManager
 
         private void PublishBufferAuthoritySnapshot(bool force = false)
         {
+            foreach (BufferBanRequest request in ManagerMemory.Current.TakeBufferBanRequests(16))
+            {
+                string canonical = ResolveCanonicalAltMain(request.Character);
+                if (IsAdministrator(canonical))
+                {
+                    DevTrace(
+                        $"BUFFER AUTO-BAN DENIED source={request.Source} target={canonical}: administrator.");
+                    continue;
+                }
+
+                string message;
+                bool changed = BanListStore.TryAdd(canonical, out message);
+                DevTrace(
+                    $"BUFFER AUTO-BAN source={request.Source} target={canonical} " +
+                    $"requested={request.Character} changed={changed}; {message}");
+                if (changed) force = true;
+            }
+
             DateTime now = DateTime.UtcNow;
             if (!force && now < _nextBufferAuthorityPublishUtc)
                 return;
