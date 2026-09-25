@@ -227,6 +227,8 @@ namespace MalisBuffBots
                         string error;
                         if (!Queue.TryEnqueue(new BuffEntry { Requester = requester.Identity, NanoEntry = nextSpellToCast }, out error))
                             NotifyQueueLimit(requester.Identity, error);
+                        else
+                            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
                     }
                     else
                     {
