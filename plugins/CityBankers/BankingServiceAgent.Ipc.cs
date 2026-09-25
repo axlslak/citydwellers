@@ -61,7 +61,13 @@ namespace CityBankers
         private readonly Dictionary<string, Stopwatch> _workerRetries = new Dictionary<string, Stopwatch>(StringComparer.OrdinalIgnoreCase);
         private readonly Stopwatch _preparingAge = Stopwatch.StartNew();
         private static BankingServiceAgent _ipcOwner;
+        private BankerMemoryWake _bankerMemoryWake;
         private string _proposalError;
+
+        private sealed class BankerMemoryWake : CityDwellers.Shared.BankerSignalWake
+        {
+            public override void Wake() => BankerActivityGovernor.Wake();
+        }
         internal static DispatchCommand CurrentInboundDispatch =>
             _ipcOwner?._workerCommand ?? _ipcOwner?._reservedDispatch;
         internal static bool CentralTransferBusy => _ipcOwner != null &&
@@ -81,6 +87,9 @@ namespace CityBankers
         private void StartBankerIpc()
         {
             _ipcOwner = this;
+            _bankerMemoryWake = new BankerMemoryWake();
+            CityDwellers.Shared.ManagerMemory.Current.RegisterBankerSignalWake(
+                Client.CharacterName, _bankerMemoryWake);
             _ipcLifetime = new CancellationTokenSource();
             string pipeName = BankerPipe(Client.CharacterName);
             _ipcServer = ServeBankerIpc(pipeName, _ipcLifetime.Token);
@@ -128,20 +137,75 @@ namespace CityBankers
             }
         }
 
+        private static async Task<string> SendBankerMemory(
+            string character, DispatchProposal proposal, int timeoutMilliseconds = 4000)
+        {
+            try
+            {
+                var request = new CityDwellers.Shared.BankerSignalRequest(
+                    JsonConvert.SerializeObject(proposal));
+                if (!CityDwellers.Shared.ManagerMemory.Current.EnqueueBankerSignal(character, request))
+                    return "busy";
+                Task completed = await Task.WhenAny(
+                    request.ReplyTask, Task.Delay(timeoutMilliseconds)).ConfigureAwait(false);
+                if (completed == request.ReplyTask)
+                    return await request.ReplyTask.ConfigureAwait(false);
+                return request.TryCancel() ? "busy" : "pending";
+            }
+            catch (Exception)
+            {
+                return "pending";
+            }
+        }
+
+        private void DrainBankerMemorySignals()
+        {
+            while (Volatile.Read(ref _queuedProposals) < 64)
+            {
+                var request = CityDwellers.Shared.ManagerMemory.Current.TakeBankerSignal(
+                    Client.CharacterName);
+                if (request == null) return;
+                if (!request.TryBegin()) continue;
+
+                DispatchProposal proposal;
+                try { proposal = JsonConvert.DeserializeObject<DispatchProposal>(request.Payload ?? "null"); }
+                catch (JsonException) { request.Reply("busy"); continue; }
+                if (proposal == null) { request.Reply("busy"); continue; }
+
+                if (Interlocked.Increment(ref _queuedProposals) > 64)
+                {
+                    Interlocked.Decrement(ref _queuedProposals);
+                    request.Reply("busy");
+                    continue;
+                }
+
+                var replyTarget = request;
+                proposal.Reply.Task.ContinueWith(task =>
+                {
+                    if (task.Status == TaskStatus.RanToCompletion)
+                        replyTarget.Reply(task.Result);
+                    else
+                        replyTarget.Reply("pending");
+                }, TaskScheduler.Default);
+                _dispatchProposals.Enqueue(proposal);
+                BankerActivityGovernor.Wake();
+            }
+        }
+
         private static async Task<string> AskWorkerToPrepare(DispatchCommand command)
         {
             try
             {
-                return await CityDwellers.Shared.LocalIpc.RequestLineAsync(
-                    BankerPipe(command.DestinationCharacter), JsonConvert.SerializeObject(new DispatchProposal
-                    { Kind = "prepare", BatchId = command.BatchId, Command = command }),
-                    1000, 4000).ConfigureAwait(false);
+                return await SendBankerMemory(command.DestinationCharacter,
+                    new DispatchProposal { Kind = "prepare", BatchId = command.BatchId, Command = command })
+                    .ConfigureAwait(false);
             }
             catch (Exception) { return "busy:Worker preparation IPC did not respond."; }
         }
 
         private void TickBankerIpc()
         {
+            DrainBankerMemorySignals();
             if (_reservedDispatch != null && !Trade.IsTrading && _reservationAge.ElapsedMilliseconds > 15000)
                 _reservedDispatch = null;
             DispatchProposal proposal;
@@ -254,7 +318,7 @@ namespace CityBankers
                 // constant: on a first attempt this can gate the whole batch.
                 if (_ipcRetry.ElapsedMilliseconds < 1000)
                 {
-                    TradeTrace.Wait(_dispatchSpan, "ipc-retry-floor-1000ms");
+                    TradeTrace.Wait(_dispatchSpan, "memory-retry-floor-1000ms");
                     return false;
                 }
                 _preparingBatch = batch.BatchId;
@@ -273,7 +337,7 @@ namespace CityBankers
             }
             if (!_dispatchPreparation.IsCompleted)
             {
-                TradeTrace.Wait(_dispatchSpan, "worker-prepare-ipc-reply");
+                TradeTrace.Wait(_dispatchSpan, "worker-prepare-memory-reply");
                 return false;
             }
             string reply = _dispatchPreparation.Status == TaskStatus.RanToCompletion ? _dispatchPreparation.Result : null;
@@ -312,9 +376,8 @@ namespace CityBankers
                 Stopwatch interval;
                 if (_storageInquiryIntervals.TryGetValue(batch.BatchId, out interval) && interval.ElapsedMilliseconds < 1000)
                     return null;
-                _storageInquiries[batch.BatchId] = CityDwellers.Shared.LocalIpc.RequestLineAsync(BankerPipe(batch.Character),
-                    JsonConvert.SerializeObject(new DispatchProposal { Kind = "storage-result", BatchId = batch.BatchId }),
-                    1000, 4000);
+                _storageInquiries[batch.BatchId] = SendBankerMemory(batch.Character,
+                    new DispatchProposal { Kind = "storage-result", BatchId = batch.BatchId });
                 return null;
             }
             if (!inquiry.IsCompleted) return null;
