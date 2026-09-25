@@ -268,7 +268,15 @@ namespace CityBankers
             string token = CityDwellers.Shared.CharacterNames.FileToken(row.SourceCharacter);
             var health = CityDwellers.Shared.ManagerMemory.Current.BankerHealth(row.SourceCharacter);
             JObject heartbeat = health == null ? null : JObject.FromObject(health);
-            JArray items = heartbeat?["InventoryItems"] as JArray;
+            DateTime? observed = (DateTime?)heartbeat?["ObservedUtc"];
+            if (heartbeat == null ||
+                (int?)heartbeat["ProcessId"] != Process.GetCurrentProcess().Id ||
+                (bool?)heartbeat["InPlay"] != true ||
+                !observed.HasValue ||
+                observed.Value.ToUniversalTime() > DateTime.UtcNow.AddSeconds(2) ||
+                DateTime.UtcNow - observed.Value.ToUniversalTime() > TimeSpan.FromSeconds(10))
+                return null;
+            JArray items = heartbeat["InventoryItems"] as JArray;
             if (items == null)
                 return null;
             List<JToken> matches = items.Where(item =>
