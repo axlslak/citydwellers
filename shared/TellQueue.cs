@@ -82,7 +82,9 @@ namespace CityDwellers.Shared
                 foreach (var old in jobs)
                 {
                     if (old == null || old.Format != TellFormat || string.IsNullOrWhiteSpace(old.Id) ||
-                        string.IsNullOrWhiteSpace(old.Message) || (string.IsNullOrWhiteSpace(old.RecipientName) && !old.RecipientId.HasValue))
+                        string.IsNullOrWhiteSpace(old.Message) ||
+                        (string.IsNullOrWhiteSpace(old.RecipientName) &&
+                         (!old.RecipientId.HasValue || old.RecipientId.Value == 0)))
                         throw new InvalidOperationException("Legacy pending tell is invalid.");
                 }
                 foreach (var old in jobs.OrderBy(x => x.Sequence))
@@ -98,7 +100,8 @@ namespace CityDwellers.Shared
         }
         public string EnqueueTell(string source, string recipient, uint? recipientId, string message, string requiredSender)
         {
-            if (string.IsNullOrWhiteSpace(recipient) && !recipientId.HasValue) throw new ArgumentException("Tell recipient required.");
+            if (string.IsNullOrWhiteSpace(recipient) && (!recipientId.HasValue || recipientId.Value == 0))
+                throw new ArgumentException("Tell recipient required.");
             if (string.IsNullOrWhiteSpace(message)) throw new ArgumentException("Tell message required.");
             lock (_tellSync)
             {
