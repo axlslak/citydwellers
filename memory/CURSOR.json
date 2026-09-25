@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 249,
-  "last_completed_session": 248,
-  "status": "in_progress",
+  "last_completed_session": 249,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-249-mali-memory-nonteam",
-  "checkpoint_commit": "1ebf19c",
-  "task": "Move remaining non-team Mali IPC (queue, cast, bans) to ManagerMemory; keep team IPC untouched.",
-  "resume_instruction": "Resume session 249 only. Complete queue/cast/ban ManagerMemory migration; do not change team coordination. Next journal seq557.",
+  "checkpoint_commit": "6ae3dd3",
+  "task": "Completed: all non-team Mali peer coordination uses ManagerMemory/shared TellQueue; only team coordination remains on Mali IPC.",
+  "resume_instruction": "Build current sealed master and verify help/capability discovery, generic and profession-specific buff routing, queue balancing, ban/unban propagation and buffer tells. Team coordination remains intentionally unchanged on Mali IPC. Next journal seq558.",
   "base_commit": "1ebf19c"
 }
