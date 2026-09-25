@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 243,
+  "current_session": 244,
   "last_completed_session": 243,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-243-withdrawal-open-trade-recovery",
-  "checkpoint_commit": "38c6d67",
-  "task": "Completed: withdrawal OpenTrade timeout recovery and known-loose custody handling.",
-  "resume_instruction": "Build 38c6d67 or current sealed master. Re-test #get for a phatz item. Expected: extracted item proceeds to WITHDRAWAL TRANSFER OPENING; if Central is blocked, Kbphatz logs WITHDRAWAL PREPARE WAIT with the exact blocker. If OpenTrade still times out after extraction, the exact loose item must not trigger a generic mismatch relog, and one fresh exact loose observation may resume the return path. Next journal seq546.",
-  "base_commit": "f8646b3"
+  "transaction": "session-244-banker-memory-signalling",
+  "checkpoint_commit": "4a0f60e",
+  "task": "Replace same-host ephemeral banker named-pipe signalling with ManagerMemory mailbox coordination.",
+  "resume_instruction": "Resume session 244 only. Inspect current master and complete banker signalling migration without changing durable custody/accounting semantics. Next journal seq547.",
+  "base_commit": "4a0f60e"
 }
