@@ -3390,3 +3390,14 @@ would help fix it before anyone changes code.
   reports a manually sleeping buffer explicitly.
 - Validation is source review only. The owner performs the first build and AO
   test.
+
+## Session 239 — buffer lifecycle build fix
+
+- [VERIFIED] The owner's Release build of session 238 reached the final
+  CityDwellers project with one error: BuffersHost passed `Serilog.ILogger`
+  to AOSharp `Client.CreateInstance`, whose fifth parameter is
+  `Serilog.Core.Logger`.
+- [IMPLEMENTED] BuffersHost helper parameters use the concrete
+  `Serilog.Core.Logger` type again. No buffer lifecycle, ManagerMemory,
+  command-routing or Buddy behavior changed.
+- Owner rebuild is the first compiler verification of this correction.

@@ -3408,3 +3408,11 @@ protocol and not durable state. Consequently a City Dwellers restart deliberatel
 forgets manual buffer sleeps and returns to configuration truth by starting all
 enabled buffers. The buffer status command identifies manual sleep instead of
 reporting a generic unavailable status.
+
+## Session 239 — compile correction for buffer lifecycle
+
+The first owner build of the temporary buffer lifecycle feature found one type
+mismatch introduced by the refactor: an internal helper widened the logger to
+`Serilog.ILogger`, but AOSharp Clientless requires `Serilog.Core.Logger` when
+creating a client domain. The helper now keeps the concrete logger type. No
+runtime behavior changed.
