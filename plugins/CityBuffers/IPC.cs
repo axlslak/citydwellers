@@ -29,18 +29,6 @@ namespace MalisBuffBots
             RegisterCallback((int)IPCOpcode.RegisterTeamTracker, OnRegisterTeamTracker);
         }
 
-        private void OnBanRemoveReceived(int arg1, IPCMessage msg)
-        {
-            BanRemoveMessage banMsg = (BanRemoveMessage)msg;
-            Main.BanJson.TryRemove(banMsg.Name);
-        }
-
-        private void OnBanRequestReceived(int arg1, IPCMessage msg)
-        {
-            BanRequestMessage banMsg = (BanRequestMessage)msg;
-            Main.BanJson.TryAdd(banMsg.Name);
-        }
-
         private sealed class MemoryCastRequest
         {
             public int Caster;
@@ -115,21 +103,6 @@ namespace MalisBuffBots
             CityBufferBridge.SendPrivateMessage((uint)trackMsg.TeamTrackerId, ScriptTemplate.TeamInvite());
         }
 
-        private void OnPongMessageReceived(int arg1, IPCMessage ipcMsg)
-        {
-            PongMessage pongMsg = (PongMessage)ipcMsg;
-
-            if (pongMsg.Requester != Client.LocalDynelId)
-                return;
-
-            BotCache.PingPong(pongMsg.Receiver);
-        }
-
-        private void OnPingMessageReceived(int arg1, IPCMessage ipcMsg)
-        {
-            Main.Ipc.Broadcast(new PongMessage { Requester = ((PingMessage)ipcMsg).Requester, Receiver = (Profession)DynelManager.LocalPlayer.Profession });
-        }
-
         private void OnRequestTeamInviteReceived(int arg1, IPCMessage ipcMsg)
         {
             RequestTeamInviteMessage teamInviteMsg = (RequestTeamInviteMessage)ipcMsg;
@@ -143,37 +116,6 @@ namespace MalisBuffBots
             }
 
             Team.Invite(new Identity(IdentityType.SimpleChar, teamInviteMsg.Requester));
-        }
-
-        private void OnCastRequestReceived(int sender, IPCMessage msg)
-        {
-            CastRequestMessage cMsg = (CastRequestMessage)msg;
-
-            if (DynelManager.LocalPlayer == null)
-                return;
-
-            if ((Profession)DynelManager.LocalPlayer.Profession != cMsg.Caster)
-                return;
-
-            var requester = DynelManager.Players.FirstOrDefault(x => x.Identity.Instance == cMsg.Requester);
-
-            if (requester == null)
-                return;
-
-            Main.QueueProcessor.LocalEnqueue(requester, cMsg.Entries);
-            BotCache.BroadcastQueueInfoMessage();
-        }
-
-        private void OnReceiveQueueInfoReceived(int sender, IPCMessage msg)
-        {
-            QueueInfoMessage qMsg = (QueueInfoMessage)msg;
-            BotCache.UpdateQueueInfo(qMsg.Profession, qMsg.Entries);
-        }
-
-        private void OnReceivedBotInfoMessage(int sender, IPCMessage msg)
-        {
-            BotInfoMessage sMsg = (BotInfoMessage)msg;
-            BotCache.UpdateBotInfo(sMsg.Profession, sMsg.Identity, sMsg.SpellData);
         }
 
         private void OnReceivedTeamInfoMessage(int arg1, IPCMessage msg)
@@ -316,12 +258,6 @@ namespace MalisBuffBots
         {
             TryAddLocal(prof);
             _entries[prof].TeamTrackerId = trackId;
-        }
-
-        public void PingPong(Profession prof)
-        {
-            TryAddLocal(prof);
-            _entries[prof].LastUpdateInTicks = DateTime.Now.Ticks;
         }
 
         private void TryAddLocal(Profession prof)
