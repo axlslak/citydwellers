@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 252,
-  "last_completed_session": 251,
-  "status": "in_progress",
+  "last_completed_session": 252,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-252-ban-build-fix",
-  "checkpoint_commit": "72ddd41",
-  "task": "Fix CS0136 in CityManager.Bans.cs by renaming list-branch local.",
-  "resume_instruction": "Resume session 252 only. Apply minimal CS0136 rename; no behavior change. Next journal seq563.",
+  "checkpoint_commit": "18fd832",
+  "task": "Completed: fixed CS0136 local-name collision in structured ban command.",
+  "resume_instruction": "Rebuild current sealed master. The previous CityManager.Bans.cs CS0136 should be gone. Next journal seq564.",
   "base_commit": "72ddd41"
 }
