@@ -18,11 +18,11 @@ namespace CityManager
             if (list)
             {
                 List<string> banned = BanListStore.Snapshot();
-                string message = banned.Count == 0
+                string listMessage = banned.Count == 0
                     ? "Ban list is empty."
                     : $"Banned characters ({banned.Count}): {string.Join(", ", banned)}.";
                 DevTrace($"BAN LIST viewed by={senderName} count={banned.Count}.");
-                Reply(target, message);
+                Reply(target, listMessage);
                 return;
             }
 
