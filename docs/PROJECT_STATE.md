@@ -3489,4 +3489,13 @@ would help fix it before anyone changes code.
 - [LIFECYCLE] Buffer BotInfo memory is cleared both on CityBufferBridge stop and ManagerMemory client disconnect, so an unloaded buffer does not remain advertised as a caster.
 - [UNCHANGED] CastRequest, QueueInfo, TeamInfo, TeamTracker/RequestTeamInvite, BanRequest/BanRemove and Ping/Pong remain on Mali IPC for later stages. Queue, casting, team and ban semantics are unchanged.
 - [VALIDATION] Current source confirms BotInfo publish/refresh through ManagerMemory and no active Main.Ipc.Broadcast(new BotInfoMessage) call. Source/call-path review only; owner retains build/live AO validation.
+## Session 248 — Mali IPC migration stage 2: presence replaces Ping/Pong
+
+- [OWNER-DIRECTION] Do not reproduce Mali's old Ping/Pong protocol in the new architecture. Buffers should publish themselves into ManagerMemory so other same-host components can inspect shared liveness/capability state directly. Team coordination remains explicitly deferred.
+- [IMPLEMENTED] BufferBotInfo now includes ObservedUtc, InPlay and Ready. CityBufferBridge publishes the full buffer snapshot from its existing one-second heartbeat; no new polling worker or timer was introduced.
+- [IMPLEMENTED] IPCBotCacheData derives LastUpdateInTicks, live identity and spell capability from fresh ManagerMemory observations (InPlay + Ready + observation within five seconds). Stale/not-ready buffers are not advertised as available casters.
+- [IMPLEMENTED] Mali no longer registers Ping or Pong IPC callbacks and its OnUpdate no longer broadcasts Ping. The old Ping/Pong message types and unregistered handler methods remain as dormant compatibility code.
+- [UNCHANGED] TeamInfo, TeamTracker/RequestTeamInvite, CastRequest, QueueInfo and ban propagation remain on Mali IPC. Team coordination/AO side effects were not touched.
+- [BOUNDARY] CityBufferBridge's separate status pipe is unrelated to Mali peer coordination and remains unchanged in this stage.
+- [VALIDATION] Current source confirms no Ping/Pong callbacks, no active Ping broadcast, ManagerMemory presence publication, and memory-backed liveness reads. No assistant build/live AO test; owner retains compiler/runtime validation.
 
