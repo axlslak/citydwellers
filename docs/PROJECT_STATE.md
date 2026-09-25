@@ -3518,4 +3518,12 @@ would help fix it before anyone changes code.
 - [REMOVED] Retired Mali BanRequest/BanRemove IPC message classes and opcode entries were removed. The temporary session249 ManagerMemory buffer-ban set was also removed.
 - [UNCHANGED] TeamInfo, TeamTracker and RequestTeamInvite remain the only active Mali IPC coordination. Casting/queue/tell memory paths are unchanged.
 - [VALIDATION] Current-source audit finds no live BanJson, BAN_JSON, BanRequestMessage or BanRemoveMessage references in the buffer runtime. Modified C# files have balanced braces/parentheses. No assistant build/live AO test; owner retains compiler/runtime validation.
+## Session 251 — structured ban command
+
+- [OWNER-DIRECTION] Remove the standalone `unban` command and make bans follow the Manager authority-command pattern with explicit subcommands.
+- [IMPLEMENTED] `ban add <character>` adds a canonical ban; `ban del|rem|remove <character>` removes it; `ban list|print` shows the canonical stored ban list. Bare/invalid forms return usage.
+- [IMPLEMENTED] Tell-command shape recognition accepts only the new ban forms. `unban` is removed from AdminCommands, command dispatch and help routing.
+- [UNCHANGED] Canonical-alt resolution, administrator protection, BanListStore persistence, DevTrace and immediate buffer-authority refresh remain unchanged.
+- [PRESENTATION] Help/command-list text now documents the new ban forms. Removal responses say an identity was removed from the ban list rather than using the retired command name.
+- [VALIDATION] Current Manager source contains no live `unban` command reference; ban add/remove/list aliases are present and modified C# files have balanced braces/parentheses. No assistant build/live AO test; owner retains compiler/runtime validation.
 
