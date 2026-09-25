@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 240,
+  "current_session": 241,
   "last_completed_session": 240,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-240-withdrawal-central-wake",
-  "checkpoint_commit": "82f1f36",
-  "task": "Completed: Central vegetative wake for active withdrawals.",
-  "resume_instruction": "Build 82f1f36 or current sealed master. Re-test a single #get from an idle worker: Central should wake within its vegetative fallback window, promote requested -> extracting, and the source worker should proceed. No new IPC was added. Next journal seq540.",
-  "base_commit": "0ee9aa2"
+  "transaction": "session-241-buffer-authority-adapter",
+  "checkpoint_commit": "c4dfab4",
+  "task": "Replace Mali UserRanks.json lookup with City Dwellers ManagerMemory authority, in place.",
+  "resume_instruction": "Journal BEGIN is seq540. Preserve Mali Rank/UserRank call sites; publish alt-aware Manager admin/ranked/member authority into ManagerMemory; remove only UserRanks.json plumbing. Warper has no City Dwellers equivalent and must not be repurposed. Leave BanList and Mali IPC untouched. Next journal seq541.",
+  "base_commit": "c4dfab4"
 }
