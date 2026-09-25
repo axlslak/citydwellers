@@ -93,7 +93,6 @@ namespace CityManager
                 "memberlist",
                 "member",
                 "ban",
-                "unban",
                 "dump",
                 "trace",
                 "restart",
@@ -981,11 +980,7 @@ namespace CityManager
                     break;
 
                 case "ban":
-                    ProcessBanCommand(senderName, parts, replyTarget, false);
-                    break;
-
-                case "unban":
-                    ProcessBanCommand(senderName, parts, replyTarget, true);
+                    ProcessBanCommand(senderName, parts, replyTarget);
                     break;
 
                 case "dump":
