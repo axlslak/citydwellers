@@ -36,6 +36,7 @@
     <Compile Include="..\BuddyPositionSnapshot.cs" />
     <Compile Include="BagAuditModels.cs" />
     <Compile Include="BankerCoordination.cs" />
+    <Compile Include="BankerSignals.cs" />
     <Compile Include="BankerHealth.cs" />
     <Compile Include="..\TellQueue.cs" />
     <Compile Include="..\ManagerChannelQueue.cs" />
