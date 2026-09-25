@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 248,
+  "current_session": 249,
   "last_completed_session": 248,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-248-mali-memory-stage2-presence",
-  "checkpoint_commit": "355ca82",
-  "task": "Completed: Mali buffer presence/liveness uses ManagerMemory instead of active Ping/Pong IPC.",
-  "resume_instruction": "Build current sealed master and verify buffers still discover live ready peers after startup/reconnect. Team coordination remains intentionally untouched. Next Mali IPC stage should be isolated separately. Next journal seq556.",
-  "base_commit": "20824cc"
+  "transaction": "session-249-mali-memory-nonteam",
+  "checkpoint_commit": "1ebf19c",
+  "task": "Move remaining non-team Mali IPC (queue, cast, bans) to ManagerMemory; keep team IPC untouched.",
+  "resume_instruction": "Resume session 249 only. Complete queue/cast/ban ManagerMemory migration; do not change team coordination. Next journal seq557.",
+  "base_commit": "1ebf19c"
 }
