@@ -3481,4 +3481,12 @@ would help fix it before anyone changes code.
 - [IMPLEMENTED] ManagerMemory.EnqueueTell now requires either a non-empty recipient name or a non-zero recipient id. Legacy pending tell import applies the same rule, so a zero-only destination cannot enter Manager RAM through restart/import either.
 - [UNCHANGED] Valid tell retry, sender selection, required-sender pinning and acknowledgement behavior are unchanged.
 - [VALIDATION] Current source confirms the producer guard, live enqueue guard and legacy import guard. No assistant build or live AO test; owner retains compiler/runtime validation.
+## Session 247 — Mali IPC migration stage 1: BotInfo to ManagerMemory
+
+- [OWNER-DIRECTION] Migrate Mali IPC gradually, preserving Mali's existing queue/casting/team behavior and using its current seams rather than rewriting the engine.
+- [IMPLEMENTED] Stage 1 moves only BotInfo/capability replication to ManagerMemory: each buffer publishes character, profession, AO identity and spell list into a primitive serializable shared snapshot. IPCBotCacheData keeps the same public interface but refreshes its identity/spell fields from ManagerMemory before reads.
+- [IMPLEMENTED] BroadcastBotInfoMessage no longer broadcasts BotInfoMessage through Mali IPC. The old BotInfo IPC opcode/callback/message class remains in place as dormant compatibility code.
+- [LIFECYCLE] Buffer BotInfo memory is cleared both on CityBufferBridge stop and ManagerMemory client disconnect, so an unloaded buffer does not remain advertised as a caster.
+- [UNCHANGED] CastRequest, QueueInfo, TeamInfo, TeamTracker/RequestTeamInvite, BanRequest/BanRemove and Ping/Pong remain on Mali IPC for later stages. Queue, casting, team and ban semantics are unchanged.
+- [VALIDATION] Current source confirms BotInfo publish/refresh through ManagerMemory and no active Main.Ipc.Broadcast(new BotInfoMessage) call. Source/call-path review only; owner retains build/live AO validation.
 
