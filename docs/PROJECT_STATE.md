@@ -3498,4 +3498,14 @@ would help fix it before anyone changes code.
 - [UNCHANGED] TeamInfo, TeamTracker/RequestTeamInvite, CastRequest, QueueInfo and ban propagation remain on Mali IPC. Team coordination/AO side effects were not touched.
 - [BOUNDARY] CityBufferBridge's separate status pipe is unrelated to Mali peer coordination and remains unchanged in this stage.
 - [VALIDATION] Current source confirms no Ping/Pong callbacks, no active Ping broadcast, ManagerMemory presence publication, and memory-backed liveness reads. No assistant build/live AO test; owner retains compiler/runtime validation.
+## Session 249 — Mali non-team coordination moved to ManagerMemory
+
+- [OWNER-DIRECTION] Keep Mali's team coordination untouched for now, but remove the rest of the active peer IPC where practical. The shared tell queue already uses ManagerMemory and required no transport migration in this session.
+- [IMPLEMENTED] Queue replication is now a per-buffer ManagerMemory snapshot. Existing IPCBotCacheData callers retain the same interface and deserialize queue state from the shared snapshot.
+- [IMPLEMENTED] Cross-buffer CastRequest routing now uses a bounded ManagerMemory mailbox targeted by profession. Destination buffers drain messages from their existing AO update callback and call the existing LocalEnqueue seam; no AO action runs on the sending thread.
+- [IMPLEMENTED] Buffer bans are authoritative in ManagerMemory at runtime. Existing per-character BanList.json files seed the shared set on startup and are synchronized only on explicit ban/unban for restart persistence. BanRequest/BanRemove IPC is no longer active.
+- [IMPLEMENTED] Non-team Mali IPC callbacks/broadcasts for BotInfo, Ping/Pong, QueueInfo, CastRequest and bans are inactive. Dead non-team handler methods were removed from IPC.cs. Old message/opcode type files remain as imported compatibility/reference code.
+- [UNCHANGED] TeamInfo, TeamTracker and RequestTeamInvite remain on Mali IPC. Team selection, invitations, TeamTrackerId behavior and AO team side effects were not changed.
+- [TELLS] CityBuffers already uses CityDwellers.Shared.TellQueue, which is ManagerMemory-backed; pinned buffer replies and Manager scheduling remain unchanged.
+- [VALIDATION] Source audit shows only the three team callbacks active in IPC.cs; no active cast/queue/ban/ping/bot IPC broadcast remains. Brace/paren checks passed. No assistant build or live AO test; owner retains compiler/runtime validation.
 
