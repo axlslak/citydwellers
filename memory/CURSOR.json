@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 251,
+  "current_session": 252,
   "last_completed_session": 251,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-251-ban-command-shape",
-  "checkpoint_commit": "6e4e25c",
-  "task": "Completed: Manager ban command uses add/del|rem|remove/list|print; standalone unban removed.",
-  "resume_instruction": "Build current sealed master. Verify ban add <player>, ban del/rem/remove <player>, and ban list/print in tell and # command routes; unban should no longer be recognized. Next journal seq562.",
-  "base_commit": "e916e0c"
+  "transaction": "session-252-ban-build-fix",
+  "checkpoint_commit": "72ddd41",
+  "task": "Fix CS0136 in CityManager.Bans.cs by renaming list-branch local.",
+  "resume_instruction": "Resume session 252 only. Apply minimal CS0136 rename; no behavior change. Next journal seq563.",
+  "base_commit": "72ddd41"
 }
