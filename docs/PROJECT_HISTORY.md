@@ -3430,3 +3430,20 @@ Central's existing vegetative fallback now treats any active withdrawal as local
 orchestration work. Workers still wake only for rows sourced from themselves.
 This keeps the fix in the shared-state pull path rather than adding another IPC
 message.
+
+## Session 241 — retire Mali rank files, keep Mali itself
+
+The owner corrected the architectural framing before implementation: CityBuffers
+is not to become a rewritten City Dwellers buff engine. Mali's engine stays Mali's
+engine. Integration should happen at its existing seams.
+
+The first application of that rule removes only the imported standalone authority
+backend. Mali still calls `UserRank.MeetsRank` and keeps its existing `Rank`
+enum and command table, but `UserRank` now asks ManagerMemory for City Dwellers
+authority instead of loading a per-character `UserRanks.json`. CityManager
+publishes an alt-aware snapshot from its existing admin list, effective membership
+state and verified officer-rank cache.
+
+This also establishes the pattern for the later IPC work: preserve Mali's
+behavioral code and replace the transport/state source underneath it rather than
+redesigning its queue or team logic.

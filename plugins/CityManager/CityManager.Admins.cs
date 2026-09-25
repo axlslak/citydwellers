@@ -52,6 +52,9 @@ namespace CityManager
             else
                 changed = AdminListStore.TryRemove(canonicalName, out message);
 
+            if (changed)
+                PublishBufferAuthoritySnapshot(true);
+
             DevTrace(
                 $"ADMIN LIST {parts[1].ToUpperInvariant()} actor={senderName} " +
                 $"target={canonicalName} requested={parts[2]} changed={changed}; {message}");

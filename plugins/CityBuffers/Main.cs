@@ -37,7 +37,7 @@ namespace MalisBuffBots
                 BuffsJson = new BuffsJson(Path.BUFF_JSON);
                 RebuffJson = new RebuffJson(Path.REBUFF_JSON);
                 BanJson = new BanJson(Path.BAN_JSON);
-                UserRank = new UserRank(Path.USERRANK_JSON);
+                UserRank = new UserRank();
                 _commandProcessor = new CommandProcessor();
                 QueueProcessor = new QueueProcessor();
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using CityDwellers.Shared;
@@ -9,6 +10,64 @@ namespace CityManager
     public partial class CityManager
     {
         private const int BufferControlTimeoutMilliseconds = 30000;
+        private static readonly TimeSpan BufferAuthorityPublishInterval =
+            TimeSpan.FromSeconds(1);
+        private DateTime _nextBufferAuthorityPublishUtc = DateTime.MinValue;
+
+        private void PublishBufferAuthoritySnapshot(bool force = false)
+        {
+            DateTime now = DateTime.UtcNow;
+            if (!force && now < _nextBufferAuthorityPublishUtc)
+                return;
+            _nextBufferAuthorityPublishUtc = now.Add(BufferAuthorityPublishInterval);
+
+            var admins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string admin in AdminListStore.Snapshot())
+                AddBufferAuthorityIdentities(admin, admins);
+
+            List<string> permanent;
+            List<string> official;
+            List<string> added;
+            HashSet<string> removed;
+            Dictionary<string, string> ranks;
+            lock (_membershipSync)
+            {
+                permanent = _permanentMembers.ToList();
+                official = _officialMembers.ToList();
+                added = _liveAddedMembers.ToList();
+                removed = new HashSet<string>(_liveRemovedMembers, StringComparer.OrdinalIgnoreCase);
+                ranks = new Dictionary<string, string>(_officialMemberRanks, StringComparer.OrdinalIgnoreCase);
+            }
+
+            var memberRoots = new HashSet<string>(permanent, StringComparer.OrdinalIgnoreCase);
+            memberRoots.UnionWith(official.Where(name => !removed.Contains(name)));
+            memberRoots.UnionWith(added.Where(name => !removed.Contains(name)));
+
+            var members = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string member in memberRoots)
+                AddBufferAuthorityIdentities(member, members);
+
+            var ranked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in ranks)
+                if (!removed.Contains(pair.Key) &&
+                    OrgRankAuthorizer.IsSquadCommanderOrHigher(pair.Value))
+                    AddBufferAuthorityIdentities(pair.Key, ranked);
+
+            members.UnionWith(admins);
+            ranked.UnionWith(admins);
+
+            ManagerMemory.Current.PublishBufferAuthority(
+                admins.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray(),
+                ranked.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray(),
+                members.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToArray(),
+                new string[0]);
+        }
+
+        private void AddBufferAuthorityIdentities(string character, HashSet<string> target)
+        {
+            foreach (string identity in GetAltIdentityCandidates(character))
+                target.Add(identity);
+        }
 
         private void BeginBufferControl(ReplyTarget target, string action, string character)
         {

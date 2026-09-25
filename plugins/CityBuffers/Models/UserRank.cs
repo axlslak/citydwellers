@@ -1,39 +1,27 @@
-using AOSharp.Clientless;
-using AOSharp.Clientless.Chat;
-using AOSharp.Clientless.Logging;
-using AOSharp.Common.GameData;
-using Newtonsoft.Json;
-using SmokeLounge.AOtomation.Messaging.GameData;
-using SmokeLounge.AOtomation.Messaging.Messages;
-using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
+using CityDwellers.Shared;
 
 namespace MalisBuffBots
 {
-    public class UserRank : JsonFile<Dictionary<Rank, List<string>>>
+    // Keep Mali's rank seam intact. City Dwellers owns the authority source;
+    // no per-buffer UserRanks.json is loaded or written.
+    public class UserRank
     {
-        public UserRank(string jsonPath) : base(jsonPath) { }
-
         public bool MeetsRank(Rank rank, string name)
         {
             switch (rank)
             {
                 case Rank.Unranked:
-                    return true;
+                    return ManagerMemory.Current.BufferIsMember(name);
                 case Rank.Warper:
-                    return HasUser(Rank.Warper, name);
+                    return ManagerMemory.Current.BufferIsWarper(name);
                 case Rank.Moderator:
-                    return HasUser(Rank.Moderator, name) || HasUser(Rank.Admin, name);
+                    return ManagerMemory.Current.BufferIsRanked(name) ||
+                           ManagerMemory.Current.BufferIsAdmin(name);
                 case Rank.Admin:
-                    return HasUser(Rank.Admin, name);
+                    return ManagerMemory.Current.BufferIsAdmin(name);
             }
 
             return false;
         }
-
-        private bool HasUser(Rank rank, string name) => _data.TryGetValue(rank, out List<string> mods) && mods.Select(x => x.ToLower()).Contains(name.ToLower());
     }
 }

@@ -79,11 +79,19 @@ for queued output to be delivered; no direct-send fallback bypasses pacing.
 Other original options remain in the packaged `Buffers/JSON/Settings.json`.
 Use the unified `Behavior` overrides for local configuration; builds may refresh
 packaged assets. All froobs in the group must use the same IPC channel.
-Mutable bans/ranks live in the SQL namespace `buffers/<character>/BanList.json` and
-`UserRanks.json`. Rank lists start empty; add trusted character names to `Admin`
-or `Moderator` while the host is stopped if Mali administrative commands are
-needed. These permissions are Mali's and are separate from Manager permissions.
-Bans received over Mali IPC are saved to that character's own state file.
+Mali's command/rank call sites remain in place, but `UserRanks.json` is retired.
+CityManager publishes its effective alt-aware authority into ManagerMemory and
+Mali's existing `UserRank.MeetsRank` seam reads it directly: `Admin` uses City
+Dwellers administrators, `Moderator` uses City Dwellers officer/ranked authority
+(Squad Commander or higher, plus administrators), and ordinary `Unranked` buffer
+commands require City Dwellers membership. Mali's special `Warper` role has no
+City Dwellers equivalent and is therefore false; it was not repurposed into an
+unrelated organization rank. Existing legacy UserRanks records are ignored rather
+than rewritten or deleted.
+
+Per-character `BanList.json` remains unchanged for now, including Mali's existing
+IPC propagation. The IPC transport itself is a separate follow-up; this authority
+change deliberately does not rewrite Mali's casting, queue, team or IPC engine.
 
 ## Dependency trial
 

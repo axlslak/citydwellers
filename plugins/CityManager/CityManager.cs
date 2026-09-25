@@ -227,6 +227,7 @@ namespace CityManager
                     CityBankers.Shared.SettingsPaths.InitialBankTerminalInstance, "initial");
             InitializeMembership();
             InitializeAlts();
+            PublishBufferAuthoritySnapshot(true);
             InitializeTellQueue();
             LoadState();
             InitializeRaidCoordinator();
@@ -3186,6 +3187,7 @@ namespace CityManager
             TryInviteDeveloper();
             TickMembership();
             TickAlts();
+            PublishBufferAuthoritySnapshot();
             TickRaidCoordinator();
 
             if (_status != CloakStatus.Disabled || !_canRaiseAtUtc.HasValue || _raiseDueLogged)

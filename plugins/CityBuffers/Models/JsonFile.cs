@@ -26,26 +26,10 @@ namespace MalisBuffBots
             try
             {
                 _path = jsonPath;
-                _mutable = string.Equals(jsonPath, Path.BAN_JSON, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(jsonPath, Path.USERRANK_JSON, StringComparison.OrdinalIgnoreCase);
+                _mutable = string.Equals(jsonPath, Path.BAN_JSON, StringComparison.OrdinalIgnoreCase);
 
                 if (_mutable && !DiskFiles.Exists(jsonPath))
-                {
-                    if (string.Equals(jsonPath, Path.BAN_JSON, StringComparison.OrdinalIgnoreCase))
-                    {
-                        DiskFiles.TryCreateNew(jsonPath, JsonConvert.SerializeObject(new List<string>()));
-                    }
-                    else
-                    {
-                        DiskFiles.TryCreateNew(jsonPath, JsonConvert.SerializeObject(new Dictionary<Rank, List<string>>
-                        {
-                            { Rank.Admin, new List<string> {  } },
-                            { Rank.Moderator, new List<string> {  } },
-                            { Rank.Warper, new List<string> {  } },
-                            { Rank.Unranked, new List<string> {  } },
-                        }, Formatting.Indented));
-                    }
-                }
+                    DiskFiles.TryCreateNew(jsonPath, JsonConvert.SerializeObject(new List<string>()));
 
                 Raw = _mutable ? DiskFiles.ReadAllText(jsonPath) : System.IO.File.ReadAllText(jsonPath);
                 _data = JsonConvert.DeserializeObject<T>(Raw);

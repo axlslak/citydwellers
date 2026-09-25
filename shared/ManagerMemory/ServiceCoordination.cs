@@ -26,6 +26,15 @@ namespace CityDwellers.Shared
         private BufferControlOperation _bufferControl;
         private readonly HashSet<string> _sleepingBuffers =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _bufferAdmins =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _bufferRanked =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _bufferMembers =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _bufferWarpers =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private bool _bufferAuthorityReady;
         private readonly Dictionary<string, BuddyPositionSnapshot> _buddyPositions = new Dictionary<string, BuddyPositionSnapshot>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, BuddyHomeDirective> _buddyHomes = new Dictionary<string, BuddyHomeDirective>(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _readyBuddies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -133,6 +142,42 @@ namespace CityDwellers.Shared
         {
             lock (_serviceSync)
                 return !string.IsNullOrWhiteSpace(character) && _sleepingBuffers.Contains(character);
+        }
+
+        // Mali keeps its existing rank seam; CityManager owns the authority source.
+        public void PublishBufferAuthority(
+            string[] admins,
+            string[] ranked,
+            string[] members,
+            string[] warpers)
+        {
+            lock (_serviceSync)
+            {
+                ReplaceNames(_bufferAdmins, admins);
+                ReplaceNames(_bufferRanked, ranked);
+                ReplaceNames(_bufferMembers, members);
+                ReplaceNames(_bufferWarpers, warpers);
+                _bufferAuthorityReady = true;
+            }
+        }
+        public bool BufferAuthorityReady()
+        { lock (_serviceSync) return _bufferAuthorityReady; }
+        public bool BufferIsAdmin(string character)
+        { lock (_serviceSync) return _bufferAuthorityReady && HasName(_bufferAdmins, character); }
+        public bool BufferIsRanked(string character)
+        { lock (_serviceSync) return _bufferAuthorityReady && HasName(_bufferRanked, character); }
+        public bool BufferIsMember(string character)
+        { lock (_serviceSync) return _bufferAuthorityReady && HasName(_bufferMembers, character); }
+        public bool BufferIsWarper(string character)
+        { lock (_serviceSync) return _bufferAuthorityReady && HasName(_bufferWarpers, character); }
+        private static bool HasName(HashSet<string> names, string character) =>
+            !string.IsNullOrWhiteSpace(character) && names.Contains(character);
+        private static void ReplaceNames(HashSet<string> target, IEnumerable<string> source)
+        {
+            target.Clear();
+            foreach (string name in source ?? new string[0])
+                if (!string.IsNullOrWhiteSpace(name))
+                    target.Add(name.Trim());
         }
 
         public void PublishBuddyPosition(string character, BuddyPositionSnapshot snapshot)

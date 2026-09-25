@@ -3413,3 +3413,26 @@ would help fix it before anyone changes code.
 - [UNCHANGED] No new IPC, custody transition, extraction rule, recovery path,
   pickup rule or Buddy/buffer behavior was added or changed.
 - Validation was source/diff/call-path review only; the owner builds and live-tests.
+
+## Session 241 — CityBuffers authority uses Manager state in place
+
+- [OWNER-DIRECTION] Do not rewrite Mali Buff Bots. Preserve Mali's casting,
+  queue, team, command and rank seams; remove only redundant standalone
+  infrastructure and plug those seams into City Dwellers.
+- [IMPLEMENTED] `UserRank.MeetsRank` remains the call site used by Mali, but no
+  `UserRanks.json` is created, loaded or written. CityManager publishes its
+  effective alt-aware authority into ManagerMemory once at initialization and
+  refreshes it at most once per second.
+- [IMPLEMENTED] Mali `Admin` maps to City Dwellers administrators;
+  `Moderator` maps to existing Squad Commander-or-higher authority plus admins;
+  ordinary `Unranked` commands map to City Dwellers membership. Administrators
+  are also admitted through the lower two levels even when outside the roster.
+- [DECISION] Mali `Warper` is not an organization permission and has no City
+  Dwellers equivalent. Do not invent one: it remains false after the file is
+  retired unless the owner later defines an explicit City Dwellers source.
+- [UNCHANGED] BanList, Mali IPC, casting, buff queues, team coordination and
+  buffer sleep/wakeup are untouched. IPC migration is the next isolated topic.
+- [MEMORY] The no-rewrite decision is recorded in state/history/journal. Rich
+  encrypted conversation memory was not rewritten because its password is
+  intentionally owner-held and was not supplied in this session.
+- Validation is source/diff review only; owner builds and live-tests.
