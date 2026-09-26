@@ -676,7 +676,10 @@ namespace CityManager
                  string.Equals(command, "found", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "withdraw", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "get", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(command, "cru", StringComparison.OrdinalIgnoreCase)) &&
+                 string.Equals(command, "cru", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "cast", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "rebuff", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "buffmacro", StringComparison.OrdinalIgnoreCase)) &&
                 !isAdmin &&
                 !replyTarget.IsOrg &&
                 !IsTellMember(senderName))
