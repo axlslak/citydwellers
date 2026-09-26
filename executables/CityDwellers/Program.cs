@@ -158,134 +158,15 @@ namespace CityDwellers.Host
             if (!Prepare(stop, out settings))
                 return stop.WaitOne(0) ? 0 : 1;
 
-            RuntimeLog.Write(
-                "Starting Flipper, Buddies and the configured CityBankers clients.");
+            var governor = new Governor(
+                settings,
+                interactive,
+                TryAcceptShutdown,
+                IsManagerRestartRequested,
+                DeleteManagerRestartRequest);
 
-            var components = new List<ComponentRunner>
-            {
-                new ComponentRunner(
-                    "Flipper",
-                    () => FlipperLoader.Run(new string[0], stop, false)),
-                new ComponentRunner(
-                    "Buddies",
-                    () => BuddiesHost.Run(new string[0], stop, false))
-            };
-            if (BuffersHost.IsEnabled())
-                components.Add(new ComponentRunner("Buffers", () => BuffersHost.Run(stop)));
-            if (settings.BankersEnabled)
-                components.Add(new ComponentRunner("Bankers", () => BankerLoader.RunAll(stop, false)));
-            else
-            {
-                RuntimeLog.Write("Bankers disabled by configuration; Manager, Flipper and Buddies remain enabled.");
-            }
-
-            foreach (ComponentRunner component in components)
-                component.Start();
-
-            if (stop.WaitOne(TimeSpan.FromSeconds(1)))
-                return StopComponents(components, false);
-
-            var unavailable = new HashSet<ComponentRunner>();
-            foreach (ComponentRunner component in components)
-            {
-                if (!component.Completed.WaitOne(0))
-                    continue;
-
-                RuntimeLog.Write(
-                    component.Name + " did not remain running; other components will continue.");
-                unavailable.Add(component);
-            }
-
-            ManualResetEvent managerStop = new ManualResetEvent(false);
-            ComponentRunner manager = StartManager(managerStop);
-
-            if (interactive)
-            {
-                Console.WriteLine();
-                Console.WriteLine("City Dwellers is running. Press ENTER or CTRL+C to stop all services.");
-                Console.WriteLine();
-            }
-
-            bool unexpectedExit = unavailable.Count != 0;
-            while (!stop.WaitOne(0))
-            {
-                var monitored = new List<ComponentRunner>();
-                var waits = new List<WaitHandle> { stop };
-                foreach (ComponentRunner candidate in components)
-                {
-                    if (unavailable.Contains(candidate)) continue;
-                    monitored.Add(candidate);
-                    waits.Add(candidate.Completed);
-                }
-                if (!unavailable.Contains(manager))
-                {
-                    monitored.Add(manager);
-                    waits.Add(manager.Completed);
-                }
-
-                int signaled = WaitHandle.WaitAny(waits.ToArray(), 500);
-                if (signaled == 0 || stop.WaitOne(0))
-                    break;
-
-                if (TryAcceptShutdown())
-                {
-                    OperatorShutdownRequested = true;
-                    stop.Set();
-                    break;
-                }
-
-                bool restartRequested = IsManagerRestartRequested();
-
-                if (restartRequested)
-                {
-                    RuntimeLog.Write("Manager-only restart requested from AO.");
-                    managerStop.Set();
-                    if (!manager.Join(TimeSpan.FromSeconds(90)) ||
-                        manager.ExitCode != 0)
-                    {
-                        RuntimeLog.Write("Manager could not stop cleanly for restart.");
-                        unexpectedExit = true;
-                        stop.Set();
-                        break;
-                    }
-
-                    managerStop.Dispose();
-                    DeleteManagerRestartRequest();
-                    if (IsManagerRestartRequested())
-                    {
-                        RuntimeLog.Write(
-                            "Manager restart request could not be cleared; " +
-                            "stopping instead of entering a restart loop.");
-                        unexpectedExit = true;
-                        stop.Set();
-                        break;
-                    }
-
-                    if (stop.WaitOne(TimeSpan.FromSeconds(2)))
-                        break;
-
-                    managerStop = new ManualResetEvent(false);
-                    manager = StartManager(managerStop);
-                    RuntimeLog.Write(
-                        "Manager restarted; Flipper, Buddies, and Bankers remained online.");
-                    continue;
-                }
-
-                if (signaled == WaitHandle.WaitTimeout)
-                    continue;
-
-                ComponentRunner component = monitored[signaled - 1];
-                RuntimeLog.Write(
-                    component.Name + " stopped unexpectedly with exit code " +
-                    component.ExitCode + ". Other components remain running.");
-                unexpectedExit = true;
-                unavailable.Add(component);
-            }
-
-            managerStop.Set();
-            components.Add(manager);
-            int exitCode = StopComponents(components, unexpectedExit);
-            managerStop.Dispose();
+            int exitCode = governor.Run(stop);
+            OperatorShutdownRequested = governor.OperatorShutdownRequested;
             return exitCode;
         }
 
