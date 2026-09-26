@@ -1059,7 +1059,7 @@ namespace CityManager
                     };
 
                     string shortId = ShortId(request.Id);
-                    Logger.Information($"IPC -> Flipper {request.Id}: observe");
+                    Logger.Information($"MEM -> Flipper {request.Id}: observe");
                     DevTrace($"FLIPPER -> observe [{shortId}]");
 
                     WorkerResponse response = SendWorkerRequest(
@@ -1069,7 +1069,7 @@ namespace CityManager
 
                     if (!response.Ok)
                     {
-                        Logger.Warning($"IPC <- Flipper {request.Id}: FAIL {response.Message}");
+                        Logger.Warning($"MEM <- Flipper {request.Id}: FAIL {response.Message}");
                         DevTrace($"FLIPPER FAIL [{shortId}]: {response.Message}");
 
                         ReplyWithCloakHistory(target, CloakPresentation.Unavailable());
@@ -1085,7 +1085,7 @@ namespace CityManager
                         string invalidTime =
                             UtcTimestamp.Normalize(response.ObservedUtc.Value).ToString("O");
                         Logger.Warning(
-                            $"IPC <- Flipper {request.Id}: rejected future " +
+                            $"MEM <- Flipper {request.Id}: rejected future " +
                             $"observation {invalidTime}.");
                         DevTrace(
                             $"FLIPPER FAIL [{shortId}]: rejected future-dated " +
@@ -1117,14 +1117,14 @@ namespace CityManager
                         $"Cloak = {response.CloakState ?? "Unknown"}. " +
                         $"Raw shield timer = {rawTimerText}. Charge = {chargeText}. Source = {sourceText}.";
 
-                    Logger.Information($"IPC <- Flipper {request.Id}: {diagnosticReply}");
+                    Logger.Information($"MEM <- Flipper {request.Id}: {diagnosticReply}");
                     DevTrace($"FLIPPER OK [{shortId}]: {diagnosticReply}");
 
                     ReplyWithCloakHistory(target, reply);
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Flipper IPC failed: {ex.Message}");
+                    Logger.Warning($"Flipper Governor request failed: {ex.Message}");
                     DevTrace($"FLIPPER ERROR: {ex.Message}");
 
                     ReplyWithCloakHistory(target, CloakPresentation.Unavailable());
@@ -1158,36 +1158,17 @@ namespace CityManager
 
         private WorkerLinkStatus PingWorker(string workerName, string pipeName)
         {
-            var request = new WorkerRequest
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                Command = "ping"
-            };
+            ComponentStatus status = ManagerMemory.Current.ReadComponentStatus(workerName);
+            if (status == null)
+                return WorkerLinkStatus.Unusable("Governor has no status for " + workerName + ".");
 
-            try
-            {
-                Logger.Information($"IPC -> {workerName} {request.Id}: ping");
+            if (!string.Equals(status.Phase, "running", StringComparison.OrdinalIgnoreCase))
+                return WorkerLinkStatus.Unusable(
+                    "Governor phase=" + status.Phase +
+                    (string.IsNullOrWhiteSpace(status.Reason) ? string.Empty : " (" + status.Reason + ")"));
 
-                WorkerResponse response = SendWorkerRequest(
-                    pipeName,
-                    request,
-                    WorkerConnectTimeoutMs);
-
-                if (!string.Equals(response.Id, request.Id, StringComparison.Ordinal))
-                {
-                    return WorkerLinkStatus.Unusable(
-                        $"response id mismatch ({response.Id ?? "missing"})");
-                }
-
-                if (!response.Ok)
-                    return WorkerLinkStatus.Unusable(response.Message ?? "ping failed");
-
-                return WorkerLinkStatus.Usable(response.Message ?? "ping succeeded");
-            }
-            catch (Exception ex)
-            {
-                return WorkerLinkStatus.Unusable(ex.Message);
-            }
+            return WorkerLinkStatus.Usable(
+                "Governor generation " + status.Generation + " running");
         }
 
         private void BeginBuddiesCommand(ReplyTarget target, string command, int? level, int index)
@@ -1224,7 +1205,7 @@ namespace CityManager
 
                     string shortId = ShortId(request.Id);
                     Logger.Information(
-                        $"IPC -> Buddies {request.Id}: {command} level={level} {quantity}");
+                        $"MEM -> Buddies {request.Id}: {command} level={level} {quantity}");
 
                     DevTrace(
                         level.HasValue
@@ -1239,7 +1220,7 @@ namespace CityManager
                         WorkerConnectTimeoutMs);
 
                     Logger.Information(
-                        $"IPC <- Buddies {request.Id}: {(response.Ok ? "OK" : "FAIL")} {response.Message}");
+                        $"MEM <- Buddies {request.Id}: {(response.Ok ? "OK" : "FAIL")} {response.Message}");
 
                     DevTrace(
                         $"BUDDIES {(response.Ok ? "OK" : "FAIL")} [{shortId}]: {response.Message}");
@@ -1250,7 +1231,7 @@ namespace CityManager
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Buddies IPC failed: {ex.Message}");
+                    Logger.Warning($"Buddies Governor request failed: {ex.Message}");
                     DevTrace($"BUDDIES ERROR: {ex.Message}");
 
                     Reply(target, $"Buddies service unavailable: {ex.Message}");
@@ -1742,8 +1723,54 @@ namespace CityManager
 
         private WorkerResponse SendWorkerRequest(string pipeName, WorkerRequest request, int connectTimeoutMs)
         {
-            return CityDwellers.Shared.LocalIpc.Request<WorkerRequest, WorkerResponse>(
-                pipeName, request, connectTimeoutMs);
+            string target = string.Equals(pipeName, FlipperPipeName, StringComparison.Ordinal)
+                ? "Flipper"
+                : string.Equals(pipeName, BuddiesPipeName, StringComparison.Ordinal)
+                    ? "Buddies"
+                    : null;
+            if (target == null)
+                throw new InvalidOperationException("No Governor target exists for the requested worker.");
+
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+            if (string.IsNullOrWhiteSpace(request.Id))
+                request.Id = Guid.NewGuid().ToString("N");
+
+            var lifecycle = new LifecycleRequest
+            {
+                Id = request.Id,
+                Target = target,
+                Verb = "request",
+                Payload = JsonConvert.SerializeObject(request),
+                RequestedUtc = DateTime.UtcNow,
+                Requester = Client.CharacterName
+            };
+
+            if (!ManagerMemory.Current.RequestLifecycle(lifecycle))
+                throw new InvalidOperationException(target + " already has a conflicting Governor request.");
+
+            int timeoutMilliseconds = Math.Max(
+                Math.Max(1000, connectTimeoutMs),
+                (Math.Max(1, request.TimeoutSeconds ?? 115) + 5) * 1000);
+            try
+            {
+                LifecycleOutcome outcome =
+                    ManagerMemory.Current.WaitForLifecycleOutcome(request.Id, timeoutMilliseconds);
+                if (outcome == null)
+                    throw new TimeoutException(target + " Governor request timed out.");
+                if (!outcome.Ok)
+                    throw new InvalidOperationException(outcome.Message ?? (target + " Governor request failed."));
+
+                WorkerResponse response =
+                    JsonConvert.DeserializeObject<WorkerResponse>(outcome.Payload ?? "null");
+                if (response == null)
+                    throw new InvalidOperationException(target + " returned no worker response.");
+                return response;
+            }
+            finally
+            {
+                ManagerMemory.Current.FinishLifecycle(request.Id);
+            }
         }
 
         // Each text:// page is a separate transport message, including queued tells.
