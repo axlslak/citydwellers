@@ -779,6 +779,15 @@ public class FlipperLoader
                 return run;
             }
 
+            AoLoginAdmission admission =
+                ManagerMemory.Current.WaitForAoLoginAdmission(
+                    "Flipper", _account.Character);
+            Console.WriteLine(
+                $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Governor AO login admit " +
+                $"{_account.Character}: wave={admission.Wave} " +
+                $"slot={admission.PositionInWave}/{admission.WaveSize} " +
+                $"waited={admission.WaitedMilliseconds}ms.");
+
             Console.WriteLine(
                 $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Starting AO client.");
 

@@ -187,6 +187,16 @@ public class ManagerHost
         BotDomains.Add(instance);
         ClientDomainLifetime.Track(instance, accInfo.Character);
         instance.LoadPlugin(pluginPath);
+        AoLoginAdmission admission =
+            ManagerMemory.Current.WaitForAoLoginAdmission(
+                "Manager", accInfo.Character);
+        logger.Information(
+            "Governor AO login admit {Character}: wave={Wave} slot={Slot}/{WaveSize} waited={Waited}ms.",
+            accInfo.Character,
+            admission.Wave,
+            admission.PositionInWave,
+            admission.WaveSize,
+            admission.WaitedMilliseconds);
         instance.Start();
     }
 

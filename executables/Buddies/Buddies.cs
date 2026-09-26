@@ -614,6 +614,14 @@ public class BuddiesHost
             ClientDomainLifetime.Track(domain, character);
             domain.LoadPlugin(_pluginPath);
 
+            AoLoginAdmission admission =
+                ManagerMemory.Current.WaitForAoLoginAdmission(
+                    "Buddies", character);
+            Console.WriteLine(
+                $"Governor AO login admit {character}: wave={admission.Wave} " +
+                $"slot={admission.PositionInWave}/{admission.WaveSize} " +
+                $"waited={admission.WaitedMilliseconds}ms.");
+
             domain.Start();
 
             Console.WriteLine(

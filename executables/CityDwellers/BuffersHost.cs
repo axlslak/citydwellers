@@ -106,6 +106,16 @@ internal static class BuffersHost
                 logger);
             ClientDomainLifetime.Track(domain, runtime.Account.Character);
             domain.LoadPlugin(plugin);
+            AoLoginAdmission admission =
+                ManagerMemory.Current.WaitForAoLoginAdmission(
+                    "Buffers", runtime.Account.Character);
+            logger.Information(
+                "Governor AO login admit {Character}: wave={Wave} slot={Slot}/{WaveSize} waited={Waited}ms.",
+                runtime.Account.Character,
+                admission.Wave,
+                admission.PositionInWave,
+                admission.WaveSize,
+                admission.WaitedMilliseconds);
             domain.Start(); // Clientless owns this domain's update loop.
             runtime.Domain = domain;
             ManagerMemory.Current.SetBufferSleeping(runtime.Account.Character, false);
