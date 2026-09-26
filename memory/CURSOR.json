@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 257,
+  "current_session": 258,
   "last_completed_session": 257,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-257-governor-listener-braces",
-  "checkpoint_commit": "178290b",
-  "task": "Completed: fixed missing RunMemoryServer while-loop closing braces in Flipper and Buddies.",
-  "resume_instruction": "Session 257 complete. Repository writer lock is idle. Owner Release rebuild should confirm the two CS1513 errors are gone. Next journal seq576.",
-  "base_commit": "6f5b8af4a1ce0d8055f4a234d3bd55aa796819e5"
+  "transaction": "session-258-login-gate-namespace-fix",
+  "checkpoint_commit": "96d522e",
+  "task": "Fix four Release compiler errors caused by namespace/import mistakes in the session256 global AO login gate wiring.",
+  "resume_instruction": "Resume session 258 only. Qualify the shared AO login admission symbols without broad namespace imports; then seal after source verification. Next journal seq576.",
+  "base_commit": "96d522e9a2b1dcf1a17de101a5f6836b8b932196"
 }
