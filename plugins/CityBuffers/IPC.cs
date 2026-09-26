@@ -100,7 +100,6 @@ namespace MalisBuffBots
             Main.QueueProcessor.ResetTeamTimer();
             Main.QueueProcessor.TeamTrackerId = trackMsg.TeamTrackerId;
             Team.Invite(new Identity(IdentityType.SimpleChar, trackMsg.TeamTrackerId));
-            CityBufferBridge.SendPrivateMessage((uint)trackMsg.TeamTrackerId, ScriptTemplate.TeamInvite());
         }
 
         private void OnRequestTeamInviteReceived(int arg1, IPCMessage ipcMsg)
@@ -210,8 +209,45 @@ namespace MalisBuffBots
                 SpellData = spellList,
                 ObservedUtc = DateTime.UtcNow,
                 InPlay = Client.InPlay,
-                Ready = CityBufferBridge.Ready
+                Ready = CityBufferBridge.Ready,
+                AdvertisedBuffs = BuildAdvertisedBuffs(spellList)
             });
+        }
+
+        private static BufferAdvertisedBuff[] BuildAdvertisedBuffs(int[] spellList)
+        {
+            var known = new HashSet<int>(spellList ?? new int[0]);
+            return Main.BuffsJson.Entries
+                .SelectMany(pair => (pair.Value ?? new List<NanoEntry>())
+                    .Where(entry => entry != null && entry.LevelToId != null &&
+                        entry.LevelToId.Any(level => known.Contains(level.Id)))
+                    .Select(entry => new BufferAdvertisedBuff
+                    {
+                        Profession = (int)pair.Key,
+                        Name = entry.Name ?? string.Empty,
+                        Description = entry.Description ?? string.Empty,
+                        Tag = entry.Tags == null
+                            ? string.Empty
+                            : entry.Tags.FirstOrDefault(tag => !string.IsNullOrWhiteSpace(tag)) ?? string.Empty,
+                        Type = entry.Type.ToString(),
+                        Ncu = AdvertisedNcu(entry)
+                    }))
+                .OrderBy(entry => entry.Profession)
+                .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+
+        private static int AdvertisedNcu(NanoEntry entry)
+        {
+            int nanoId = 0;
+            if (entry.RemoveNanoIdUponCast != null && entry.RemoveNanoIdUponCast.Length > 0 &&
+                entry.RemoveNanoIdUponCast[0] != 0)
+                nanoId = entry.RemoveNanoIdUponCast[0];
+            else if (entry.LevelToId != null && entry.LevelToId.Length > 0)
+                nanoId = entry.LevelToId[0].Id;
+
+            NanoItem nano;
+            return nanoId != 0 && ItemData.Find(nanoId, out nano) ? nano.NCU : 0;
         }
 
         public void BroadcastQueueInfoMessage()
