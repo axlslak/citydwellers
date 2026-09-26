@@ -19,7 +19,7 @@ namespace CityDwellers.Shared
     public static class BuildIdentity
     {
         private static readonly string[] Components =
-            { "CityDwellers", "CityManager", "CityFlipper", "CityBuddies", "CityBankers" };
+            { "CityDwellers", "CityManager", "CityFlipper", "CityBuddies", "CityBankers", "CityBuffers" };
         private const string RootKey = "CITYDWELLERS_BUILD_ROOT";
         private const string HostFileKey = "CITYDWELLERS_BUILD_HOST_FILE";
         public static readonly string Component = typeof(BuildIdentity).Assembly.GetName().Name;
