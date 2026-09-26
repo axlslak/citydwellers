@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 255,
-  "last_completed_session": 254,
-  "status": "in_progress",
+  "current_session": 254,
+  "last_completed_session": 253,
+  "status": "idle",
   "active_project": "citydwellers",
-  "transaction": "session-255-governor-lifecycle",
-  "checkpoint_commit": "2ff8bfa",
-  "task": "Implement Governor lifecycle ownership and ManagerMemory Flipper/Buddies command transport.",
-  "resume_instruction": "Resume session 255 only. Governor owns component lifecycle; ManagerMemory stays passive; preserve component/plugin behavior and keep legacy Flipper/Buddies IPC code dormant. Next journal seq569.",
-  "base_commit": "2ff8bfa"
+  "transaction": "session-254-manager-owned-buffer-voice",
+  "checkpoint_commit": "dd18176d",
+  "task": "Deferred unfinished: remove buffer conversation and add ManagerMemory-backed Apcmanager bufflist. No implementation was started.",
+  "resume_instruction": "Repository writer lock is free. Owner directed the next writer turn to Governor lifecycle work. Preserve the deferred session-254 buffer-voice task for a later session. Next journal seq568.",
+  "base_commit": "0a5446b"
 }
