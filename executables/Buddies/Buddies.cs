@@ -320,8 +320,11 @@ public class BuddiesHost
 
     private static void RunMemoryServer()
     {
-        while (!_stopping)
+        ManagerMemory.Current.SetLifecycleConsumerReady("Buddies", true);
+        try
         {
+            while (!_stopping)
+            {
             LifecycleCommand command = null;
             try
             {
@@ -362,6 +365,10 @@ public class BuddiesHost
                     Thread.Sleep(250);
                 }
             }
+        }
+        finally
+        {
+            ManagerMemory.Current.SetLifecycleConsumerReady("Buddies", false);
         }
     }
 
