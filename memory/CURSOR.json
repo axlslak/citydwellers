@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 255,
+  "current_session": 256,
   "last_completed_session": 255,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-255-governor-lifecycle",
-  "checkpoint_commit": "bf735a5",
-  "task": "Completed: Governor owns unified host lifecycle and normal Flipper/Buddies control uses ManagerMemory; session 254 buffer voice was re-audited complete.",
-  "resume_instruction": "Session 255 complete. The repository writer lock is idle. Future work starts a new transaction after re-reading master; owner Release build/live AO validation may reopen Governor findings if evidence requires it. Next journal seq572.",
-  "base_commit": "44f98ff"
+  "transaction": "session-256-global-ao-login-governor",
+  "checkpoint_commit": "c82acbb",
+  "task": "Implement one Governor-owned host-wide AO login start gate: max Bankers.MaxParallelLogins starts per wave, one-second wave spacing, across Manager/Flipper/Buddies/Buffers/Bankers.",
+  "resume_instruction": "Resume session 256 only. Preserve client ownership in each component. Remove the banker total-count misuse; route unified-host ClientDomain.Start calls through Governor-configured ManagerMemory AO login admission. Next journal seq573.",
+  "base_commit": "c82acbb0268208eae287befb243b22b3760e1912"
 }
