@@ -61,6 +61,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="Governor.cs" />
     <Compile Include="Storage\ManagerDatabase.cs" />
     <Compile Include="Storage\BusinessTables.cs" />
     <Compile Include="Storage\LegacyBusinessImport.cs" />
