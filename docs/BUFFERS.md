@@ -70,9 +70,11 @@ or Mali clientless fork is used.
 
 Mali discovers profession and known nanos from the logged-in character. Its
 BuffsDb supplies tags and casting rules, not a configured per-character list.
-Casting, team handling and buff queues remain Mali's. In game, stand near the
-buffer and try `/tell Yourbuffer help`, then use its menu or `cast <tag>`.
-The inherited startup delay is 30 seconds after entering play.
+Casting, team handling and buff queues remain Mali's. Direct buffer tells and
+private-group commands are retired; Apcmanager owns the user-facing catalogue.
+Use `#bufflist` (or tell Apcmanager `bufflist`) to open the cached capability
+list. Last-known capabilities remain visible while a buffer is offline, marked
+cached rather than ready. The inherited startup delay is 30 seconds after entering play.
 
 Use `#buffers` through Manager (or tell Manager `buffers`) to query each configured
 buffer over the existing City Dwellers status bridge. It reports readiness, known
