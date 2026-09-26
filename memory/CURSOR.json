@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 260,
+  "current_session": 261,
   "last_completed_session": 260,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-260-veterans-l33t-buff",
-  "checkpoint_commit": "4534a2e",
-  "task": "Completed: Veterans L33t Transformation nano 268697 is in Mali's Generic buff catalogue and routes through Apcmanager to a ready buffer that knows it.",
-  "resume_instruction": "Session 260 complete. Repository writer lock is idle. Owner Release build/live test should verify bufflist shows vleet and #cast vleet is cast by Kbadvy. Next journal seq582.",
-  "base_commit": "3a54f9def702cb7c5c5ef5f730c16e0b9ae936e6"
+  "transaction": "session-261-catalogue-refresh",
+  "checkpoint_commit": "5e8d910",
+  "task": "Refresh buffer catalogue state.",
+  "resume_instruction": "Resume session 261 only. Review current master, refresh catalogue state, verify, then seal. Next journal seq582.",
+  "base_commit": "5e8d9101eb5c0aae229f5929ba0964e39e4a5c29"
 }
