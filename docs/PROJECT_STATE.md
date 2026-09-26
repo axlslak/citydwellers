@@ -3700,3 +3700,24 @@ would help fix it before anyone changes code.
 - [UNCHANGED] RebuffInfo was not changed; this session adds manual/public casting,
   not automatic self-rebuff policy.
 
+## Session 261 — advertised buffer catalogue follows live spell data
+
+- [BUG] Session 254's capability snapshot could become stale. CityBufferBridge
+  refreshed each buffer's live `SpellData` every second, but
+  `AdvertisedBuffs` was built only once during `Ipc.Init()` and then preserved
+  indefinitely.
+- [FIX] The existing one-second buffer heartbeat now rebuilds
+  `AdvertisedBuffs` from the same current `DynelManager.LocalPlayer.SpellList`
+  it publishes as `SpellData`.
+- [CACHE] ManagerMemory's offline-cache behavior is unchanged: once a buffer
+  disappears, its final advertised catalogue remains available as cached/offline
+  capability until that buffer returns.
+- [DIAGNOSTIC] Each buffer logs one compact `BUFFER catalogue ready` line when
+  ready and another only when its advertised catalogue changes. The line includes
+  current uploaded-nano count, advertised count and advertised tags, allowing live
+  proof that newly learned nanos such as `vleet` were actually matched.
+- [VALIDATION] Current source still contains Veterans L33t Transformation
+  program 268697 under Generic, the live heartbeat calls the same BuffsDb
+  catalogue builder, and the two modified C# files have balanced delimiters.
+  Owner build/live output remains runtime validation.
+
