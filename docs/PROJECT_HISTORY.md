@@ -3609,3 +3609,38 @@ Validation for the Governor transaction is source/call-path and Git-history
 review only. The owner remains responsible for the Release build and live AO
 exercise.
 
+## Session 256 — four through the door, then the next four
+
+The banker outage exposed an old semantic mistake rather than a bad deployment
+value. `MaxParallelLogins=4` had been treated as though only four banker roles
+could exist, so nine configured bankers caused BankerLoader to exit before even
+creating Central. The setting was always intended to describe login pressure,
+not population.
+
+Governor now owns that pressure boundary. The existing
+`Bankers.MaxParallelLogins` value is retained as the deployment knob, but its
+scope is host-wide: Manager, Flipper, Buddies, Buffers and Bankers all request
+admission from one ManagerMemory gate immediately before
+`ClientDomain.Start()`. Four admissions form one wave; when a full wave is
+granted, the gate stays shut for one second before another wave can start.
+Thirty-two configured or eventually-online clients therefore do not imply
+thirty-two simultaneous login starts.
+
+Client ownership did not move. BuffersHost still owns buffer domains,
+BankerLoader still owns banker domains, Buddies still owns buddy slots, and the
+Manager/Flipper hosts keep their existing lifecycle. ManagerMemory only carries
+the passive admission state configured by Governor. The old Buddies-local
+semaphore remains a secondary restriction, never an additive source of login
+capacity.
+
+The same gate is configured for manual Flipper and banker bag-audit modes, so
+those CityDwellers.exe paths do not bypass the start pacing. AOSharp's own
+internal AutoReconnect scheduler remains unchanged: this session governs
+explicit City Dwellers starts and does not secretly disable or replace the
+owner-approved reconnect policy.
+
+Validation is source/call-path review only. The owner performs the Release build
+and live startup test; expected evidence is shared wave numbers/slots across
+different component names and no more than four admissions before each
+one-second pause.
+

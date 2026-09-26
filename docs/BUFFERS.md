@@ -64,6 +64,13 @@ starts every configured enabled buffer normally. Numeric Buddy forms are unchang
 `sleep <index>` and `wakeup <level> <index>` still use the existing Buddy rules.
 Buffer lifecycle control uses ManagerMemory rather than a new named pipe.
 
+Buffers deliberately have no separate login-burst setting. Every initial buffer
+start and every `#wakeup` passes through Governor's host-wide AO login admission
+gate. The wave size is the existing `Bankers.MaxParallelLogins` deployment
+value; with 4, buffers share the same four starts with Manager, Flipper, Buddies
+and Bankers, followed by a one-second pause before the next wave. Buffer count
+is not limited by that value.
+
 Buffer log lines include the character and CityBuffers assembly names. Static game
 data is preloaded under the same mutex as the other clients. No separate TestClient
 or Mali clientless fork is used.

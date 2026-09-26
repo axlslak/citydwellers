@@ -41,7 +41,11 @@ CityBankers schema:
 
 - shared `Password` fallback, with an optional `Password` override on any
   individual role whose AO account uses a different password;
-- `MaxParallelLogins`;
+- `MaxParallelLogins`, retained in the Bankers section for deployment
+  compatibility but interpreted by Governor as the **host-wide AO login wave
+  size**. It does not limit how many banker roles may be configured. A value of
+  4 permits four AO client starts across all unified-host components, then one
+  full second elapses before the next wave;
 - `DiagnosticTimeoutMs`;
 - nine `Roles` entries containing `Username` and `Character`: `central`, the
   five symbiant families, `spirit`, `dyna`, and `phatz`. The last three

@@ -192,9 +192,19 @@ CityDwellers.exe flipper-probe
 CityDwellers.exe flipper-toggle
 ```
 
-The Buddies account pool, raid population limit, and simultaneous AO login
-handshakes are separate. For example, this configures indexes `0..12`, allows
-at most 12 raid-owned buddies online, and starts up to four AO sessions at once:
+AO login starts are paced host-wide by Governor. For deployment compatibility,
+the single global wave-size setting remains `Bankers.MaxParallelLogins`.
+It is **not** a limit on configured bankers. With a value of `4`, Governor
+admits four `ClientDomain.Start()` calls total across Manager, Flipper,
+Buddies, Buffers and Bankers, then keeps the gate closed for one full second
+before admitting another wave of up to four. Manual Flipper and banker bag-audit
+modes use the same admission mechanism. Client ownership remains inside each
+component; Governor only grants permission to start the AO login.
+
+The Buddies account pool, raid population limit, and its older local startup
+ceiling are separate. For example, this configures indexes `0..12`, allows
+at most 12 raid-owned buddies online, and permits four Buddy startup operations
+to contend for the global Governor gate at once:
 
 ```json
 {
@@ -212,11 +222,12 @@ spinup remain capped by `ActiveLimit`. Administrator `wakeup` and `spinup`
 commands may use the entire configured account pool, including all 13 at once
 for diagnostics. Existing configurations without `ActiveLimit` receive a value
 no larger than 12 automatically; increase `AccountCount` explicitly when adding
-a spare account. Existing configurations without `MaxParallelLogins` receive a
-safe default of 4. Every account has its own serialized worker, so different
-buddies can start, stop, report position, and later navigate independently;
-raise `MaxParallelLogins` only if the AO login service and machine handle the
-extra simultaneous handshakes reliably.
+a spare account. Existing Buddies configurations without their local `MaxParallelLogins`
+receive a safe default of 4. Every account has its own serialized worker, so
+different buddies can start, stop, report position, and later navigate
+independently. This Buddies-local ceiling is only an additional restraint; it
+cannot create extra AO starts beyond the host-wide Governor wave configured by
+`Bankers.MaxParallelLogins`.
 
 ## Optional froob buffers
 

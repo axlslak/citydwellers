@@ -3613,3 +3613,38 @@ would help fix it before anyone changes code.
   No assistant build, test suite or live AO test was run; the owner retains
   compiler and runtime validation.
 
+## Session 256 — Governor paces AO login starts globally
+
+- [OWNER-DIRECTION] `Bankers.MaxParallelLogins=4` is a host-wide login-start
+  pacing value, not a banker-count limit. City Dwellers may own more than four
+  AO clients; Governor must prevent them from all starting at once.
+- [IMPLEMENTED] Governor configures one passive ManagerMemory AO-login admission
+  gate from `Bankers.MaxParallelLogins`. The gate grants one shared wave across
+  Manager, Flipper, Buddies, Buffers and Bankers. After the fourth admission in
+  a size-4 wave, the gate remains closed for one full second before the next
+  wave can begin.
+- [IMPLEMENTED] All explicit `ClientDomain.Start()` paths reachable from
+  `CityDwellers.exe` now request the same admission immediately before start:
+  Manager login, Flipper probes/actions, Buddy starts, buffer startup/wakeup,
+  Banker Central/storage startup, and the manual banker bag-audit command.
+- [FIXED] BankerLoader and BagAuditRunner no longer reject nine configured
+  bankers merely because `MaxParallelLogins` is 4. The value defaults to 4
+  rather than 32 when absent/nonpositive in banker configuration.
+- [ARCHITECTURE] Governor owns configuration of the gate; ManagerMemory remains
+  the passive same-process coordination surface. Components still create,
+  start, track and unload their own AO ClientDomains. No client ownership moved
+  into Governor.
+- [BUDDIES] Buddies retains its older local startup semaphore as an additional
+  component-specific restraint. It cannot increase the host-wide Governor
+  admission rate and therefore cannot create an additive second pool of starts.
+- [BOUNDARY] AOSharp internal `AutoReconnect` remains enabled where already
+  configured and is not silently replaced by this change. The global gate
+  governs explicit City Dwellers `ClientDomain.Start()` calls; SDK-internal
+  post-disconnect reconnect scheduling is a separate hook if later required.
+- [VALIDATION] Current-master source enumeration confirms every explicit
+  ClientDomain start path in CityDwellers.exe is preceded by the shared
+  admission call. Modified C# files passed lexical delimiter review; Flipper and
+  Buddies retain the same pre-existing scanner +1 brace result as sealed
+  session 255. No assistant build/live AO test; owner retains compiler/runtime
+  validation.
+
