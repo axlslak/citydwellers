@@ -15,6 +15,8 @@ using Newtonsoft.Json;
 using Serilog;
 using Serilog.Core;
 using CityDwellers.Shared;
+using WorkerRequest = CityDwellers.Shared.WorkerRequest;
+using WorkerResponse = CityDwellers.Shared.WorkerResponse;
 
 public class FlipperLoader
 {
@@ -1003,25 +1005,4 @@ public class FlipperLoader
         public Dictionary<string, string> PostToggleCloakInfo;
     }
 
-    private class WorkerRequest
-    {
-        public string Id;
-        public string Command;
-        public DateTime? NotBeforeUtc;
-        public int? TimeoutSeconds;
-    }
-
-    private class WorkerResponse
-    {
-        public string Id;
-        public bool Ok;
-        public string Message;
-        public string Character;
-        public string CloakState;
-        public int? ShieldTimerInSeconds;
-        public float? ControllerCharge;
-        public bool Cached;
-        public DateTime? ObservedUtc;
-        public bool ActionSent;
-    }
 }
