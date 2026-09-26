@@ -182,7 +182,7 @@ namespace CityManager
                         "Open Apcmanager's cached catalogue of buffs advertised by the buffer fleet.",
                         "The catalogue is rendered only from ManagerMemory capability snapshots. Offline buffers remain visible as cached capability; READY means at least one current buffer is fresh and ready.",
                         "Public",
-                        "This command is read-only. It does not request or cast buffs.");
+                        "Opening the list is read-only. Each buff tag is a command link back to Apcmanager cast.");
                     return true;
 
                 case "cast":
