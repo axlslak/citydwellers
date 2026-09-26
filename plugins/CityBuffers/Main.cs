@@ -31,6 +31,10 @@ namespace MalisBuffBots
                 Logger.Information($"Plugin root dir set to '{Path.PLUGIN_DIR}'");
 
                 SettingsJson = new SettingsJson(Path.SETTINGS_JSON);
+                int[] configuredKnownNanos = ConfiguredKnownNanoOverrides();
+                if (configuredKnownNanos.Length != 0)
+                    Logger.Information("BUFFER configured known-nano override for " +
+                        Client.CharacterName + ": [" + string.Join(",", configuredKnownNanos) + "].");
                 CityBufferBridge.Start();
                 Ipc = new IPC(SettingsJson.Data.IPCChannelId, 5000);
                 BuffsJson = new BuffsJson(Path.BUFF_JSON);
@@ -55,6 +59,32 @@ namespace MalisBuffBots
             if (QueueProcessor != null) Client.OnUpdate -= QueueProcessor.OnUpdate;
             CityBufferBridge.Stop();
             (Ipc as IDisposable)?.Dispose();
+        }
+
+        // AOSharp.Clientless exposes FullCharacter.UploadedNanoIds as SpellList.
+        // Some server-owned/social nanos are usable in game but absent from that array.
+        internal static int[] ConfiguredKnownNanoOverrides()
+        {
+            if (SettingsJson?.Data?.KnownNanoOverrides == null ||
+                string.IsNullOrWhiteSpace(Client.CharacterName))
+                return new int[0];
+
+            foreach (var pair in SettingsJson.Data.KnownNanoOverrides)
+                if (string.Equals(pair.Key, Client.CharacterName, StringComparison.OrdinalIgnoreCase))
+                    return (pair.Value ?? new int[0]).Where(id => id > 0).Distinct().ToArray();
+
+            return new int[0];
+        }
+
+        internal static int[] EffectiveSpellList()
+        {
+            var known = new HashSet<int>(
+                DynelManager.LocalPlayer?.SpellList ?? new int[0]);
+
+            foreach (int id in ConfiguredKnownNanoOverrides())
+                known.Add(id);
+
+            return known.ToArray();
         }
 
         // Direct buffer tells/private-group commands are retired. Apcmanager owns the

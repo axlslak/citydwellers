@@ -39,5 +39,6 @@ namespace MalisBuffBots
         public uint PrivateChannelId;
         public uint PrivateChannelListenerId;
         public string PrivateChannelInfoMsg;
+        public Dictionary<string, int[]> KnownNanoOverrides = new Dictionary<string, int[]>();
     }
 }

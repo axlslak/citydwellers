@@ -5,10 +5,15 @@
   "SitKitItemId": 297274,
   "IPCChannelId": 255,
   "InitConnectionDelay": 30,
-  "TeamTimeoutInSeconds": 30.0,
+  "TeamTimeoutInSeconds": 30,
   "SocialAction": 7,
   "PrivateChannelMode": false,
   "PrivateChannelId": 0,
   "PrivateChannelListenerId": 0,
-  "PrivateChannelInfoMsg": "This bot is in private channel mode, contact the host for more info."
+  "PrivateChannelInfoMsg": "This bot is in private channel mode, contact the host for more info.",
+  "KnownNanoOverrides": {
+    "Kbadvy": [
+      268697
+    ]
+  }
 }
