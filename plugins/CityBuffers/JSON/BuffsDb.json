@@ -161,29 +161,27 @@
                 "c9",
                 "cmelees"
             ]
-        },
+        }
+    ],
+    "Adventurer": [
         {
-            "Name": "Veterans L33t Transformation",
+            "Name": "L33t Transformation",
             "LevelToId": [
                 {
                     "Level": 0,
-                    "Id": 268697
+                    "Id": 288774
                 }
             ],
             "Type": 0,
-            "Description": "Transforms the target into a veteran l33t",
+            "Description": "Transforms the target into a l33t",
             "RemoveNanoIdUponCast": [
                 0
             ],
             "Tags": [
                 "l33t",
-                "leet",
-                "veteranl33t",
-                "veteranleet"
+                "leet"
             ]
-        }
-    ],
-    "Adventurer": [
+        },
         {
             "Name": "Boon of the Wanderer",
             "LevelToId": [
