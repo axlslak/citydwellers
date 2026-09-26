@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 256,
-  "last_completed_session": 255,
-  "status": "in_progress",
+  "last_completed_session": 256,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-256-global-ao-login-governor",
-  "checkpoint_commit": "c82acbb",
-  "task": "Implement one Governor-owned host-wide AO login start gate: max Bankers.MaxParallelLogins starts per wave, one-second wave spacing, across Manager/Flipper/Buddies/Buffers/Bankers.",
-  "resume_instruction": "Resume session 256 only. Preserve client ownership in each component. Remove the banker total-count misuse; route unified-host ClientDomain.Start calls through Governor-configured ManagerMemory AO login admission. Next journal seq573.",
+  "checkpoint_commit": "a4964ad",
+  "task": "Completed: Governor globally paces explicit AO login starts using Bankers.MaxParallelLogins; four starts per wave then one second before the next wave.",
+  "resume_instruction": "Session 256 complete. Repository writer lock is idle. Owner Release build/live startup should verify shared wave/slot logging across mixed components. AOSharp internal AutoReconnect pacing remains a separate future question if desired. Next journal seq574.",
   "base_commit": "c82acbb0268208eae287befb243b22b3760e1912"
 }
