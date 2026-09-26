@@ -192,16 +192,16 @@ namespace MalisBuffBots
                 {
                     _nextHeartbeat = now.AddSeconds(1);
                     bool inPlay = Client.InPlay && DynelManager.LocalPlayer != null;
+                    int[] spellList = inPlay ? Main.EffectiveSpellList() : new int[0];
                     _snapshot = JsonConvert.SerializeObject(new {
                         Character = Client.CharacterName, Kind = "froob", InPlay = inPlay,
                         Ready = inPlay && Ready, ObservedUtc = now,
                         Profession = inPlay ? ((Profession)DynelManager.LocalPlayer.Profession).ToString() : "Unknown",
-                        NanoCount = inPlay ? DynelManager.LocalPlayer.SpellList.Count() : 0,
+                        NanoCount = spellList.Length,
                         QueueLength = Main.QueueProcessor?.Queue.AllEntries.Length ?? 0
                     });
                     if (inPlay)
                     {
-                        int[] spellList = DynelManager.LocalPlayer.SpellList ?? new int[0];
                         BufferAdvertisedBuff[] advertised =
                             IPCBotCacheData.BuildAdvertisedBuffs(spellList);
 

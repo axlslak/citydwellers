@@ -130,7 +130,8 @@ namespace MalisBuffBots
         public void LocalEnqueue(SimpleChar requester, IEnumerable<NanoEntry> entries)
         {
             string rejection = null;
-            foreach (var entry in entries.Where(x => DynelManager.LocalPlayer.SpellList.Any(y => x.ContainsId(y))))
+            int[] knownNanos = Main.EffectiveSpellList();
+            foreach (var entry in entries.Where(x => knownNanos.Any(y => x.ContainsId(y))))
             {
                 string error;
                 if (!Queue.TryEnqueue(new BuffEntry { Requester = requester.Identity, NanoEntry = entry }, out error))
@@ -300,7 +301,8 @@ namespace MalisBuffBots
 
             Logger.Information($"Attempting to cast '{Queue.Current.NanoEntry.Name}' on '{buffTarget.Name}'");
 
-            var firstAvailableBuff = Queue.Current.NanoEntry.LevelToId.FirstOrDefault(x => x.Level <= buffTarget.Level && DynelManager.LocalPlayer.SpellList.Contains(x.Id));
+            var knownNanos = new HashSet<int>(Main.EffectiveSpellList());
+            var firstAvailableBuff = Queue.Current.NanoEntry.LevelToId.FirstOrDefault(x => x.Level <= buffTarget.Level && knownNanos.Contains(x.Id));
 
             if (firstAvailableBuff == null)
             {

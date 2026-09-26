@@ -272,7 +272,7 @@ namespace MalisBuffBots
         {
             Profession prof = (Profession)DynelManager.LocalPlayer.Profession;
             Identity identity = DynelManager.LocalPlayer.Identity;
-            int[] spellList = DynelManager.LocalPlayer.SpellList;
+            int[] spellList = Main.EffectiveSpellList();
 
             UpdateBotInfo(prof, identity, spellList);
             ManagerMemory.Current.PublishBufferBotInfo(new BufferBotInfo
