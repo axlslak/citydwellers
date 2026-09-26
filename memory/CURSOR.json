@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 261,
-  "last_completed_session": 260,
-  "status": "in_progress",
+  "last_completed_session": 261,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-261-catalogue-refresh",
-  "checkpoint_commit": "5e8d910",
-  "task": "Refresh buffer catalogue state.",
-  "resume_instruction": "Resume session 261 only. Review current master, refresh catalogue state, verify, then seal. Next journal seq582.",
+  "checkpoint_commit": "48113bd",
+  "task": "Completed: buffer advertised capabilities now refresh from current spell data on the existing heartbeat.",
+  "resume_instruction": "Session 261 complete. Repository writer lock is idle. Owner build/live test should inspect each BUFFER catalogue ready line and verify vleet appears for Kbadvy, then confirm bufflist/cast. Next journal seq584.",
   "base_commit": "5e8d9101eb5c0aae229f5929ba0964e39e4a5c29"
 }
