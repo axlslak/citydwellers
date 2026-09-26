@@ -236,7 +236,9 @@ namespace CityDwellers.Shared
                 return false;
             lock (_governanceSync)
             {
-                if (_lifecycleCommands.ContainsKey(command.Component)) return false;
+                if (_abandonedLifecycleRequests.Contains(command.RequestId) ||
+                    _lifecycleCommands.ContainsKey(command.Component))
+                    return false;
                 _lifecycleCommands[command.Component] = command.Copy();
                 Monitor.PulseAll(_governanceSync);
                 return true;
