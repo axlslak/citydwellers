@@ -370,15 +370,7 @@ namespace MalisBuffBots
 
             _attemptedEntryKey = CurrentCastAttemptKey();
             _attemptedEntryExpiresUtc = DateTime.UtcNow.AddSeconds(CastCompletionTimeoutSeconds);
-            Targeting.SetTarget(buffTarget);
-            Client.Send(new CharacterActionMessage()
-            {
-                Action = CharacterActionType.CastNano,
-                Identity = DynelManager.LocalPlayer.Identity,
-                Target = buffTarget.Identity,
-                Parameter1 = (int)IdentityType.NanoProgram,
-                Parameter2 = firstAvailableBuff.Id
-            });
+            DynelManager.LocalPlayer.Cast(buffTarget, firstAvailableBuff.Id);
         }
 
         private void LeaveTeam()
