@@ -5,8 +5,8 @@
   "status": "in_progress",
   "active_project": "citydwellers",
   "transaction": "session-255-governor-lifecycle",
-  "checkpoint_commit": "a3ff1fd",
-  "task": "Implement the settled Governor lifecycle architecture; stages 1-3 are already substantially published.",
-  "resume_instruction": "Resume session 255 only. Re-read master and journal from seq568 onward, inspect Governor implementation through a3ff1fd34dc7800a4995a6985397b12957e65a19, then continue/validate/seal the Governor transaction. Next journal seq570.",
+  "checkpoint_commit": "ce55bb5",
+  "task": "Closure review: fix spurious Governor outcome wakeups, late-outcome cleanup, and the remaining direct CityRaidAutomation Flipper pipe path; then re-audit, document, and seal session 255.",
+  "resume_instruction": "Resume session 255 only. Re-read master and journal from seq568 onward. Seq570 records the closure-review findings. Fix those findings without changing Flipper/Buddies business handlers, re-audit seq568 and session254 bufflist boundaries, then document and seal. Next journal seq571.",
   "base_commit": "44f98ff"
 }
