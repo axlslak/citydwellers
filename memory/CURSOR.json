@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 256,
+  "current_session": 257,
   "last_completed_session": 256,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-256-global-ao-login-governor",
-  "checkpoint_commit": "a4964ad",
-  "task": "Completed: Governor globally paces explicit AO login starts using Bankers.MaxParallelLogins; four starts per wave then one second before the next wave.",
-  "resume_instruction": "Session 256 complete. Repository writer lock is idle. Owner Release build/live startup should verify shared wave/slot logging across mixed components. AOSharp internal AutoReconnect pacing remains a separate future question if desired. Next journal seq574.",
-  "base_commit": "c82acbb0268208eae287befb243b22b3760e1912"
+  "transaction": "session-257-governor-listener-braces",
+  "checkpoint_commit": "6f5b8af",
+  "task": "Fix two missing while-loop closing braces in Flipper/Buddies Governor memory listeners.",
+  "resume_instruction": "Resume session 257 only. Add the two missing braces, verify, then seal. Next journal seq574.",
+  "base_commit": "6f5b8af4a1ce0d8055f4a234d3bd55aa796819e5"
 }
