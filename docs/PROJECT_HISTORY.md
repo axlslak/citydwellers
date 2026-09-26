@@ -3671,3 +3671,17 @@ This also closes a smaller session-254 tell seam: bare `bufflist` tells to
 Apcmanager are now recognized alongside bare `cast`, `rebuff` and
 `buffmacro`. Direct buffer tells remain intentionally silent.
 
+## Session 260 — Kbadvy learns the veteran leet
+
+The Veteran Terminal crystal AOID 268698 uploads nano program 268697,
+Veterans L33t Transformation. Mali's imported BuffsDb did not contain the nano,
+so a buffer could know it in game while the shared catalogue and routing engine
+were completely unaware of it.
+
+The nano is classified as General rather than Adventurer-only, so the catalogue
+entry is Generic. That preserves Mali's normal generic-buff behavior: route the
+request only to a ready buffer whose live spell list actually contains the nano.
+Today that is Kbadvy. The public tags are `vleet`, `veteranleet`,
+`veteransl33t` and `l33t`; the normal Manager bufflist/cast path handles it.
+No automatic RebuffInfo rule was added.
+
