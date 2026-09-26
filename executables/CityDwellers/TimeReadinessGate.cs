@@ -90,7 +90,7 @@ namespace CityDwellers.Host
                 Bankers = new global::BankerLoader.BankerConfig
                 {
                     Password = "pass1",
-                    MaxParallelLogins = 32,
+                    MaxParallelLogins = 4,
                     DiagnosticTimeoutMs = 30000,
                     AcceptancePolicy = new global::BankerLoader.AcceptancePolicyConfig
                     {

@@ -33,6 +33,7 @@
     <Compile Include="FlipperObservation.cs" />
     <Compile Include="HostControl.cs" />
     <Compile Include="Governance.cs" />
+    <Compile Include="AoLoginAdmission.cs" />
     <Compile Include="ServiceCoordination.cs" />
     <Compile Include="..\BuddyPositionSnapshot.cs" />
     <Compile Include="BagAuditModels.cs" />

@@ -62,6 +62,16 @@ namespace CityDwellers.Host
             _clearManagerRestart = clearManagerRestart ?? throw new ArgumentNullException(nameof(clearManagerRestart));
             _authority = ManagerMemory.Current.AcquireGovernorAuthority();
 
+            int globalLoginWaveSize = settings.Bankers.MaxParallelLogins > 0
+                ? settings.Bankers.MaxParallelLogins
+                : 4;
+            ManagerMemory.Current.ConfigureAoLoginAdmission(
+                _authority, globalLoginWaveSize, 1000);
+            RuntimeLog.Write(
+                "Governor AO login admission: max " + globalLoginWaveSize +
+                " ClientDomain.Start calls per 1-second wave across all unified-host components; " +
+                "configured by Bankers.MaxParallelLogins.");
+
             Add("Flipper", stop => FlipperLoader.Run(new string[0], stop, false), true, true);
             Add("Buddies", stop => BuddiesHost.Run(new string[0], stop, false), true, true);
             if (BuffersHost.IsEnabled())
