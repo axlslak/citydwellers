@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 254,
-  "last_completed_session": 253,
-  "status": "in_progress",
+  "last_completed_session": 254,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-254-manager-owned-buffer-voice",
-  "checkpoint_commit": "0a5446b",
-  "task": "Remove buffer conversation; add ManagerMemory-backed Apcmanager bufflist.",
-  "resume_instruction": "Resume session 254 only. Buffers must become silent; bufflist belongs to Apcmanager and reads cached capability state. Do not add paid scheduling/login. Next journal seq567.",
+  "checkpoint_commit": "44f98ff",
+  "task": "Completed: buffers are silent; Apcmanager owns the cached ManagerMemory bufflist.",
+  "resume_instruction": "Session 254 complete. bufflist is Manager-owned and buffer capabilities persist as cached/offline snapshots. Paid buffer login/scheduling remains deferred. Next journal seq568.",
   "base_commit": "0a5446b"
 }
