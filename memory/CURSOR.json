@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 257,
-  "last_completed_session": 256,
-  "status": "in_progress",
+  "last_completed_session": 257,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-257-governor-listener-braces",
-  "checkpoint_commit": "6f5b8af",
-  "task": "Fix two missing while-loop closing braces in Flipper/Buddies Governor memory listeners.",
-  "resume_instruction": "Resume session 257 only. Add the two missing braces, verify, then seal. Next journal seq574.",
+  "checkpoint_commit": "178290b",
+  "task": "Completed: fixed missing RunMemoryServer while-loop closing braces in Flipper and Buddies.",
+  "resume_instruction": "Session 257 complete. Repository writer lock is idle. Owner Release rebuild should confirm the two CS1513 errors are gone. Next journal seq576.",
   "base_commit": "6f5b8af4a1ce0d8055f4a234d3bd55aa796819e5"
 }
