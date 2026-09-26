@@ -72,8 +72,9 @@ namespace MalisBuffBots
                 Queue.ClearCurrent();
                 try
                 {
-                    if (failed != null) CityBufferBridge.SendPrivateMessage((uint)failed.Requester.Instance,
-                        "This buff failed; please request it again. Other queued requests are retained.");
+                    if (failed != null)
+                        Logger.Warning("Buff cast failed for requester " + failed.Requester.Instance +
+                            "; remaining queued requests are retained.");
                     Main.Ipc.BotCache.BroadcastQueueInfoMessage();
                 }
                 catch { /* Preserve the remaining queue even if reporting fails. */ }
@@ -123,7 +124,7 @@ namespace MalisBuffBots
                 if (_queueNoticeAfter.TryGetValue(requester.Instance, out until) || _queueNoticeAfter.Count >= 1024) return;
                 _queueNoticeAfter[requester.Instance] = now.AddSeconds(10);
             }
-            CityBufferBridge.SendPrivateMessage((uint)requester.Instance, message);
+            Logger.Warning("Buffer queue request from " + requester.Instance + " was not admitted: " + message);
         }
 
         public void LocalEnqueue(SimpleChar requester, IEnumerable<NanoEntry> entries)
@@ -154,14 +155,13 @@ namespace MalisBuffBots
                 foreach (var bla in DynelManager.Characters)
                     if (queueData.Count() == 0)
                     {
-                    CityBufferBridge.SendPrivateMessage((uint)requester.Identity.Instance, ScriptTemplate.TeamBotsBusy());
+                    Logger.Warning("No team buffer is currently available for requester " + requester.Identity.Instance + ".");
                     return;
                 }
 
                 if (queueData.FirstOrDefault().Value.Identity == DynelManager.LocalPlayer.Identity)
                 {
                     ResetTeamTimer();
-                    CityBufferBridge.SendPrivateMessage((uint)requester.Identity.Instance, ScriptTemplate.TeamInvite());
                     Team.Invite(requester.Identity);
 
                     TeamTrackerId = requester.Identity.Instance;
@@ -270,10 +270,8 @@ namespace MalisBuffBots
         public void ResetCurrentBuffEntry(LdbFeedback? feedback = null)
         {
             if (feedback != null)
-            {
-                string msg = ScriptTemplate.CreateFeedbackReply(Queue.Current, feedback);
-                CityBufferBridge.SendPrivateMessage((uint)Queue.Current.Requester.Instance, msg);
-            }
+                Logger.Warning("Buff feedback for requester " + Queue.Current.Requester.Instance +
+                    ": " + feedback.Value);
 
             DynelManager.LocalPlayer.TryRemoveBuffs(Queue.Current.NanoEntry.RemoveNanoIdUponCast);
 
@@ -295,7 +293,7 @@ namespace MalisBuffBots
 
             if (Main.SettingsJson.Data.PvpFlagCheck && buffTarget.IsPvpFlagged())
             {
-                CityBufferBridge.SendPrivateMessage((uint)buffTarget.Identity.Instance, ScriptTemplate.CreateFeedbackReply(Queue.Current, "You are flagged."));
+                Logger.Warning("Skipping buff for flagged requester " + buffTarget.Name + ".");
                 ResetCurrentBuffEntry();
                 return;
             }
@@ -306,7 +304,7 @@ namespace MalisBuffBots
 
             if (firstAvailableBuff == null)
             {
-                CityBufferBridge.SendPrivateMessage((uint)buffTarget.Identity.Instance, ScriptTemplate.CreateFeedbackReply(Queue.Current, "Your level is too low."));
+                Logger.Warning("Skipping buff for requester " + buffTarget.Name + ": level is too low.");
                 ResetCurrentBuffEntry();
                 return;
             }
@@ -369,7 +367,8 @@ namespace MalisBuffBots
 
             if (TeamTimeout.Elapsed)
             {
-                CityBufferBridge.SendPrivateMessage((uint)Queue.Current.Requester.Instance, ScriptTemplate.TeamBuffTimeout(Queue.Current.NanoEntry.Name));
+                Logger.Warning("Team buff timed out for requester " + Queue.Current.Requester.Instance +
+                    ": " + Queue.Current.NanoEntry.Name + ".");
                 ResetCurrentBuffEntry();
             }
         }
