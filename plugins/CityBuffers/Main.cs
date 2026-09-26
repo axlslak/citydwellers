@@ -87,45 +87,116 @@ namespace MalisBuffBots
             }
         }
 
-        public void ProcessCastRequest(string[] nanoTags, PlayerChar requester)
+        internal static bool TryProcessManagerCastRequest(
+            string[] nanoTags,
+            PlayerChar requester,
+            out string message)
         {
+            message = null;
+            if (requester == null)
+            {
+                message = "The requester is no longer visible to the buffer fleet.";
+                return false;
+            }
+            if (nanoTags == null || nanoTags.Length == 0)
+            {
+                message = "Cast requires at least one buff tag.";
+                return false;
+            }
             if (!BuffsJson.FindByTags(nanoTags, out Dictionary<Profession, List<NanoEntry>> entries))
-                return;
+            {
+                message = "No configured buff matches: " +
+                    string.Join(" ", nanoTags);
+                return false;
+            }
 
             QueueProcessor.RequestBuffs(entries, requester);
+            Logger.Information($"Received Manager cast request from '{requester.Name}'");
+            return true;
+        }
 
-            Logger.Information($"Received cast request from '{requester.Name}'");
+        internal static bool TryProcessManagerRebuffRequest(
+            PlayerChar requester,
+            out string message)
+        {
+            message = null;
+            if (requester == null)
+            {
+                message = "The requester is no longer visible to the buffer fleet.";
+                return false;
+            }
+
+            var requesterBuffs = requester.Buffs;
+            if (requesterBuffs.Count == 0)
+            {
+                message = "No active NCU buffs were visible to rebuff.";
+                return false;
+            }
+
+            if (!BuffsJson.FindByIds(
+                    requesterBuffs.Select(x => x.Id),
+                    out Dictionary<Profession, List<NanoEntry>> entries))
+            {
+                message = "No currently active NCU buffs match the configured buff catalogue.";
+                return false;
+            }
+
+            QueueProcessor.RequestBuffs(entries, requester);
+            Logger.Information($"Received Manager rebuff request from '{requester.Name}'");
+            return true;
+        }
+
+        internal static bool TryBuildManagerBuffmacro(
+            PlayerChar requester,
+            out string[] tags,
+            out string message)
+        {
+            tags = null;
+            message = null;
+            if (requester == null)
+            {
+                message = "The requester is no longer visible to the buffer fleet.";
+                return false;
+            }
+
+            var requesterBuffs = requester.Buffs;
+            if (requesterBuffs.Count == 0)
+            {
+                message = "No active NCU buffs were visible for a buff macro.";
+                return false;
+            }
+
+            List<string> found;
+            if (!BuffsJson.FindByIds(requesterBuffs.Select(x => x.Id), out found) ||
+                found.Count == 0)
+            {
+                message = "No currently active NCU buffs match the configured buff catalogue.";
+                return false;
+            }
+
+            tags = found.ToArray();
+            Logger.Information($"Built Manager buffmacro request for '{requester.Name}'");
+            return true;
+        }
+
+        public void ProcessCastRequest(string[] nanoTags, PlayerChar requester)
+        {
+            string ignored;
+            TryProcessManagerCastRequest(nanoTags, requester, out ignored);
         }
 
         private void ProcessRebuffRequest(PlayerChar requester)
         {
-            var requesterBuffs = requester.Buffs;
-
-            if (requesterBuffs.Count == 0)
-                return;
-
-            if (!BuffsJson.FindByIds(requesterBuffs.Select(x => x.Id), out Dictionary<Profession, List<NanoEntry>> entries))
-                return;
-
-            QueueProcessor.RequestBuffs(entries, requester);
-
-            Logger.Information($"Received rebuff request from '{requester.Name}'");
+            string ignored;
+            TryProcessManagerRebuffRequest(requester, out ignored);
         }
 
 
         private void ProcessBuffmacroRequest(PlayerChar requester)
         {
-            var requesterBuffs = requester.Buffs;
-
-            if (requesterBuffs.Count == 0)
-                return;
-
-            List<string> buffsByTag = new List<string>();
-
-            if (!BuffsJson.FindByIds(requesterBuffs.Select(x=>x.Id), out List<string> tags))
-                return;
-
-            Logger.Information("Legacy buffer buffmacro request ignored; Apcmanager owns user-facing buffer output.");
+            string[] tags;
+            string ignored;
+            TryBuildManagerBuffmacro(requester, out tags, out ignored);
         }
 
         private void ProcessHelpRequest(PlayerChar requester)
