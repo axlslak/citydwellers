@@ -296,18 +296,21 @@ namespace MalisBuffBots
                 .SelectMany(pair => (pair.Value ?? new List<NanoEntry>())
                     .Where(entry => entry != null && entry.LevelToId != null &&
                         entry.LevelToId.Any(level => known.Contains(level.Id)))
-                    .Select(entry => new BufferAdvertisedBuff
+                    .SelectMany(entry => (entry.Tags ?? new string[0])
+                        .Where(tag => !string.IsNullOrWhiteSpace(tag))
+                        .DefaultIfEmpty(string.Empty)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .Select(tag => new BufferAdvertisedBuff
                     {
                         Profession = (int)pair.Key,
                         Name = entry.Name ?? string.Empty,
                         Description = entry.Description ?? string.Empty,
-                        Tag = entry.Tags == null
-                            ? string.Empty
-                            : entry.Tags.FirstOrDefault(tag => !string.IsNullOrWhiteSpace(tag)) ?? string.Empty,
+                        Tag = tag,
                         Type = entry.Type.ToString(),
                         Ncu = AdvertisedNcu(entry)
-                    }))
+                    })))
                 .OrderBy(entry => entry.Profession)
+                .ThenBy(entry => entry.Tag, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
         }
@@ -375,64 +378,3 @@ namespace MalisBuffBots
         {
             if (!_entries.ContainsKey(prof))
                 _entries.Add(prof, new BotData
-                {
-                    Identity = Identity.None,
-                    SpellData = new int[0],
-                    Queue = new BuffEntry[0]
-                });
-        }
-
-        public void TryAdd(Profession prof)
-        {
-            RefreshBotInfoFromMemory();
-            TryAddLocal(prof);
-        }
-
-        public bool ContainsNanoEntry(Profession prof, NanoEntry nanoEntry)
-        {
-            RefreshBotInfoFromMemory();
-            if (!_entries.TryGetValue(prof, out BotData botCache))
-                return false;
-
-            return botCache.SpellData.Any(s => nanoEntry.ContainsId(s));
-        }
-
-        public Dictionary<Profession, BotData> OutOfTeamBots() { RefreshBotInfoFromMemory(); return _entries.Count == 0 ? new Dictionary<Profession, BotData>() : _entries.Where(x => x.Value.TeamMemberId == 0).ToDictionary(kv => kv.Key, kv => kv.Value); }
-
-        public Dictionary<Profession, BotData> NonTeamTrackerBots() { RefreshBotInfoFromMemory(); return _entries.Count == 0 ? new Dictionary<Profession, BotData>() : _entries.Where(x => x.Value.TeamTrackerId == 0).ToDictionary(kv => kv.Key, kv => kv.Value); }
-
-
-        public bool IsTeamQueueEmpty(int charId)
-        {
-            try
-            {
-                return Entries.Values.SelectMany(x => x.Queue ?? new BuffEntry[0]).Where(x => x != null && x.NanoEntry != null && x.NanoEntry.Type == CastType.Team && x.Requester.Instance == charId).ToList().Count == 0;
-            }
-            catch
-            {
-                return true;
-            }
-        }
-
-        public IOrderedEnumerable<KeyValuePair<Profession, BotData>> OrderByQueueEntries() => Entries.OrderBy(x => (x.Value.Queue ?? new BuffEntry[0]).Count());
-
-        internal void UpdateBotInfo(Profession profession, Identity identity, int[] spellData)
-        {
-            TryAddLocal(profession);
-            _entries[profession].Identity = identity;
-            _entries[profession].SpellData = spellData ?? new int[0];
-        }
-
-        internal void UpdateTeamInfo(Profession profession, int teamMemberId)
-        {
-            TryAddLocal(profession);
-            _entries[profession].TeamMemberId = teamMemberId;
-        }
-
-        internal void UpdateQueueInfo(Profession profession, BuffEntry[] entries)
-        {
-            TryAddLocal(profession);
-            _entries[profession].Queue = entries ?? new BuffEntry[0];
-        }
-    }
-}
