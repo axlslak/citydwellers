@@ -18,6 +18,8 @@ using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.Messages.ChatMessages;
 using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 using CityDwellers.Shared;
+using WorkerRequest = CityDwellers.Shared.WorkerRequest;
+using WorkerResponse = CityDwellers.Shared.WorkerResponse;
 
 namespace CityManager
 {
@@ -3478,48 +3480,6 @@ namespace CityManager
             public string Actor { get; set; }
             public string ChannelName { get; set; }
             public string RawMessage { get; set; }
-        }
-
-        private class WorkerRequest
-        {
-            public string Id;
-            public string Command;
-            public int? TimeoutSeconds;
-            public int? Level;
-            public int? Index;
-            public List<int> Indexes;
-            public string Purpose;
-            public int? LeaseSeconds;
-            public bool Home;
-            public bool LogoutAfterHome;
-        }
-
-        private class WorkerResponse
-        {
-            public string Id;
-            public bool Ok;
-            public string Message;
-            public string Character;
-            public string CloakState;
-            public int? ShieldTimerInSeconds;
-            public float? ControllerCharge;
-            public int? Level;
-            public int? Index;
-            public List<string> Characters;
-            public List<int> Indexes;
-            public int? Count;
-            public bool Cached;
-            public DateTime? ObservedUtc;
-            public bool ActionSent;
-            public List<BuddyPositionSnapshot> Positions;
-            public string HomeJobId;
-            public bool HomeRunning;
-            public int HomeAttempted;
-            public int HomeStarted;
-            public int HomeTerminal;
-            public int HomeReached;
-            public int HomeStopped;
-            public List<string> HomeFailures;
         }
 
         private class WorkerLinkStatus
