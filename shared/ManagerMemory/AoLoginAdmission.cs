@@ -24,7 +24,7 @@ namespace CityDwellers.Shared
         private int _aoLoginWaveSize = 4;
         private int _aoLoginWaveDelayMilliseconds = 1000;
         private int _aoLoginWaveRemaining = 4;
-        private long _aoLoginWaveOpenedTimestamp;
+        private long _aoLoginNextWaveTimestamp;
         private long _aoLoginWaveNumber;
         private long _aoLoginNextTicket;
 
@@ -44,7 +44,7 @@ namespace CityDwellers.Shared
                 _aoLoginWaveSize = maxStartsPerWave;
                 _aoLoginWaveDelayMilliseconds = waveDelayMilliseconds;
                 _aoLoginWaveRemaining = maxStartsPerWave;
-                _aoLoginWaveOpenedTimestamp = 0;
+                _aoLoginNextWaveTimestamp = 0;
                 _aoLoginWaveNumber = 0;
                 _aoLoginNextTicket = 0;
                 Monitor.PulseAll(_aoLoginSync);
@@ -74,32 +74,32 @@ namespace CityDwellers.Shared
                     long waveDuration = MillisecondsToStopwatchTicks(
                         _aoLoginWaveDelayMilliseconds);
 
-                    if (_aoLoginWaveOpenedTimestamp != 0 &&
-                        now - _aoLoginWaveOpenedTimestamp >= waveDuration)
-                    {
-                        _aoLoginWaveRemaining = _aoLoginWaveSize;
-                        _aoLoginWaveOpenedTimestamp = 0;
-                    }
-
                     if (_aoLoginWaveRemaining <= 0)
                     {
-                        long waitUntil =
-                            _aoLoginWaveOpenedTimestamp + waveDuration;
-                        int waitMilliseconds =
-                            StopwatchTicksToWaitMilliseconds(waitUntil - now);
-                        Monitor.Wait(_aoLoginSync, waitMilliseconds);
-                        continue;
+                        long remainingTicks =
+                            _aoLoginNextWaveTimestamp - now;
+                        if (remainingTicks > 0)
+                        {
+                            Monitor.Wait(
+                                _aoLoginSync,
+                                StopwatchTicksToWaitMilliseconds(
+                                    remainingTicks));
+                            continue;
+                        }
+
+                        _aoLoginWaveRemaining = _aoLoginWaveSize;
+                        _aoLoginNextWaveTimestamp = 0;
                     }
 
-                    if (_aoLoginWaveOpenedTimestamp == 0)
-                    {
-                        _aoLoginWaveOpenedTimestamp = now;
+                    if (_aoLoginWaveRemaining == _aoLoginWaveSize)
                         _aoLoginWaveNumber++;
-                    }
 
                     int position =
                         _aoLoginWaveSize - _aoLoginWaveRemaining + 1;
                     _aoLoginWaveRemaining--;
+                    if (_aoLoginWaveRemaining == 0)
+                        _aoLoginNextWaveTimestamp =
+                            Stopwatch.GetTimestamp() + waveDuration;
                     Monitor.PulseAll(_aoLoginSync);
 
                     long waitedTicks =
