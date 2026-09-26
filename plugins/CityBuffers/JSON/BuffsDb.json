@@ -1,2777 +1,2774 @@
 {
-  "Generic": [
-    {
-      "Name": "Composite Attribute Boost",
-      "LevelToId": [
+    "Generic": [
         {
-          "Level": 0,
-          "Id": 223372
-        }
-      ],
-      "Type": 0,
-      "Description": "+12 Attributes",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "c1",
-        "catt"
-      ]
-    },
-    {
-      "Name": "Composite Nano Expertise",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 223380
-        }
-      ],
-      "Type": 0,
-      "Description": "+20 Nano Skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "c2",
-        "cnano"
-      ]
-    },
-    {
-      "Name": "Composite Utility Expertise",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 287046
-        }
-      ],
-      "Type": 0,
-      "Description": "+20 Conc., Perc., B&E, Comp. Lit, Treat., First A., Psy.",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "c3",
-        "cutil"
-      ]
-    },
-    {
-      "Name": "Composite Tradeskill Expertise",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 287040
-        }
-      ],
-      "Type": 0,
-      "Description": "+20 Mec. E., Ele E., QFT, Weap. Sm., Pharm., Chem., Nano P.",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "c4",
-        "ctrade"
-      ]
-    },
-    {
-      "Name": "Composite Martial Prowess Expertise",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 302158
-        }
-      ],
-      "Type": 0,
-      "Description": "+20 Riposte, Deflect, HD, ND, Sharp Obj., RS",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "c5",
-        "cmart"
-      ]
-    },
-    {
-      "Name": "Composite Ranged Expertise",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 223348
-        }
-      ],
-      "Type": 0,
-      "Description": "+20 Ranged Weapon Skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "c6",
-        "crang"
-      ]
-    },
-    {
-      "Name": "Composite Ranged Special Expertise",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 223364
-        }
-      ],
-      "Type": 0,
-      "Description": "+20 Ranged Weapon Skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "c7",
-        "crangs"
-      ]
-    },
-    {
-      "Name": "Composite Melee Expertise",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 223360
-        }
-      ],
-      "Type": 0,
-      "Description": "+20 1HB, 2HB, 1HE, 2HE, Piercing, Melee E.",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "c8",
-        "cmelee"
-      ]
-    },
-    {
-      "Name": "Composite Physical Special Expertise",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 215264
-        }
-      ],
-      "Type": 0,
-      "Description": "+20 Fast At., Sneak At., Brawl, Dimach, Mult M., Mart. A.",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "c9",
-        "cmelees"
-      ]
-    },
-    {
-      "Name": "Veterans L33t Transformation",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 268697
-        }
-      ],
-      "Type": 0,
-      "Description": "Transforms the target into a veteran l33t",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "l33t",
-        "leet",
-        "veteranl33t",
-        "veteranleet"
-      ]
-    }
-  ],
-  "Adventurer": [
-    {
-      "Name": "Boon of the Wanderer",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 204318
-        }
-      ],
-      "Type": 0,
-      "Description": "13% Root/Snare Resist",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "boon",
-        "botw"
-      ]
-    }
-  ],
-  "Agent": [
-    {
-      "Name": "Assassin's Grin",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 81856
-        }
-      ],
-      "Type": 0,
-      "Description": "+45 Damage",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "ag",
-        "grin",
-        "assassin"
-      ]
-    },
-    {
-      "Name": "Feline Grace",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 25989
-        }
-      ],
-      "Type": 0,
-      "Description": "+25 Agility",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "fg"
-      ]
-    },
-    {
-      "Name": "Enhanced Senses",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 25988
-        }
-      ],
-      "Type": 0,
-      "Description": "+15 Sense",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "es"
-      ]
-    },
-    {
-      "Name": "Enhanced Sureshot",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 160791
-        }
-      ],
-      "Type": 0,
-      "Description": "+11 crit inc",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "ess",
-        "sureshot"
-      ]
-    },
-    {
-      "Name": "Take the Shot",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 32065
-        }
-      ],
-      "Type": 0,
-      "Description": "+165 Aimed Shot",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "tts"
-      ]
-    },
-    {
-      "Name": "Unexpected Attack",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 32067
-        }
-      ],
-      "Type": 0,
-      "Description": "+120 Rifle",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "ua"
-      ]
-    },
-    {
-      "Name": "Blanket of Shadows",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 160901
-        }
-      ],
-      "Type": 1,
-      "Description": "+113 Concealment",
-      "RemoveNanoIdUponCast": [
-        160892
-      ],
-      "Tags": [
-        "bos"
-      ]
-    },
-    {
-      "Name": "Cloak of Night",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 160895
-        }
-      ],
-      "Type": 1,
-      "Description": "+174 Concealment",
-      "RemoveNanoIdUponCast": [
-        160893
-      ],
-      "Tags": [
-        "con"
-      ]
-    }
-  ],
-  "Bureaucrat": [
-    {
-      "Name": "Improved Cut Red Tape",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 222695
-        }
-      ],
-      "Type": 0,
-      "Description": "+75 AAD, -3% Crit Dec., -3% Skill Lock",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "icrt",
-        "redtape"
-      ]
-    },
-    {
-      "Name": "Authority Figure",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30057
-        }
-      ],
-      "Type": 0,
-      "Description": "+50 Psychology",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "af",
-        "psy50"
-      ]
-    },
-    {
-      "Name": "Soothing Calm",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 222853
-        }
-      ],
-      "Type": 0,
-      "Description": "+60 Nano Delta",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "sc",
-        "soothing"
-      ]
-    },
-    {
-      "Name": "Baton of Command",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 90448
-        }
-      ],
-      "Type": 0,
-      "Description": "+19 Experience",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "com"
-      ]
-    },
-    {
-      "Name": "Baton of Leadership",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 90449
-        }
-      ],
-      "Type": 0,
-      "Description": "+14 Experience",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lea"
-      ]
-    },
-    {
-      "Name": "Baton of Authority",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 90450
-        }
-      ],
-      "Type": 0,
-      "Description": "+11 Experience",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "aut"
-      ]
-    }
-  ],
-  "Doctor": [
-    {
-      "Name": "Continuous Reconstruction",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 222824
-        }
-      ],
-      "Type": 0,
-      "Description": "+65 Healdelta",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "cr",
-        "hd"
-      ]
-    },
-    {
-      "Name": "Instinctive Control",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 28669
-        }
-      ],
-      "Type": 0,
-      "Description": "NanoC. Init. +200, NR +25, Max Nano +150",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "iic",
-        "instinctive"
-      ]
-    },
-    {
-      "Name": "Improved Nano Repulsor",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 222823
-        }
-      ],
-      "Type": 0,
-      "Description": "+200 NR",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "inr",
-        "nr"
-      ]
-    },
-    {
-      "Name": "Iron Circle",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 42400
-        }
-      ],
-      "Type": 0,
-      "Description": "+20 Str/Stam",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "ic",
-        "iron",
-        "circle"
-      ]
-    },
-    {
-      "Name": "Superior Omni-Med Enhancement",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 95709
-        }
-      ],
-      "Type": 1,
-      "Description": "+920 Max Health, 111-169 HoT",
-      "RemoveNanoIdUponCast": [
-        95673
-      ],
-      "Tags": [
-        "hp",
-        "omni-med",
-        "omnimed",
-        "some",
-        "health"
-      ]
-    },
-    {
-      "Name": "Life Channeler",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 96247
-        }
-      ],
-      "Type": 0,
-      "Description": "+1344 Max Health, +1344 Heal",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lc",
-        "channeler",
-        "life"
-      ]
-    },
-    {
-      "Name": "Specialist Treatment",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 204422
-        }
-      ],
-      "Type": 0,
-      "Description": "+35 Treatment, +20 First Aid",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "st"
-      ]
-    },
-    {
-      "Name": "Superior First Aid",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 28675
-        }
-      ],
-      "Type": 0,
-      "Description": "+80 FA/Treat",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "sfa",
-        "treat",
-        "treatment"
-      ]
-    }
-  ],
-  "Enforcer": [
-    {
-      "Name": "Thug's Delight",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 43371
-        }
-      ],
-      "Type": 0,
-      "Description": "+14 1HB",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "delight"
-      ]
-    },
-    {
-      "Name": "Brutal Thug",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29630
-        }
-      ],
-      "Type": 0,
-      "Description": "+87 1HB/2HB",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "bt",
-        "brutal",
-        "thug",
-        "1hb"
-      ]
-    },
-    {
-      "Name": "Coruscating Screen",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 55751
-        }
-      ],
-      "Type": 0,
-      "Description": "+479 Max Health, +60 Shield AC",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "cs",
-        "screen"
-      ]
-    },
-    {
-      "Name": "Essence of Behemoth",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 95708
-        }
-      ],
-      "Type": 0,
-      "Description": "+996 Max Health, +27 Str/Stam",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "behe",
-        "essence"
-      ]
-    },
-    {
-      "Name": "Focused Anger",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29641
-        }
-      ],
-      "Type": 0,
-      "Description": "+72 inits",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "fa"
-      ]
-    },
-    {
-      "Name": "Prodigious Strength",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29652
-        }
-      ],
-      "Type": 0,
-      "Description": "+40 Str",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "prod",
-        "ps"
-      ]
-    },
-    {
-      "Name": "Thug's Delight",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 43371
-        }
-      ],
-      "Type": 0,
-      "Description": "+14 1hb",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "td",
-        "delight"
-      ]
-    }
-  ],
-  "Engineer": [
-    {
-      "Name": "Aegis Barrier",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29789
-        }
-      ],
-      "Type": 0,
-      "Description": "+720 AC's",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "ab",
-        "aegis"
-      ]
-    },
-    {
-      "Name": "Perfected Defensive Screen",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70535
-        }
-      ],
-      "Type": 0,
-      "Description": "+472 AC's",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "perfds",
-        "perfdefscreen"
-      ]
-    },
-    {
-      "Name": "Superior Defensive Screen",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70549
-        }
-      ],
-      "Type": 0,
-      "Description": "+322 AC's",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "supds",
-        "superiordefscreen"
-      ]
-    },
-    {
-      "Name": "Basic Defensive Screen",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70541
-        }
-      ],
-      "Type": 0,
-      "Description": "+122 AC's",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "basds",
-        "basicdefscreen"
-      ]
-    },
-    {
-      "Name": "Extreme Prejudice",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29762
-        }
-      ],
-      "Type": 0,
-      "Description": "+120 Grenade, +120 Heavy Weapons, +120 Pistol",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "ep",
-        "prejudice"
-      ]
-    },
-    {
-      "Name": "Sloughing Combat Field",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 204422
-        }
-      ],
-      "Type": 1,
-      "Description": "+3 Special Attack Blockers",
-      "RemoveNanoIdUponCast": [
-        231055
-      ],
-      "Tags": [
-        "+3",
-        "blockers"
-      ]
-    },
-    {
-      "Name": "Philosopher's Stone",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29772
-        }
-      ],
-      "Type": 0,
-      "Description": "+62 Chem., +62 Pharma Tech",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "phil",
-        "philosopher",
-        "stone"
-      ]
-    },
-    {
-      "Name": "Rapid Weapon",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29779
-        }
-      ],
-      "Type": 0,
-      "Description": "+114 Ranged. Init",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "rapidwep"
-      ]
-    },
-    {
-      "Name": "Pistol Mastery",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29246
-        }
-      ],
-      "Type": 0,
-      "Description": "+40 Pistol",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "pm"
-      ]
-    }
-  ],
-  "Fixer": [
-    {
-      "Name": "Back Pain",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 31409
-        }
-      ],
-      "Type": 0,
-      "Description": "+70 Sneak Attack",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "bp",
-        "backpain"
-      ]
-    },
-    {
-      "Name": "NCU Nanos",
-      "LevelToId": [
-        {
-          "Level": 185,
-          "Id": 163095
+            "Name": "Composite Attribute Boost",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 223372
+                }
+            ],
+            "Type": 0,
+            "Description": "+12 Attributes",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "c1",
+                "catt"
+            ]
         },
         {
-          "Level": 165,
-          "Id": 163094
+            "Name": "Composite Nano Expertise",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 223380
+                }
+            ],
+            "Type": 0,
+            "Description": "+20 Nano Skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "c2",
+                "cnano"
+            ]
         },
         {
-          "Level": 135,
-          "Id": 163087
+            "Name": "Composite Utility Expertise",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 287046
+                }
+            ],
+            "Type": 0,
+            "Description": "+20 Conc., Perc., B&E, Comp. Lit, Treat., First A., Psy.",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "c3",
+                "cutil"
+            ]
         },
         {
-          "Level": 125,
-          "Id": 163085
+            "Name": "Composite Tradeskill Expertise",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 287040
+                }
+            ],
+            "Type": 0,
+            "Description": "+20 Mec. E., Ele E., QFT, Weap. Sm., Pharm., Chem., Nano P.",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "c4",
+                "ctrade"
+            ]
         },
         {
-          "Level": 75,
-          "Id": 163083
+            "Name": "Composite Martial Prowess Expertise",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 302158
+                }
+            ],
+            "Type": 0,
+            "Description": "+20 Riposte, Deflect, HD, ND, Sharp Obj., RS",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "c5",
+                "cmart"
+            ]
         },
         {
-          "Level": 50,
-          "Id": 163081
+            "Name": "Composite Ranged Expertise",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 223348
+                }
+            ],
+            "Type": 0,
+            "Description": "+20 Ranged Weapon Skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "c6",
+                "crang"
+            ]
         },
         {
-          "Level": 25,
-          "Id": 163079
-        }
-      ],
-      "Type": 1,
-      "Description": "All NCU Buffs",
-      "RemoveNanoIdUponCast": [
-        163057,
-        163012,
-        163015,
-        163010,
-        163008,
-        163006,
-        163005
-      ],
-      "Tags": [
-        "ncu"
-      ]
-    },
-    {
-      "Name": "Dr Hack 'n Quack",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 162734
-        }
-      ],
-      "Type": 0,
-      "Description": "+362-370 HoT",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "hnq",
-        "quack",
-        "hot"
-      ]
-    },
-    {
-      "Name": "Gridspace Freedom (Team)",
-      "LevelToId": [
-        {
-          "Level": 175,
-          "Id": 162595
-        }
-      ],
-      "Type": 1,
-      "Description": "+680 RS",
-      "RemoveNanoIdUponCast": [
-        162588
-      ],
-      "Tags": [
-        "gsfteam",
-        "teamgsf"
-      ]
-    },
-    {
-      "Name": "Gridspace Freedom",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 93132
-        }
-      ],
-      "Type": 0,
-      "Description": "+720 RS, +79 Evades",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "gsf"
-      ]
-    },
-    {
-      "Name": "Grid Phase Accelerator",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 93126
-        }
-      ],
-      "Type": 0,
-      "Description": "+620 RS, +70 Evades",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "gpa"
-      ]
-    },
-    {
-      "Name": "Partial Grid Jump",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 93127
-        }
-      ],
-      "Type": 0,
-      "Description": "+450 RS, +61 Evades",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "pgj"
-      ]
-    },
-    {
-      "Name": "Grid Surfer",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 93128
-        }
-      ],
-      "Type": 0,
-      "Description": "+390 RS, +37 Evades",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "gs"
-      ]
-    },
-    {
-      "Name": "Leech Grid Vector",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 93129
-        }
-      ],
-      "Type": 0,
-      "Description": "+310 RS, +25 Evades",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lgv"
-      ]
-    },
-    {
-      "Name": "Grid Runner",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 93130
-        }
-      ],
-      "Type": 0,
-      "Description": "+260 RS, +16 Evades",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "gr"
-      ]
-    },
-    {
-      "Name": "Hack Grid Vector",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 93131
-        }
-      ],
-      "Type": 0,
-      "Description": "+190 RS, +7 Evades",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "hgv"
-      ]
-    },
-    {
-      "Name": "Limited Grid Jump",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 93125
-        }
-      ],
-      "Type": 0,
-      "Description": "+140 RS, +2 Evades",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lgj"
-      ]
-    },
-    {
-      "Name": "Hack Grid Data Stream (Team)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 160982
-        }
-      ],
-      "Type": 0,
-      "Description": "Fgrid Here!",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "fgrid"
-      ]
-    },
-    {
-      "Name": "Blood Makes Noise",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 31380
-        }
-      ],
-      "Type": 0,
-      "Description": "+240 Perception",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "bmn",
-        "perception",
-        "blood"
-      ]
-    },
-    {
-      "Name": "Karma Harvest",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 31390
-        }
-      ],
-      "Type": 0,
-      "Description": "+130 B&E/Trap Disarm",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "kh",
-        "karma"
-      ]
-    }
-  ],
-  "MartialArtist": [
-    {
-      "Name": "Dirty Fighter",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 28870
-        }
-      ],
-      "Type": 0,
-      "Description": "+45 Brawling",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "df"
-      ]
-    },
-    {
-      "Name": "Fervor of the Devotee",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 210323
-        }
-      ],
-      "Type": 0,
-      "Description": "+70 Fast Attack",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "fer",
-        "devotee"
-      ]
-    },
-    {
-      "Name": "Horde",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 28890
-        }
-      ],
-      "Type": 1,
-      "Description": "+12 Add All Dmg",
-      "RemoveNanoIdUponCast": [
-        162359
-      ],
-      "Tags": [
-        "horde"
-      ]
-    },
-    {
-      "Name": "Fists of Stellar Harmony",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 81827
-        }
-      ],
-      "Type": 0,
-      "Description": "+26 Melee Dmg, +36 Fire Dmg, Change Dmg Type to Fire",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "fosh",
-        "fists",
-        "harmony"
-      ]
-    },
-    {
-      "Name": "Lesser Controlled Rage",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 43369
-        }
-      ],
-      "Type": 0,
-      "Description": "+12 MA, +8 Physic. Init",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lcr",
-        "rage"
-      ]
-    },
-    {
-      "Name": "Limbo Mastery",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 28894
-        }
-      ],
-      "Type": 0,
-      "Description": "+30 Duck-Exp",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lm",
-        "limbo"
-      ]
-    },
-    {
-      "Name": "Mark of Peril",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 160574
-        }
-      ],
-      "Type": 0,
-      "Description": "+11 Crit Inc",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mop",
-        "mark",
-        "peril",
-        "crit"
-      ]
-    },
-    {
-      "Name": "Martial Arts Mastery",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 28895
-        }
-      ],
-      "Type": 0,
-      "Description": "+60 MA, +30 SharpObj",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mama",
-        "mam"
-      ]
-    },
-    {
-      "Name": "Reduce Inertia",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 28903
-        }
-      ],
-      "Type": 0,
-      "Description": "+120 Evades",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "ri"
-      ]
-    },
-    {
-      "Name": "Return Attack",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 28904
-        }
-      ],
-      "Type": 0,
-      "Description": "+80 Riposte, +80 Deflect",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "ra"
-      ]
-    }
-  ],
-  "Metaphysicist": [
-    {
-      "Name": "Mocham's Gift: BioMet",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29299
-        }
-      ],
-      "Type": 0,
-      "Description": "+140 BioMet",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "bmmo",
-        "bmmoch"
-      ]
-    },
-    {
-      "Name": "Mocham's Gift: MatCrea",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29300
-        }
-      ],
-      "Type": 0,
-      "Description": "+140 MatCrea",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mcmo",
-        "mcmoch"
-      ]
-    },
-    {
-      "Name": "Mocham's Gift: SpaceTime",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29301
-        }
-      ],
-      "Type": 0,
-      "Description": "+140 SpaceTime",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "stmo",
-        "tsmo",
-        "stmoch",
-        "tsmoch"
-      ]
-    },
-    {
-      "Name": "Mocham's Gift: MatMet",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29302
-        }
-      ],
-      "Type": 0,
-      "Description": "+140 MatMet",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mmmo",
-        "mmmoch"
-      ]
-    },
-    {
-      "Name": "Mocham's Gift: PsyMod",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29303
-        }
-      ],
-      "Type": 0,
-      "Description": "+140 PsyMod",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "pmmo",
-        "pmmoch"
-      ]
-    },
-    {
-      "Name": "Mocham's Gift: SenseImp",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29304
-        }
-      ],
-      "Type": 0,
-      "Description": "+140 SenseImp",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "simo",
-        "simoch"
-      ]
-    },
-    {
-      "Name": "Infuse With Knowledge: Biological Metamorphose",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151761
-        }
-      ],
-      "Type": 0,
-      "Description": "+90 BioMet",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "bmi",
-        "bminf",
-        "bminfuse"
-      ]
-    },
-    {
-      "Name": "Infuse With Knowledge: Material Creation",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151762
-        }
-      ],
-      "Type": 0,
-      "Description": "+90 MatCre",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mci",
-        "mcinf",
-        "mcinfuse"
-      ]
-    },
-    {
-      "Name": "Infuse With Knowledge: Time and Space",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151758
-        }
-      ],
-      "Type": 0,
-      "Description": "+90 SpaceTime",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "tsi",
-        "tsinf",
-        "tsinfuse"
-      ]
-    },
-    {
-      "Name": "Infuse With Knowledge: Material Metamorphose",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151759
-        }
-      ],
-      "Type": 0,
-      "Description": "+90 MatMet",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mmi",
-        "mminf",
-        "mminfuse"
-      ]
-    },
-    {
-      "Name": "Infuse With Knowledge: Psychological Modification",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151760
-        }
-      ],
-      "Type": 0,
-      "Description": "+90 PsyMod",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "pmi",
-        "pminf",
-        "pminfuse"
-      ]
-    },
-    {
-      "Name": "Infuse With Knowledge: Sensory Improvement",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151757
-        }
-      ],
-      "Type": 0,
-      "Description": "+90 SenImp",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "sii",
-        "siinf",
-        "siinfuse"
-      ]
-    },
-    {
-      "Name": "Mastery: Biological Metamorphose",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29275
-        }
-      ],
-      "Type": 0,
-      "Description": "+50 BioMet",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "bmma"
-      ]
-    },
-    {
-      "Name": "Mastery: Material Creation",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29294
-        }
-      ],
-      "Type": 0,
-      "Description": "+50 MatCrea",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mcma"
-      ]
-    },
-    {
-      "Name": "Mastery: Time and Space",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29295
-        }
-      ],
-      "Type": 0,
-      "Description": "+50 SpaceTime",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "stma",
-        "tsma"
-      ]
-    },
-    {
-      "Name": "Mastery: Material Metamorphose",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29296
-        }
-      ],
-      "Type": 0,
-      "Description": "+50 MatMet",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mmma"
-      ]
-    },
-    {
-      "Name": "Mastery: Psychological Modification",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29312
-        }
-      ],
-      "Type": 0,
-      "Description": "+50 PsyMod",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "pmma"
-      ]
-    },
-    {
-      "Name": "Mastery: Sensory Improvement",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29315
-        }
-      ],
-      "Type": 0,
-      "Description": "+50 Sense Imp",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "sima"
-      ]
-    },
-
-    {
-      "Name": "Teachings: Biological Metamorphose",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151768
-        }
-      ],
-      "Type": 0,
-      "Description": "+25 BioMet",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "bmte"
-      ]
-    },
-    {
-      "Name": "Teachings: Material Creation",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151765
-        }
-      ],
-      "Type": 0,
-      "Description": "+25 MatCrea",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mcte"
-      ]
-    },
-    {
-      "Name": "Teachings: Time and Space",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151766
-        }
-      ],
-      "Type": 0,
-      "Description": "+25 SpaceTime",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "stte",
-        "tste"
-      ]
-    },
-    {
-      "Name": "Teachings: Material Metamorphose",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151767
-        }
-      ],
-      "Type": 0,
-      "Description": "+25 MatMet",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mmte"
-      ]
-    },
-    {
-      "Name": "Teachings: Psychological Modification",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151763
-        }
-      ],
-      "Type": 0,
-      "Description": "+25 PsyMod",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "pmte"
-      ]
-    },
-    {
-      "Name": "Teachings: Sensory Improvement",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 151764
-        }
-      ],
-      "Type": 0,
-      "Description": "+25 Sense Imp",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "site"
-      ]
-    },
-
-
-    {
-      "Name": "One Mind, One Purpose",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 95522
-        }
-      ],
-      "Type": 0,
-      "Description": "-%57 Nano Intrupt",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "om",
-        "onemind",
-        "omop"
-      ]
-    },
-    {
-      "Name": "Ease of Execution",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 95410
-        }
-      ],
-      "Type": 0,
-      "Description": "Nano Cost -7%",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "eoe"
-      ]
-    },
-    {
-      "Name": "Coherent Notum Web",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 95411
-        }
-      ],
-      "Type": 0,
-      "Description": "Nano Cost -15%",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "cnw"
-      ]
-    },
-    {
-      "Name": "Mocham's Neural Interface-Web",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 95409
-        }
-      ],
-      "Type": 0,
-      "Description": "Nano Cost -24%",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mniw",
-        "neural",
-        "web",
-        "mcost"
-      ]
-    },
-    {
-      "Name": "Advanced Symbol Manipulation",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29327
-        }
-      ],
-      "Type": 0,
-      "Description": "+92 Nano Programing",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "np",
-        "asm"
-      ]
-    }
-  ],
-  "NanoTechnician": [
-    {
-      "Name": "Advanced Fleeting Immunity",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 270356
-        }
-      ],
-      "Type": 0,
-      "Description": "+834 Absorb Shield",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "sorb",
-        "absorb",
-        "afi",
-        "fleeting",
-        "fleeting"
-      ]
-    },
-    {
-      "Name": "CrunchCom Nano Compressor Pro",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 95412
-        }
-      ],
-      "Type": 0,
-      "Description": "Nano Cost -18%, Modify RangeInc. NF 20",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "ccncp",
-        "crunch",
-        "crunchcom"
-      ]
-    },
-    {
-      "Name": "Izgimmer's Obfuscated Recompiler",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 95417
-        }
-      ],
-      "Type": 0,
-      "Description": "Nano Cost -28%",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "cost",
-        "ior"
-      ]
-    },
-    {
-      "Name": "Superior Nano Command",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 95446
-        }
-      ],
-      "Type": 0,
-      "Description": "RangeInc. NF 67",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "snc"
-      ]
-    },
-    {
-      "Name": "Notum Overload",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 95443
-        }
-      ],
-      "Type": 0,
-      "Description": "Nano Cost +4%, RangeInc. NF 104",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "range"
-      ]
-    },
-    {
-      "Name": "Personal Notum Harvester",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 90406
-        }
-      ],
-      "Type": 0,
-      "Description": "+235 Nano HoT",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "pnh",
-        "notum harvester"
-      ]
-    },
-    {
-      "Name": "Superior Humidity Extractor",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 90402
-        }
-      ],
-      "Type": 0,
-      "Description": "+131 Nano HoT",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "she",
-        "humidity",
-        "extractor"
-      ]
-    }
-  ],
-  "Soldier": [
-    {
-      "Name": "Full Automatic Targeting",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 270248
-        }
-      ],
-      "Type": 0,
-      "Description": "+74 AAO",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "fat",
-        "aao"
-      ]
-    },
-    {
-      "Name": "Riot Control",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29251
-        }
-      ],
-      "Type": 0,
-      "Description": "+110 Burst",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "rc",
-        "burst"
-      ]
-    },
-    {
-      "Name": "Assault Rifle Weapon Mastery",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29220
-        }
-      ],
-      "Type": 0,
-      "Description": "+60 Assault Rifle",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "arm"
-      ]
-    },
-    {
-      "Name": "LR Weapon Mastery",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29230
-        }
-      ],
-      "Type": 0,
-      "Description": "+70 Ranged Energy",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lr"
-      ]
-    },
-    {
-      "Name": "Offensive Steamroller",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 29240
-        }
-      ],
-      "Type": 0,
-      "Description": "+30 Fling Shot, +133 Inits",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "os",
-        "fling",
-        "inits",
-        "init"
-      ]
-    },
-    {
-      "Name": "Reactive Reflective Field (Extended)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70311
-        }
-      ],
-      "Type": 0,
-      "Description": "+30 Reflect AC, +49 Reflect Dmg",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "rrfe",
-        "reflect"
-      ]
-    },
-    {
-      "Name": "Minor Reflective Field (Extended)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70319
-        }
-      ],
-      "Type": 0,
-      "Description": "+22 Reflect AC, +29 Reflect Dmg",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mrf"
-      ]
-    },
-    {
-      "Name": "Partial Reflective Field (Extended)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70315
-        }
-      ],
-      "Type": 0,
-      "Description": "+21 Reflect AC, +25 Reflect Dmg",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "prf"
-      ]
-    },
-    {
-      "Name": "Reactive Deflection Shield (Extended)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70313
-        }
-      ],
-      "Type": 0,
-      "Description": "+19 Reflect AC, +21 Reflect Dmg",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "rds"
-      ]
-    },
-    {
-      "Name": "Major Deflection Shield (Extended)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70327
-        }
-      ],
-      "Type": 0,
-      "Description": "+17 Reflect AC, +18 Reflect Dmg",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "mds"
-      ]
-    },
-    {
-      "Name": "Greater Deflection Shield (Extended)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70335
-        }
-      ],
-      "Type": 0,
-      "Description": "+15 Reflect AC, +14 Reflect Dmg",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "gds"
-      ]
-    },
-    {
-      "Name": "Deflection Shield (Extended)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70336
-        }
-      ],
-      "Type": 0,
-      "Description": "+14 Reflect AC, +10 Reflect Dmg",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "ds"
-      ]
-    },
-    {
-      "Name": "Lesser Deflection Shield (Extended)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70331
-        }
-      ],
-      "Type": 0,
-      "Description": "+13 Reflect AC, +7 Reflect Dmg",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lds"
-      ]
-    },
-    {
-      "Name": "Partial Deflection Shield (Extended)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 70317
-        }
-      ],
-      "Type": 0,
-      "Description": "+10 Reflect AC, +2 Reflect Dmg",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "pds"
-      ]
-    }
-  ],
-  "Trader": [
-    {
-      "Name": "Skill Wrangler (Premium)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121335
-        }
-      ],
-      "Type": 0,
-      "Description": "+131 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "131",
-        "premium",
-        "wrangle"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Exceptional)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121333
-        }
-      ],
-      "Type": 0,
-      "Description": "+121 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "121",
-        "exceptional"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Superb)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121334
-        }
-      ],
-      "Type": 0,
-      "Description": "+112 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "111",
-        "superb"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Sophisticated)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121334
-        }
-      ],
-      "Type": 0,
-      "Description": "+106 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "106",
-        "sophisticated"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Greater)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121342
-        }
-      ],
-      "Type": 0,
-      "Description": "+99 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "99",
-        "greater"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Superior)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121332
-        }
-      ],
-      "Type": 0,
-      "Description": "+85 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "85",
-        "superior"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Advanced)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121345
-        }
-      ],
-      "Type": 0,
-      "Description": "+74 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "74",
-        "advanced"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Major)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121338
-        }
-      ],
-      "Type": 0,
-      "Description": "+65 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "65",
-        "major"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121346
-        }
-      ],
-      "Type": 0,
-      "Description": "+56 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "56",
-        "wrangler"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Inferior)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121341
-        }
-      ],
-      "Type": 0,
-      "Description": "+46 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "46",
-        "inferior"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Lesser)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121340
-        }
-      ],
-      "Type": 0,
-      "Description": "+37 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "37",
-        "lesser"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Lossy)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121339
-        }
-      ],
-      "Type": 0,
-      "Description": "+27 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "27",
-        "lossy"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Commonplace)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121344
-        }
-      ],
-      "Type": 0,
-      "Description": "+22 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "22",
-        "commonplace"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Minor)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121337
-        }
-      ],
-      "Type": 0,
-      "Description": "+13 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "13",
-        "minor"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Patchy)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121336
-        }
-      ],
-      "Type": 0,
-      "Description": "+9 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "9",
-        "patchy"
-      ]
-    },
-    {
-      "Name": "Skill Wrangler (Weak)",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 121330
-        }
-      ],
-      "Type": 0,
-      "Description": "+3 Weap/Nano skills",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "3",
-        "weak"
-      ]
-    },
-    {
-      "Name": "Lend Nano: 1000",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30732
-        }
-      ],
-      "Type": 0,
-      "Description": "+1000 Max Nano",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lend1000",
-        "lendnano1000"
-      ]
-    },
-    {
-      "Name": "Lend Nano: 500",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30731
-        }
-      ],
-      "Type": 0,
-      "Description": "+500 Max Nano",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lend500",
-        "lendnano500"
-      ]
-    },
-    {
-      "Name": "Lend Nano: 250",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30729
-        }
-      ],
-      "Type": 0,
-      "Description": "+250 Max Nano",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lend250",
-        "lendnano250"
-      ]
-    },
-    {
-      "Name": "Lend Nano: 100",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30265
-        }
-      ],
-      "Type": 0,
-      "Description": "+100 Max Nano",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lend100",
-        "lendnano100"
-      ]
-    },
-    {
-      "Name": "Lend Nano: 50",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30730
-        }
-      ],
-      "Type": 0,
-      "Description": "+50 Max Nano",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "lend50",
-        "lendnano50"
-      ]
-    },
-    {
-      "Name": "Relentless Slayer",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30746
-        }
-      ],
-      "Type": 0,
-      "Description": "+23 Proj., Melee, Energy Dmg",
-      "RemoveNanoIdUponCast": [
-        81927
-      ],
-      "Tags": [
-        "rel"
-      ]
-    },
-    {
-      "Name": "Guard Convoy",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30721
-        }
-      ],
-      "Type": 0,
-      "Description": "+21 Proj., Melee, Energy Dmg",
-      "RemoveNanoIdUponCast": [
-        81927
-      ],
-      "Tags": [
-        "gc",
-        "guardconvoy"
-      ]
-    },
-    {
-      "Name": "Maestro: Electrical Engineering",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30734
-        }
-      ],
-      "Type": 0,
-      "Description": "+125 EE",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "maestroee"
-      ]
-    },
-    {
-      "Name": "Maestro: Field Quantum Physics",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30735
-        }
-      ],
-      "Type": 0,
-      "Description": "+125 FQP",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "maestrofqp",
-        "maestroqp"
-      ]
-    },
-    {
-      "Name": "Maestro: Mechanical Engineering",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30736
-        }
-      ],
-      "Type": 0,
-      "Description": "+125 ME",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "maestrome"
-      ]
-    },
-    {
-      "Name": "Maestro: Pharmaceutical",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30737
-        }
-      ],
-      "Type": 0,
-      "Description": "+125 Pharm",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "maestropt",
-        "maestrop"
-      ]
-    },
-    {
-      "Name": "Maestro: Weapon Smithing",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 30738
-        }
-      ],
-      "Type": 0,
-      "Description": "+125 WS",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "maestrows"
-      ]
-    }
-  ]
+            "Name": "Composite Ranged Special Expertise",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 223364
+                }
+            ],
+            "Type": 0,
+            "Description": "+20 Ranged Weapon Skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "c7",
+                "crangs"
+            ]
+        },
+        {
+            "Name": "Composite Melee Expertise",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 223360
+                }
+            ],
+            "Type": 0,
+            "Description": "+20 1HB, 2HB, 1HE, 2HE, Piercing, Melee E.",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "c8",
+                "cmelee"
+            ]
+        },
+        {
+            "Name": "Composite Physical Special Expertise",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 215264
+                }
+            ],
+            "Type": 0,
+            "Description": "+20 Fast At., Sneak At., Brawl, Dimach, Mult M., Mart. A.",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "c9",
+                "cmelees"
+            ]
+        },
+        {
+            "Name": "Veterans L33t Transformation",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 268697
+                }
+            ],
+            "Type": 0,
+            "Description": "Transforms the target into a veteran l33t",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "l33t",
+                "leet",
+                "veteranl33t",
+                "veteranleet"
+            ]
+        }
+    ],
+    "Adventurer": [
+        {
+            "Name": "Boon of the Wanderer",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 204318
+                }
+            ],
+            "Type": 0,
+            "Description": "13% Root/Snare Resist",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "boon",
+                "botw"
+            ]
+        }
+    ],
+    "Agent": [
+        {
+            "Name": "Assassin's Grin",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 81856
+                }
+            ],
+            "Type": 0,
+            "Description": "+45 Damage",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ag",
+                "grin",
+                "assassin"
+            ]
+        },
+        {
+            "Name": "Feline Grace",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 25989
+                }
+            ],
+            "Type": 0,
+            "Description": "+25 Agility",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "fg"
+            ]
+        },
+        {
+            "Name": "Enhanced Senses",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 25988
+                }
+            ],
+            "Type": 0,
+            "Description": "+15 Sense",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "es"
+            ]
+        },
+        {
+            "Name": "Enhanced Sureshot",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 160791
+                }
+            ],
+            "Type": 0,
+            "Description": "+11 crit inc",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ess",
+                "sureshot"
+            ]
+        },
+        {
+            "Name": "Take the Shot",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 32065
+                }
+            ],
+            "Type": 0,
+            "Description": "+165 Aimed Shot",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "tts"
+            ]
+        },
+        {
+            "Name": "Unexpected Attack",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 32067
+                }
+            ],
+            "Type": 0,
+            "Description": "+120 Rifle",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ua"
+            ]
+        },
+        {
+            "Name": "Blanket of Shadows",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 160901
+                }
+            ],
+            "Type": 1,
+            "Description": "+113 Concealment",
+            "RemoveNanoIdUponCast": [
+                160892
+            ],
+            "Tags": [
+                "bos"
+            ]
+        },
+        {
+            "Name": "Cloak of Night",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 160895
+                }
+            ],
+            "Type": 1,
+            "Description": "+174 Concealment",
+            "RemoveNanoIdUponCast": [
+                160893
+            ],
+            "Tags": [
+                "con"
+            ]
+        }
+    ],
+    "Bureaucrat": [
+        {
+            "Name": "Improved Cut Red Tape",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 222695
+                }
+            ],
+            "Type": 0,
+            "Description": "+75 AAD, -3% Crit Dec., -3% Skill Lock",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "icrt",
+                "redtape"
+            ]
+        },
+        {
+            "Name": "Authority Figure",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30057
+                }
+            ],
+            "Type": 0,
+            "Description": "+50 Psychology",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "af",
+                "psy50"
+            ]
+        },
+        {
+            "Name": "Soothing Calm",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 222853
+                }
+            ],
+            "Type": 0,
+            "Description": "+60 Nano Delta",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "sc",
+                "soothing"
+            ]
+        },
+        {
+            "Name": "Baton of Command",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 90448
+                }
+            ],
+            "Type": 0,
+            "Description": "+19 Experience",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "com"
+            ]
+        },
+        {
+            "Name": "Baton of Leadership",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 90449
+                }
+            ],
+            "Type": 0,
+            "Description": "+14 Experience",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lea"
+            ]
+        },
+        {
+            "Name": "Baton of Authority",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 90450
+                }
+            ],
+            "Type": 0,
+            "Description": "+11 Experience",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "aut"
+            ]
+        }
+    ],
+    "Doctor": [
+        {
+            "Name": "Continuous Reconstruction",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 222824
+                }
+            ],
+            "Type": 0,
+            "Description": "+65 Healdelta",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "cr",
+                "hd"
+            ]
+        },
+        {
+            "Name": "Instinctive Control",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 28669
+                }
+            ],
+            "Type": 0,
+            "Description": "NanoC. Init. +200, NR +25, Max Nano +150",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "iic",
+                "instinctive"
+            ]
+        },
+        {
+            "Name": "Improved Nano Repulsor",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 222823
+                }
+            ],
+            "Type": 0,
+            "Description": "+200 NR",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "inr",
+                "nr"
+            ]
+        },
+        {
+            "Name": "Iron Circle",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 42400
+                }
+            ],
+            "Type": 0,
+            "Description": "+20 Str/Stam",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ic",
+                "iron",
+                "circle"
+            ]
+        },
+        {
+            "Name": "Superior Omni-Med Enhancement",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95709
+                }
+            ],
+            "Type": 1,
+            "Description": "+920 Max Health, 111-169 HoT",
+            "RemoveNanoIdUponCast": [
+                95673
+            ],
+            "Tags": [
+                "hp",
+                "omni-med",
+                "omnimed",
+                "some",
+                "health"
+            ]
+        },
+        {
+            "Name": "Life Channeler",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 96247
+                }
+            ],
+            "Type": 0,
+            "Description": "+1344 Max Health, +1344 Heal",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lc",
+                "channeler",
+                "life"
+            ]
+        },
+        {
+            "Name": "Specialist Treatment",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 204422
+                }
+            ],
+            "Type": 0,
+            "Description": "+35 Treatment, +20 First Aid",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "st"
+            ]
+        },
+        {
+            "Name": "Superior First Aid",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 28675
+                }
+            ],
+            "Type": 0,
+            "Description": "+80 FA/Treat",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "sfa",
+                "treat",
+                "treatment"
+            ]
+        }
+    ],
+    "Enforcer": [
+        {
+            "Name": "Thug's Delight",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 43371
+                }
+            ],
+            "Type": 0,
+            "Description": "+14 1HB",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "delight"
+            ]
+        },
+        {
+            "Name": "Brutal Thug",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29630
+                }
+            ],
+            "Type": 0,
+            "Description": "+87 1HB/2HB",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "bt",
+                "brutal",
+                "thug",
+                "1hb"
+            ]
+        },
+        {
+            "Name": "Coruscating Screen",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 55751
+                }
+            ],
+            "Type": 0,
+            "Description": "+479 Max Health, +60 Shield AC",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "cs",
+                "screen"
+            ]
+        },
+        {
+            "Name": "Essence of Behemoth",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95708
+                }
+            ],
+            "Type": 0,
+            "Description": "+996 Max Health, +27 Str/Stam",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "behe",
+                "essence"
+            ]
+        },
+        {
+            "Name": "Focused Anger",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29641
+                }
+            ],
+            "Type": 0,
+            "Description": "+72 inits",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "fa"
+            ]
+        },
+        {
+            "Name": "Prodigious Strength",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29652
+                }
+            ],
+            "Type": 0,
+            "Description": "+40 Str",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "prod",
+                "ps"
+            ]
+        },
+        {
+            "Name": "Thug's Delight",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 43371
+                }
+            ],
+            "Type": 0,
+            "Description": "+14 1hb",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "td",
+                "delight"
+            ]
+        }
+    ],
+    "Engineer": [
+        {
+            "Name": "Aegis Barrier",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29789
+                }
+            ],
+            "Type": 0,
+            "Description": "+720 AC's",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ab",
+                "aegis"
+            ]
+        },
+        {
+            "Name": "Perfected Defensive Screen",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70535
+                }
+            ],
+            "Type": 0,
+            "Description": "+472 AC's",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "perfds",
+                "perfdefscreen"
+            ]
+        },
+        {
+            "Name": "Superior Defensive Screen",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70549
+                }
+            ],
+            "Type": 0,
+            "Description": "+322 AC's",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "supds",
+                "superiordefscreen"
+            ]
+        },
+        {
+            "Name": "Basic Defensive Screen",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70541
+                }
+            ],
+            "Type": 0,
+            "Description": "+122 AC's",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "basds",
+                "basicdefscreen"
+            ]
+        },
+        {
+            "Name": "Extreme Prejudice",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29762
+                }
+            ],
+            "Type": 0,
+            "Description": "+120 Grenade, +120 Heavy Weapons, +120 Pistol",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ep",
+                "prejudice"
+            ]
+        },
+        {
+            "Name": "Sloughing Combat Field",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 204422
+                }
+            ],
+            "Type": 1,
+            "Description": "+3 Special Attack Blockers",
+            "RemoveNanoIdUponCast": [
+                231055
+            ],
+            "Tags": [
+                "+3",
+                "blockers"
+            ]
+        },
+        {
+            "Name": "Philosopher's Stone",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29772
+                }
+            ],
+            "Type": 0,
+            "Description": "+62 Chem., +62 Pharma Tech",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "phil",
+                "philosopher",
+                "stone"
+            ]
+        },
+        {
+            "Name": "Rapid Weapon",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29779
+                }
+            ],
+            "Type": 0,
+            "Description": "+114 Ranged. Init",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "rapidwep"
+            ]
+        },
+        {
+            "Name": "Pistol Mastery",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29246
+                }
+            ],
+            "Type": 0,
+            "Description": "+40 Pistol",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "pm"
+            ]
+        }
+    ],
+    "Fixer": [
+        {
+            "Name": "Back Pain",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 31409
+                }
+            ],
+            "Type": 0,
+            "Description": "+70 Sneak Attack",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "bp",
+                "backpain"
+            ]
+        },
+        {
+            "Name": "NCU Nanos",
+            "LevelToId": [
+                {
+                    "Level": 185,
+                    "Id": 163095
+                },
+                {
+                    "Level": 165,
+                    "Id": 163094
+                },
+                {
+                    "Level": 135,
+                    "Id": 163087
+                },
+                {
+                    "Level": 125,
+                    "Id": 163085
+                },
+                {
+                    "Level": 75,
+                    "Id": 163083
+                },
+                {
+                    "Level": 50,
+                    "Id": 163081
+                },
+                {
+                    "Level": 25,
+                    "Id": 163079
+                }
+            ],
+            "Type": 1,
+            "Description": "All NCU Buffs",
+            "RemoveNanoIdUponCast": [
+                163057,
+                163012,
+                163015,
+                163010,
+                163008,
+                163006,
+                163005
+            ],
+            "Tags": [
+                "ncu"
+            ]
+        },
+        {
+            "Name": "Dr Hack 'n Quack",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 162734
+                }
+            ],
+            "Type": 0,
+            "Description": "+362-370 HoT",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "hnq",
+                "quack",
+                "hot"
+            ]
+        },
+        {
+            "Name": "Gridspace Freedom (Team)",
+            "LevelToId": [
+                {
+                    "Level": 175,
+                    "Id": 162595
+                }
+            ],
+            "Type": 1,
+            "Description": "+680 RS",
+            "RemoveNanoIdUponCast": [
+                162588
+            ],
+            "Tags": [
+                "gsfteam",
+                "teamgsf"
+            ]
+        },
+        {
+            "Name": "Gridspace Freedom",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 93132
+                }
+            ],
+            "Type": 0,
+            "Description": "+720 RS, +79 Evades",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "gsf"
+            ]
+        },
+        {
+            "Name": "Grid Phase Accelerator",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 93126
+                }
+            ],
+            "Type": 0,
+            "Description": "+620 RS, +70 Evades",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "gpa"
+            ]
+        },
+        {
+            "Name": "Partial Grid Jump",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 93127
+                }
+            ],
+            "Type": 0,
+            "Description": "+450 RS, +61 Evades",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "pgj"
+            ]
+        },
+        {
+            "Name": "Grid Surfer",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 93128
+                }
+            ],
+            "Type": 0,
+            "Description": "+390 RS, +37 Evades",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "gs"
+            ]
+        },
+        {
+            "Name": "Leech Grid Vector",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 93129
+                }
+            ],
+            "Type": 0,
+            "Description": "+310 RS, +25 Evades",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lgv"
+            ]
+        },
+        {
+            "Name": "Grid Runner",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 93130
+                }
+            ],
+            "Type": 0,
+            "Description": "+260 RS, +16 Evades",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "gr"
+            ]
+        },
+        {
+            "Name": "Hack Grid Vector",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 93131
+                }
+            ],
+            "Type": 0,
+            "Description": "+190 RS, +7 Evades",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "hgv"
+            ]
+        },
+        {
+            "Name": "Limited Grid Jump",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 93125
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 RS, +2 Evades",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lgj"
+            ]
+        },
+        {
+            "Name": "Hack Grid Data Stream (Team)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 160982
+                }
+            ],
+            "Type": 0,
+            "Description": "Fgrid Here!",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "fgrid"
+            ]
+        },
+        {
+            "Name": "Blood Makes Noise",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 31380
+                }
+            ],
+            "Type": 0,
+            "Description": "+240 Perception",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "bmn",
+                "perception",
+                "blood"
+            ]
+        },
+        {
+            "Name": "Karma Harvest",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 31390
+                }
+            ],
+            "Type": 0,
+            "Description": "+130 B&E/Trap Disarm",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "kh",
+                "karma"
+            ]
+        }
+    ],
+    "MartialArtist": [
+        {
+            "Name": "Dirty Fighter",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 28870
+                }
+            ],
+            "Type": 0,
+            "Description": "+45 Brawling",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "df"
+            ]
+        },
+        {
+            "Name": "Fervor of the Devotee",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 210323
+                }
+            ],
+            "Type": 0,
+            "Description": "+70 Fast Attack",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "fer",
+                "devotee"
+            ]
+        },
+        {
+            "Name": "Horde",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 28890
+                }
+            ],
+            "Type": 1,
+            "Description": "+12 Add All Dmg",
+            "RemoveNanoIdUponCast": [
+                162359
+            ],
+            "Tags": [
+                "horde"
+            ]
+        },
+        {
+            "Name": "Fists of Stellar Harmony",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 81827
+                }
+            ],
+            "Type": 0,
+            "Description": "+26 Melee Dmg, +36 Fire Dmg, Change Dmg Type to Fire",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "fosh",
+                "fists",
+                "harmony"
+            ]
+        },
+        {
+            "Name": "Lesser Controlled Rage",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 43369
+                }
+            ],
+            "Type": 0,
+            "Description": "+12 MA, +8 Physic. Init",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lcr",
+                "rage"
+            ]
+        },
+        {
+            "Name": "Limbo Mastery",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 28894
+                }
+            ],
+            "Type": 0,
+            "Description": "+30 Duck-Exp",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lm",
+                "limbo"
+            ]
+        },
+        {
+            "Name": "Mark of Peril",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 160574
+                }
+            ],
+            "Type": 0,
+            "Description": "+11 Crit Inc",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mop",
+                "mark",
+                "peril",
+                "crit"
+            ]
+        },
+        {
+            "Name": "Martial Arts Mastery",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 28895
+                }
+            ],
+            "Type": 0,
+            "Description": "+60 MA, +30 SharpObj",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mama",
+                "mam"
+            ]
+        },
+        {
+            "Name": "Reduce Inertia",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 28903
+                }
+            ],
+            "Type": 0,
+            "Description": "+120 Evades",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ri"
+            ]
+        },
+        {
+            "Name": "Return Attack",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 28904
+                }
+            ],
+            "Type": 0,
+            "Description": "+80 Riposte, +80 Deflect",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ra"
+            ]
+        }
+    ],
+    "Metaphysicist": [
+        {
+            "Name": "Mocham's Gift: BioMet",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29299
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 BioMet",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "bmmo",
+                "bmmoch"
+            ]
+        },
+        {
+            "Name": "Mocham's Gift: MatCrea",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29300
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 MatCrea",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mcmo",
+                "mcmoch"
+            ]
+        },
+        {
+            "Name": "Mocham's Gift: SpaceTime",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29301
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 SpaceTime",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "stmo",
+                "tsmo",
+                "stmoch",
+                "tsmoch"
+            ]
+        },
+        {
+            "Name": "Mocham's Gift: MatMet",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29302
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 MatMet",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mmmo",
+                "mmmoch"
+            ]
+        },
+        {
+            "Name": "Mocham's Gift: PsyMod",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29303
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 PsyMod",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "pmmo",
+                "pmmoch"
+            ]
+        },
+        {
+            "Name": "Mocham's Gift: SenseImp",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29304
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 SenseImp",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "simo",
+                "simoch"
+            ]
+        },
+        {
+            "Name": "Infuse With Knowledge: Biological Metamorphose",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151761
+                }
+            ],
+            "Type": 0,
+            "Description": "+90 BioMet",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "bmi",
+                "bminf",
+                "bminfuse"
+            ]
+        },
+        {
+            "Name": "Infuse With Knowledge: Material Creation",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151762
+                }
+            ],
+            "Type": 0,
+            "Description": "+90 MatCre",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mci",
+                "mcinf",
+                "mcinfuse"
+            ]
+        },
+        {
+            "Name": "Infuse With Knowledge: Time and Space",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151758
+                }
+            ],
+            "Type": 0,
+            "Description": "+90 SpaceTime",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "tsi",
+                "tsinf",
+                "tsinfuse"
+            ]
+        },
+        {
+            "Name": "Infuse With Knowledge: Material Metamorphose",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151759
+                }
+            ],
+            "Type": 0,
+            "Description": "+90 MatMet",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mmi",
+                "mminf",
+                "mminfuse"
+            ]
+        },
+        {
+            "Name": "Infuse With Knowledge: Psychological Modification",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151760
+                }
+            ],
+            "Type": 0,
+            "Description": "+90 PsyMod",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "pmi",
+                "pminf",
+                "pminfuse"
+            ]
+        },
+        {
+            "Name": "Infuse With Knowledge: Sensory Improvement",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151757
+                }
+            ],
+            "Type": 0,
+            "Description": "+90 SenImp",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "sii",
+                "siinf",
+                "siinfuse"
+            ]
+        },
+        {
+            "Name": "Mastery: Biological Metamorphose",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29275
+                }
+            ],
+            "Type": 0,
+            "Description": "+50 BioMet",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "bmma"
+            ]
+        },
+        {
+            "Name": "Mastery: Material Creation",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29294
+                }
+            ],
+            "Type": 0,
+            "Description": "+50 MatCrea",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mcma"
+            ]
+        },
+        {
+            "Name": "Mastery: Time and Space",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29295
+                }
+            ],
+            "Type": 0,
+            "Description": "+50 SpaceTime",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "stma",
+                "tsma"
+            ]
+        },
+        {
+            "Name": "Mastery: Material Metamorphose",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29296
+                }
+            ],
+            "Type": 0,
+            "Description": "+50 MatMet",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mmma"
+            ]
+        },
+        {
+            "Name": "Mastery: Psychological Modification",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29312
+                }
+            ],
+            "Type": 0,
+            "Description": "+50 PsyMod",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "pmma"
+            ]
+        },
+        {
+            "Name": "Mastery: Sensory Improvement",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29315
+                }
+            ],
+            "Type": 0,
+            "Description": "+50 Sense Imp",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "sima"
+            ]
+        },
+        {
+            "Name": "Teachings: Biological Metamorphose",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151768
+                }
+            ],
+            "Type": 0,
+            "Description": "+25 BioMet",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "bmte"
+            ]
+        },
+        {
+            "Name": "Teachings: Material Creation",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151765
+                }
+            ],
+            "Type": 0,
+            "Description": "+25 MatCrea",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mcte"
+            ]
+        },
+        {
+            "Name": "Teachings: Time and Space",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151766
+                }
+            ],
+            "Type": 0,
+            "Description": "+25 SpaceTime",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "stte",
+                "tste"
+            ]
+        },
+        {
+            "Name": "Teachings: Material Metamorphose",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151767
+                }
+            ],
+            "Type": 0,
+            "Description": "+25 MatMet",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mmte"
+            ]
+        },
+        {
+            "Name": "Teachings: Psychological Modification",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151763
+                }
+            ],
+            "Type": 0,
+            "Description": "+25 PsyMod",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "pmte"
+            ]
+        },
+        {
+            "Name": "Teachings: Sensory Improvement",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 151764
+                }
+            ],
+            "Type": 0,
+            "Description": "+25 Sense Imp",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "site"
+            ]
+        },
+        {
+            "Name": "One Mind, One Purpose",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95522
+                }
+            ],
+            "Type": 0,
+            "Description": "-%57 Nano Intrupt",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "om",
+                "onemind",
+                "omop"
+            ]
+        },
+        {
+            "Name": "Ease of Execution",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95410
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost -7%",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "eoe"
+            ]
+        },
+        {
+            "Name": "Coherent Notum Web",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95411
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost -15%",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "cnw"
+            ]
+        },
+        {
+            "Name": "Mocham's Neural Interface-Web",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95409
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost -24%",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mniw",
+                "neural",
+                "web",
+                "mcost"
+            ]
+        },
+        {
+            "Name": "Advanced Symbol Manipulation",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29327
+                }
+            ],
+            "Type": 0,
+            "Description": "+92 Nano Programing",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "np",
+                "asm"
+            ]
+        }
+    ],
+    "NanoTechnician": [
+        {
+            "Name": "Advanced Fleeting Immunity",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 270356
+                }
+            ],
+            "Type": 0,
+            "Description": "+834 Absorb Shield",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "sorb",
+                "absorb",
+                "afi",
+                "fleeting",
+                "fleeting"
+            ]
+        },
+        {
+            "Name": "CrunchCom Nano Compressor Pro",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95412
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost -18%, Modify RangeInc. NF 20",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ccncp",
+                "crunch",
+                "crunchcom"
+            ]
+        },
+        {
+            "Name": "Izgimmer's Obfuscated Recompiler",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95417
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost -28%",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "cost",
+                "ior"
+            ]
+        },
+        {
+            "Name": "Superior Nano Command",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95446
+                }
+            ],
+            "Type": 0,
+            "Description": "RangeInc. NF 67",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "snc"
+            ]
+        },
+        {
+            "Name": "Notum Overload",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95443
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost +4%, RangeInc. NF 104",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "range"
+            ]
+        },
+        {
+            "Name": "Personal Notum Harvester",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 90406
+                }
+            ],
+            "Type": 0,
+            "Description": "+235 Nano HoT",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "pnh",
+                "notum harvester"
+            ]
+        },
+        {
+            "Name": "Superior Humidity Extractor",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 90402
+                }
+            ],
+            "Type": 0,
+            "Description": "+131 Nano HoT",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "she",
+                "humidity",
+                "extractor"
+            ]
+        }
+    ],
+    "Soldier": [
+        {
+            "Name": "Full Automatic Targeting",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 270248
+                }
+            ],
+            "Type": 0,
+            "Description": "+74 AAO",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "fat",
+                "aao"
+            ]
+        },
+        {
+            "Name": "Riot Control",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29251
+                }
+            ],
+            "Type": 0,
+            "Description": "+110 Burst",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "rc",
+                "burst"
+            ]
+        },
+        {
+            "Name": "Assault Rifle Weapon Mastery",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29220
+                }
+            ],
+            "Type": 0,
+            "Description": "+60 Assault Rifle",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "arm"
+            ]
+        },
+        {
+            "Name": "LR Weapon Mastery",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29230
+                }
+            ],
+            "Type": 0,
+            "Description": "+70 Ranged Energy",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lr"
+            ]
+        },
+        {
+            "Name": "Offensive Steamroller",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29240
+                }
+            ],
+            "Type": 0,
+            "Description": "+30 Fling Shot, +133 Inits",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "os",
+                "fling",
+                "inits",
+                "init"
+            ]
+        },
+        {
+            "Name": "Reactive Reflective Field (Extended)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70311
+                }
+            ],
+            "Type": 0,
+            "Description": "+30 Reflect AC, +49 Reflect Dmg",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "rrfe",
+                "reflect"
+            ]
+        },
+        {
+            "Name": "Minor Reflective Field (Extended)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70319
+                }
+            ],
+            "Type": 0,
+            "Description": "+22 Reflect AC, +29 Reflect Dmg",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mrf"
+            ]
+        },
+        {
+            "Name": "Partial Reflective Field (Extended)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70315
+                }
+            ],
+            "Type": 0,
+            "Description": "+21 Reflect AC, +25 Reflect Dmg",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "prf"
+            ]
+        },
+        {
+            "Name": "Reactive Deflection Shield (Extended)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70313
+                }
+            ],
+            "Type": 0,
+            "Description": "+19 Reflect AC, +21 Reflect Dmg",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "rds"
+            ]
+        },
+        {
+            "Name": "Major Deflection Shield (Extended)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70327
+                }
+            ],
+            "Type": 0,
+            "Description": "+17 Reflect AC, +18 Reflect Dmg",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mds"
+            ]
+        },
+        {
+            "Name": "Greater Deflection Shield (Extended)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70335
+                }
+            ],
+            "Type": 0,
+            "Description": "+15 Reflect AC, +14 Reflect Dmg",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "gds"
+            ]
+        },
+        {
+            "Name": "Deflection Shield (Extended)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70336
+                }
+            ],
+            "Type": 0,
+            "Description": "+14 Reflect AC, +10 Reflect Dmg",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ds"
+            ]
+        },
+        {
+            "Name": "Lesser Deflection Shield (Extended)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70331
+                }
+            ],
+            "Type": 0,
+            "Description": "+13 Reflect AC, +7 Reflect Dmg",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lds"
+            ]
+        },
+        {
+            "Name": "Partial Deflection Shield (Extended)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 70317
+                }
+            ],
+            "Type": 0,
+            "Description": "+10 Reflect AC, +2 Reflect Dmg",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "pds"
+            ]
+        }
+    ],
+    "Trader": [
+        {
+            "Name": "Skill Wrangler (Premium)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121335
+                }
+            ],
+            "Type": 0,
+            "Description": "+131 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "131",
+                "premium",
+                "wrangle"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Exceptional)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121333
+                }
+            ],
+            "Type": 0,
+            "Description": "+121 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "121",
+                "exceptional"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Superb)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121334
+                }
+            ],
+            "Type": 0,
+            "Description": "+112 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "111",
+                "superb"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Sophisticated)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121334
+                }
+            ],
+            "Type": 0,
+            "Description": "+106 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "106",
+                "sophisticated"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Greater)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121342
+                }
+            ],
+            "Type": 0,
+            "Description": "+99 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "99",
+                "greater"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Superior)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121332
+                }
+            ],
+            "Type": 0,
+            "Description": "+85 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "85",
+                "superior"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Advanced)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121345
+                }
+            ],
+            "Type": 0,
+            "Description": "+74 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "74",
+                "advanced"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Major)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121338
+                }
+            ],
+            "Type": 0,
+            "Description": "+65 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "65",
+                "major"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121346
+                }
+            ],
+            "Type": 0,
+            "Description": "+56 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "56",
+                "wrangler"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Inferior)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121341
+                }
+            ],
+            "Type": 0,
+            "Description": "+46 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "46",
+                "inferior"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Lesser)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121340
+                }
+            ],
+            "Type": 0,
+            "Description": "+37 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "37",
+                "lesser"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Lossy)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121339
+                }
+            ],
+            "Type": 0,
+            "Description": "+27 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "27",
+                "lossy"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Commonplace)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121344
+                }
+            ],
+            "Type": 0,
+            "Description": "+22 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "22",
+                "commonplace"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Minor)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121337
+                }
+            ],
+            "Type": 0,
+            "Description": "+13 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "13",
+                "minor"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Patchy)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121336
+                }
+            ],
+            "Type": 0,
+            "Description": "+9 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "9",
+                "patchy"
+            ]
+        },
+        {
+            "Name": "Skill Wrangler (Weak)",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 121330
+                }
+            ],
+            "Type": 0,
+            "Description": "+3 Weap/Nano skills",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "3",
+                "weak"
+            ]
+        },
+        {
+            "Name": "Lend Nano: 1000",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30732
+                }
+            ],
+            "Type": 0,
+            "Description": "+1000 Max Nano",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lend1000",
+                "lendnano1000"
+            ]
+        },
+        {
+            "Name": "Lend Nano: 500",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30731
+                }
+            ],
+            "Type": 0,
+            "Description": "+500 Max Nano",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lend500",
+                "lendnano500"
+            ]
+        },
+        {
+            "Name": "Lend Nano: 250",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30729
+                }
+            ],
+            "Type": 0,
+            "Description": "+250 Max Nano",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lend250",
+                "lendnano250"
+            ]
+        },
+        {
+            "Name": "Lend Nano: 100",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30265
+                }
+            ],
+            "Type": 0,
+            "Description": "+100 Max Nano",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lend100",
+                "lendnano100"
+            ]
+        },
+        {
+            "Name": "Lend Nano: 50",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30730
+                }
+            ],
+            "Type": 0,
+            "Description": "+50 Max Nano",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lend50",
+                "lendnano50"
+            ]
+        },
+        {
+            "Name": "Relentless Slayer",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30746
+                }
+            ],
+            "Type": 0,
+            "Description": "+23 Proj., Melee, Energy Dmg",
+            "RemoveNanoIdUponCast": [
+                81927
+            ],
+            "Tags": [
+                "rel"
+            ]
+        },
+        {
+            "Name": "Guard Convoy",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30721
+                }
+            ],
+            "Type": 0,
+            "Description": "+21 Proj., Melee, Energy Dmg",
+            "RemoveNanoIdUponCast": [
+                81927
+            ],
+            "Tags": [
+                "gc",
+                "guardconvoy"
+            ]
+        },
+        {
+            "Name": "Maestro: Electrical Engineering",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30734
+                }
+            ],
+            "Type": 0,
+            "Description": "+125 EE",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "maestroee"
+            ]
+        },
+        {
+            "Name": "Maestro: Field Quantum Physics",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30735
+                }
+            ],
+            "Type": 0,
+            "Description": "+125 FQP",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "maestrofqp",
+                "maestroqp"
+            ]
+        },
+        {
+            "Name": "Maestro: Mechanical Engineering",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30736
+                }
+            ],
+            "Type": 0,
+            "Description": "+125 ME",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "maestrome"
+            ]
+        },
+        {
+            "Name": "Maestro: Pharmaceutical",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30737
+                }
+            ],
+            "Type": 0,
+            "Description": "+125 Pharm",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "maestropt",
+                "maestrop"
+            ]
+        },
+        {
+            "Name": "Maestro: Weapon Smithing",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 30738
+                }
+            ],
+            "Type": 0,
+            "Description": "+125 WS",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "maestrows"
+            ]
+        }
+    ]
 }
