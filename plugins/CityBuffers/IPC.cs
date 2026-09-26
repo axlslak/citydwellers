@@ -95,6 +95,9 @@ namespace MalisBuffBots
                 if (requester == null)
                     continue;
 
+                if (!CanClaimPublicCommand(request))
+                    continue;
+
                 if (!ManagerMemory.Current.TryClaimBufferPublicCommand(
                         request.Id, Client.CharacterName))
                     continue;
@@ -150,6 +153,25 @@ namespace MalisBuffBots
                     $"for {request.SenderName ?? request.SenderId.ToString()} " +
                     $"claimed by {Client.CharacterName}; success={success}.");
             }
+        }
+
+        private static bool CanClaimPublicCommand(BufferPublicCommandRequest request)
+        {
+            string command = (request.Command ?? string.Empty).ToLowerInvariant();
+            if (command != "cast")
+                return true;
+
+            Dictionary<Profession, List<NanoEntry>> entries;
+            if (request.Arguments == null ||
+                !Main.BuffsJson.FindByTags(request.Arguments, out entries))
+                return true;
+
+            int[] knownNanos = Main.EffectiveSpellList();
+            Profession localProfession = (Profession)DynelManager.LocalPlayer.Profession;
+            return entries
+                .Where(pair => pair.Key == Profession.Generic || pair.Key == localProfession)
+                .SelectMany(pair => pair.Value ?? new List<NanoEntry>())
+                .Any(entry => entry != null && knownNanos.Any(entry.ContainsId));
         }
 
         // Retained for Mali's existing surface. Presence now comes from ManagerMemory;
@@ -436,6 +458,3 @@ namespace MalisBuffBots
         {
             TryAddLocal(profession);
             _entries[profession].Queue = entries ?? new BuffEntry[0];
-        }
-    }
-}
