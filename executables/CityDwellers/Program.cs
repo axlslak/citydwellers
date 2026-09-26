@@ -104,6 +104,7 @@ namespace CityDwellers.Host
                 if (!CityDwellersCoordinator.Prepare(stop, out settings))
                     return 1;
 
+                Governor.ConfigureAoLoginAdmission(settings);
                 return FlipperLoader.Run(
                     new[] { toggle ? "toggle" : "probe" },
                     null,
@@ -119,6 +120,7 @@ namespace CityDwellers.Host
                 if (!CityDwellersCoordinator.Prepare(stop, out settings))
                     return 1;
 
+                Governor.ConfigureAoLoginAdmission(settings);
                 BagAuditRunner.Run();
                 return Environment.ExitCode;
             }

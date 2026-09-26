@@ -11,6 +11,7 @@ using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Common;
 using CityBankers.Shared;
+using CityDwellers.Shared;
 using Newtonsoft.Json;
 using Serilog;
 using Serilog.Core;
@@ -131,6 +132,7 @@ internal static class BagAuditRunner
 
             Console.WriteLine(
                 $"Starting Central first: {central.Character}. Storage workers remain stopped.");
+            WaitForGovernorLoginAdmission(central.Character);
             central.Domain.Start();
             central.Started = true;
 
@@ -152,11 +154,12 @@ internal static class BagAuditRunner
 
             Console.WriteLine();
             Console.WriteLine(
-                $"Central is ready. Starting all {workers.Count} storage workers now; their AO " +
-                "connections and audits overlap concurrently.");
+                $"Central is ready. Starting all {workers.Count} storage workers through " +
+                "the Governor AO login wave gate.");
 
             foreach (AuditRuntime worker in workers)
             {
+                WaitForGovernorLoginAdmission(worker.Character);
                 worker.Domain.Start();
                 worker.Started = true;
                 Console.WriteLine($"  START {worker.Role,-13} {worker.Character}");
@@ -411,6 +414,18 @@ internal static class BagAuditRunner
         }
 
         return true;
+    }
+
+    private static void WaitForGovernorLoginAdmission(
+        string character)
+    {
+        AoLoginAdmission admission =
+            ManagerMemory.Current.WaitForAoLoginAdmission(
+                "BankAudit", character);
+        Console.WriteLine(
+            $"  GOVERNOR LOGIN {character}: wave={admission.Wave} " +
+            $"slot={admission.PositionInWave}/{admission.WaveSize} " +
+            $"waited={admission.WaitedMilliseconds}ms");
     }
 
     private static string ResolvePassword(AuditConfig config, AuditAccount account)
