@@ -289,7 +289,7 @@ namespace MalisBuffBots
             });
         }
 
-        private static BufferAdvertisedBuff[] BuildAdvertisedBuffs(int[] spellList)
+        internal static BufferAdvertisedBuff[] BuildAdvertisedBuffs(int[] spellList)
         {
             var known = new HashSet<int>(spellList ?? new int[0]);
             return Main.BuffsJson.Entries
