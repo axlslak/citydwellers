@@ -123,6 +123,7 @@ namespace CityManager
                         HelpSyntaxLine(target, "help [topic]", "Open the manual or a specific topic.") +
                         HelpSyntaxLine(target, "status", "Open the live Manager status blob.") +
                         HelpSyntaxLine(target, "buffers", "Show froob buffer readiness and queue counts.") +
+                        HelpSyntaxLine(target, "bufflist", "Open Apcmanager's cached buffer buff catalogue.") +
                         "\n<font color='" + ColorMuted + "'>Words in [brackets] are values you supply. " +
                         "A vertical bar means choose one option. Commands and buttons are case-insensitive.</font>";
                     return true;
@@ -168,6 +169,17 @@ namespace CityManager
                         "This is the first command to use when something feels stuck. Manager uptime is monotonic, so clock changes cannot make it lie.",
                         "Member",
                         null);
+                    return true;
+
+                case "bufflist":
+                    title = "Buffer Buff Catalogue";
+                    body = CommandHelp(
+                        target,
+                        "bufflist",
+                        "Open Apcmanager's cached catalogue of buffs advertised by the buffer fleet.",
+                        "The catalogue is rendered only from ManagerMemory capability snapshots. Offline buffers remain visible as cached capability; READY means at least one current buffer is fresh and ready.",
+                        "Public",
+                        "This command is read-only. It does not request or cast buffs.");
                     return true;
 
                 case "cloak":
@@ -471,6 +483,7 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "help [topic]", "Open help."));
             body.Append(HelpSyntaxLine(target, "status", "Open live system status."));
             body.Append(HelpSyntaxLine(target, "cloak", "Check city cloak through Flipper."));
+            body.Append(HelpSyntaxLine(target, "bufflist", "Open the cached buffer buff catalogue."));
             body.Append(HelpSyntaxLine(
                 target,
                 "stock",
