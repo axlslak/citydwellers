@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 254,
+  "current_session": 255,
   "last_completed_session": 254,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-254-manager-owned-buffer-voice",
-  "checkpoint_commit": "44f98ff",
-  "task": "Completed: buffers are silent; Apcmanager owns the cached ManagerMemory bufflist.",
-  "resume_instruction": "Session 254 complete. bufflist is Manager-owned and buffer capabilities persist as cached/offline snapshots. Paid buffer login/scheduling remains deferred. Next journal seq568.",
-  "base_commit": "0a5446b"
+  "transaction": "session-255-governor-lifecycle",
+  "checkpoint_commit": "2ff8bfa",
+  "task": "Implement Governor lifecycle ownership and ManagerMemory Flipper/Buddies command transport.",
+  "resume_instruction": "Resume session 255 only. Governor owns component lifecycle; ManagerMemory stays passive; preserve component/plugin behavior and keep legacy Flipper/Buddies IPC code dormant. Next journal seq569.",
+  "base_commit": "2ff8bfa"
 }
