@@ -124,6 +124,9 @@ namespace CityManager
                         HelpSyntaxLine(target, "status", "Open the live Manager status blob.") +
                         HelpSyntaxLine(target, "buffers", "Show froob buffer readiness and queue counts.") +
                         HelpSyntaxLine(target, "bufflist", "Open Apcmanager's cached buffer buff catalogue.") +
+                        HelpSyntaxLine(target, "cast [buff tag...]", "Request one or more Mali buff tags through Apcmanager.") +
+                        HelpSyntaxLine(target, "rebuff", "Re-request recognized buffs already active in your NCU.") +
+                        HelpSyntaxLine(target, "buffmacro", "Build a macro for recognized buffs currently active in your NCU.") +
                         "\n<font color='" + ColorMuted + "'>Words in [brackets] are values you supply. " +
                         "A vertical bar means choose one option. Commands and buttons are case-insensitive.</font>";
                     return true;
@@ -180,6 +183,39 @@ namespace CityManager
                         "The catalogue is rendered only from ManagerMemory capability snapshots. Offline buffers remain visible as cached capability; READY means at least one current buffer is fresh and ready.",
                         "Public",
                         "This command is read-only. It does not request or cast buffs.");
+                    return true;
+
+                case "cast":
+                    title = "Cast Buffs";
+                    body = CommandHelp(
+                        target,
+                        "cast [buff tag...]",
+                        "Request Mali buff tags through Apcmanager while preserving the existing buffer queue and profession routing.",
+                        "A ready buffer that can actually see your character claims the request and lets Mali route each requested buff to the appropriate profession. Use bufflist to discover tags.",
+                        "Athen Paladins member",
+                        "Examples: #cast ag; #cast tsma pmmo. Direct tells to buffers are intentionally retired.");
+                    return true;
+
+                case "rebuff":
+                    title = "Rebuff";
+                    body = CommandHelp(
+                        target,
+                        "rebuff",
+                        "Scan your visible current NCU buffs and re-request the ones recognized by Mali's buff catalogue.",
+                        "A ready buffer that can see your character performs the same NCU scan the old direct-buffer command used.",
+                        "Athen Paladins member",
+                        "This does not use RebuffInfo; it re-requests recognized buffs that are currently active on you.");
+                    return true;
+
+                case "buffmacro":
+                    title = "Buff Macro";
+                    body = CommandHelp(
+                        target,
+                        "buffmacro",
+                        "Build a buffpreset macro from recognized buffs currently active in your NCU.",
+                        "A ready buffer that can see your character performs the old Mali NCU scan; Apcmanager returns the macro and points it back to Apcmanager cast.",
+                        "Athen Paladins member",
+                        "The generated macro uses /tell Apcmanager cast ... rather than a direct buffer tell.");
                     return true;
 
                 case "cloak":
@@ -484,6 +520,9 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "status", "Open live system status."));
             body.Append(HelpSyntaxLine(target, "cloak", "Check city cloak through Flipper."));
             body.Append(HelpSyntaxLine(target, "bufflist", "Open the cached buffer buff catalogue."));
+            body.Append(HelpSyntaxLine(target, "cast [buff tag...]", "Request Mali buffs through Apcmanager."));
+            body.Append(HelpSyntaxLine(target, "rebuff", "Re-request recognized buffs currently active in your NCU."));
+            body.Append(HelpSyntaxLine(target, "buffmacro", "Build an Apcmanager buffpreset macro from your current NCU."));
             body.Append(HelpSyntaxLine(
                 target,
                 "stock",
