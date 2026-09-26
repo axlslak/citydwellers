@@ -11,7 +11,6 @@ using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Common;
 using CityBankers.Shared;
-using CityDwellers.Shared;
 using Newtonsoft.Json;
 using Serilog;
 using Serilog.Core;
@@ -419,8 +418,8 @@ internal static class BagAuditRunner
     private static void WaitForGovernorLoginAdmission(
         string character)
     {
-        AoLoginAdmission admission =
-            ManagerMemory.Current.WaitForAoLoginAdmission(
+        CityDwellers.Shared.AoLoginAdmission admission =
+            CityDwellers.Shared.ManagerMemory.Current.WaitForAoLoginAdmission(
                 "BankAudit", character);
         Console.WriteLine(
             $"  GOVERNOR LOGIN {character}: wave={admission.Wave} " +
