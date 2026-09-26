@@ -75,6 +75,81 @@ namespace MalisBuffBots
 
                 Main.QueueProcessor.LocalEnqueue(requester, request.Entries);
             }
+
+            DrainPublicCommands();
+        }
+
+        private void DrainPublicCommands()
+        {
+            if (!CityBufferBridge.Ready)
+                return;
+
+            foreach (BufferPublicCommandRequest request in
+                ManagerMemory.Current.PendingBufferPublicCommands(16))
+            {
+                if (request == null || request.SenderId == 0)
+                    continue;
+
+                var requester = DynelManager.Players.FirstOrDefault(
+                    x => x.Identity.Instance == request.SenderId);
+                if (requester == null)
+                    continue;
+
+                if (!ManagerMemory.Current.TryClaimBufferPublicCommand(
+                        request.Id, Client.CharacterName))
+                    continue;
+
+                bool success = false;
+                string message = null;
+                string[] tags = null;
+
+                try
+                {
+                    switch ((request.Command ?? string.Empty).ToLowerInvariant())
+                    {
+                        case "cast":
+                            success = Main.TryProcessManagerCastRequest(
+                                request.Arguments, requester, out message);
+                            break;
+
+                        case "rebuff":
+                            success = Main.TryProcessManagerRebuffRequest(
+                                requester, out message);
+                            break;
+
+                        case "buffmacro":
+                            success = Main.TryBuildManagerBuffmacro(
+                                requester, out tags, out message);
+                            break;
+
+                        default:
+                            message = "Unsupported buffer command '" +
+                                (request.Command ?? "<missing>") + "'.";
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    success = false;
+                    message = ex.GetType().Name + ": " + ex.Message;
+                }
+
+                ManagerMemory.Current.CompleteBufferPublicCommand(
+                    new BufferPublicCommandOutcome
+                    {
+                        Id = request.Id,
+                        Success = success,
+                        Message = message,
+                        Tags = tags,
+                        ClaimedBy = Client.CharacterName,
+                        CompletedUtc = DateTime.UtcNow
+                    });
+
+                Logger.Information(
+                    $"Manager buffer command {request.Id} {request.Command} " +
+                    $"for {request.SenderName ?? request.SenderId.ToString()} " +
+                    $"claimed by {Client.CharacterName}; success={success}.");
+            }
         }
 
         // Retained for Mali's existing surface. Presence now comes from ManagerMemory;
