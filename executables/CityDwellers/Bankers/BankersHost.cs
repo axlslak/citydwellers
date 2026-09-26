@@ -69,14 +69,6 @@ public class BankerLoader
             return 1;
         }
 
-        if (configured.Count > _config.MaxParallelLogins)
-        {
-            Console.WriteLine(
-                $"Configured banker role count {configured.Count} exceeds " +
-                $"MaxParallelLogins ({_config.MaxParallelLogins}).");
-            return 1;
-        }
-
         return RunRoles(configured, null, stopSignal, interactive);
     }
 
@@ -114,7 +106,7 @@ public class BankerLoader
         }
 
         if (_config.MaxParallelLogins <= 0)
-            _config.MaxParallelLogins = 32;
+            _config.MaxParallelLogins = 4;
 
         foreach (KeyValuePair<string, AccountMapping> role in _config.Roles)
         {
@@ -150,7 +142,7 @@ public class BankerLoader
         var config = new BankerConfig
         {
             Password = "pass1",
-            MaxParallelLogins = 32,
+            MaxParallelLogins = 4,
             DiagnosticTimeoutMs = DefaultDiagnosticTimeoutMs,
             AcceptancePolicy = new AcceptancePolicyConfig
             {
@@ -382,7 +374,8 @@ public class BankerLoader
             Console.WriteLine($"Clients:   {roles.Count}");
             Console.WriteLine($"Plugin:    {pluginPath}");
             Console.WriteLine("State:     MySQL");
-            Console.WriteLine($"Parallel-login limit: {_config.MaxParallelLogins}");
+            Console.WriteLine(
+                $"Governor AO login wave limit: {_config.MaxParallelLogins} start(s) per second, host-wide");
             if (!string.IsNullOrWhiteSpace(reportRecipient))
                 Console.WriteLine($"Capacity report recipient: {reportRecipient}");
             Console.WriteLine();
@@ -436,6 +429,7 @@ public class BankerLoader
                 Console.WriteLine(
                     $"[{timer.Elapsed.TotalSeconds:F3}s] Starting central " +
                     $"({central.Character}) first.");
+                WaitForGovernorLoginAdmission(central.Character, timer);
                 central.Domain.Start();
                 central.Started = true;
 
@@ -579,8 +573,23 @@ public class BankerLoader
         Console.WriteLine(
             $"[{timer.Elapsed.TotalSeconds:F3}s] Starting {runtime.Role} " +
             $"({runtime.Character}).");
+        WaitForGovernorLoginAdmission(runtime.Character, timer);
         runtime.Domain.Start();
         runtime.Started = true;
+    }
+
+    private static void WaitForGovernorLoginAdmission(
+        string character,
+        Stopwatch timer)
+    {
+        AoLoginAdmission admission =
+            ManagerMemory.Current.WaitForAoLoginAdmission(
+                "Bankers", character);
+        Console.WriteLine(
+            $"[{timer.Elapsed.TotalSeconds:F3}s] Governor AO login admit " +
+            $"{character}: wave={admission.Wave} " +
+            $"slot={admission.PositionInWave}/{admission.WaveSize} " +
+            $"waited={admission.WaitedMilliseconds}ms.");
     }
 
     private static bool WaitForResultFile(string path, int timeoutMs)
@@ -841,7 +850,7 @@ public class BankerLoader
     public class BankerConfig
     {
         public string Password;
-        public int MaxParallelLogins = 32;
+        public int MaxParallelLogins = 4;
         public int DiagnosticTimeoutMs = DefaultDiagnosticTimeoutMs;
         public AcceptancePolicyConfig AcceptancePolicy;
         public Dictionary<string, AccountMapping> Roles;

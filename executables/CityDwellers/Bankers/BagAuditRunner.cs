@@ -410,17 +410,6 @@ internal static class BagAuditRunner
             });
         }
 
-        int maxParallel = config.MaxParallelLogins > 0
-            ? config.MaxParallelLogins
-            : 32;
-        if (roles.Count > maxParallel)
-        {
-            error =
-                $"Bag audit requires {roles.Count} configured clients but " +
-                $"MaxParallelLogins is {maxParallel}.";
-            return false;
-        }
-
         return true;
     }
 
@@ -1140,7 +1129,7 @@ internal static class BagAuditRunner
     private class AuditConfig
     {
         public string Password;
-        public int MaxParallelLogins = 32;
+        public int MaxParallelLogins = 4;
         public int DiagnosticTimeoutMs = DefaultDiagnosticTimeoutMs;
         public Dictionary<string, AuditAccount> Roles;
     }
