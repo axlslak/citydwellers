@@ -181,6 +181,26 @@
         "boon",
         "botw"
       ]
+    },
+    {
+      "Name": "Veterans L33t Transformation",
+      "LevelToId": [
+        {
+          "Level": 0,
+          "Id": 268697
+        }
+      ],
+      "Type": 0,
+      "Description": "Transforms the target into a veteran l33t",
+      "RemoveNanoIdUponCast": [
+        0
+      ],
+      "Tags": [
+        "vleet",
+        "veteranleet",
+        "veteransl33t",
+        "l33t"
+      ]
     }
   ],
   "Agent": [
