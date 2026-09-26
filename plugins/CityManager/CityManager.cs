@@ -49,6 +49,7 @@ namespace CityManager
                 "cloak",
                 "status",
                 "buffers",
+                "bufflist",
                 "stock",
                 "symb",
                 "symbs",
@@ -751,6 +752,10 @@ namespace CityManager
 
                 case "buffers":
                     BeginBufferStatus(replyTarget);
+                    break;
+
+                case "bufflist":
+                    ProcessBufferBuffListCommand(parts, replyTarget);
                     break;
 
                 case "status":
