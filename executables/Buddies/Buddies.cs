@@ -140,7 +140,7 @@ public class BuddiesHost
             $"Buddy workers: {_config.AccountCount}; " +
             $"parallel AO logins: {_config.MaxParallelLogins.Value}");
         Console.WriteLine("Character scheme: Apcr{level:000}{index:00}");
-        Console.WriteLine($"Pipe: {PipeName}");
+        Console.WriteLine("Control: Governor memory (legacy pipe retained but dormant)");
         Console.WriteLine();
         Console.WriteLine("Buddies service idle. Zero buddy AO sessions are started automatically.");
         Console.WriteLine("Waiting for Manager requests.");
@@ -150,13 +150,13 @@ public class BuddiesHost
 
         InitializeSlotWorkers();
 
-        Thread pipeThread = new Thread(RunPipeServer)
+        Thread memoryThread = new Thread(RunMemoryServer)
         {
             IsBackground = true,
-            Name = "CityDwellers.Buddies.Pipe"
+            Name = "CityDwellers.Buddies.Memory"
         };
 
-        pipeThread.Start();
+        memoryThread.Start();
 
         _leaseTimer = new Timer(
             ExpireBuddyLeases,
@@ -318,6 +318,53 @@ public class BuddiesHost
             Fail(request, $"Buddy slot {index} returned no {command} result.");
     }
 
+    private static void RunMemoryServer()
+    {
+        while (!_stopping)
+        {
+            LifecycleCommand command = null;
+            try
+            {
+                command = ManagerMemory.Current.WaitForLifecycleCommand("Buddies", 500);
+                if (command == null)
+                    continue;
+
+                if (!string.Equals(command.Verb, "request", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Unsupported Governor verb '" + command.Verb + "'.");
+
+                WorkerRequest request = JsonConvert.DeserializeObject<WorkerRequest>(command.Payload ?? "null");
+                WorkerResponse response = HandleRequest(request);
+                ManagerMemory.Current.PublishLifecycleOutcome(new LifecycleOutcome
+                {
+                    RequestId = command.RequestId,
+                    CommandId = command.CommandId,
+                    Ok = true,
+                    Payload = JsonConvert.SerializeObject(response),
+                    CompletedUtc = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                if (command != null)
+                {
+                    ManagerMemory.Current.PublishLifecycleOutcome(new LifecycleOutcome
+                    {
+                        RequestId = command.RequestId,
+                        CommandId = command.CommandId,
+                        Ok = false,
+                        Message = ex.Message,
+                        CompletedUtc = DateTime.UtcNow
+                    });
+                }
+                else if (!_stopping)
+                {
+                    Console.WriteLine("Buddies Governor memory listener error: " + ex.Message);
+                    Thread.Sleep(250);
+                }
+            }
+        }
+    }
+
     private static void RunPipeServer()
     {
         while (!_stopping)
@@ -392,7 +439,7 @@ public class BuddiesHost
                 : $"index={request.Index}";
 
         Console.WriteLine(
-            $"IPC request {request.Id ?? "<no-id>"}: " +
+            $"Worker request {request.Id ?? "<no-id>"}: " +
             $"{command} level={request.Level} {quantityLabel}");
 
         switch (command)
