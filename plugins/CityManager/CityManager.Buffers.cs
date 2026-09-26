@@ -315,8 +315,12 @@ namespace CityManager
                             .Append("</font> ");
 
                         if (!string.IsNullOrWhiteSpace(buff.Tag))
-                            body.Append("<font color='").Append(ColorCommand).Append("'>")
-                                .Append(EscapeBlobText(buff.Tag)).Append("</font> ");
+                            body.Append(
+                                CommandLink(
+                                    target,
+                                    "cast " + buff.Tag,
+                                    buff.Tag))
+                                .Append(" ");
 
                         body.Append(EscapeBlobText(buff.Name));
                         if (!string.IsNullOrWhiteSpace(buff.Description))
