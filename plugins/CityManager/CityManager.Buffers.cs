@@ -12,6 +12,7 @@ namespace CityManager
     public partial class CityManager
     {
         private const int BufferControlTimeoutMilliseconds = 30000;
+        private const int BufferPublicCommandTimeoutMilliseconds = 6000;
         private static readonly TimeSpan BufferAuthorityPublishInterval =
             TimeSpan.FromSeconds(1);
         private DateTime _nextBufferAuthorityPublishUtc = DateTime.MinValue;
@@ -137,6 +138,116 @@ namespace CityManager
                 finally
                 {
                     if (began) ManagerMemory.Current.FinishBufferControl(id);
+                }
+            });
+        }
+
+        private void BeginBufferPublicCommand(
+            string senderName,
+            string command,
+            string[] parts,
+            ReplyTarget target)
+        {
+            if (target == null || target.SenderId == 0)
+            {
+                Reply(target, "I could not resolve your AO character identity for this buff request.");
+                return;
+            }
+
+            bool isCast = string.Equals(command, "cast", StringComparison.OrdinalIgnoreCase);
+            bool isRebuff = string.Equals(command, "rebuff", StringComparison.OrdinalIgnoreCase);
+            bool isBuffmacro = string.Equals(command, "buffmacro", StringComparison.OrdinalIgnoreCase);
+
+            if ((isCast && parts.Length < 2) ||
+                ((isRebuff || isBuffmacro) && parts.Length != 1))
+            {
+                Reply(target, isCast
+                    ? Usage(target, "cast [buff tag...]")
+                    : Usage(target, command));
+                return;
+            }
+
+            DateTime now = DateTime.UtcNow;
+            if (!ManagerMemory.Current.BufferBotInfos().Any(
+                    snapshot => IsFreshReadyBuffer(snapshot, now)))
+            {
+                Reply(target, "No ready buffers are currently available.");
+                return;
+            }
+
+            string id = Guid.NewGuid().ToString("N");
+            var request = new BufferPublicCommandRequest
+            {
+                Id = id,
+                Command = command.ToLowerInvariant(),
+                SenderId = target.SenderId,
+                SenderName = senderName,
+                Arguments = isCast
+                    ? parts.Skip(1).Select(value => value.ToLowerInvariant()).ToArray()
+                    : new string[0],
+                CreatedUtc = now
+            };
+
+            if (!ManagerMemory.Current.BeginBufferPublicCommand(request))
+            {
+                Reply(target, "The buffer command queue is busy. Try again shortly.");
+                return;
+            }
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    BufferPublicCommandOutcome outcome =
+                        ManagerMemory.Current.WaitForBufferPublicCommandOutcome(
+                            id, BufferPublicCommandTimeoutMilliseconds);
+
+                    if (outcome == null)
+                    {
+                        Reply(
+                            target,
+                            "No ready buffer could see your character nearby. " +
+                            "Stand near the buffer fleet and try again.");
+                        return;
+                    }
+
+                    DevTrace(
+                        $"BUFFER COMMAND {command} requester={senderName} " +
+                        $"claimedBy={outcome.ClaimedBy ?? "unknown"} success={outcome.Success}.");
+
+                    if (!outcome.Success)
+                    {
+                        Reply(
+                            target,
+                            "Buffers: " +
+                            (outcome.Message ?? "the request could not be completed."));
+                        return;
+                    }
+
+                    if (isBuffmacro)
+                    {
+                        string[] tags = outcome.Tags ?? new string[0];
+                        if (tags.Length == 0)
+                        {
+                            Reply(target, "No recognized active buffs were available for a macro.");
+                            return;
+                        }
+
+                        Reply(
+                            target,
+                            "<font color='" + ColorCommand + "'>/macro buffpreset /tell " +
+                            Client.CharacterName + " cast " +
+                            EscapeBlobText(string.Join(" ", tags)) +
+                            "</font>");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Reply(target, "Buffer command failed: " + ex.Message);
+                }
+                finally
+                {
+                    ManagerMemory.Current.FinishBufferPublicCommand(id);
                 }
             });
         }
