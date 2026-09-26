@@ -3535,3 +3535,12 @@ would help fix it before anyone changes code.
 - [UNCHANGED] Froob accounts remain dedicated: duplicate froob usernames and overlap with other configured services are still rejected.
 - [VALIDATION] Source inspection confirms Paid is parsed/validated while Active still enumerates only Froobs; modified C# braces/parentheses are balanced. No assistant build/live AO test.
 
+## Session 254 — Manager-owned buffer voice and cached bufflist
+
+- [OWNER-DIRECTION] CityBuffers no longer owns user-facing conversation. Apcmanager is the public voice for the buffer fleet; Mali's casting, queue and team machinery remain in place.
+- [IMPLEMENTED] Direct buffer tell/private-group command subscriptions were removed, and active buffer cast/team feedback no longer sends user tells. The old Mali command/template source remains in the repository where still useful, but normal buffer operation is silent.
+- [IMPLEMENTED] Each buffer publishes a primitive advertised-buff catalogue derived from its live spell list plus BuffsDb into ManagerMemory. The snapshot includes profession, tag, name, description, cast type and NCU cost.
+- [LIFECYCLE] Buffer shutdown/disconnect now marks the snapshot offline instead of erasing it. Last-known capabilities survive within the host lifetime; ready/in-play freshness still determines live caster availability.
+- [IMPLEMENTED] Public `bufflist` belongs to Apcmanager and renders only from ManagerMemory. Organization/guest replies stay on the originating channel; tell replies are pinned to Apcmanager through the shared TellQueue.
+- [UNCHANGED] No paid-buffer login/scheduling, buff ordering/request command, NCU-wave behavior, team IPC rewrite, or casting-engine rewrite was added.
+- [VALIDATION] Current-source call-path review confirms no CityBuffers private-message/private-group command subscriptions and no active CityBufferBridge.SendPrivateMessage calls outside the retained compatibility helper. Changed C# files have balanced braces/parentheses. No assistant build/live AO test.
