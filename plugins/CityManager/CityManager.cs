@@ -52,6 +52,9 @@ namespace CityManager
                 "status",
                 "buffers",
                 "bufflist",
+                "cast",
+                "rebuff",
+                "buffmacro",
                 "stock",
                 "symb",
                 "symbs",
@@ -533,6 +536,9 @@ namespace CityManager
                   command == "cloak" ||
                   command == "status" ||
                   command == "buffers" ||
+                  command == "bufflist" ||
+                  command == "rebuff" ||
+                  command == "buffmacro" ||
                   command == "leave" ||
                   command == "join" ||
                   command == "adminlist" ||
@@ -541,6 +547,7 @@ namespace CityManager
                   command == "dump" ||
                   command == "restart" ||
                   command == "shutdown") && parts.Length == 1) ||
+                (command == "cast" && parts.Length >= 2) ||
                 (command == "trace" && parts.Length <= 2) ||
                 ((command == "inventory" || command == "inv") && parts.Length <= 2) ||
                 (command == "help" && parts.Length <= 3) ||
@@ -758,6 +765,12 @@ namespace CityManager
 
                 case "bufflist":
                     ProcessBufferBuffListCommand(parts, replyTarget);
+                    break;
+
+                case "cast":
+                case "rebuff":
+                case "buffmacro":
+                    BeginBufferPublicCommand(senderName, command, parts, replyTarget);
                     break;
 
                 case "status":
