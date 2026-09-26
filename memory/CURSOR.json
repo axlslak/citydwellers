@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 260,
-  "last_completed_session": 259,
-  "status": "in_progress",
+  "last_completed_session": 260,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-260-veterans-l33t-buff",
-  "checkpoint_commit": "3a54f9d",
-  "task": "Add Veterans L33t Transformation to Mali's Adventurer BuffsDb so Kbadvy can advertise, route and cast it on other players through Apcmanager.",
-  "resume_instruction": "Resume session 260 only. Add nano program 268697 (crystal 268698) as an Adventurer single-target BuffsDb entry with no post-cast removal; verify unique tags and bufflist discovery, then seal. Next journal seq580.",
+  "checkpoint_commit": "4534a2e",
+  "task": "Completed: Veterans L33t Transformation nano 268697 is in Mali's Generic buff catalogue and routes through Apcmanager to a ready buffer that knows it.",
+  "resume_instruction": "Session 260 complete. Repository writer lock is idle. Owner Release build/live test should verify bufflist shows vleet and #cast vleet is cast by Kbadvy. Next journal seq582.",
   "base_commit": "3a54f9def702cb7c5c5ef5f730c16e0b9ae936e6"
 }
