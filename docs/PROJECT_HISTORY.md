@@ -3685,3 +3685,19 @@ Today that is Kbadvy. The public tags are `vleet`, `veteranleet`,
 `veteransl33t` and `l33t`; the normal Manager bufflist/cast path handles it.
 No automatic RebuffInfo rule was added.
 
+## Session 261 — stop freezing the buff catalogue at startup
+
+A live run of 5e8d910 showed Kbadvy fully in play and running Mali's rebuff
+engine before repeated Apcmanager bufflist queries, yet the newly catalogued
+Veterans L33t Transformation was still absent. The publication path revealed a
+mismatch: buffer heartbeats continuously refreshed the raw uploaded-nano list,
+while the rendered capability catalogue was computed only once when Mali
+initialized.
+
+The heartbeat now derives advertised capabilities from the current uploaded
+spell list every second. This also covers nanos learned while a client remains
+online and avoids preserving an incomplete one-time startup view. The last good
+catalogue is still retained when a buffer goes offline. A low-noise
+catalogue-ready/change log records counts and tags so the next live run can
+distinguish a catalogue match from a runtime asset or uploaded-spell problem.
+
