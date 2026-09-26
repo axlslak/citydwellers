@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 261,
+  "current_session": 262,
   "last_completed_session": 261,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-261-catalogue-refresh",
-  "checkpoint_commit": "48113bd",
-  "task": "Completed: buffer advertised capabilities now refresh from current spell data on the existing heartbeat.",
-  "resume_instruction": "Session 261 complete. Repository writer lock is idle. Owner build/live test should inspect each BUFFER catalogue ready line and verify vleet appears for Kbadvy, then confirm bufflist/cast. Next journal seq584.",
-  "base_commit": "5e8d9101eb5c0aae229f5929ba0964e39e4a5c29"
+  "transaction": "session-262-buffer-asset-deployment",
+  "checkpoint_commit": "4d80266",
+  "task": "Ensure required CityBuffers JSON assets, especially BuffsDb.json, are emitted to Buffers\\JSON in release output.",
+  "resume_instruction": "Recover session 262. Live build 4d80266 proved BuffsDb.json missing from C:\\release\\Buffers\\JSON and every buffer failed Init. Inspect CityBuffers.csproj asset copy semantics, implement deterministic output paths, preserve banker/runtime behavior, then seal. Next journal seq585.",
+  "base_commit": "4d80266ebbe4021675ab7d19501b2b99882f2c57"
 }
