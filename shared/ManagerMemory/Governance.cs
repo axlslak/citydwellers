@@ -127,6 +127,8 @@ namespace CityDwellers.Shared
             new Dictionary<string, LifecycleOutcome>(StringComparer.Ordinal);
         private readonly HashSet<string> _abandonedLifecycleRequests =
             new HashSet<string>(StringComparer.Ordinal);
+        private readonly Dictionary<string, string> _lifecycleRequesters =
+            new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly HashSet<string> _lifecycleConsumers =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private GovernorAuthority _governorAuthority;
@@ -206,6 +208,8 @@ namespace CityDwellers.Shared
                 LifecycleRequest copy = request.Copy();
                 if (copy.RequestedUtc == default(DateTime)) copy.RequestedUtc = DateTime.UtcNow;
                 _lifecycleRequests.Enqueue(copy);
+                if (!string.IsNullOrWhiteSpace(copy.Requester))
+                    _lifecycleRequesters[copy.Id] = copy.Requester;
                 Monitor.PulseAll(_governanceSync);
                 return true;
             }
@@ -221,7 +225,10 @@ namespace CityDwellers.Shared
                 {
                     LifecycleRequest request = _lifecycleRequests.Dequeue();
                     if (_abandonedLifecycleRequests.Remove(request.Id))
+                    {
+                        _lifecycleRequesters.Remove(request.Id);
                         continue;
+                    }
                     result.Add(request.Copy());
                 }
             }
@@ -280,6 +287,7 @@ namespace CityDwellers.Shared
 
                 if (_abandonedLifecycleRequests.Remove(outcome.RequestId))
                 {
+                    _lifecycleRequesters.Remove(outcome.RequestId);
                     Monitor.PulseAll(_governanceSync);
                     return;
                 }
@@ -313,6 +321,7 @@ namespace CityDwellers.Shared
                 _lifecycleCommands.Remove(component);
                 if (_abandonedLifecycleRequests.Remove(active.RequestId))
                 {
+                    _lifecycleRequesters.Remove(active.RequestId);
                     Monitor.PulseAll(_governanceSync);
                     return;
                 }
@@ -351,9 +360,34 @@ namespace CityDwellers.Shared
             if (string.IsNullOrWhiteSpace(requestId)) return;
             lock (_governanceSync)
             {
-                if (!_lifecycleOutcomes.Remove(requestId))
+                if (_lifecycleOutcomes.Remove(requestId))
+                    _lifecycleRequesters.Remove(requestId);
+                else
                     _abandonedLifecycleRequests.Add(requestId);
                 Monitor.PulseAll(_governanceSync);
+            }
+        }
+
+        public void AbandonLifecycleRequester(string requester)
+        {
+            if (string.IsNullOrWhiteSpace(requester)) return;
+            lock (_governanceSync)
+            {
+                string[] requestIds = _lifecycleRequesters
+                    .Where(pair => string.Equals(
+                        pair.Value, requester, StringComparison.OrdinalIgnoreCase))
+                    .Select(pair => pair.Key)
+                    .ToArray();
+
+                foreach (string requestId in requestIds)
+                {
+                    if (!_lifecycleOutcomes.Remove(requestId))
+                        _abandonedLifecycleRequests.Add(requestId);
+                    _lifecycleRequesters.Remove(requestId);
+                }
+
+                if (requestIds.Length != 0)
+                    Monitor.PulseAll(_governanceSync);
             }
         }
     }
