@@ -233,6 +233,26 @@ namespace CityDwellers.Shared
             });
         }
 
+        public void CancelLifecycleCommand(string component, string message)
+        {
+            if (string.IsNullOrWhiteSpace(component)) return;
+            lock (_governanceSync)
+            {
+                LifecycleCommand active;
+                if (!_lifecycleCommands.TryGetValue(component, out active)) return;
+                _lifecycleCommands.Remove(component);
+                _lifecycleOutcomes[active.RequestId] = new LifecycleOutcome
+                {
+                    RequestId = active.RequestId,
+                    CommandId = active.CommandId,
+                    Ok = false,
+                    Message = message ?? "Component command was cancelled.",
+                    CompletedUtc = DateTime.UtcNow
+                };
+                Monitor.PulseAll(_governanceSync);
+            }
+        }
+
         public LifecycleOutcome WaitForLifecycleOutcome(string requestId, int timeoutMilliseconds)
         {
             if (string.IsNullOrWhiteSpace(requestId)) return null;
