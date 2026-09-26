@@ -3648,3 +3648,36 @@ would help fix it before anyone changes code.
   session 255. No assistant build/live AO test; owner retains compiler/runtime
   validation.
 
+## Session 259 — complete Manager-owned buffer command migration
+
+- [OWNER-DIRECTION] Session 254's conversation migration meant Apcmanager should
+  replace the buffer bots as the public command surface, not delete Mali's
+  existing cast/rebuff/buffmacro functionality.
+- [IMPLEMENTED] Apcmanager now recognizes `cast <tag...>`, `rebuff` and
+  `buffmacro` in organization/guest chat and as bare tell commands. Bare tell
+  `bufflist` is also recognized as originally intended.
+- [IMPLEMENTED] Manager submits a bounded, correlated public buffer request into
+  ManagerMemory. Every ready buffer may inspect pending work, but only a buffer
+  whose local AO player view contains the requester's AO identity may atomically
+  claim it. Exactly one claimant can complete the request.
+- [MALI] The claiming buffer runs the existing Mali semantics on its AO update
+  thread: cast resolves BuffsDb tags and uses QueueProcessor.RequestBuffs;
+  rebuff scans the requester's current NCU and re-requests recognized entries;
+  buffmacro scans the same NCU and returns the recognized tags to Manager.
+  Profession routing, team handling and actual casting remain Mali-owned.
+- [VOICE] Cast/rebuff success remains quiet like the old request path; errors are
+  reported by Apcmanager. Buffmacro output is returned by Apcmanager and points
+  back to `/tell Apcmanager cast ...`. Bufflist tags are clickable Apcmanager
+  cast links.
+- [AUTHORITY] The three migrated actions preserve Mali's old Unranked/member
+  boundary: non-admin use outside org chat requires City Dwellers/AP membership.
+  Existing bans and Manager public-work throttles still apply.
+- [UNCHANGED] Direct buffer tell/private-group command subscriptions remain
+  retired. No casting engine, queue semantics, Mali team IPC, paid-buffer
+  scheduling or Governor lifecycle behavior was rewritten.
+- [VALIDATION] Current source confirms Manager command recognition, member
+  authorization, bounded ManagerMemory request/outcome state, local-visibility
+  before claim, atomic single claim/completer, AO-update-thread execution and
+  balanced delimiters in all modified C# files. Owner Release build/live AO
+  test remains compiler/runtime validation.
+
