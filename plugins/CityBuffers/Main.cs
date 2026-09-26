@@ -125,13 +125,12 @@ namespace MalisBuffBots
             if (!BuffsJson.FindByIds(requesterBuffs.Select(x=>x.Id), out List<string> tags))
                 return;
 
-            CityBufferBridge.SendPrivateMessage((uint)requester.Identity.Instance, ScriptTemplate.Buffmacro(DynelManager.LocalPlayer.Name, tags));
+            Logger.Information("Legacy buffer buffmacro request ignored; Apcmanager owns user-facing buffer output.");
         }
 
         private void ProcessHelpRequest(PlayerChar requester)
         {
-            CityBufferBridge.SendPrivateMessage((uint)requester.Identity.Instance, ScriptTemplate.RetrievingBuffs());
-            CityBufferBridge.SendPrivateMessage((uint)requester.Identity.Instance, ScriptTemplate.HelpMenu(), false);
+            Logger.Information("Legacy buffer help request ignored; use Apcmanager bufflist.");
         }
     }
 }
