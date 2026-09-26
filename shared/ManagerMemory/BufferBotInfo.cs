@@ -5,6 +5,19 @@ using System.Linq;
 namespace CityDwellers.Shared
 {
     [Serializable]
+    public sealed class BufferAdvertisedBuff
+    {
+        public int Profession;
+        public string Name;
+        public string Description;
+        public string Tag;
+        public string Type;
+        public int Ncu;
+
+        internal BufferAdvertisedBuff Copy() => (BufferAdvertisedBuff)MemberwiseClone();
+    }
+
+    [Serializable]
     public sealed class BufferBotInfo
     {
         public string Character;
@@ -17,6 +30,7 @@ namespace CityDwellers.Shared
         public bool Ready;
         public string QueueJson;
         public DateTime QueueObservedUtc;
+        public BufferAdvertisedBuff[] AdvertisedBuffs;
 
         internal BufferBotInfo Copy() => new BufferBotInfo
         {
@@ -29,7 +43,10 @@ namespace CityDwellers.Shared
             InPlay = InPlay,
             Ready = Ready,
             QueueJson = QueueJson,
-            QueueObservedUtc = QueueObservedUtc
+            QueueObservedUtc = QueueObservedUtc,
+            AdvertisedBuffs = AdvertisedBuffs == null
+                ? null
+                : AdvertisedBuffs.Select(x => x?.Copy()).Where(x => x != null).ToArray()
         };
     }
 
@@ -56,8 +73,30 @@ namespace CityDwellers.Shared
                 BufferBotInfo copy = info.Copy();
                 copy.QueueJson = queueJson;
                 copy.QueueObservedUtc = queueObservedUtc;
+                if (copy.AdvertisedBuffs == null && existing != null)
+                    copy.AdvertisedBuffs = existing.AdvertisedBuffs == null
+                        ? null
+                        : existing.AdvertisedBuffs.Select(x => x?.Copy()).Where(x => x != null).ToArray();
                 _bufferBots[info.Character] = copy;
             }
+        }
+
+        public void MarkBufferBotOffline(string character)
+        {
+            if (string.IsNullOrWhiteSpace(character)) return;
+            lock (_bufferBotSync)
+            {
+                BufferBotInfo existing;
+                if (_bufferBots.TryGetValue(character, out existing))
+                {
+                    BufferBotInfo copy = existing.Copy();
+                    copy.InPlay = false;
+                    copy.Ready = false;
+                    copy.ObservedUtc = DateTime.UtcNow;
+                    _bufferBots[character] = copy;
+                }
+            }
+            ClearBufferSignals(character);
         }
 
         public void ClearBufferBotInfo(string character)
