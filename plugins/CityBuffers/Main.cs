@@ -23,6 +23,9 @@ namespace MalisBuffBots
         {
             try
             {
+                CityDwellers.Shared.BuildIdentity.Register();
+                Logger.Information("BUILD " + CityDwellers.Shared.BuildIdentity.Label +
+                    " | revision=" + CityDwellers.Shared.BuildIdentity.Revision);
                 new StaticDynelDataPreloader().Init(pluginDir);
                 Logger.Information("CityBuffers loading Mali buff engine.");
 
