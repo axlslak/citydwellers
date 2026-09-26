@@ -17,7 +17,6 @@ namespace MalisBuffBots
         public static RebuffJson RebuffJson;                // Rebuff info (configurable in JSON/RebuffInfo.json)
         public static QueueProcessor QueueProcessor;        // Queue processing logic
         public static RebuffProcessor RebuffProcessor;      // Rebuff processing logic
-        public static CommandProcessor _commandProcessor;   // Command processing logic
         public static UserRank UserRank;
 
         public override void Init(string pluginDir)
@@ -37,10 +36,8 @@ namespace MalisBuffBots
                 BuffsJson = new BuffsJson(Path.BUFF_JSON);
                 RebuffJson = new RebuffJson(Path.REBUFF_JSON);
                 UserRank = new UserRank();
-                _commandProcessor = new CommandProcessor();
                 QueueProcessor = new QueueProcessor();
 
-                Client.Chat.PrivateGroupInviteMessageReceived += (e, charId) => HandlePrivateGroupInviteMessageReceived(charId);
                 Client.OnUpdate += OnUpdate;
             }
 
@@ -60,113 +57,8 @@ namespace MalisBuffBots
             (Ipc as IDisposable)?.Dispose();
         }
 
-        private void HandlePrivateGroupInviteMessageReceived(PrivateGroupInviteArgs args)
-        {
-            if (Client.LocalDynelId != SettingsJson.Data.PrivateChannelListenerId)
-                return;
-
-            if (args.Requester != SettingsJson.Data.PrivateChannelId)
-                return;
-
-            Logger.Debug($"Accepted private group invite from: {args.Requester}");
-            PrivateGroupChat.Join(args.Requester);
-        }
-
-        private void HandlePrivateGroupMessage(PrivateGroupMsg msg)
-        {
-            if (!CityBufferBridge.AdmitPublicRequest(msg.SenderId)) return;
-            ProcessMessage(new PrivateMessage { SenderId = msg.SenderId, SenderName = msg.SenderName, Message = msg.Message });
-        }
-
-        private void HandlePrivateMessage(PrivateMessage msg)
-        {
-            if (!CityBufferBridge.AdmitPublicRequest(msg.SenderId)) return;
-            if (SettingsJson.Data.PrivateChannelMode)
-            {
-                CityBufferBridge.SendPrivateMessage(msg.SenderId, SettingsJson.Data.PrivateChannelInfoMsg);
-                return;
-            }
-
-            ProcessMessage(msg);
-        }
-
-        private void ProcessMessage(PrivateMessage msg)
-        {
-            if (!_commandProcessor.TryProcess(msg, out Command command, out string[] commandParts, out int requester))
-            {
-                return;
-            }
-
-            if (!DynelManager.Find(new Identity { Type = IdentityType.SimpleChar, Instance = requester }, out PlayerChar simpleChar))
-            {
-                Logger.Error($"Unable to locate requester.");
-                return;
-            }
-
-            if (ManagerMemory.Current.BufferIsBanned(simpleChar.Name))
-            {
-                Logger.Error($"Banned user '{msg.SenderName}' command rejected by City Dwellers authority.");
-                return;
-            }
-
-            if (SettingsJson.Data.InitConnectionDelay > 0)
-            {
-                CityBufferBridge.SendPrivateMessage((uint)requester, ScriptTemplate.RequestRejected());
-                return;
-            }
-
-            // Command logic execution
-            switch (command)
-            {
-                case Command.Cast:
-                    ProcessCastRequest(commandParts, simpleChar);
-                    break;
-                case Command.Rebuff:
-                    ProcessRebuffRequest(simpleChar);
-                    break;
-                case Command.Buffmacro:
-                    ProcessBuffmacroRequest(simpleChar);
-                    break;
-                case Command.Stand:
-                    DynelManager.LocalPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
-                    break;
-                case Command.Sit:
-                    DynelManager.LocalPlayer.MovementComponent.ChangeMovement(MovementAction.SwitchToSit);
-                    break;
-                case Command.Help:
-                    ProcessHelpRequest(simpleChar);
-                    break;
-                case Command.Debug:
-                    ProcessDebugRequest(requester);
-                    break;
-                case Command.Clear:
-                    ProcessClearRequest(requester);
-                    break;
-            }
-        }
-        private void ProcessClearRequest(int requester)
-        {
-            QueueProcessor.ResetBotQueue();
-            CityBufferBridge.SendPrivateMessage((uint)requester, "Clearing my queue");
-        }
-
-        private void ProcessDebugRequest(int requester)
-        {
-            string currentQueue = "";
-
-            if (QueueProcessor.Queue.Current != null)
-                currentQueue = $"CurrQueue {QueueProcessor.Queue.Current.NanoEntry.Name}";
-
-            CityBufferBridge.SendPrivateMessage((uint)requester, $"{DynelManager.LocalPlayer.Name}\n " +
-                $"teamTrackerId: {QueueProcessor.TeamTrackerId}\n" +
-                $"QueueData.Entries.Count: {Ipc.BotCache.Entries.Count}\n " +
-                $"IPCBotCache.BotData.Count: {Ipc.BotCache.Entries.Count}\n" +
-                $"QueueData.Entries.Values.All: {Ipc.BotCache.Entries.Values.All(x => x.Queue.Count() == 0)}\n" +
-                $"Team.IsInTeam: {Team.IsInTeam}\n " +
-                $"QueueData.IsTeamQueueEmpty(trackId): {Ipc.BotCache.IsTeamQueueEmpty(QueueProcessor.TeamTrackerId)}\n " +
-                $"ldb:{QueueProcessor.N3MessageProcessor.LastLdbMessage}\n" +
-                $"{currentQueue}\n ");
-        }
+        // Direct buffer tells/private-group commands are retired. Apcmanager owns the
+        // public conversation surface; this plugin keeps only casting/team machinery.
 
         private void OnUpdate(object sender, double delta)
         {
@@ -184,10 +76,6 @@ namespace MalisBuffBots
                     CityBufferBridge.Ready = true;
                     // Client.OnUpdate += Ipc.OnUpdate; TODO
 
-                    if (SettingsJson.Data.PrivateChannelMode && SettingsJson.Data.PrivateChannelListenerId == Client.LocalDynelId)
-                        Client.Chat.PrivateGroupMessageReceived += (e, msg) => HandlePrivateGroupMessage(msg);
-
-                    Client.Chat.PrivateMessageReceived += (e, msg) => HandlePrivateMessage(msg);
                     Client.OnUpdate += QueueProcessor.OnUpdate;
                     Client.OnUpdate -= OnUpdate;
                 }
