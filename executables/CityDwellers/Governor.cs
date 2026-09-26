@@ -296,27 +296,27 @@ namespace CityDwellers.Host
 
         private void RouteLifecycleRequests()
         {
-            foreach (LifecycleRequest request in ManagerMemory.Current.TakeLifecycleRequests(32))
+            foreach (LifecycleRequest request in ManagerMemory.Current.TakeLifecycleRequests(_authority, 32))
             {
                 Entry entry;
                 if (!_entries.TryGetValue(request.Target ?? string.Empty, out entry))
                 {
                     ManagerMemory.Current.RejectLifecycle(
-                        request.Id, "unknown_component: " + (request.Target ?? "<missing>"));
+                        _authority, request.Id, "unknown_component: " + (request.Target ?? "<missing>"));
                     continue;
                 }
 
                 if (!string.Equals(request.Verb, "request", StringComparison.OrdinalIgnoreCase))
                 {
                     ManagerMemory.Current.RejectLifecycle(
-                        request.Id, "Unsupported Governor verb '" + request.Verb + "'.");
+                        _authority, request.Id, "Unsupported Governor verb '" + request.Verb + "'.");
                     continue;
                 }
 
                 if (!string.Equals(entry.Phase, "running", StringComparison.Ordinal))
                 {
                     ManagerMemory.Current.RejectLifecycle(
-                        request.Id,
+                        _authority, request.Id,
                         entry.Name + " is " + entry.Phase +
                         (string.IsNullOrWhiteSpace(entry.Reason) ? "." : ": " + entry.Reason));
                     continue;
@@ -336,7 +336,7 @@ namespace CityDwellers.Host
                 if (!ManagerMemory.Current.PublishLifecycleCommand(_authority, command))
                 {
                     ManagerMemory.Current.RejectLifecycle(
-                        request.Id, entry.Name + " already has a Governor command in progress.");
+                        _authority, request.Id, entry.Name + " already has a Governor command in progress.");
                 }
             }
         }
@@ -420,7 +420,7 @@ namespace CityDwellers.Host
 
         private void Publish(Entry entry)
         {
-            ManagerMemory.Current.PublishComponentStatus(new ComponentStatus
+            ManagerMemory.Current.PublishComponentStatus(_authority, new ComponentStatus
             {
                 Name = entry.Name,
                 Phase = entry.Phase,

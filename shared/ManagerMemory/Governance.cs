@@ -164,8 +164,9 @@ namespace CityDwellers.Shared
                 return !string.IsNullOrWhiteSpace(component) && _lifecycleConsumers.Contains(component);
         }
 
-        public void PublishComponentStatus(ComponentStatus status)
+        public void PublishComponentStatus(GovernorAuthority authority, ComponentStatus status)
         {
+            RequireGovernor(authority);
             if (status == null || string.IsNullOrWhiteSpace(status.Name))
                 throw new ArgumentException("Component name required.");
             lock (_governanceSync)
@@ -215,8 +216,9 @@ namespace CityDwellers.Shared
             }
         }
 
-        public List<LifecycleRequest> TakeLifecycleRequests(int maximum)
+        public List<LifecycleRequest> TakeLifecycleRequests(GovernorAuthority authority, int maximum)
         {
+            RequireGovernor(authority);
             var result = new List<LifecycleRequest>();
             if (maximum <= 0) return result;
             lock (_governanceSync)
@@ -299,8 +301,9 @@ namespace CityDwellers.Shared
             }
         }
 
-        public void RejectLifecycle(string requestId, string message)
+        public void RejectLifecycle(GovernorAuthority authority, string requestId, string message)
         {
+            RequireGovernor(authority);
             PublishLifecycleOutcome(new LifecycleOutcome
             {
                 RequestId = requestId,
