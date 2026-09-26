@@ -223,8 +223,11 @@ public class FlipperLoader
 
     private static void RunMemoryServer()
     {
-        while (!_stopping)
+        ManagerMemory.Current.SetLifecycleConsumerReady("Flipper", true);
+        try
         {
+            while (!_stopping)
+            {
             LifecycleCommand command = null;
             try
             {
@@ -265,6 +268,10 @@ public class FlipperLoader
                     Thread.Sleep(250);
                 }
             }
+        }
+        finally
+        {
+            ManagerMemory.Current.SetLifecycleConsumerReady("Flipper", false);
         }
     }
 
