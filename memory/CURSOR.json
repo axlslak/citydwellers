@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 259,
-  "last_completed_session": 258,
-  "status": "in_progress",
+  "last_completed_session": 259,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-259-manager-buffer-commands",
-  "checkpoint_commit": "c23c46a",
-  "task": "Complete the session254 conversation migration by moving Mali cast/rebuff/buffmacro public commands to Apcmanager while preserving Mali's existing queue/routing engine.",
-  "resume_instruction": "Resume session 259 only. Add Manager public commands cast/rebuff/buffmacro, pass them through ManagerMemory to one ready buffer that can resolve the requester locally, execute existing Mali semantics on that buffer update thread, and return Manager-owned output. Next journal seq578.",
+  "checkpoint_commit": "5f79e04",
+  "task": "Completed: Apcmanager owns bufflist/cast/rebuff/buffmacro; Mali retains existing queue/profession/casting behavior.",
+  "resume_instruction": "Session 259 complete. Repository writer lock is idle. Owner Release build/live test should exercise #cast ag, #rebuff, #buffmacro and bare tell bufflist/cast/rebuff/buffmacro near the buffer fleet. Next journal seq580.",
   "base_commit": "c23c46a00774b73603d94c6a50a27fc77ad80f0f"
 }
