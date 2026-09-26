@@ -161,26 +161,6 @@
         "c9",
         "cmelees"
       ]
-    }
-  ],
-  "Adventurer": [
-    {
-      "Name": "Boon of the Wanderer",
-      "LevelToId": [
-        {
-          "Level": 0,
-          "Id": 204318
-        }
-      ],
-      "Type": 0,
-      "Description": "13% Root/Snare Resist",
-      "RemoveNanoIdUponCast": [
-        0
-      ],
-      "Tags": [
-        "boon",
-        "botw"
-      ]
     },
     {
       "Name": "Veterans L33t Transformation",
@@ -200,6 +180,26 @@
         "veteranleet",
         "veteransl33t",
         "l33t"
+      ]
+    }
+  ],
+  "Adventurer": [
+    {
+      "Name": "Boon of the Wanderer",
+      "LevelToId": [
+        {
+          "Level": 0,
+          "Id": 204318
+        }
+      ],
+      "Type": 0,
+      "Description": "13% Root/Snare Resist",
+      "RemoveNanoIdUponCast": [
+        0
+      ],
+      "Tags": [
+        "boon",
+        "botw"
       ]
     }
   ],
