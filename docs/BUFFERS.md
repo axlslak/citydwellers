@@ -81,7 +81,20 @@ Casting, team handling and buff queues remain Mali's. Direct buffer tells and
 private-group commands are retired; Apcmanager owns the user-facing catalogue.
 Use `#bufflist` (or tell Apcmanager `bufflist`) to open the cached capability
 list. Last-known capabilities remain visible while a buffer is offline, marked
-cached rather than ready. The inherited startup delay is 30 seconds after entering play.
+cached rather than ready. Buff tags in the list are Apcmanager command links.
+
+The old Mali public buff actions also belong to Apcmanager now:
+- `cast <tag...>` routes the requested Mali tags through the existing queue/profession engine;
+- `rebuff` scans the requester's currently visible NCU buffs and re-requests the recognized ones;
+- `buffmacro` scans the same NCU state and returns a `/tell Apcmanager cast ...` preset macro.
+
+A public action is placed in bounded ManagerMemory work and is claimed atomically
+by the first ready buffer that can actually resolve the requester in its local AO
+player view. The claiming buffer runs Mali's existing request logic on its AO
+update thread; Apcmanager remains the only public conversation surface. If no
+ready buffer can see the requester, Manager reports that explicitly instead of
+silently dropping the command. The inherited startup delay is 30 seconds after
+entering play.
 
 Use `#buffers` through Manager (or tell Manager `buffers`) to query each configured
 buffer over the existing City Dwellers status bridge. It reports readiness, known
