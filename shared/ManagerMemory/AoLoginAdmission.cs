@@ -27,7 +27,6 @@ namespace CityDwellers.Shared
         private long _aoLoginWaveOpenedTimestamp;
         private long _aoLoginWaveNumber;
         private long _aoLoginNextTicket;
-        private long _aoLoginServingTicket;
 
         public void ConfigureAoLoginAdmission(
             GovernorAuthority authority,
@@ -42,17 +41,12 @@ namespace CityDwellers.Shared
 
             lock (_aoLoginSync)
             {
-                if (_aoLoginNextTicket != _aoLoginServingTicket)
-                    throw new InvalidOperationException(
-                        "AO login admission cannot be reconfigured while callers are waiting.");
-
                 _aoLoginWaveSize = maxStartsPerWave;
                 _aoLoginWaveDelayMilliseconds = waveDelayMilliseconds;
                 _aoLoginWaveRemaining = maxStartsPerWave;
                 _aoLoginWaveOpenedTimestamp = 0;
                 _aoLoginWaveNumber = 0;
                 _aoLoginNextTicket = 0;
-                _aoLoginServingTicket = 0;
                 Monitor.PulseAll(_aoLoginSync);
             }
         }
@@ -76,9 +70,6 @@ namespace CityDwellers.Shared
 
                 while (true)
                 {
-                    while (ticket != _aoLoginServingTicket)
-                        Monitor.Wait(_aoLoginSync);
-
                     long now = Stopwatch.GetTimestamp();
                     long waveDuration = MillisecondsToStopwatchTicks(
                         _aoLoginWaveDelayMilliseconds);
@@ -109,7 +100,6 @@ namespace CityDwellers.Shared
                     int position =
                         _aoLoginWaveSize - _aoLoginWaveRemaining + 1;
                     _aoLoginWaveRemaining--;
-                    _aoLoginServingTicket++;
                     Monitor.PulseAll(_aoLoginSync);
 
                     long waitedTicks =
