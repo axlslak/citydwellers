@@ -17,6 +17,8 @@ using Newtonsoft.Json;
 using Serilog;
 using Serilog.Core;
 using CityDwellers.Shared;
+using WorkerRequest = CityDwellers.Shared.WorkerRequest;
+using WorkerResponse = CityDwellers.Shared.WorkerResponse;
 
 public class BuddiesHost
 {
@@ -2222,20 +2224,6 @@ public class BuddiesHost
         public string NavigationDetail;
     }
 
-    private class WorkerRequest
-    {
-        public string Id;
-        public string Command;
-        public int? Level;
-        public int? Index;
-        public List<int> Indexes;
-        public string Purpose;
-        public int? LeaseSeconds;
-        public bool Home;
-        public bool LogoutAfterHome;
-        public string HomeJobId;
-    }
-
     private sealed class HomeMaintenanceState
     {
         public string JobId;
@@ -2320,25 +2308,4 @@ public class BuddiesHost
         }
     }
 
-    private class WorkerResponse
-    {
-        public string Id;
-        public bool Ok;
-        public string Message;
-        public string Character;
-        public int? Level;
-        public int? Index;
-        public List<string> Characters;
-        public List<int> Indexes;
-        public int? Count;
-        public List<BuddyPositionSnapshot> Positions;
-        public string HomeJobId;
-        public bool HomeRunning;
-        public int HomeAttempted;
-        public int HomeStarted;
-        public int HomeTerminal;
-        public int HomeReached;
-        public int HomeStopped;
-        public List<string> HomeFailures;
-    }
 }
