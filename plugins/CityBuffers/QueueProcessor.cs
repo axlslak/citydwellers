@@ -370,6 +370,7 @@ namespace MalisBuffBots
 
             _attemptedEntryKey = CurrentCastAttemptKey();
             _attemptedEntryExpiresUtc = DateTime.UtcNow.AddSeconds(CastCompletionTimeoutSeconds);
+            Targeting.SetTarget(buffTarget);
             DynelManager.LocalPlayer.Cast(buffTarget, firstAvailableBuff.Id);
         }
 
