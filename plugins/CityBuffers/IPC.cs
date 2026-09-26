@@ -458,3 +458,6 @@ namespace MalisBuffBots
         {
             TryAddLocal(profession);
             _entries[profession].Queue = entries ?? new BuffEntry[0];
+        }
+    }
+}
