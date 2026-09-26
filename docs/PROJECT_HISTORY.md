@@ -3644,3 +3644,30 @@ and live startup test; expected evidence is shared wave numbers/slots across
 different component names and no more than four admissions before each
 one-second pause.
 
+## Session 259 — Apcmanager gets the rest of Mali's public commands
+
+Session 254 correctly removed direct user conversation from CityBuffers and
+moved the public catalogue to Apcmanager, but the action half of that migration
+was incomplete. The old Mali commands `cast`, `rebuff` and `buffmacro`
+were left behind after their buffer chat subscriptions were retired, leaving no
+public endpoint for those preserved engine functions.
+
+Apcmanager now owns those command names as well as `bufflist`. It does not
+become a casting engine. Manager places a short-lived request in ManagerMemory;
+ready buffers inspect it from their existing update path. A buffer must first
+resolve the requester's AO identity in its own local player view, then atomically
+claim the request. This both preserves Mali's need for a real PlayerChar and
+avoids arbitrarily routing the public command to a buffer that cannot see the
+player. Multiple buffers seeing the same player cannot duplicate the request
+because only one claim can succeed.
+
+The winner calls the existing Mali tag/NCU/queue logic. Cast still resolves
+BuffsDb tags and routes to the required profession, rebuff still scans current
+recognized NCU buffs, and buffmacro still derives tags from current NCU state.
+The difference is only ownership of the conversation: Apcmanager reports
+failures, emits the macro, and bufflist buttons point back to Apcmanager.
+
+This also closes a smaller session-254 tell seam: bare `bufflist` tells to
+Apcmanager are now recognized alongside bare `cast`, `rebuff` and
+`buffmacro`. Direct buffer tells remain intentionally silent.
+
