@@ -121,9 +121,9 @@ namespace MalisBuffBots
                 case CharacterActionType.FinishNanoCasting:
                     OnFinishNanoCastingAction(actionMsg.Identity, actionMsg.Target, actionMsg.Parameter2);
                     break;
-                case (CharacterActionType)21: // NEW CODE
-                    CityBufferBridge.SendPrivateMessage(actionMsg.Target.Instance, ScriptTemplate.CreateFailTeamInviteReply()); // NEW CODE
-                    break; // NEW CODE
+                case (CharacterActionType)21:
+                    Logger.Warning("Team invite failed for requester " + actionMsg.Target.Instance + ".");
+                    break;
                 case CharacterActionType.TeamMemberLeft:
                     if (actionMsg.Target == DynelManager.LocalPlayer.Identity)
                         Main.Ipc.BotCache.BroadcastTeamInfoMessage();
