@@ -3544,3 +3544,72 @@ would help fix it before anyone changes code.
 - [IMPLEMENTED] Public `bufflist` belongs to Apcmanager and renders only from ManagerMemory. Organization/guest replies stay on the originating channel; tell replies are pinned to Apcmanager through the shared TellQueue.
 - [UNCHANGED] No paid-buffer login/scheduling, buff ordering/request command, NCU-wave behavior, team IPC rewrite, or casting-engine rewrite was added.
 - [VALIDATION] Current-source call-path review confirms no CityBuffers private-message/private-group command subscriptions and no active CityBufferBridge.SendPrivateMessage calls outside the retained compatibility helper. Changed C# files have balanced braces/parentheses. No assistant build/live AO test.
+
+## Session 255 — host Governor lifecycle and ManagerMemory worker control
+
+- [OWNER-DIRECTION] The unified host now has one lifecycle owner. Governor owns
+  the component roster, generations, stop handles, supervision, Manager-only
+  restart and whole-host shutdown. ManagerMemory remains a passive in-process
+  coordination surface; component owners still create/unload their own AO
+  ClientDomains and existing Flipper/Buddies business handlers remain intact.
+- [IMPLEMENTED] Governor starts enabled Flipper, Buddies, Buffers, Bankers and
+  Manager components and publishes host-lifetime component status. Flipper and
+  Buddies are not reported running until their ManagerMemory command consumers
+  are ready. Manager, Flipper, Buddies and Buffers restart after unexpected
+  exits with 30/60/120/240/300-second backoff; the fifth failed restart attempt
+  abandons the component, and 30 healthy minutes clears the failure series.
+  Bankers are deliberately abandoned rather than automatically restarted after
+  an unexpected component exit.
+- [IMPLEMENTED] Manager Flipper/Buddies work now travels through a correlated
+  ManagerMemory request -> Governor command -> worker outcome path. Governor is
+  the only process that may dequeue lifecycle requests, publish component
+  status, reject routing requests, issue worker commands or cancel an active
+  command. The host-only GovernorAuthority capability enforces those ownership
+  points.
+- [FIXED-DURING-CLOSURE] Lifecycle command/outcome waits are deadline-based
+  condition loops. Unrelated one-second status heartbeats can no longer wake a
+  Manager waiter and create a false timeout. Caller-abandoned requests are
+  discarded before dispatch when possible; late results from a cancelled
+  generation are ignored rather than becoming stale outcomes.
+- [FIXED-DURING-CLOSURE] CityRaidAutomation's automatic cloak-recovery path was
+  the one remaining normal caller of the dormant Flipper named pipe. It now
+  uses the same shared WorkerRequest/WorkerResponse Governor path as the other
+  Manager Flipper operations. Current Manager, raid, presentation and recovery
+  source contains no normal Flipper/Buddies named-pipe call.
+- [LIFECYCLE] Unloading a Manager client abandons that character's lifecycle
+  correlation state. Already-running Flipper/Buddies work is intentionally not
+  cancelled merely because Apcmanager is restarting; it may finish, but its
+  old-generation response is discarded and cannot leak into the new Manager
+  generation.
+- [BOUNDARY] The old Flipper/Buddies pipe listener implementations remain
+  compiled as dormant backup/reference code, but neither service starts its
+  pipe listener in normal operation. CityBuffers' separate status pipe is
+  unchanged and is not part of this migration. Mali team IPC, buffer casting,
+  Banker custody/accounting, SQL persistence and AO-thread ownership are
+  unchanged.
+- [SHUTDOWN] Manager-only restart leaves the other components online. Unified
+  shutdown keeps the shared 160-second cleanup budget. A fatal lifecycle or
+  abandoned component makes the eventual host result unhealthy; explicit AO
+  operator shutdown still reports a normal service stop so Windows SCM recovery
+  does not undo an intentional shutdown.
+- [SESSION-254-RE-AUDIT] The preceding Manager-owned buffer-voice transaction is
+  complete. Current CityBuffers has no tell/private-group command subscription;
+  its remaining MessageReceived hook handles N3 game packets. Advertised buff
+  snapshots remain cached when a buffer goes offline, and Apcmanager bufflist
+  reads ManagerMemory only, distinguishes READY/CACHED providers, preserves the
+  originating org/guest channel and pins tell replies to Apcmanager. The
+  retained direct buffer tell helper is reachable only from a dormant legacy
+  admission helper. The line-level NCU presentation matches Mali's prior
+  catalogue rule; actual multi-rank NCU Nanos selection remains target-level
+  dependent at cast time.
+- [RECOVERY] A late stale session-254 lock-release record collided with the
+  already-completed session-254 COMMIT and active session-255 BEGIN. Journal
+  seq569 supersedes only that stale claim; Git, the first seq567 COMMIT and
+  seq568 BEGIN remain authoritative.
+- [VALIDATION] Closure review used current-master source, Git history and
+  call-path inspection. Normal Manager sources were checked for retired
+  Flipper/Buddies pipe calls; dormant listeners were checked not to start; the
+  seven changed C# control-plane files have balanced lexical delimiters.
+  No assistant build, test suite or live AO test was run; the owner retains
+  compiler and runtime validation.
+

@@ -3550,3 +3550,62 @@ Each buffer now derives an advertised catalogue from the character's actual know
 Apcmanager gained public `bufflist`. It reads only ManagerMemory, groups the cached capabilities for presentation, marks currently fresh/ready providers separately from cached/offline providers, replies in the originating org/guest channel, and pins tell replies to Apcmanager through the normal TellQueue. No live query to a buffer process is involved.
 
 Paid buffer login/scheduling, buff ordering/request commands, NCU-wave behavior, and Mali team/casting behavior remain deliberately outside this session. Validation was source/call-path review only; the owner retains Release build and live AO validation.
+
+## Session 255 — the unified host gets a Governor
+
+Session 254 finished the buffer-conversation boundary and then immediately opened
+the next architectural transaction: make host lifecycle itself explicit. The
+result is a Governor in the default host AppDomain rather than another bot,
+database service or polling process. It owns which components are expected to
+exist, their generations, stop handles, restart policy and the distinction
+between an intentional Manager restart and a failing component.
+
+Flipper and Buddies keep their existing request handlers, but their normal
+Manager traffic no longer enters through named pipes. Manager submits a
+correlated lifecycle request to ManagerMemory; Governor validates the target and
+publishes one command for that component generation; the existing worker handles
+the payload and publishes the correlated result. The legacy pipe server methods
+remain in source, deliberately dormant. Bankers keep their own already-migrated
+ManagerMemory coordination, and the separate CityBuffers status pipe remains
+outside this change.
+
+The closure review found three classes of seam before the transaction was
+sealed. First, the original outcome wait used a single Monitor.Wait on the same
+monitor as component heartbeats, so a harmless heartbeat could look like an
+early timeout. Both command and outcome waits now loop against an elapsed-time
+deadline. Timeout/disconnect state is tracked so abandoned requests are skipped
+before dispatch where possible and late outcomes cannot survive into a later
+Manager generation.
+
+Second, automatic cloak recovery in CityRaidAutomation had escaped the initial
+routing sweep and still called the old Flipper pipe directly. That path now uses
+the shared Governor worker contract too. The review also removed the misleading
+pipe-name indirection from normal Manager call sites so future readers do not
+mistake memory routing for IPC.
+
+Third, the host-only Governor capability originally protected command
+publication and cancellation but not every operation that semantically belongs
+to Governor. Request dequeue, route rejection and component-status publication
+now require the same capability, making the intended chokepoint an enforced
+boundary rather than a convention.
+
+The restart contract is deliberately asymmetric. Manager, Flipper, Buddies and
+Buffers use 30/60/120/240/300-second backoff and become abandoned after the
+fifth failed restart attempt; a healthy 30-minute generation clears the series.
+Bankers are never automatically restarted after an unexpected component exit.
+Manager's explicit AO restart stops and recreates Manager only, while other
+components remain alive. A Manager AppDomain disconnect abandons its old
+request correlations without cancelling worker actions already in progress, so
+a cloak or buddy operation can finish without leaving an orphaned response.
+
+As part of the seal, session 254 was re-audited rather than assumed correct.
+Its user-facing ownership boundary still holds: buffer chat command
+subscriptions are gone, the surviving MessageReceived processor is N3 game
+traffic, capability snapshots remain cached-but-offline across buffer unload,
+and Apcmanager owns the ManagerMemory-only bufflist and its tell pinning. No
+additional session-254 code change was required.
+
+Validation for the Governor transaction is source/call-path and Git-history
+review only. The owner remains responsible for the Release build and live AO
+exercise.
+
