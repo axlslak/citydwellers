@@ -186,7 +186,7 @@ public class FlipperLoader
         Console.WriteLine("======================================");
         Console.WriteLine();
         Console.WriteLine($"Character: {_account.Character}");
-        Console.WriteLine($"Pipe:      {PipeName}");
+        Console.WriteLine("Control:   Governor memory (legacy pipe retained but dormant)");
         Console.WriteLine($"Cache:     {(_config.CacheFreshSeconds > 0 ? _config.CacheFreshSeconds : 60)}s fresh window");
         Console.WriteLine();
         Console.WriteLine("Flipper service idle. Apcflipper is NOT logged in.");
@@ -197,13 +197,13 @@ public class FlipperLoader
             Console.WriteLine("Press ENTER to stop Flipper.");
         Console.WriteLine();
 
-        Thread pipeThread = new Thread(RunPipeServer)
+        Thread memoryThread = new Thread(RunMemoryServer)
         {
             IsBackground = true,
-            Name = "CityDwellers.Flipper.Pipe"
+            Name = "CityDwellers.Flipper.Memory"
         };
 
-        pipeThread.Start();
+        memoryThread.Start();
 
         if (stopSignal != null)
             stopSignal.WaitOne();
@@ -219,6 +219,53 @@ public class FlipperLoader
         }
         Console.WriteLine("Flipper service stopped.");
         return 0;
+    }
+
+    private static void RunMemoryServer()
+    {
+        while (!_stopping)
+        {
+            LifecycleCommand command = null;
+            try
+            {
+                command = ManagerMemory.Current.WaitForLifecycleCommand("Flipper", 500);
+                if (command == null)
+                    continue;
+
+                if (!string.Equals(command.Verb, "request", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Unsupported Governor verb '" + command.Verb + "'.");
+
+                WorkerRequest request = JsonConvert.DeserializeObject<WorkerRequest>(command.Payload ?? "null");
+                WorkerResponse response = HandleRequest(request);
+                ManagerMemory.Current.PublishLifecycleOutcome(new LifecycleOutcome
+                {
+                    RequestId = command.RequestId,
+                    CommandId = command.CommandId,
+                    Ok = true,
+                    Payload = JsonConvert.SerializeObject(response),
+                    CompletedUtc = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                if (command != null)
+                {
+                    ManagerMemory.Current.PublishLifecycleOutcome(new LifecycleOutcome
+                    {
+                        RequestId = command.RequestId,
+                        CommandId = command.CommandId,
+                        Ok = false,
+                        Message = ex.Message,
+                        CompletedUtc = DateTime.UtcNow
+                    });
+                }
+                else if (!_stopping)
+                {
+                    Console.WriteLine("Flipper Governor memory listener error: " + ex.Message);
+                    Thread.Sleep(250);
+                }
+            }
+        }
     }
 
     private static void RunPipeServer()
@@ -263,7 +310,7 @@ public class FlipperLoader
         string command = request.Command.Trim().ToLowerInvariant();
 
         Console.WriteLine(
-            $"IPC request {request.Id ?? "<no-id>"}: {command}");
+            $"Worker request {request.Id ?? "<no-id>"}: {command}");
 
         switch (command)
         {
