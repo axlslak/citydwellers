@@ -107,6 +107,13 @@ namespace CityDwellers.Shared
         internal LifecycleOutcome Copy() => (LifecycleOutcome)MemberwiseClone();
     }
 
+    // Host-only capability. It is deliberately neither Serializable nor MarshalByRefObject,
+    // so a client AppDomain cannot carry it through the remoting boundary.
+    public sealed class GovernorAuthority
+    {
+        internal GovernorAuthority() { }
+    }
+
     public sealed partial class ManagerMemory
     {
         private readonly object _governanceSync = new object();
@@ -117,6 +124,40 @@ namespace CityDwellers.Shared
             new Dictionary<string, LifecycleCommand>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, LifecycleOutcome> _lifecycleOutcomes =
             new Dictionary<string, LifecycleOutcome>(StringComparer.Ordinal);
+        private readonly HashSet<string> _lifecycleConsumers =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private GovernorAuthority _governorAuthority;
+
+        public GovernorAuthority AcquireGovernorAuthority()
+        {
+            if (!AppDomain.CurrentDomain.IsDefaultAppDomain())
+                throw new InvalidOperationException("Only the host Governor can acquire lifecycle authority.");
+            lock (_governanceSync)
+                return _governorAuthority ?? (_governorAuthority = new GovernorAuthority());
+        }
+
+        private void RequireGovernor(GovernorAuthority authority)
+        {
+            if (!ReferenceEquals(authority, _governorAuthority) || authority == null)
+                throw new InvalidOperationException("Governor lifecycle authority required.");
+        }
+
+        public void SetLifecycleConsumerReady(string component, bool ready)
+        {
+            if (string.IsNullOrWhiteSpace(component)) return;
+            lock (_governanceSync)
+            {
+                if (ready) _lifecycleConsumers.Add(component);
+                else _lifecycleConsumers.Remove(component);
+                Monitor.PulseAll(_governanceSync);
+            }
+        }
+
+        public bool LifecycleConsumerReady(string component)
+        {
+            lock (_governanceSync)
+                return !string.IsNullOrWhiteSpace(component) && _lifecycleConsumers.Contains(component);
+        }
 
         public void PublishComponentStatus(ComponentStatus status)
         {
@@ -178,8 +219,9 @@ namespace CityDwellers.Shared
             return result;
         }
 
-        public bool PublishLifecycleCommand(LifecycleCommand command)
+        public bool PublishLifecycleCommand(GovernorAuthority authority, LifecycleCommand command)
         {
+            RequireGovernor(authority);
             if (command == null || string.IsNullOrWhiteSpace(command.Component) ||
                 string.IsNullOrWhiteSpace(command.CommandId) || string.IsNullOrWhiteSpace(command.RequestId))
                 return false;
@@ -233,8 +275,9 @@ namespace CityDwellers.Shared
             });
         }
 
-        public void CancelLifecycleCommand(string component, string message)
+        public void CancelLifecycleCommand(GovernorAuthority authority, string component, string message)
         {
+            RequireGovernor(authority);
             if (string.IsNullOrWhiteSpace(component)) return;
             lock (_governanceSync)
             {
