@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 259,
+  "current_session": 260,
   "last_completed_session": 259,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-259-manager-buffer-commands",
-  "checkpoint_commit": "5f79e04",
-  "task": "Completed: Apcmanager owns bufflist/cast/rebuff/buffmacro; Mali retains existing queue/profession/casting behavior.",
-  "resume_instruction": "Session 259 complete. Repository writer lock is idle. Owner Release build/live test should exercise #cast ag, #rebuff, #buffmacro and bare tell bufflist/cast/rebuff/buffmacro near the buffer fleet. Next journal seq580.",
-  "base_commit": "c23c46a00774b73603d94c6a50a27fc77ad80f0f"
+  "transaction": "session-260-veterans-l33t-buff",
+  "checkpoint_commit": "3a54f9d",
+  "task": "Add Veterans L33t Transformation to Mali's Adventurer BuffsDb so Kbadvy can advertise, route and cast it on other players through Apcmanager.",
+  "resume_instruction": "Resume session 260 only. Add nano program 268697 (crystal 268698) as an Adventurer single-target BuffsDb entry with no post-cast removal; verify unique tags and bufflist discovery, then seal. Next journal seq580.",
+  "base_commit": "3a54f9def702cb7c5c5ef5f730c16e0b9ae936e6"
 }
