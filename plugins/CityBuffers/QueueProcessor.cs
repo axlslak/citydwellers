@@ -18,7 +18,7 @@ namespace MalisBuffBots
         public int TeamTrackerId;
         public BuffQueue Queue = new BuffQueue();
         public N3MessageProcessor N3MessageProcessor;
-        private BuffEntry _attemptedEntry;
+        private string _attemptedEntryKey;
         private DateTime _attemptedEntryExpiresUtc;
         private const int CastCompletionTimeoutSeconds = 8;
 
@@ -276,13 +276,30 @@ namespace MalisBuffBots
 
         private void ClearCastAttempt()
         {
-            _attemptedEntry = null;
+            _attemptedEntryKey = null;
             _attemptedEntryExpiresUtc = DateTime.MinValue;
+        }
+
+        private string CurrentCastAttemptKey()
+        {
+            if (Queue.Current == null || Queue.Current.NanoEntry == null)
+                return null;
+
+            string nanoIds = Queue.Current.NanoEntry.LevelToId == null
+                ? string.Empty
+                : string.Join(",", Queue.Current.NanoEntry.LevelToId
+                    .Select(level => level.Id)
+                    .OrderBy(id => id));
+
+            return Queue.Current.Requester.Instance + "|" + Queue.Current.NanoEntry.Name + "|" + nanoIds;
         }
 
         private bool CurrentCastAttemptPending()
         {
-            if (_attemptedEntry == null || Queue.Current == null || !_attemptedEntry.Equals(Queue.Current))
+            string currentKey = CurrentCastAttemptKey();
+            if (string.IsNullOrWhiteSpace(_attemptedEntryKey) ||
+                string.IsNullOrWhiteSpace(currentKey) ||
+                !string.Equals(_attemptedEntryKey, currentKey, StringComparison.Ordinal))
                 return false;
 
             if (DateTime.UtcNow < _attemptedEntryExpiresUtc)
@@ -351,7 +368,7 @@ namespace MalisBuffBots
                 });
             }
 
-            _attemptedEntry = Queue.Current;
+            _attemptedEntryKey = CurrentCastAttemptKey();
             _attemptedEntryExpiresUtc = DateTime.UtcNow.AddSeconds(CastCompletionTimeoutSeconds);
             DynelManager.LocalPlayer.Cast(buffTarget, firstAvailableBuff.Id);
         }
