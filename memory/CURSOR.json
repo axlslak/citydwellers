@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 262,
+  "current_session": 263,
   "last_completed_session": 262,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-262-buffer-asset-deployment",
-  "checkpoint_commit": "de16423",
-  "task": "No code change. Open diagnosis: live CityBuffers reported BuffsDb.json missing although the owner confirms the file is present at that path.",
-  "resume_instruction": "Session 262 closed read-only. Extra-dot diagnosis was retracted by seq586. If work resumes, first establish why File.ReadAllText saw C:\\release\\Buffers\\JSON\\BuffsDb.json as missing during Init despite the owner's filesystem observation. Next journal seq587.",
-  "base_commit": "4d80266ebbe4021675ab7d19501b2b99882f2c57"
+  "transaction": "session-263-buffer-known-nano-overrides",
+  "checkpoint_commit": "09c1424",
+  "task": "Add a per-character effective known-nano override so Kbadvy can advertise and cast Veterans L33t Transformation despite AOSharp omitting 268697 from UploadedNanoIds.",
+  "resume_instruction": "Recover session263. Implement KnownNanoOverrides + EffectiveSpellList, configure Kbadvy=268697, use it for advertisement/routing/queue/final cast, source-review only, then seal. Next journal seq588.",
+  "base_commit": "09c1424a0dff0da990e74ea45bddd78bcb2fc469"
 }
