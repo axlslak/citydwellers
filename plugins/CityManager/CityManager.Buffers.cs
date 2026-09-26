@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading;
+using AOSharp.Clientless;
 using CityDwellers.Shared;
 using Newtonsoft.Json.Linq;
 
@@ -137,6 +139,125 @@ namespace CityManager
                     if (began) ManagerMemory.Current.FinishBufferControl(id);
                 }
             });
+        }
+
+        private void ProcessBufferBuffListCommand(string[] parts, ReplyTarget target)
+        {
+            if (parts.Length != 1)
+            {
+                Reply(target, Usage(target, "bufflist"));
+                return;
+            }
+
+            QueuePublicWork(target, () =>
+            {
+                List<BufferBotInfo> snapshots = ManagerMemory.Current.BufferBotInfos()
+                    .Where(snapshot => snapshot != null &&
+                        snapshot.AdvertisedBuffs != null &&
+                        snapshot.AdvertisedBuffs.Length != 0)
+                    .ToList();
+
+                if (snapshots.Count == 0)
+                {
+                    ReplyBufferCatalogue(target,
+                        new[] { "No buffer capability catalogue has been observed yet." });
+                    return;
+                }
+
+                DateTime now = DateTime.UtcNow;
+                var rows = snapshots
+                    .SelectMany(snapshot => snapshot.AdvertisedBuffs
+                        .Where(buff => buff != null)
+                        .Select(buff => new { Snapshot = snapshot, Buff = buff }))
+                    .ToList();
+
+                var body = new StringBuilder();
+                body.Append("<font color='").Append(ColorMuted)
+                    .Append("'>Cached from buffer capability snapshots. READY means at least one advertising buffer is currently fresh and ready; CACHED remains visible while its buffer is offline.</font>\n\n");
+
+                foreach (var profession in rows
+                    .GroupBy(row => row.Buff.Profession)
+                    .OrderBy(group => ((AOSharp.Common.GameData.Profession)group.Key).ToString(),
+                        StringComparer.OrdinalIgnoreCase))
+                {
+                    string professionName =
+                        ((AOSharp.Common.GameData.Profession)profession.Key).ToString();
+                    body.Append("<font color='").Append(ColorTitle).Append("'><b>")
+                        .Append(EscapeBlobText(professionName)).Append("</b></font>\n");
+
+                    foreach (var buffGroup in profession
+                        .GroupBy(row => (row.Buff.Tag ?? string.Empty) + "\u001f" +
+                            (row.Buff.Name ?? string.Empty), StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(group => group.First().Buff.Name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        BufferAdvertisedBuff buff = buffGroup.First().Buff;
+                        bool ready = buffGroup.Any(row => IsFreshReadyBuffer(row.Snapshot, now));
+                        string providers = string.Join(", ", buffGroup
+                            .Select(row => row.Snapshot.Character +
+                                (IsFreshReadyBuffer(row.Snapshot, now) ? " ready" : " offline"))
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
+
+                        body.Append("  <font color='")
+                            .Append(ready ? ColorGood : ColorMuted)
+                            .Append("'>").Append(ready ? "READY" : "CACHED")
+                            .Append("</font> ");
+
+                        if (!string.IsNullOrWhiteSpace(buff.Tag))
+                            body.Append("<font color='").Append(ColorCommand).Append("'>")
+                                .Append(EscapeBlobText(buff.Tag)).Append("</font> ");
+
+                        body.Append(EscapeBlobText(buff.Name));
+                        if (!string.IsNullOrWhiteSpace(buff.Description))
+                            body.Append(" - ").Append(EscapeBlobText(buff.Description));
+                        if (buff.Ncu > 0)
+                            body.Append(" - ").Append(buff.Ncu).Append(" NCU");
+                        body.Append(" <font color='").Append(ColorMuted).Append("'>(")
+                            .Append(EscapeBlobText(providers)).Append(")</font>\n");
+                    }
+
+                    body.Append("\n");
+                }
+
+                List<string> links = BuildBlobLinks(
+                    target,
+                    "Buffer Buff Catalogue",
+                    "Buff list",
+                    body.ToString());
+
+                ReplyBufferCatalogue(
+                    target,
+                    links.Select(link =>
+                        "<font color='" + ColorTitle + "'>Apcmanager Buffs</font> " + link));
+            });
+        }
+
+        private static bool IsFreshReadyBuffer(BufferBotInfo snapshot, DateTime now)
+        {
+            TimeSpan age;
+            return snapshot != null &&
+                snapshot.InPlay &&
+                snapshot.Ready &&
+                UtcTimestamp.TryGetAge(snapshot.ObservedUtc, now, out age) &&
+                age <= TimeSpan.FromSeconds(5);
+        }
+
+        private void ReplyBufferCatalogue(ReplyTarget target, IEnumerable<string> messages)
+        {
+            if (target.Kind != ReplyKind.Tell)
+            {
+                Reply(target, messages);
+                return;
+            }
+
+            foreach (string message in messages)
+            {
+                QueueTell(
+                    target.SenderName,
+                    target.SenderId != 0 ? (uint?)target.SenderId : null,
+                    CityBankers.Shared.CityBankersChatPalette.StyleMarkup(message),
+                    Client.CharacterName);
+            }
         }
 
         private void BeginBufferStatus(ReplyTarget target)
