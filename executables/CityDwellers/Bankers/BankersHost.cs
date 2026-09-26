@@ -582,8 +582,8 @@ public class BankerLoader
         string character,
         Stopwatch timer)
     {
-        AoLoginAdmission admission =
-            ManagerMemory.Current.WaitForAoLoginAdmission(
+        CityDwellers.Shared.AoLoginAdmission admission =
+            CityDwellers.Shared.ManagerMemory.Current.WaitForAoLoginAdmission(
                 "Bankers", character);
         Console.WriteLine(
             $"[{timer.Elapsed.TotalSeconds:F3}s] Governor AO login admit " +
