@@ -268,6 +268,7 @@ public class FlipperLoader
                     Thread.Sleep(250);
                 }
             }
+            }
         }
         finally
         {
