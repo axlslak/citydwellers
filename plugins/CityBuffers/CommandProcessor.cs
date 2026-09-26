@@ -38,30 +38,15 @@ namespace MalisBuffBots
                 return false;
 
             if (!Enum.TryParse(commandParts[0].ToTitleCase(), out command))
-            {
-                if (!Main.SettingsJson.Data.PrivateChannelMode)
-                    CityBufferBridge.SendPrivateMessage(msg.SenderId, ScriptTemplate.CommandNotFound());
-
                 return false;
-            }
 
             commandParts = commandParts.Length > 1 ? commandParts.Skip(1).ToArray() : null;
 
             if (!_commandActions.TryGetValue(command, out CommandInfo action))
-            {
-                if (!Main.SettingsJson.Data.PrivateChannelMode)
-                    CityBufferBridge.SendPrivateMessage(msg.SenderId, ScriptTemplate.CommandNotFound());
-
                 return false;
-            }
 
             if (!Main.UserRank.MeetsRank(action.Rank, msg.SenderName))
-            {
-                if (!Main.SettingsJson.Data.PrivateChannelMode)
-                    CityBufferBridge.SendPrivateMessage(msg.SenderId, ScriptTemplate.PermissionError(command.ToString()));
-
                 return false;
-            }
 
             return _commandActions[command].Action.Invoke(msg);
         }
@@ -70,10 +55,7 @@ namespace MalisBuffBots
         private static bool CastRequest(PrivateMessage msg)
         {
             if (msg.Message.Split(' ').Length < 2)
-            {
-                CityBufferBridge.SendPrivateMessage(msg.SenderId, ScriptTemplate.InvalidParams());
                 return false;
-            }
 
             return true;
         }
