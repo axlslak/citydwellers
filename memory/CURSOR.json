@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
   "current_session": 262,
-  "last_completed_session": 261,
-  "status": "in_progress",
+  "last_completed_session": 262,
+  "status": "idle",
   "active_project": "citydwellers",
   "transaction": "session-262-buffer-asset-deployment",
-  "checkpoint_commit": "4d80266",
-  "task": "Ensure required CityBuffers JSON assets, especially BuffsDb.json, are emitted to Buffers\\JSON in release output.",
-  "resume_instruction": "Recover session 262. Live build 4d80266 proved BuffsDb.json missing from C:\\release\\Buffers\\JSON and every buffer failed Init. Inspect CityBuffers.csproj asset copy semantics, implement deterministic output paths, preserve banker/runtime behavior, then seal. Next journal seq585.",
+  "checkpoint_commit": "de16423",
+  "task": "No code change. Open diagnosis: live CityBuffers reported BuffsDb.json missing although the owner confirms the file is present at that path.",
+  "resume_instruction": "Session 262 closed read-only. Extra-dot diagnosis was retracted by seq586. If work resumes, first establish why File.ReadAllText saw C:\\release\\Buffers\\JSON\\BuffsDb.json as missing during Init despite the owner's filesystem observation. Next journal seq587.",
   "base_commit": "4d80266ebbe4021675ab7d19501b2b99882f2c57"
 }
