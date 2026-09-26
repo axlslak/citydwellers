@@ -3541,3 +3541,12 @@ affected-only recovery policy and leaves broad automatic audits disabled.
 - [UNCHANGED] Froob accounts remain dedicated: duplicate froob usernames and overlap with other configured services are still rejected.
 - [VALIDATION] Source inspection confirms Paid is parsed/validated while Active still enumerates only Froobs; modified C# braces/parentheses are balanced. No assistant build/live AO test.
 
+## Session 254 — Manager owns the buffer conversation
+
+The buffer integration crossed a clean ownership boundary: Mali remains the casting/team engine, but it is no longer a user-facing bot surface. Direct tell and private-group command subscriptions were retired, and active queue/team failure or invite paths no longer emit buffer-originated user tells.
+
+Each buffer now derives an advertised catalogue from the character's actual known spell list and BuffsDb metadata, then publishes that primitive snapshot into ManagerMemory. Offline/disconnected buffers are marked unavailable without deleting the last-known catalogue, so capability history survives for the host lifetime without falsely advertising an offline caster as ready.
+
+Apcmanager gained public `bufflist`. It reads only ManagerMemory, groups the cached capabilities for presentation, marks currently fresh/ready providers separately from cached/offline providers, replies in the originating org/guest channel, and pins tell replies to Apcmanager through the normal TellQueue. No live query to a buffer process is involved.
+
+Paid buffer login/scheduling, buff ordering/request commands, NCU-wave behavior, and Mali team/casting behavior remain deliberately outside this session. Validation was source/call-path review only; the owner retains Release build and live AO validation.
