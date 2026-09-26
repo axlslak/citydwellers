@@ -75,8 +75,13 @@ Buffer log lines include the character and CityBuffers assembly names. Static ga
 data is preloaded under the same mutex as the other clients. No separate TestClient
 or Mali clientless fork is used.
 
-Mali discovers profession and known nanos from the logged-in character. Its
-BuffsDb supplies tags and casting rules, not a configured per-character list.
+Mali discovers profession and known nanos from the logged-in character. AOSharp.Clientless
+normally supplies these from the server's uploaded-nano list. A small
+`KnownNanoOverrides` map in `Buffers/JSON/Settings.json` may add a nano for a
+specific character when the server omits a known/usable nano from that array; the
+merged effective list is used consistently for catalogue, routing, queue admission
+and final cast selection. `Kbadvy -> 268697` records the observed Veterans L33t
+Transformation exception. BuffsDb supplies tags and casting rules.
 Casting, team handling and buff queues remain Mali's. Direct buffer tells and
 private-group commands are retired; Apcmanager owns the user-facing catalogue.
 Use `#bufflist` (or tell Apcmanager `bufflist`) to open the cached capability

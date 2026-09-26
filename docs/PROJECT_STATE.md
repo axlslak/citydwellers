@@ -1,3 +1,19 @@
+## Session 263 — known-nano override for a server-omitted social nano
+
+- Owner live build 4d80266 loaded CityBuffers and BuffsDb successfully. Kbadvy
+  reached catalogue-ready with knownNanos=30 / advertised=9 and tags c1..c9;
+  Veterans L33t Transformation (268697 / vleet) was absent.
+- AOSharp.Clientless LocalPlayer.SpellList is assigned from
+  FullCharacter.UploadedNanoIds. CityBuffers now has one per-character
+  KnownNanoOverrides seam for a nano known/usable in game but omitted there.
+- Kbadvy explicitly adds 268697. The merged effective spell list drives catalogue
+  advertisement, ManagerMemory capability/routing data, local queue admission and
+  final nano selection, so bufflist and casting use the same truth.
+- Other buffers remain entirely server-discovered. AO packet parsing, banker
+  behavior, Governor login pacing, Mali team IPC and RebuffInfo are unchanged.
+- Validation: focused source/call-path review only; owner Release build/live AO
+  validation remains the runtime check.
+
 ## Session 209 — worker admission accounting and early startup visibility
 
 - Owner live evidence: SQL load/connection behavior substantially improved; all

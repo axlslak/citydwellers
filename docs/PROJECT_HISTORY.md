@@ -3701,3 +3701,19 @@ catalogue is still retained when a buffer goes offline. A low-noise
 catalogue-ready/change log records counts and tags so the next live run can
 distinguish a catalogue match from a runtime asset or uploaded-spell problem.
 
+
+
+## Session 263 — one explicit exception for an incomplete uploaded-nano list
+
+Live diagnostics finally separated catalogue configuration from discovery. With
+BuffsDb loading successfully, Kbadvy still published only the nine composite
+buffs and did not advertise nano 268697. Inspection of AOSharp.Clientless showed
+that LocalPlayer.SpellList is assigned directly from FullCharacter.UploadedNanoIds.
+
+Rather than hard-code Veterans L33t into Apcmanager or advertise a buff that Mali
+would later reject, CityBuffers now has a per-character KnownNanoOverrides
+setting. One EffectiveSpellList merge point feeds initial/heartbeat publication,
+cross-buffer capability routing, LocalEnqueue and final level/nano selection. The
+packaged exception is Kbadvy -> 268697; all ordinary nanos and all other buffers
+continue to use the server-provided uploaded list. The configured override is
+logged on startup so the exception is visible rather than implicit.
