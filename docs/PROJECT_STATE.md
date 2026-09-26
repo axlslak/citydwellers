@@ -3681,3 +3681,22 @@ would help fix it before anyone changes code.
   balanced delimiters in all modified C# files. Owner Release build/live AO
   test remains compiler/runtime validation.
 
+## Session 260 — Veterans L33t Transformation
+
+- [OWNER-DIRECTION] Kbadvy has uploaded Nano Crystal AOID 268698 and should be
+  able to cast its uploaded nano, Veterans L33t Transformation, on other players
+  through the Manager-owned buffer command surface.
+- [IMPLEMENTED] BuffsDb now includes nano program 268697 as a Generic single
+  target buff with tags `vleet`, `veteranleet`, `veteransl33t` and
+  `l33t`. `RemoveNanoIdUponCast` remains zero.
+- [ROUTING] The nano is General rather than Adventurer-only, so it is deliberately
+  under the Generic catalogue. Mali's existing generic routing selects only a
+  ready buffer whose live spell list contains 268697. With the current
+  deployment that means Kbadvy, while allowing another buffer to serve it later
+  if that character also learns the nano.
+- [VOICE] Apcmanager bufflist will advertise the entry when a ready buffer reports
+  268697 in its spell list, and the existing clickable tag path can request it
+  with `cast vleet`.
+- [UNCHANGED] RebuffInfo was not changed; this session adds manual/public casting,
+  not automatic self-rebuff policy.
+
