@@ -18,6 +18,9 @@ namespace MalisBuffBots
         public int TeamTrackerId;
         public BuffQueue Queue = new BuffQueue();
         public N3MessageProcessor N3MessageProcessor;
+        private BuffEntry _attemptedEntry;
+        private DateTime _attemptedEntryExpiresUtc;
+        private const int CastCompletionTimeoutSeconds = 8;
 
         public QueueProcessor(int graceTimeMs = 1000)
         {
@@ -57,6 +60,7 @@ namespace MalisBuffBots
                         ProcessCurrentBuffEntry();
                         break;
                     case QueueState.Dequeue:
+                        ClearCastAttempt();
                         TeamTimeout.Reset();
                         Main.Ipc.BotCache.BroadcastQueueInfoMessage();
                         ProcessCurrentBuffEntry();
@@ -69,6 +73,7 @@ namespace MalisBuffBots
             {
                 // One failed cast must not discard every other user's queue.
                 var failed = Queue.Current;
+                ClearCastAttempt();
                 Queue.ClearCurrent();
                 try
                 {
@@ -100,6 +105,7 @@ namespace MalisBuffBots
         public void ResetBotQueue()
         {
             Logger.Information("Clearing my queue due to an exception");
+            ClearCastAttempt();
             LeaveTeam();
             Queue.Clear();
             ProcessResetTeamTrackerId();
@@ -268,6 +274,26 @@ namespace MalisBuffBots
             }
         }
 
+        private void ClearCastAttempt()
+        {
+            _attemptedEntry = null;
+            _attemptedEntryExpiresUtc = DateTime.MinValue;
+        }
+
+        private bool CurrentCastAttemptPending()
+        {
+            if (_attemptedEntry == null || Queue.Current == null || !_attemptedEntry.Equals(Queue.Current))
+                return false;
+
+            if (DateTime.UtcNow < _attemptedEntryExpiresUtc)
+                return true;
+
+            Logger.Warning("No cast completion or feedback received for '" + Queue.Current.NanoEntry.Name +
+                "' after " + CastCompletionTimeoutSeconds + "s; clearing current request to avoid retry loop.");
+            ResetCurrentBuffEntry();
+            return true;
+        }
+
         public void ResetCurrentBuffEntry(LdbFeedback? feedback = null)
         {
             if (feedback != null)
@@ -277,6 +303,7 @@ namespace MalisBuffBots
             DynelManager.LocalPlayer.TryRemoveBuffs(Queue.Current.NanoEntry.RemoveNanoIdUponCast);
 
             Logger.Information("RESET TRIGGERED");
+            ClearCastAttempt();
             Queue.ClearCurrent();
             Main.Ipc.BotCache.BroadcastQueueInfoMessage();
         }
@@ -298,6 +325,9 @@ namespace MalisBuffBots
                 ResetCurrentBuffEntry();
                 return;
             }
+
+            if (CurrentCastAttemptPending())
+                return;
 
             Logger.Information($"Attempting to cast '{Queue.Current.NanoEntry.Name}' on '{buffTarget.Name}'");
 
@@ -321,6 +351,8 @@ namespace MalisBuffBots
                 });
             }
 
+            _attemptedEntry = Queue.Current;
+            _attemptedEntryExpiresUtc = DateTime.UtcNow.AddSeconds(CastCompletionTimeoutSeconds);
             DynelManager.LocalPlayer.Cast(buffTarget, firstAvailableBuff.Id);
         }
 
