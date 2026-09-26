@@ -365,6 +365,7 @@ public class BuddiesHost
                     Thread.Sleep(250);
                 }
             }
+            }
         }
         finally
         {
