@@ -205,12 +205,19 @@ namespace CityDwellers.Shared
             lock (_bufferPublicCommandSync)
             {
                 BufferPublicCommandRequest request;
-                if (!_bufferPublicCommands.TryGetValue(outcome.Id, out request))
+                if (!_bufferPublicCommands.TryGetValue(outcome.Id, out request) ||
+                    string.IsNullOrWhiteSpace(request.ClaimedBy))
+                    return;
+
+                if (!string.IsNullOrWhiteSpace(outcome.ClaimedBy) &&
+                    !string.Equals(
+                        outcome.ClaimedBy,
+                        request.ClaimedBy,
+                        StringComparison.OrdinalIgnoreCase))
                     return;
 
                 BufferPublicCommandOutcome copy = outcome.Copy();
-                if (string.IsNullOrWhiteSpace(copy.ClaimedBy))
-                    copy.ClaimedBy = request.ClaimedBy;
+                copy.ClaimedBy = request.ClaimedBy;
                 if (copy.CompletedUtc == default(DateTime))
                     copy.CompletedUtc = DateTime.UtcNow;
                 _bufferPublicCommands.Remove(outcome.Id);
