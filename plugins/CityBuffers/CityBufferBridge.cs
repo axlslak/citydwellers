@@ -21,6 +21,8 @@ namespace MalisBuffBots
         private static CancellationTokenSource _lifetime;
         private static Task _server;
         private static volatile string _snapshot = "{}";
+        private static string _lastCatalogueFingerprint;
+        private static bool _catalogueReadyLogged;
         public static bool Ready;
 
         private sealed class RequestBudget
@@ -94,6 +96,51 @@ namespace MalisBuffBots
             _lifetime = null;
         }
 
+        private static void LogCatalogueChange(
+            int[] spellList,
+            BufferAdvertisedBuff[] advertised)
+        {
+            if (!Ready)
+                return;
+
+            string fingerprint = string.Join(
+                "|",
+                (advertised ?? new BufferAdvertisedBuff[0])
+                    .Where(entry => entry != null)
+                    .OrderBy(entry => entry.Profession)
+                    .ThenBy(entry => entry.Tag ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(entry => entry.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                    .Select(entry =>
+                        entry.Profession + ":" +
+                        (entry.Tag ?? string.Empty) + ":" +
+                        (entry.Name ?? string.Empty)));
+
+            if (_catalogueReadyLogged &&
+                string.Equals(
+                    _lastCatalogueFingerprint,
+                    fingerprint,
+                    StringComparison.Ordinal))
+                return;
+
+            string tags = string.Join(
+                ",",
+                (advertised ?? new BufferAdvertisedBuff[0])
+                    .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Tag))
+                    .Select(entry => entry.Tag)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase));
+
+            Logger.Information(
+                "BUFFER catalogue " +
+                (_catalogueReadyLogged ? "changed" : "ready") +
+                ": knownNanos=" + (spellList?.Length ?? 0) +
+                " advertised=" + (advertised?.Length ?? 0) +
+                " tags=[" + tags + "].");
+
+            _lastCatalogueFingerprint = fingerprint;
+            _catalogueReadyLogged = true;
+        }
+
         private static async Task Serve(string name, CancellationToken stop)
         {
             while (!stop.IsCancellationRequested)
@@ -154,17 +201,24 @@ namespace MalisBuffBots
                     });
                     if (inPlay)
                     {
+                        int[] spellList = DynelManager.LocalPlayer.SpellList ?? new int[0];
+                        BufferAdvertisedBuff[] advertised =
+                            IPCBotCacheData.BuildAdvertisedBuffs(spellList);
+
                         ManagerMemory.Current.PublishBufferBotInfo(new BufferBotInfo
                         {
                             Character = Client.CharacterName,
                             Profession = (int)DynelManager.LocalPlayer.Profession,
                             IdentityType = (int)DynelManager.LocalPlayer.Identity.Type,
                             IdentityInstance = DynelManager.LocalPlayer.Identity.Instance,
-                            SpellData = DynelManager.LocalPlayer.SpellList,
+                            SpellData = spellList,
                             ObservedUtc = now,
                             InPlay = true,
-                            Ready = Ready
+                            Ready = Ready,
+                            AdvertisedBuffs = advertised
                         });
+
+                        LogCatalogueChange(spellList, advertised);
                     }
                     TellQueue.WriteHeartbeatBestEffort(_dataDir, Client.CharacterName, inPlay, false, _lastSent,
                         message => Logger.Warning(message));
