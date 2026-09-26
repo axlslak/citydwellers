@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
 using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Chat;
@@ -287,8 +286,7 @@ namespace CityManager
     internal static class CityRaidAutomation
     {
         private const string OrgChannelName = "Athen Paladins";
-        private const string FlipperPipeName = "citydwellers-flipper";
-        private const int FlipperConnectTimeoutMs = 1000;
+        private const string FlipperComponentName = "Flipper";
         private const int RetryAfterFailureSeconds = 30;
         private const int DuplicateRaidWindowSeconds = 20;
         private const int PersistedStateTrustSeconds = 3600;
@@ -633,7 +631,7 @@ namespace CityManager
 
                 try
                 {
-                    var request = new FlipperRequest
+                    var request = new WorkerRequest
                     {
                         Id = Guid.NewGuid().ToString("N"),
                         Command = "ensure-enabled",
@@ -652,7 +650,7 @@ namespace CityManager
                             $"CLOAK RECOVERY retry -> ensure-enabled [{shortId}].");
                     }
 
-                    FlipperResponse response = SendFlipperRequest(request);
+                    WorkerResponse response = SendFlipperRequest(request);
                     HandleEnsureResponse(shortId, response);
                 }
                 catch (Exception ex)
@@ -676,7 +674,7 @@ namespace CityManager
 
         private static void HandleEnsureResponse(
             string shortId,
-            FlipperResponse response)
+            WorkerResponse response)
         {
             if (response != null &&
                 response.Ok &&
@@ -757,7 +755,7 @@ namespace CityManager
                 Logger.Warning(full);
         }
 
-        private static void NotifyObservation(FlipperResponse response)
+        private static void NotifyObservation(WorkerResponse response)
         {
             Action<CloakStatus, int?, DateTime?, bool, string> callback;
             CloakStatus parsed;
@@ -960,10 +958,52 @@ namespace CityManager
             _retryTimer = null;
         }
 
-        private static FlipperResponse SendFlipperRequest(FlipperRequest request)
+        private static WorkerResponse SendFlipperRequest(WorkerRequest request)
         {
-            return CityDwellers.Shared.LocalIpc.Request<FlipperRequest, FlipperResponse>(
-                FlipperPipeName, request, FlipperConnectTimeoutMs);
+            if (request == null)
+                throw new ArgumentNullException(nameof(request));
+            if (string.IsNullOrWhiteSpace(request.Id))
+                request.Id = Guid.NewGuid().ToString("N");
+
+            var lifecycle = new LifecycleRequest
+            {
+                Id = request.Id,
+                Target = FlipperComponentName,
+                Verb = "request",
+                Payload = JsonConvert.SerializeObject(request),
+                RequestedUtc = DateTime.UtcNow,
+                Requester = Client.CharacterName
+            };
+
+            if (!ManagerMemory.Current.RequestLifecycle(lifecycle))
+                throw new InvalidOperationException(
+                    "Flipper already has a conflicting Governor request.");
+
+            int timeoutMilliseconds =
+                (Math.Max(1, request.TimeoutSeconds ?? 115) + 5) * 1000;
+            try
+            {
+                LifecycleOutcome outcome =
+                    ManagerMemory.Current.WaitForLifecycleOutcome(
+                        request.Id, timeoutMilliseconds);
+                if (outcome == null)
+                    throw new TimeoutException("Flipper Governor request timed out.");
+                if (!outcome.Ok)
+                    throw new InvalidOperationException(
+                        outcome.Message ?? "Flipper Governor request failed.");
+
+                WorkerResponse response =
+                    JsonConvert.DeserializeObject<WorkerResponse>(
+                        outcome.Payload ?? "null");
+                if (response == null)
+                    throw new InvalidOperationException(
+                        "Flipper returned no worker response.");
+                return response;
+            }
+            finally
+            {
+                ManagerMemory.Current.FinishLifecycle(request.Id);
+            }
         }
 
         private static void SendDev(string text)
@@ -981,23 +1021,5 @@ namespace CityManager
             }
         }
 
-        private class FlipperRequest
-        {
-            public string Id;
-            public string Command;
-            public DateTime? NotBeforeUtc;
-        }
-
-        private class FlipperResponse
-        {
-            public string Id;
-            public bool Ok;
-            public string Message;
-            public string CloakState;
-            public int? ShieldTimerInSeconds;
-            public float? ControllerCharge;
-            public bool Cached;
-            public DateTime? ObservedUtc;
-        }
     }
 }

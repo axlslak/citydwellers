@@ -758,8 +758,8 @@ namespace CityManager
                     ? WorkerLinkStatus.Usable("reserved while watching City Controller charge")
                     : recoveryFlipperBusy
                         ? WorkerLinkStatus.Usable("reserved while checking cloak state")
-                        : PingWorker("Flipper", FlipperPipeName);
-                WorkerLinkStatus buddies = PingWorker("Buddies", BuddiesPipeName);
+                        : PingWorker(FlipperComponentName);
+                WorkerLinkStatus buddies = PingWorker(BuddiesComponentName);
 
                 string buddyActivity = buddies.IsUsable
                     ? GetBuddyActivitySummary()
@@ -866,9 +866,9 @@ namespace CityManager
             try
             {
                 WorkerResponse response = SendWorkerRequest(
-                    BuddiesPipeName,
+                    BuddiesComponentName,
                     request,
-                    WorkerConnectTimeoutMs);
+                    WorkerRequestMinimumTimeoutMs);
 
                 if (!response.Ok)
                     return "Position inventory failed: " + (response.Message ?? "unknown failure") + ".";

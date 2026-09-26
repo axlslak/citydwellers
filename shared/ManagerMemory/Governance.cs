@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 
@@ -124,6 +125,8 @@ namespace CityDwellers.Shared
             new Dictionary<string, LifecycleCommand>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, LifecycleOutcome> _lifecycleOutcomes =
             new Dictionary<string, LifecycleOutcome>(StringComparer.Ordinal);
+        private readonly HashSet<string> _abandonedLifecycleRequests =
+            new HashSet<string>(StringComparer.Ordinal);
         private readonly HashSet<string> _lifecycleConsumers =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private GovernorAuthority _governorAuthority;
@@ -197,6 +200,7 @@ namespace CityDwellers.Shared
             {
                 if (_lifecycleRequests.Count >= 256 ||
                     _lifecycleOutcomes.ContainsKey(request.Id) ||
+                    _abandonedLifecycleRequests.Contains(request.Id) ||
                     _lifecycleRequests.Any(item => item.Id == request.Id))
                     return false;
                 LifecycleRequest copy = request.Copy();
@@ -214,7 +218,12 @@ namespace CityDwellers.Shared
             lock (_governanceSync)
             {
                 while (result.Count < maximum && _lifecycleRequests.Count != 0)
-                    result.Add(_lifecycleRequests.Dequeue().Copy());
+                {
+                    LifecycleRequest request = _lifecycleRequests.Dequeue();
+                    if (_abandonedLifecycleRequests.Remove(request.Id))
+                        continue;
+                    result.Add(request.Copy());
+                }
             }
             return result;
         }
@@ -237,13 +246,16 @@ namespace CityDwellers.Shared
         public LifecycleCommand WaitForLifecycleCommand(string component, int timeoutMilliseconds)
         {
             if (string.IsNullOrWhiteSpace(component)) return null;
+            int timeout = Math.Max(0, timeoutMilliseconds);
+            var elapsed = Stopwatch.StartNew();
             lock (_governanceSync)
             {
                 LifecycleCommand value;
-                if (!_lifecycleCommands.TryGetValue(component, out value))
+                while (!_lifecycleCommands.TryGetValue(component, out value))
                 {
-                    Monitor.Wait(_governanceSync, Math.Max(0, timeoutMilliseconds));
-                    if (!_lifecycleCommands.TryGetValue(component, out value)) return null;
+                    int remaining = timeout - (int)Math.Min(int.MaxValue, elapsed.ElapsedMilliseconds);
+                    if (remaining <= 0) return null;
+                    Monitor.Wait(_governanceSync, remaining);
                 }
                 return value.Copy();
             }
@@ -254,9 +266,22 @@ namespace CityDwellers.Shared
             if (outcome == null || string.IsNullOrWhiteSpace(outcome.RequestId)) return;
             lock (_governanceSync)
             {
-                LifecycleCommand active = _lifecycleCommands.Values.FirstOrDefault(command =>
-                    string.Equals(command.CommandId, outcome.CommandId, StringComparison.Ordinal));
-                if (active != null) _lifecycleCommands.Remove(active.Component);
+                if (!string.IsNullOrWhiteSpace(outcome.CommandId))
+                {
+                    LifecycleCommand active = _lifecycleCommands.Values.FirstOrDefault(command =>
+                        string.Equals(command.CommandId, outcome.CommandId, StringComparison.Ordinal) &&
+                        string.Equals(command.RequestId, outcome.RequestId, StringComparison.Ordinal));
+                    if (active == null)
+                        return; // Late result from a cancelled/stopped component generation.
+                    _lifecycleCommands.Remove(active.Component);
+                }
+
+                if (_abandonedLifecycleRequests.Remove(outcome.RequestId))
+                {
+                    Monitor.PulseAll(_governanceSync);
+                    return;
+                }
+
                 LifecycleOutcome copy = outcome.Copy();
                 if (copy.CompletedUtc == default(DateTime)) copy.CompletedUtc = DateTime.UtcNow;
                 _lifecycleOutcomes[copy.RequestId] = copy;
@@ -284,6 +309,11 @@ namespace CityDwellers.Shared
                 LifecycleCommand active;
                 if (!_lifecycleCommands.TryGetValue(component, out active)) return;
                 _lifecycleCommands.Remove(component);
+                if (_abandonedLifecycleRequests.Remove(active.RequestId))
+                {
+                    Monitor.PulseAll(_governanceSync);
+                    return;
+                }
                 _lifecycleOutcomes[active.RequestId] = new LifecycleOutcome
                 {
                     RequestId = active.RequestId,
@@ -299,13 +329,16 @@ namespace CityDwellers.Shared
         public LifecycleOutcome WaitForLifecycleOutcome(string requestId, int timeoutMilliseconds)
         {
             if (string.IsNullOrWhiteSpace(requestId)) return null;
+            int timeout = Math.Max(0, timeoutMilliseconds);
+            var elapsed = Stopwatch.StartNew();
             lock (_governanceSync)
             {
                 LifecycleOutcome value;
-                if (!_lifecycleOutcomes.TryGetValue(requestId, out value))
+                while (!_lifecycleOutcomes.TryGetValue(requestId, out value))
                 {
-                    Monitor.Wait(_governanceSync, Math.Max(0, timeoutMilliseconds));
-                    if (!_lifecycleOutcomes.TryGetValue(requestId, out value)) return null;
+                    int remaining = timeout - (int)Math.Min(int.MaxValue, elapsed.ElapsedMilliseconds);
+                    if (remaining <= 0) return null;
+                    Monitor.Wait(_governanceSync, remaining);
                 }
                 return value.Copy();
             }
@@ -314,7 +347,12 @@ namespace CityDwellers.Shared
         public void FinishLifecycle(string requestId)
         {
             if (string.IsNullOrWhiteSpace(requestId)) return;
-            lock (_governanceSync) _lifecycleOutcomes.Remove(requestId);
+            lock (_governanceSync)
+            {
+                if (!_lifecycleOutcomes.Remove(requestId))
+                    _abandonedLifecycleRequests.Add(requestId);
+                Monitor.PulseAll(_governanceSync);
+            }
         }
     }
 }

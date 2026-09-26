@@ -26,9 +26,9 @@ namespace CityManager
     public partial class CityManager : ClientlessPluginEntry
     {
         private const int ProvisionalCloakDownSeconds = 3600;
-        private const string FlipperPipeName = "citydwellers-flipper";
-        private const string BuddiesPipeName = "citydwellers-buddies";
-        private const int WorkerConnectTimeoutMs = 1000;
+        private const string FlipperComponentName = "Flipper";
+        private const string BuddiesComponentName = "Buddies";
+        private const int WorkerRequestMinimumTimeoutMs = 1000;
         private const int BuddySnapshotFreshSeconds = 15;
         private const int GuestLookupTimeoutMs = 5000;
         private const string OrgChannelName = "Athen Paladins";
@@ -1063,9 +1063,9 @@ namespace CityManager
                     DevTrace($"FLIPPER -> observe [{shortId}]");
 
                     WorkerResponse response = SendWorkerRequest(
-                        FlipperPipeName,
+                        FlipperComponentName,
                         request,
-                        WorkerConnectTimeoutMs);
+                        WorkerRequestMinimumTimeoutMs);
 
                     if (!response.Ok)
                     {
@@ -1156,7 +1156,7 @@ namespace CityManager
             }
         }
 
-        private WorkerLinkStatus PingWorker(string workerName, string pipeName)
+        private WorkerLinkStatus PingWorker(string workerName)
         {
             ComponentStatus status = ManagerMemory.Current.ReadComponentStatus(workerName);
             if (status == null)
@@ -1215,9 +1215,9 @@ namespace CityManager
                             : $"BUDDIES -> {command} {quantity} [{shortId}]");
 
                     WorkerResponse response = SendWorkerRequest(
-                        BuddiesPipeName,
+                        BuddiesComponentName,
                         request,
-                        WorkerConnectTimeoutMs);
+                        WorkerRequestMinimumTimeoutMs);
 
                     Logger.Information(
                         $"MEM <- Buddies {request.Id}: {(response.Ok ? "OK" : "FAIL")} {response.Message}");
@@ -1256,9 +1256,9 @@ namespace CityManager
                     DevTrace($"BUDDY POSITIONS -> snapshot [{shortId}]");
 
                     WorkerResponse response = SendWorkerRequest(
-                        BuddiesPipeName,
+                        BuddiesComponentName,
                         request,
-                        WorkerConnectTimeoutMs);
+                        WorkerRequestMinimumTimeoutMs);
 
                     if (!string.Equals(response.Id, request.Id, StringComparison.Ordinal))
                     {
@@ -1301,7 +1301,7 @@ namespace CityManager
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Buddies position IPC failed: {ex.Message}");
+                    Logger.Warning($"Buddies position Governor request failed: {ex.Message}");
                     DevTrace($"BUDDY POSITIONS ERROR [{shortId}]: {ex.Message}");
                     Reply(target, $"Buddies position check unavailable: {ex.Message}");
                 }
@@ -1334,9 +1334,9 @@ namespace CityManager
                               $"[{shortId}]");
 
                     WorkerResponse response = SendWorkerRequest(
-                        BuddiesPipeName,
+                        BuddiesComponentName,
                         request,
-                        WorkerConnectTimeoutMs);
+                        WorkerRequestMinimumTimeoutMs);
 
                     DevTrace(
                         $"BUDDY HOME {(response.Ok ? "OK" : "FAIL")} " +
@@ -1358,7 +1358,7 @@ namespace CityManager
                 }
                 catch (Exception ex)
                 {
-                    Logger.Warning($"Buddies home IPC failed: {ex.Message}");
+                    Logger.Warning($"Buddies home Governor request failed: {ex.Message}");
                     DevTrace($"BUDDY HOME ERROR [{shortId}]: {ex.Message}");
                     Reply(target, $"Buddies home service unavailable: {ex.Message}");
                 }
@@ -1383,9 +1383,9 @@ namespace CityManager
                 try
                 {
                     WorkerResponse response = SendWorkerRequest(
-                        BuddiesPipeName,
+                        BuddiesComponentName,
                         request,
-                        WorkerConnectTimeoutMs);
+                        WorkerRequestMinimumTimeoutMs);
                     consecutiveFailures = 0;
 
                     if (!response.Ok)
@@ -1721,14 +1721,10 @@ namespace CityManager
                 : "?";
         }
 
-        private WorkerResponse SendWorkerRequest(string pipeName, WorkerRequest request, int connectTimeoutMs)
+        private WorkerResponse SendWorkerRequest(string target, WorkerRequest request, int minimumTimeoutMs)
         {
-            string target = string.Equals(pipeName, FlipperPipeName, StringComparison.Ordinal)
-                ? "Flipper"
-                : string.Equals(pipeName, BuddiesPipeName, StringComparison.Ordinal)
-                    ? "Buddies"
-                    : null;
-            if (target == null)
+            if (!string.Equals(target, FlipperComponentName, StringComparison.Ordinal) &&
+                !string.Equals(target, BuddiesComponentName, StringComparison.Ordinal))
                 throw new InvalidOperationException("No Governor target exists for the requested worker.");
 
             if (request == null)
@@ -1750,7 +1746,7 @@ namespace CityManager
                 throw new InvalidOperationException(target + " already has a conflicting Governor request.");
 
             int timeoutMilliseconds = Math.Max(
-                Math.Max(1000, connectTimeoutMs),
+                Math.Max(1000, minimumTimeoutMs),
                 (Math.Max(1, request.TimeoutSeconds ?? 115) + 5) * 1000);
             try
             {

@@ -1381,9 +1381,9 @@ namespace CityManager
                         $"window={secondsRemaining}s minimum={MinimumRaidControllerCharge * 100:F0}%.");
 
                     WorkerResponse response = SendWorkerRequest(
-                        FlipperPipeName,
+                        FlipperComponentName,
                         request,
-                        WorkerConnectTimeoutMs);
+                        WorkerRequestMinimumTimeoutMs);
 
                     if (response.Ok)
                         ApplyFlipperObservation(response);
@@ -1610,9 +1610,9 @@ namespace CityManager
                         $"safety-lease={request.LeaseSeconds}s [{shortId}] reason={reason}.");
 
                     response = SendWorkerRequest(
-                        BuddiesPipeName,
+                        BuddiesComponentName,
                         request,
-                        WorkerConnectTimeoutMs);
+                        WorkerRequestMinimumTimeoutMs);
 
                     bool stillCurrent;
 
@@ -1708,9 +1708,9 @@ namespace CityManager
                         $"count={count} [{shortId}] reason={reason}.");
 
                     WorkerResponse response = SendWorkerRequest(
-                        BuddiesPipeName,
+                        BuddiesComponentName,
                         request,
-                        WorkerConnectTimeoutMs);
+                        WorkerRequestMinimumTimeoutMs);
 
                     lock (_raidSync)
                     {
@@ -2105,9 +2105,9 @@ namespace CityManager
                 };
 
                 WorkerResponse response = SendWorkerRequest(
-                    BuddiesPipeName,
+                    BuddiesComponentName,
                     request,
-                    WorkerConnectTimeoutMs);
+                    WorkerRequestMinimumTimeoutMs);
 
                 int slept = response.Count ?? 0;
                 string text = $"Logged out {slept}/{indexes.Count} raid buddies.";
