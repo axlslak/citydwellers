@@ -1,12 +1,12 @@
 {
   "format": "citydwellers-recovery-cursor-v1",
-  "current_session": 258,
+  "current_session": 259,
   "last_completed_session": 258,
-  "status": "idle",
+  "status": "in_progress",
   "active_project": "citydwellers",
-  "transaction": "session-258-login-gate-namespace-fix",
-  "checkpoint_commit": "dca76de",
-  "task": "Completed: fixed namespace/import compiler errors in banker global-login-gate wiring.",
-  "resume_instruction": "Session 258 complete. Repository writer lock is idle. Owner Release rebuild should confirm the CS0104/CS0246/CS0103 errors are gone. Next journal seq578.",
-  "base_commit": "96d522e9a2b1dcf1a17de101a5f6836b8b932196"
+  "transaction": "session-259-manager-buffer-commands",
+  "checkpoint_commit": "c23c46a",
+  "task": "Complete the session254 conversation migration by moving Mali cast/rebuff/buffmacro public commands to Apcmanager while preserving Mali's existing queue/routing engine.",
+  "resume_instruction": "Resume session 259 only. Add Manager public commands cast/rebuff/buffmacro, pass them through ManagerMemory to one ready buffer that can resolve the requester locally, execute existing Mali semantics on that buffer update thread, and return Manager-owned output. Next journal seq578.",
+  "base_commit": "c23c46a00774b73603d94c6a50a27fc77ad80f0f"
 }
