@@ -18,6 +18,91 @@ namespace CityBankers
     /// </summary>
     internal static class StockCommandEngine
     {
+        // Immutable AOID catalogue from game upload/cast profession requirements.
+        // Discs inherit only an unambiguous exact nano-name match. Unresolved and
+        // future items stay visible under Unclassified; no runtime catalogue scan.
+        private static readonly Dictionary<int, string> DynaProfessionById = BuildDynaProfessionIndex();
+
+        private static Dictionary<int, string> BuildDynaProfessionIndex()
+        {
+            var groups = new Dictionary<string, int[]>
+            {
+                { "Adventurer", new[] {
+                    85146, 146778, 161091, 161093, 161097, 161148, 161150, 161152, 161156, 161158, 161160, 161164,
+                    161166, 161168, 161395, 161398, 161404, 161410, 161413, 161416, 161422, 161425, 161428, 161434,
+                    161437, 161440, 161677, 161679, 161681, 161691, 161693, 161885, 161888, 161891, 161897, 161921,
+                    162120, 162122, 162257, 162259, 162261, 162316, 162318, 162320, 162322, 162338, 162341, 162344,
+                    162347, 163395, 163397, 163410, 163413, 204311, 204313, 204317, 204319,
+                } },
+                { "Agent", new[] {
+                    160711, 160713, 160790, 160792, 160794, 160796, 160823, 160825, 160827, 160829, 160837, 160840,
+                    160846, 160849, 160852, 160855, 160861, 160864, 160867, 160870, 160896, 160898, 160910, 161383,
+                    161386, 161392, 203670, 203672, 203676, 203679, 203800, 203802, 203804, 203975, 204016, 204019,
+                    204022, 204028,
+                } },
+                { "Bureaucrat", new[] {
+                    203660, 203662, 203664, 203666, 203703, 203706, 203709, 203712, 203838, 203840, 203843, 203845,
+                    203847, 203853, 203856, 203858, 203860, 203878, 203881, 203884, 203887, 203896, 203899, 203902,
+                    203905, 203908, 203951, 203953, 203955, 203957, 203961, 203963, 203965, 203989, 203992, 203995,
+                    203998, 204004, 204007, 204010, 205298, 205300, 205302, 205304, 205320, 205323, 205326, 205329,
+                    205438, 205440, 230375, 230377, 230381, 230383,
+                } },
+                { "Doctor", new[] {
+                    204428, 204430, 204432, 204520, 204523, 204526,
+                } },
+                { "Enforcer / Keeper / Martial Artist / Shade", new[] {
+                    210328, 210330, 210332,
+                } },
+                { "Enforcer", new[] {
+                    202792, 202794, 202795, 202798, 202817, 202819, 202820, 202823, 202833, 202835, 202837, 202839,
+                    202843, 202845, 202847, 202853, 202855, 202857, 202859, 202861, 202863, 202865, 202872, 202875,
+                    202878, 202881, 202884, 202887, 202890, 202893, 202896, 202899, 202902, 202905, 202908, 202911,
+                    203206, 203208, 203210, 203212, 203217, 203220, 203223, 203226,
+                } },
+                { "Engineer", new[] {
+                    203862, 203864, 203866, 203868, 203874, 203912, 203915, 203918, 203921, 203930, 204336, 204338,
+                    204342, 204344, 204348, 204350, 204352, 204354, 204356, 204365, 204367, 204369, 204371, 204421,
+                    204423, 204433, 204436, 204442, 204445, 204451, 204454, 204457, 204460, 204463, 204469, 204472,
+                    204475, 204478, 204487, 204490, 205242, 205244, 205246, 205248, 205250, 205272, 205275, 205278,
+                    205281, 205284,
+                } },
+                { "Fixer", new[] {
+                    155190, 155191, 155192, 155193, 155198, 155199, 155200, 155201, 162487, 162489, 162491, 162493,
+                    162495, 162501, 162504, 162507, 162510, 162513, 162590, 162592, 162594, 162596, 162600, 162604,
+                    162605, 162608, 162611, 162614, 162620, 162626, 162721, 162723, 162725, 162727, 162729, 162731,
+                    162733, 162735, 162745, 162748, 162751, 162754, 162757, 162760, 162763, 162766, 163082, 163084,
+                    163086, 163088, 163096, 163097, 163104, 163107, 163110, 163113, 163116, 163130, 203596, 203600,
+                    203602, 203604, 203685, 203691, 203694, 203697, 203814, 203979, 203981, 203983, 203985, 204039,
+                    204042, 204045, 204048, 204051,
+                } },
+                { "Keeper", new[] {
+                    210493, 210495, 210620, 210622, 210682, 211163, 211169, 211171,
+                } },
+                { "Martial Artist", new[] {
+                    162838, 162840, 162842, 163120, 163123, 163126,
+                } },
+                { "Meta-Physicist", new[] {
+                    154985, 154996, 155000, 155026, 155031, 155035, 203608, 203610, 203718, 203721, 205188, 205190,
+                    205194, 205205, 205208, 205214,
+                } },
+                { "Nano-Technician", new[] {
+                    28821, 28822, 28823, 147792, 147793, 147796, 150632, 150667, 201522, 201524, 203808, 203810,
+                    204496, 204499, 205162, 205165, 205444,
+                } },
+                { "Soldier", new[] {
+                    203120, 203126, 203128, 203130, 203132, 203138, 203140, 203142, 203144, 203146, 203162, 203165,
+                    203168, 203171, 203174, 203177, 203180, 203183, 203186, 203189, 204304, 204306, 204529, 204532,
+                } },
+                { "Trader", new[] {
+                    203787, 203789, 203791, 203793, 203936, 203939, 203942, 203945, 203969, 203971, 204057, 204060,
+                } },
+            };
+            var result = new Dictionary<int, string>();
+            foreach (var group in groups)
+                foreach (int id in group.Value) result.Add(id, group.Key);
+            return result;
+        }
+
         private static readonly string[] FamilyOrder =
         {
             "artillery",
@@ -370,6 +455,9 @@ namespace CityBankers
             string commandPrefix,
             string family)
         {
+            if (string.Equals(family, "dyna", StringComparison.OrdinalIgnoreCase))
+                return BuildDynaProfessions(familyItems, centralCharacter, commandPrefix);
+
             var body = new StringBuilder();
             body.Append(CityBankersChatPalette.White(DisplayFamily(family) + " Stock"));
             body.Append("<br><br>");
@@ -386,6 +474,43 @@ namespace CityBankers
             return DisplayFamily(family) + ": " + familyItems.Count + " copies in " +
                 CountTemplates(familyItems) + " stocked types. " +
                 Blob("Open " + DisplayFamily(family), body.ToString());
+        }
+
+        private static string BuildDynaProfessions(
+            List<StockItemState> items, string centralCharacter, string commandPrefix)
+        {
+            var body = new StringBuilder();
+            body.Append(CityBankersChatPalette.White("Dyna Nanos by Profession"))
+                .Append("<br><br>Crystals and instruction discs. Search by name with dyna [name], or by QL with dyna [QL].<br><br>");
+            var groups = GroupTemplates(items).GroupBy(item => DynaProfession(item.AoId, item.HighId))
+                .OrderBy(group => group.Key == "Unclassified" ? 1 : 0)
+                .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
+            foreach (var group in groups)
+            {
+                body.Append(CityBankersChatPalette.Cyan(group.Key)).Append(" - ")
+                    .Append(group.Count()).Append(" types / ").Append(group.Sum(item => item.Count))
+                    .Append(" copies<br>");
+                foreach (var item in group.OrderBy(item => item.Ql)
+                    .ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.AoId))
+                {
+                    body.Append(ChatCommand("QL " + item.Ql, centralCharacter, commandPrefix + "dyna " + item.Ql))
+                        .Append("  ").Append(ItemLink(item)).Append("  x")
+                        .Append(Color(item.Count.ToString(), "#FFFF00")).Append("  ")
+                        .Append(ChatCommand("GET", centralCharacter, commandPrefix + "get " + item.AoId))
+                        .Append("<br>");
+                }
+                body.Append("<br>");
+            }
+            body.Append(ChatCommand("Back to stock", centralCharacter, commandPrefix + "stock"));
+            return "Dyna: " + items.Count + " copies in " + CountTemplates(items) +
+                " stocked types. " + Blob("Dyna by profession", body.ToString());
+        }
+
+        private static string DynaProfession(int aoId, int highId)
+        {
+            string profession;
+            return DynaProfessionById.TryGetValue(aoId, out profession) ||
+                DynaProfessionById.TryGetValue(highId, out profession) ? profession : "Unclassified";
         }
 
         private static string BuildGenericQl(
