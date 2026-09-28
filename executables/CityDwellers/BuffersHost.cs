@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Common;
@@ -16,6 +17,8 @@ internal static class BuffersHost
     {
         internal BufferAccount Account;
         internal ClientDomain Domain;
+        internal bool Paid, Blocked;
+        internal string AccountOwner;
     }
 
     public static bool IsEnabled()
@@ -39,6 +42,14 @@ internal static class BuffersHost
                 string plugin = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CityBuffers.dll");
                 if (!File.Exists(plugin)) throw new FileNotFoundException("Build CityBuffers with the solution.", plugin);
 
+                var paid = config.Enabled ? config.Paid.FirstOrDefault(a => a != null && a.Enabled) : null;
+                ManagerMemory.Current.RegisterPaidBuffer(paid?.Character);
+                if (paid != null)
+                {
+                    runtimes.Add(new BufferRuntime { Account = paid, Paid = true });
+                    logger.Information("Paid Fixer {Character} is available on demand: lu / fsc; staying offline until requested.", paid.Character);
+                }
+
                 foreach (var account in config.Active)
                 {
                     var runtime = new BufferRuntime { Account = account };
@@ -50,6 +61,7 @@ internal static class BuffersHost
                 foreach (BufferRuntime runtime in runtimes)
                 {
                     if (stop.WaitOne(0)) break;
+                    if (runtime.Paid) continue;
                     StartBuffer(runtime, plugin, logger);
                 }
 
@@ -57,8 +69,9 @@ internal static class BuffersHost
                 {
                     BufferControlOperation operation =
                         ManagerMemory.Current.WaitForBufferControl(BufferControlWaitMilliseconds);
-                    if (operation == null) continue;
-                    ProcessBufferControl(operation, byCharacter, plugin, logger);
+                    if (operation != null) ProcessBufferControl(operation, byCharacter, plugin, logger);
+                    foreach (var runtime in runtimes.Where(r => r.Paid))
+                        ProcessPaidBuffer(runtime, plugin, logger);
                 }
             }
             catch (Exception ex)
@@ -77,6 +90,11 @@ internal static class BuffersHost
                     {
                         ClientDomainLifetime.Unload(runtime.Domain);
                         runtime.Domain = null;
+                        if (runtime.Paid)
+                        {
+                            ManagerMemory.Current.ReleaseAoAccount(runtime.Account.Username, runtime.AccountOwner);
+                            ManagerMemory.Current.StopPaidBufferSession(true, "Paid buffer service stopped.");
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -85,6 +103,9 @@ internal static class BuffersHost
                         exitCode = 1;
                     }
                 }
+                ManagerMemory.Current.FailPaidBufferRequests("Paid buffer service stopped; check the host log.");
+                var paidState = ManagerMemory.Current.ReadPaidBuffer();
+                if (paidState != null && !paidState.Running) ManagerMemory.Current.RegisterPaidBuffer(null);
             }
         }
         return exitCode;
@@ -97,7 +118,7 @@ internal static class BuffersHost
         ClientDomain domain = null;
         try
         {
-            logger.Information("Starting froob buffer {Character}.", runtime.Account.Character);
+            logger.Information("Starting {Kind} buffer {Character}.", runtime.Paid ? "on-demand paid" : "froob", runtime.Account.Character);
             domain = Client.CreateInstance(
                 runtime.Account.Username,
                 runtime.Account.Password,
@@ -126,12 +147,67 @@ internal static class BuffersHost
             {
                 string cleanupError;
                 if (!ClientDomainLifetime.TryUnload(domain, out cleanupError))
+                {
                     logger.Warning("Buffer startup cleanup failed for {Character}: {Message}",
                         runtime.Account.Character, cleanupError);
+                    runtime.Domain = domain;
+                    runtime.Blocked = true;
+                    throw;
+                }
             }
             runtime.Domain = null;
             throw;
         }
+    }
+
+    private static void ProcessPaidBuffer(BufferRuntime runtime, string plugin, Logger logger)
+    {
+        var memory = ManagerMemory.Current;
+        if (runtime.Blocked) return; // Failed unload: never retry login or release its account.
+        var state = memory.ReadPaidBuffer();
+        if (runtime.Domain == null)
+        {
+            if (!memory.HasPaidBufferRequests() || DateTime.UtcNow < state.RetryAfterUtc) return;
+            string owner = "Buffers:" + Guid.NewGuid().ToString("N");
+            if (!memory.TryAcquireAoAccount(runtime.Account.Username, owner, false)) return;
+            runtime.AccountOwner = owner;
+            memory.StartPaidBufferSession();
+            try { StartBuffer(runtime, plugin, logger); }
+            catch (Exception ex)
+            {
+                logger.Warning("Paid buffer {Character} startup failed: {Message}; no automatic retry for this request.",
+                    runtime.Account.Character, ex.Message);
+                if (runtime.Domain == null)
+                {
+                    memory.ReleaseAoAccount(runtime.Account.Username, owner);
+                    memory.StopPaidBufferSession(true, "Paid buffer login failed; please wait a minute before retrying.");
+                }
+                else memory.BlockPaidBuffer("Paid buffer cleanup failed; administrator intervention required.");
+            }
+            return;
+        }
+
+        if (memory.AoAccountHasWaiter(runtime.Account.Username)) memory.DrainPaidBuffer();
+        bool failed = !state.Parked &&
+            ((!state.Ready && DateTime.UtcNow - state.StartedUtc > TimeSpan.FromSeconds(90)) ||
+             DateTime.UtcNow - state.ObservedUtc > TimeSpan.FromSeconds(30));
+        if (!state.Parked && !failed) return;
+        string error;
+        if (!ClientDomainLifetime.TryUnload(runtime.Domain, out error))
+        {
+            runtime.Blocked = true;
+            memory.DrainPaidBuffer();
+            memory.BlockPaidBuffer("Paid buffer could not unload; administrator intervention required.");
+            logger.Warning("Paid buffer {Character} unload failed; account remains reserved: {Message}",
+                runtime.Account.Character, error);
+            return;
+        }
+        runtime.Domain = null;
+        memory.MarkBufferBotOffline(runtime.Account.Character);
+        memory.ReleaseAoAccount(runtime.Account.Username, runtime.AccountOwner);
+        memory.StopPaidBufferSession(failed, "Paid buffer did not become ready or stopped responding; please retry later.");
+        logger.Information("Paid buffer {Character} logged out; shared account released. Failed={Failed}.",
+            runtime.Account.Character, failed);
     }
 
     private static void ProcessBufferControl(

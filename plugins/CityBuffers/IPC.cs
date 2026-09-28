@@ -56,6 +56,7 @@ namespace MalisBuffBots
             foreach (BufferMemorySignal signal in
                 ManagerMemory.Current.TakeBufferSignals(Client.CharacterName, 32))
             {
+                if (Main.PaidPilot) continue;
                 if (!string.Equals(signal.Kind, "cast", StringComparison.Ordinal))
                     continue;
 
@@ -85,10 +86,11 @@ namespace MalisBuffBots
                 return;
 
             foreach (BufferPublicCommandRequest request in
-                ManagerMemory.Current.PendingBufferPublicCommands(16))
+                ManagerMemory.Current.PendingBufferPublicCommands(128))
             {
                 if (request == null || request.SenderId == 0)
                     continue;
+                if (Main.PaidPilot != !string.IsNullOrWhiteSpace(request.TargetCharacter)) continue;
 
                 var requester = DynelManager.Players.FirstOrDefault(
                     x => x.Identity.Instance == request.SenderId);
@@ -157,6 +159,7 @@ namespace MalisBuffBots
 
         private static bool CanClaimPublicCommand(BufferPublicCommandRequest request)
         {
+            if (Main.PaidPilot) return true; // Claim to return concrete upload/level errors as well.
             string command = (request.Command ?? string.Empty).ToLowerInvariant();
             if (command != "cast")
                 return true;
@@ -187,6 +190,7 @@ namespace MalisBuffBots
 
         private void OnRegisterTeamTracker(int arg1, IPCMessage msg)
         {
+            if (Main.PaidPilot) return;
             TeamTrackerMessage trackMsg = (TeamTrackerMessage)msg;
 
             BotCache.TeamTracker(trackMsg.Profession, trackMsg.TeamTrackerId);
@@ -201,6 +205,7 @@ namespace MalisBuffBots
 
         private void OnRequestTeamInviteReceived(int arg1, IPCMessage ipcMsg)
         {
+            if (Main.PaidPilot) return;
             RequestTeamInviteMessage teamInviteMsg = (RequestTeamInviteMessage)ipcMsg;
 
             if (DynelManager.LocalPlayer.Identity.Instance != teamInviteMsg.Bot)
@@ -216,6 +221,7 @@ namespace MalisBuffBots
 
         private void OnReceivedTeamInfoMessage(int arg1, IPCMessage msg)
         {
+            if (Main.PaidPilot) return;
             TeamInfoMessage sMsg = (TeamInfoMessage)msg;
             BotCache.UpdateTeamInfo(sMsg.Profession, sMsg.TeamMemberId);
         }
@@ -242,6 +248,7 @@ namespace MalisBuffBots
             var present = new HashSet<Profession>();
             foreach (BufferBotInfo snapshot in snapshots)
             {
+                if (ManagerMemory.Current.IsPaidBuffer(snapshot.Character)) continue;
                 Profession profession = (Profession)snapshot.Profession;
                 present.Add(profession);
                 TryAddLocal(profession);
@@ -364,6 +371,7 @@ namespace MalisBuffBots
 
         public void BroadcastTeamTrackerMessage(Profession prof, int requester)
         {
+            if (Main.PaidPilot) return;
             TeamTracker(prof, requester);
 
             Main.Ipc.Broadcast(new TeamTrackerMessage
@@ -377,6 +385,7 @@ namespace MalisBuffBots
 
         public void BroadcastTeamInfoMessage(Identity target)
         {
+            if (Main.PaidPilot) return;
             if (target != Identity.None && Main.Ipc.BotCache.Entries.Any(x => x.Value.Identity == target))
                 return;
 

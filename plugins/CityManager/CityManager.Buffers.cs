@@ -168,8 +168,27 @@ namespace CityManager
             }
 
             DateTime now = DateTime.UtcNow;
-            if (!ManagerMemory.Current.BufferBotInfos().Any(
-                    snapshot => IsFreshReadyBuffer(snapshot, now)))
+            string[] castTags = isCast ? parts.Skip(1).Select(value => value.ToLowerInvariant()).ToArray() : new string[0];
+            bool paidCast = castTags.Any(ManagerMemory.IsPaidFixerTag);
+            PaidBufferSession paid = paidCast ? ManagerMemory.Current.ReadPaidBuffer() : null;
+            if (paidCast && (!castTags.All(ManagerMemory.IsPaidFixerTag) || paid == null))
+            {
+                Reply(target, paid == null ? "No on-demand paid Fixer is configured." :
+                    "Please request lu / fsc separately from the ordinary buffer tags.");
+                return;
+            }
+            if (paidCast && now < paid.RetryAfterUtc)
+            {
+                Reply(target, "The paid buffer is cooling down after a failed session. Please retry in a minute.");
+                return;
+            }
+            if (paidCast && paid.Blocked)
+            {
+                Reply(target, "The paid buffer is blocked after a cleanup failure; an administrator must check the host log.");
+                return;
+            }
+            if (!paidCast && !ManagerMemory.Current.BufferBotInfos().Any(
+                    snapshot => !ManagerMemory.Current.IsPaidBuffer(snapshot.Character) && IsFreshReadyBuffer(snapshot, now)))
             {
                 Reply(target, "No ready buffers are currently available.");
                 return;
@@ -180,11 +199,10 @@ namespace CityManager
             {
                 Id = id,
                 Command = command.ToLowerInvariant(),
+                TargetCharacter = paid?.Character,
                 SenderId = target.SenderId,
                 SenderName = senderName,
-                Arguments = isCast
-                    ? parts.Skip(1).Select(value => value.ToLowerInvariant()).ToArray()
-                    : new string[0],
+                Arguments = castTags,
                 CreatedUtc = now
             };
 
@@ -194,20 +212,25 @@ namespace CityManager
                 return;
             }
 
+            if (paidCast)
+                Reply(target, "Request queued for " + paid.Character +
+                    ". Stay near the buffer; I will log them in when the shared account is free." +
+                    (castTags.Contains("fsc") ? " For fsc, leave your current team and accept their invitation (level 215+)." : ""));
+
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
                 {
                     BufferPublicCommandOutcome outcome =
                         ManagerMemory.Current.WaitForBufferPublicCommandOutcome(
-                            id, BufferPublicCommandTimeoutMilliseconds);
+                            id, paidCast ? 120000 : BufferPublicCommandTimeoutMilliseconds);
 
                     if (outcome == null)
                     {
                         Reply(
                             target,
-                            "No ready buffer could see your character nearby. " +
-                            "Stand near the buffer fleet and try again.");
+                            paidCast ? "The paid buffer could not serve this request within two minutes. The account may still be busy, or your character was not nearby; check buffer status before retrying." :
+                            "No ready buffer could see your character nearby. Stand near the buffer fleet and try again.");
                         return;
                     }
 
@@ -223,6 +246,8 @@ namespace CityManager
                             (outcome.Message ?? "the request could not be completed."));
                         return;
                     }
+
+                    if (paidCast) Reply(target, "Buffers: " + (outcome.Message ?? "Buffs accepted into the casting queue."));
 
                     if (isBuffmacro)
                     {
@@ -264,11 +289,13 @@ namespace CityManager
             {
                 List<BufferBotInfo> snapshots = ManagerMemory.Current.BufferBotInfos()
                     .Where(snapshot => snapshot != null &&
+                        !ManagerMemory.Current.IsPaidBuffer(snapshot.Character) &&
                         snapshot.AdvertisedBuffs != null &&
                         snapshot.AdvertisedBuffs.Length != 0)
                     .ToList();
 
-                if (snapshots.Count == 0)
+                PaidBufferSession paid = ManagerMemory.Current.ReadPaidBuffer();
+                if (snapshots.Count == 0 && paid == null)
                 {
                     ReplyBufferCatalogue(target,
                         new[] { "No buffer capability catalogue has been observed yet." });
@@ -285,6 +312,14 @@ namespace CityManager
                 var body = new StringBuilder();
                 body.Append("<font color='").Append(ColorMuted)
                     .Append("'>Cached from buffer capability snapshots. READY means at least one advertising buffer is currently fresh and ready; CACHED remains visible while its buffer is offline.</font>\n\n");
+
+                if (paid != null)
+                {
+                    body.Append("<b>On-demand paid Fixer: ").Append(EscapeBlobText(paid.Character)).Append("</b>\n")
+                        .Append(CommandLink(target, "cast lu", "lu")).Append(" Lasting Ultimatum - HoT, level 205+, 25 NCU\n")
+                        .Append(CommandLink(target, "cast fsc", "fsc")).Append(" Firewalled Sync Compressor - team +500 NCU, level 215+\n")
+                        .Append("Logs in on request when the shared account is free; uploaded nanos are checked at login.\n\n");
+                }
 
                 foreach (var profession in rows
                     .GroupBy(row => row.Buff.Profession)
@@ -382,7 +417,14 @@ namespace CityManager
                 try
                 {
                     var accounts = BufferSettings.Read().Active.ToList();
-                    if (accounts.Count == 0) { Reply(target, "No froob buffers enabled."); return; }
+                    PaidBufferSession paid = ManagerMemory.Current.ReadPaidBuffer();
+                    if (paid != null)
+                        Reply(target, paid.Character + ": on-demand paid Fixer (lu / fsc), " +
+                            (paid.Blocked ? "blocked after cleanup failure; check host log" :
+                             DateTime.UtcNow < paid.RetryAfterUtc ? "failure cooldown" :
+                             paid.Draining && paid.Running ? "finishing queue and logging out" :
+                             paid.Ready ? "ready" : paid.Running ? "starting" : "offline until requested") + ".");
+                    if (accounts.Count == 0 && paid == null) { Reply(target, "No buffers enabled."); return; }
                     foreach (var account in accounts)
                     {
                         string message;

@@ -893,6 +893,22 @@
     ],
     "Fixer": [
         {
+            "Name": "Lasting Ultimatum",
+            "LevelToId": [{ "Level": 205, "Id": 252050 }],
+            "Type": 0,
+            "Description": "+466-502 HoT, level 205+",
+            "RemoveNanoIdUponCast": [0],
+            "Tags": ["lu"]
+        },
+        {
+            "Name": "Firewalled Sync Compressor",
+            "LevelToId": [{ "Level": 215, "Id": 275043 }],
+            "Type": 1,
+            "Description": "+500 team NCU, level 215+",
+            "RemoveNanoIdUponCast": [0],
+            "Tags": ["fsc"]
+        },
+        {
             "Name": "Back Pain",
             "LevelToId": [
                 {

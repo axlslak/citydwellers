@@ -18,6 +18,7 @@ namespace MalisBuffBots
         public static QueueProcessor QueueProcessor;        // Queue processing logic
         public static RebuffProcessor RebuffProcessor;      // Rebuff processing logic
         public static UserRank UserRank;
+        internal static bool PaidPilot;
 
         public override void Init(string pluginDir)
         {
@@ -34,6 +35,7 @@ namespace MalisBuffBots
                 Logger.Information($"Plugin root dir set to '{Path.PLUGIN_DIR}'");
 
                 SettingsJson = new SettingsJson(Path.SETTINGS_JSON);
+                PaidPilot = ManagerMemory.Current.IsPaidBuffer(Client.CharacterName);
                 int[] configuredKnownNanos = ConfiguredKnownNanoOverrides();
                 if (configuredKnownNanos.Length != 0)
                     Logger.Information("BUFFER configured known-nano override for " +
@@ -84,6 +86,8 @@ namespace MalisBuffBots
             var known = new HashSet<int>(
                 DynelManager.LocalPlayer?.SpellList ?? new int[0]);
 
+            if (PaidPilot) return known.Where(id => id == 252050 || id == 275043).ToArray();
+
             foreach (int id in ConfiguredKnownNanoOverrides())
                 known.Add(id);
 
@@ -100,12 +104,12 @@ namespace MalisBuffBots
                 if (!Client.InPlay || DynelManager.LocalPlayer == null) return;
                 if ((SettingsJson.Data.InitConnectionDelay -= delta) < 0)
                 {
-                    if (UserRank.MeetsRank(Rank.Warper, DynelManager.LocalPlayer.Name))
+                    if (!PaidPilot && UserRank.MeetsRank(Rank.Warper, DynelManager.LocalPlayer.Name))
                         return;
 
                     DynelManager.LocalPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
                     Ipc.Init();
-                    RebuffProcessor = new RebuffProcessor(RebuffJson);
+                    if (!PaidPilot) RebuffProcessor = new RebuffProcessor(RebuffJson);
                     CityBufferBridge.Ready = true;
                     // Client.OnUpdate += Ipc.OnUpdate; TODO
 
@@ -143,6 +147,15 @@ namespace MalisBuffBots
                 return false;
             }
 
+            if (PaidPilot)
+            {
+                if ((Profession)DynelManager.LocalPlayer.Profession != Profession.Fixer)
+                {
+                    message = "The configured paid buffer must be a Fixer.";
+                    return false;
+                }
+                return QueueProcessor.RequestPaidBuffs(entries.SelectMany(p => p.Value).Distinct().ToArray(), requester, out message);
+            }
             QueueProcessor.RequestBuffs(entries, requester);
             Logger.Information($"Received Manager cast request from '{requester.Name}'");
             return true;

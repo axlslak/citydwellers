@@ -22,6 +22,7 @@ namespace CityDwellers.Shared
     {
         public string Id;
         public string Command;
+        public string TargetCharacter;
         public uint SenderId;
         public string SenderName;
         public string[] Arguments;
@@ -93,7 +94,7 @@ namespace CityDwellers.Shared
             {
                 DateTime freshAfter = DateTime.UtcNow.AddSeconds(-5);
                 BufferBotInfo target = _bufferBots.Values
-                    .Where(x => x.Profession == profession && x.InPlay && x.Ready &&
+                    .Where(x => !IsPaidBuffer(x.Character) && x.Profession == profession && x.InPlay && x.Ready &&
                                 x.ObservedUtc >= freshAfter)
                     .OrderBy(x => x.Character, StringComparer.OrdinalIgnoreCase)
                     .FirstOrDefault();
@@ -146,6 +147,11 @@ namespace CityDwellers.Shared
                     _bufferPublicOutcomes.ContainsKey(request.Id))
                     return false;
 
+                if (!string.IsNullOrWhiteSpace(request.TargetCharacter) &&
+                    (!IsPaidBufferLocked(request.TargetCharacter) ||
+                     _paidBuffer.Blocked ||
+                     DateTime.UtcNow < _paidBuffer.RetryAfterUtc)) return false;
+
                 BufferPublicCommandRequest copy = request.Copy();
                 if (copy.CreatedUtc == default(DateTime))
                     copy.CreatedUtc = DateTime.UtcNow;
@@ -190,6 +196,15 @@ namespace CityDwellers.Shared
                 if (!_bufferPublicCommands.TryGetValue(id, out request) ||
                     !string.IsNullOrWhiteSpace(request.ClaimedBy))
                     return false;
+
+                if (!string.IsNullOrWhiteSpace(request.TargetCharacter))
+                {
+                    if (!IsPaidBufferLocked(character) ||
+                        !string.Equals(request.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) ||
+                        !_paidBuffer.Running || _paidBuffer.Blocked || _paidBuffer.Draining || _paidBuffer.Parked) return false;
+                    _paidBuffer.BusyUtc = DateTime.UtcNow;
+                }
+                else if (IsPaidBufferLocked(character)) return false;
 
                 request.ClaimedBy = character;
                 request.ClaimedUtc = DateTime.UtcNow;
@@ -269,7 +284,8 @@ namespace CityDwellers.Shared
             DateTime outcomeCutoff = now.AddMinutes(-1);
 
             foreach (string id in _bufferPublicCommands
-                .Where(pair => pair.Value.CreatedUtc < requestCutoff)
+                .Where(pair => pair.Value.CreatedUtc < (string.IsNullOrWhiteSpace(pair.Value.TargetCharacter)
+                    ? requestCutoff : now.AddSeconds(-125)))
                 .Select(pair => pair.Key)
                 .ToArray())
             {

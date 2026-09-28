@@ -42,6 +42,7 @@
     <Compile Include="BankerHealth.cs" />
     <Compile Include="BufferBotInfo.cs" />
     <Compile Include="BufferCoordination.cs" />
+    <Compile Include="PaidBuffers.cs" />
     <Compile Include="..\TellQueue.cs" />
     <Compile Include="..\ManagerChannelQueue.cs" />
   </ItemGroup>

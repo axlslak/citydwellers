@@ -21,6 +21,29 @@ namespace MalisBuffBots
         private string _attemptedEntryKey;
         private DateTime _attemptedEntryExpiresUtc;
         private const int CastCompletionTimeoutSeconds = 8;
+        private int _paidInviteRequester;
+        private DateTime _paidTeamDeadline;
+
+        internal bool RequestPaidBuffs(NanoEntry[] entries, PlayerChar requester, out string message)
+        {
+            message = null;
+            int[] known = Main.EffectiveSpellList();
+            if (entries.Length == 0 || entries.Any(e => e.LevelToId.Any(n => n.Id != 252050 && n.Id != 275043)))
+            { message = "The paid Fixer pilot supports only lu and fsc."; return false; }
+            foreach (var entry in entries)
+            {
+                if (!entry.LevelToId.Any(n => known.Contains(n.Id)))
+                { message = Client.CharacterName + " does not report " + entry.Name + " as uploaded."; return false; }
+                if (!entry.LevelToId.Any(n => known.Contains(n.Id) && n.Level <= requester.Level))
+                { message = entry.Name + " requires recipient level " + entry.LevelToId.Min(n => n.Level) + "+."; return false; }
+            }
+            if (!Queue.TryEnqueuePaid(entries.Select(e => new BuffEntry {
+                Requester = requester.Identity, NanoEntry = e
+            }).ToArray(), out message)) return false;
+            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+            message = "Queued " + string.Join(" and ", entries.Select(e => e.Name)) + " on " + Client.CharacterName + ".";
+            return true;
+        }
 
         public QueueProcessor(int graceTimeMs = 1000)
         {
@@ -48,7 +71,7 @@ namespace MalisBuffBots
                 if (Team.IsInTeam)
                     ProcessLeaveTeam();
 
-                if (TeamTrackerId != 0 && Main.Ipc.BotCache.IsTeamQueueEmpty(TeamTrackerId) && !Queue.AllEntries.Any(x => x.Requester.Instance == TeamTrackerId && x.NanoEntry.Type == CastType.Team))
+                if (!Main.PaidPilot && TeamTrackerId != 0 && Main.Ipc.BotCache.IsTeamQueueEmpty(TeamTrackerId) && !Queue.AllEntries.Any(x => x.Requester.Instance == TeamTrackerId && x.NanoEntry.Type == CastType.Team))
                     ProcessResetTeamTrackerId();
 
                 if (DynelManager.LocalPlayer.IsCasting)
@@ -62,6 +85,8 @@ namespace MalisBuffBots
                     case QueueState.Dequeue:
                         ClearCastAttempt();
                         TeamTimeout.Reset();
+                        _paidInviteRequester = 0;
+                        _paidTeamDeadline = DateTime.UtcNow.AddSeconds(30);
                         Main.Ipc.BotCache.BroadcastQueueInfoMessage();
                         ProcessCurrentBuffEntry();
                         break;
@@ -78,8 +103,12 @@ namespace MalisBuffBots
                 try
                 {
                     if (failed != null)
+                    {
                         Logger.Warning("Buff cast failed for requester " + failed.Requester.Instance +
                             "; remaining queued requests are retained.");
+                        if (Main.PaidPilot) CityBufferBridge.PaidResult(failed.Requester.Instance,
+                            failed.NanoEntry.Name + " failed; see the buffer log. Other queued requests are retained.");
+                    }
                     Main.Ipc.BotCache.BroadcastQueueInfoMessage();
                 }
                 catch { /* Preserve the remaining queue even if reporting fails. */ }
@@ -90,6 +119,11 @@ namespace MalisBuffBots
 
         private void ProcessLeaveTeam()
         {
+            if (Main.PaidPilot)
+            {
+                if (!Queue.AllEntries.Any(e => e.NanoEntry.Type == CastType.Team)) LeaveTeam();
+                return;
+            }
             if (!Main.Ipc.BotCache.IsTeamQueueEmpty(TeamTrackerId))
                 return;
 
@@ -306,13 +340,19 @@ namespace MalisBuffBots
                 return true;
 
             Logger.Warning("No cast completion or feedback received for '" + Queue.Current.NanoEntry.Name +
-                "' after " + CastCompletionTimeoutSeconds + "s; clearing current request to avoid retry loop.");
+                "' after " + (Main.PaidPilot ? 20 : CastCompletionTimeoutSeconds) + "s; clearing current request to avoid retry loop.");
+            if (Main.PaidPilot) CityBufferBridge.PaidResult(Queue.Current.Requester.Instance,
+                Queue.Current.NanoEntry.Name + ": no cast completion received; not retrying automatically.");
             ResetCurrentBuffEntry();
             return true;
         }
 
         public void ResetCurrentBuffEntry(LdbFeedback? feedback = null)
         {
+            if (Queue.Current == null) return;
+            if (Main.PaidPilot && feedback != null)
+                CityBufferBridge.PaidResult(Queue.Current.Requester.Instance,
+                    Queue.Current.NanoEntry.Name + " failed: " + feedback.Value + ".");
             if (feedback != null)
                 Logger.Warning("Buff feedback for requester " + Queue.Current.Requester.Instance +
                     ": " + feedback.Value);
@@ -338,6 +378,7 @@ namespace MalisBuffBots
 
             if (Main.SettingsJson.Data.PvpFlagCheck && buffTarget.IsPvpFlagged())
             {
+                if (Main.PaidPilot) CityBufferBridge.PaidResult(buffTarget.Identity.Instance, "Buff skipped: your character is PvP flagged.");
                 Logger.Warning("Skipping buff for flagged requester " + buffTarget.Name + ".");
                 ResetCurrentBuffEntry();
                 return;
@@ -369,9 +410,11 @@ namespace MalisBuffBots
             }
 
             _attemptedEntryKey = CurrentCastAttemptKey();
-            _attemptedEntryExpiresUtc = DateTime.UtcNow.AddSeconds(CastCompletionTimeoutSeconds);
-            Targeting.SetTarget(buffTarget);
-            DynelManager.LocalPlayer.Cast(buffTarget, firstAvailableBuff.Id);
+            _attemptedEntryExpiresUtc = DateTime.UtcNow.AddSeconds(Main.PaidPilot ? 20 : CastCompletionTimeoutSeconds);
+            // FSC is a self-cast whose effect is applied to the team, not a 1m targeted buff.
+            PlayerChar castTarget = firstAvailableBuff.Id == 275043 ? DynelManager.LocalPlayer : buffTarget;
+            Targeting.SetTarget(castTarget);
+            DynelManager.LocalPlayer.Cast(castTarget, firstAvailableBuff.Id);
         }
 
         private void LeaveTeam()
@@ -379,7 +422,7 @@ namespace MalisBuffBots
             if (!_teamGracePeriod.Elapsed)
                 return;
 
-            if (Team.Members.Count > 0 && Team.Members.Any(x => Main.UserRank.MeetsRank(Rank.Warper, x.Name)))
+            if (!Main.PaidPilot && Team.Members.Count > 0 && Team.Members.Any(x => Main.UserRank.MeetsRank(Rank.Warper, x.Name)))
                 return;
 
             Logger.Information("Leaving team...");
@@ -388,6 +431,31 @@ namespace MalisBuffBots
 
         private void ProcessTeamEntry()
         {
+            if (Main.PaidPilot)
+            {
+                if (DateTime.UtcNow >= _paidTeamDeadline)
+                {
+                    CityBufferBridge.PaidResult(Queue.Current.Requester.Instance,
+                        "Firewalled Sync Compressor: team invitation timed out. Leave your current team before requesting fsc.");
+                    ResetCurrentBuffEntry();
+                    return;
+                }
+                if (Team.IsInTeam)
+                {
+                    if (Team.Members.Any(m => m.Identity == Queue.Current.Requester)) AttemptToBuffTarget();
+                    else LeaveTeam();
+                    return;
+                }
+                if (_paidInviteRequester != Queue.Current.Requester.Instance)
+                {
+                    _paidInviteRequester = Queue.Current.Requester.Instance;
+                    ResetTeamTimer();
+                    Team.Invite(Queue.Current.Requester);
+                    CityBufferBridge.PaidResult(_paidInviteRequester,
+                        "Accept " + Client.CharacterName + "'s team invitation for Firewalled Sync Compressor.");
+                }
+                return;
+            }
             if (Team.IsInTeam)
             {
                 if (!Team.Members.Any(x => x.Identity == Queue.Current.Requester))

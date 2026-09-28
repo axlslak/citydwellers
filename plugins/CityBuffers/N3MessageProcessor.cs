@@ -136,10 +136,11 @@ namespace MalisBuffBots
 
         private void OnSetNanoDurationAction(Identity identity, int nanoId)
         {
+            if (Main.PaidPilot) return; // Preserve the owner's existing nanos and FSC self effect.
             if (identity != DynelManager.LocalPlayer.Identity)
                 return;
 
-            if (Main.RebuffProcessor.Contains(nanoId, out _))
+            if (Main.RebuffProcessor == null || Main.RebuffProcessor.Contains(nanoId, out _))
                 return;
 
             DynelManager.LocalPlayer.ForceRemoveBuff(nanoId);
@@ -152,6 +153,7 @@ namespace MalisBuffBots
 
         private void OnTeamRequestAction(Identity identity, Identity target)
         {
+            if (Main.PaidPilot) return; // This pilot issues its own requester invitations.
             Logger.Information($"Team request received from '{identity.Instance}'");
 
             if (Main.Ipc.BotCache.Entries.Values.Any(x => x.Identity == target))
@@ -177,6 +179,8 @@ namespace MalisBuffBots
             var buffTargetName = buffTarget != null ? buffTarget.Name : target.Instance.ToString();
 
             Logger.Information($"Finished casting '{_queueProcessor.Queue.Current.NanoEntry.Name}' on '{buffTargetName}'");
+            if (Main.PaidPilot) CityBufferBridge.PaidResult(_queueProcessor.Queue.Current.Requester.Instance,
+                Client.CharacterName + " finished casting " + _queueProcessor.Queue.Current.NanoEntry.Name + ".");
             _queueProcessor.ResetCurrentBuffEntry();
         }
 

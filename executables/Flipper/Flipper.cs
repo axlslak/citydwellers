@@ -737,6 +737,9 @@ public class FlipperLoader
 
         ClientDomain domain = null;
         bool domainStarted = false;
+        string accountOwner = "Flipper:" + Guid.NewGuid().ToString("N");
+        bool accountAcquired = false;
+        bool domainUnloaded = true;
         Stopwatch totalTimer = Stopwatch.StartNew();
 
         ProbeIdle.Reset();
@@ -758,6 +761,22 @@ public class FlipperLoader
                 return run;
             }
 
+            while (!(accountAcquired = ManagerMemory.Current.TryAcquireAoAccount(
+                _account.Username, accountOwner, true)))
+            {
+                if (_stopping || ManagerMemory.Current.FlipperCancelled(operationId))
+                {
+                    run.Canceled = true;
+                    return run;
+                }
+                if (totalTimer.ElapsedMilliseconds >= 120000)
+                {
+                    Console.WriteLine("Flipper account still in use by a buffer; no competing login attempted.");
+                    return run;
+                }
+                Thread.Sleep(100);
+            }
+
             Console.WriteLine(
                 $"[{totalTimer.Elapsed.TotalSeconds:F3}s] Creating client domain.");
 
@@ -767,6 +786,7 @@ public class FlipperLoader
                 _account.Character,
                 Dimension.RubiKa,
                 logger);
+            domainUnloaded = false;
 
             ClientDomainLifetime.Track(domain, _account.Character);
             domain.LoadPlugin(_pluginPath);
@@ -871,6 +891,7 @@ public class FlipperLoader
                 try
                 {
                     ClientDomainLifetime.Unload(domain);
+                    domainUnloaded = true;
                     Console.WriteLine("Flipper client unloaded.");
                 }
                 catch (Exception ex)
@@ -879,6 +900,10 @@ public class FlipperLoader
                     run.Success = false;
                 }
             }
+
+            ManagerMemory.Current.CancelAoAccountWait(_account.Username, accountOwner);
+            if (accountAcquired && domainUnloaded)
+                ManagerMemory.Current.ReleaseAoAccount(_account.Username, accountOwner);
 
             if (domainStarted && !run.Success && !run.Canceled && !_stopping)
             {

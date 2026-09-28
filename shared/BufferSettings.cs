@@ -40,9 +40,10 @@ namespace CityDwellers.Shared
                     throw new InvalidOperationException("Buffers.Froobs must use distinct characters and accounts.");
             }
 
-            // Paid/high-level buffers are configuration-only for now. Their
-            // usernames may intentionally overlap each other or another service
-            // such as Flipper; later account arbitration owns that exclusivity.
+            // Initial on-demand pilot: one Fixer, sharing only with Flipper.
+            if (result.Paid.Count(a => a != null && a.Enabled) > 1)
+                throw new InvalidOperationException("The paid buffer pilot supports one enabled Fixer.");
+            var paidAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var account in result.Paid.Where(a => a == null || a.Enabled))
             {
                 if (account == null || string.IsNullOrWhiteSpace(account.Username) ||
@@ -51,18 +52,27 @@ namespace CityDwellers.Shared
                     throw new InvalidOperationException("Each enabled Buffers.Paid entry needs Username, Password and a valid Character.");
                 if (!characters.Add(account.Character))
                     throw new InvalidOperationException("Buffers.Froobs and Buffers.Paid must use distinct characters.");
+                if (froobAccounts.Contains(account.Username))
+                    throw new InvalidOperationException("Paid buffers cannot share a persistent froob buffer account.");
+                paidAccounts.Add(account.Username);
             }
 
             // Froobs are persistent workers and must remain on dedicated accounts.
-            // Paid entries are intentionally excluded from this check.
+            // Paid may share only with the other account-arbitrated service, Flipper.
             foreach (var section in root.Properties().Where(p => !string.Equals(p.Name, "Buffers", StringComparison.OrdinalIgnoreCase)))
             {
                 var container = section.Value as JContainer;
                 if (container == null) continue;
                 foreach (var property in container.Descendants().OfType<JProperty>())
+                {
                     if (string.Equals(property.Name, "Username", StringComparison.OrdinalIgnoreCase) &&
                         property.Value.Type == JTokenType.String && froobAccounts.Contains((string)property.Value))
                         throw new InvalidOperationException("An enabled froob buffer account is also configured in " + section.Name + ". Use a separate account.");
+                    if (!string.Equals(section.Name, "Flipper", StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(property.Name, "Username", StringComparison.OrdinalIgnoreCase) &&
+                        property.Value.Type == JTokenType.String && paidAccounts.Contains((string)property.Value))
+                        throw new InvalidOperationException("A paid buffer account may share only with Flipper, not " + section.Name + ".");
+                }
             }
             return result;
         }

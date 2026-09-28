@@ -43,6 +43,19 @@ namespace MalisBuffBots
             }
         }
 
+        internal bool TryEnqueuePaid(BuffEntry[] requested, out string error)
+        {
+            lock (_sync)
+            {
+                var entries = AllEntries;
+                error = requested.Any(r => entries.Any(e => e.Equals(r))) ? "That buff is already queued." :
+                    entries.Length + requested.Length > 4 ? "The paid buffer has a full batch; please try again after it finishes." : null;
+                if (error != null) return false;
+                foreach (var entry in requested) _queue.Enqueue(entry);
+                return true;
+            }
+        }
+
         internal void ClearCurrent() { lock (_sync) _current = null; }
         internal void Clear() { lock (_sync) { _queue.Clear(); _current = null; } }
     }

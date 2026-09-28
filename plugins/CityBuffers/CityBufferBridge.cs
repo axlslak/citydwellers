@@ -181,11 +181,26 @@ namespace MalisBuffBots
         public static void SendPrivateMessage(int recipient, string message, bool logMessage = true)
             => SendPrivateMessage((uint)recipient, message, logMessage);
 
+        internal static void PaidResult(int recipient, string message)
+        {
+            // Any online sender can deliver this after the paid character logs out.
+            TellQueue.Enqueue(_dataDir, Client.CharacterName, null, (uint)recipient, message);
+        }
+
         private static void Tick(object sender, double delta)
         {
             try
             {
                 Main.Ipc?.DrainMemorySignals();
+                if (Main.PaidPilot)
+                {
+                    bool inPlayNow = Client.InPlay && DynelManager.LocalPlayer != null;
+                    bool parked = ManagerMemory.Current.UpdatePaidBufferActivity(Client.CharacterName,
+                        Ready && inPlayNow,
+                        !inPlayNow || Main.QueueProcessor == null ||
+                        Main.QueueProcessor.Queue.AllEntries.Length != 0 || DynelManager.LocalPlayer.IsCasting);
+                    if (parked) Ready = false;
+                }
                 DateTime now = DateTime.UtcNow;
                 if (_lastSent > now.AddSeconds(5)) _lastSent = null;
                 if (now >= _nextHeartbeat)
@@ -194,7 +209,7 @@ namespace MalisBuffBots
                     bool inPlay = Client.InPlay && DynelManager.LocalPlayer != null;
                     int[] spellList = inPlay ? Main.EffectiveSpellList() : new int[0];
                     _snapshot = JsonConvert.SerializeObject(new {
-                        Character = Client.CharacterName, Kind = "froob", InPlay = inPlay,
+                        Character = Client.CharacterName, Kind = Main.PaidPilot ? "paid" : "froob", InPlay = inPlay,
                         Ready = inPlay && Ready, ObservedUtc = now,
                         Profession = inPlay ? ((Profession)DynelManager.LocalPlayer.Profession).ToString() : "Unknown",
                         NanoCount = spellList.Length,
