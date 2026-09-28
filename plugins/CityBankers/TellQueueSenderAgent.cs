@@ -114,16 +114,22 @@ namespace CityBankers
             string failure = null;
             try
             {
-                if (Client.Chat == null || string.IsNullOrWhiteSpace(job.RecipientName))
-                    throw new InvalidOperationException(
-                        "A banker tell assignment requires a recipient name.");
-
-                Client.Chat.SendPrivateMessage(job.RecipientName, job.Message, true);
+                // Shared jobs may address a visible player by ID, including results
+                // from an on-demand buffer that has already logged out.
+                if (job.RecipientId.HasValue && job.RecipientId.Value != 0)
+                    Client.SendPrivateMessage(job.RecipientId.Value, job.Message);
+                else if (Client.Chat != null && !string.IsNullOrWhiteSpace(job.RecipientName))
+                    Client.Chat.SendPrivateMessage(job.RecipientName, job.Message, true);
+                else
+                    throw new InvalidOperationException("A banker tell assignment requires a recipient ID or name.");
                 _lastSentUtc = now;
                 success = true;
                 Logger.Information(
                     "TELL QUEUE sent " + ShortId(job.Id) + " as " +
-                    Client.CharacterName + " -> " + job.RecipientName + ".");
+                    Client.CharacterName + " -> " +
+                    (job.RecipientId.HasValue && job.RecipientId.Value != 0
+                        ? "character-id " + job.RecipientId.Value
+                        : job.RecipientName) + ".");
             }
             catch (Exception ex)
             {
