@@ -7,6 +7,7 @@ using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using CityDwellers.Shared;
 
 namespace MalisBuffBots
 {
@@ -29,8 +30,11 @@ namespace MalisBuffBots
         {
             message = null;
             int[] known = Main.EffectiveSpellList();
-            if (entries.Length == 0 || entries.Any(e => e.LevelToId.Any(n => n.Id != 252050 && n.Id != 275043)))
-            { message = "The paid Fixer pilot supports only lu and fsc."; return false; }
+            var allowed = PaidBufferCatalogue.ForProfession(Main.PaidProfession).Select(n => n.Id).ToArray();
+            if (entries.Length == 0 || entries.Any(e => e.LevelToId.Any(n => !allowed.Contains(n.Id))))
+            { message = "That buff is not offered by this paid buffer's configured profession."; return false; }
+            if (Main.PaidProfession == 12 && entries.Length > 1)
+            { message = "Choose one MP composite; these buffs replace each other."; return false; }
             foreach (var entry in entries)
             {
                 if (!entry.LevelToId.Any(n => known.Contains(n.Id)))

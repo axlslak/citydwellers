@@ -169,13 +169,31 @@ namespace CityManager
 
             DateTime now = DateTime.UtcNow;
             string[] castTags = isCast ? parts.Skip(1).Select(value => value.ToLowerInvariant()).ToArray() : new string[0];
-            bool paidCast = castTags.Any(ManagerMemory.IsPaidFixerTag);
-            PaidBufferSession paid = paidCast ? ManagerMemory.Current.ReadPaidBuffer() : null;
-            if (paidCast && (!castTags.All(ManagerMemory.IsPaidFixerTag) || paid == null))
+            var paidNanos = castTags.Select(PaidBufferCatalogue.Find).ToArray();
+            bool paidCast = paidNanos.Any(n => n != null);
+            PaidBufferSession paid = null;
+            if (paidCast)
             {
-                Reply(target, paid == null ? "No on-demand paid Fixer is configured." :
-                    "Please request lu / fsc separately from the ordinary buffer tags.");
-                return;
+                if (paidNanos.Any(n => n == null) || paidNanos.Select(n => n.Profession).Distinct().Count() != 1)
+                {
+                    Reply(target, "Please request each paid profession separately from other professions and ordinary buffer tags.");
+                    return;
+                }
+                int profession = paidNanos[0].Profession;
+                if (profession == 12 && paidNanos.Select(n => n.Id).Distinct().Count() > 1)
+                {
+                    Reply(target, "Choose one MP composite at a time; Teachings, Mastery, Infuse and Mochams replace each other.");
+                    return;
+                }
+                paid = ManagerMemory.Current.ReadPaidBuffers().Where(p => p.Profession == profession)
+                    .OrderBy(p => p.Blocked || now < p.RetryAfterUtc)
+                    .ThenByDescending(p => p.Ready && !p.Draining)
+                    .ThenBy(p => p.Character, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+                if (paid == null)
+                {
+                    Reply(target, "No on-demand paid " + PaidBufferCatalogue.ProfessionName(profession) + " is configured.");
+                    return;
+                }
             }
             if (paidCast && now < paid.RetryAfterUtc)
             {
@@ -294,8 +312,8 @@ namespace CityManager
                         snapshot.AdvertisedBuffs.Length != 0)
                     .ToList();
 
-                PaidBufferSession paid = ManagerMemory.Current.ReadPaidBuffer();
-                if (snapshots.Count == 0 && paid == null)
+                PaidBufferSession[] paidProviders = ManagerMemory.Current.ReadPaidBuffers();
+                if (snapshots.Count == 0 && paidProviders.Length == 0)
                 {
                     ReplyBufferCatalogue(target,
                         new[] { "No buffer capability catalogue has been observed yet." });
@@ -313,12 +331,16 @@ namespace CityManager
                 body.Append("<font color='").Append(ColorMuted)
                     .Append("'>Cached from buffer capability snapshots. READY means at least one advertising buffer is currently fresh and ready; CACHED remains visible while its buffer is offline.</font>\n\n");
 
-                if (paid != null)
+                foreach (var paid in paidProviders)
                 {
-                    body.Append("<b>On-demand paid Fixer: ").Append(EscapeBlobText(paid.Character)).Append("</b>\n")
-                        .Append(CommandLink(target, "cast lu", "lu")).Append(" Lasting Ultimatum - HoT, level 205+, 25 NCU\n")
-                        .Append(CommandLink(target, "cast fsc", "fsc")).Append(" Firewalled Sync Compressor - team +500 NCU, level 215+\n")
-                        .Append("Logs in on request when the shared account is free; uploaded nanos are checked at login.\n\n");
+                    body.Append("<b>On-demand paid ").Append(PaidBufferCatalogue.ProfessionName(paid.Profession))
+                        .Append(": ").Append(EscapeBlobText(paid.Character)).Append("</b>\n");
+                    foreach (var nano in PaidBufferCatalogue.ForProfession(paid.Profession))
+                        body.Append(CommandLink(target, "cast " + nano.Tags[0], nano.Tags[0]))
+                            .Append(" ").Append(EscapeBlobText(nano.Name)).Append(" - ")
+                            .Append(EscapeBlobText(nano.Description)).Append(", level ").Append(nano.Level).Append("+")
+                            .Append(nano.Ncu > 0 ? ", " + nano.Ncu + " NCU" : "").Append("\n");
+                    body.Append("Logs in on request when the shared account is free; uploaded nanos are checked at login.\n\n");
                 }
 
                 foreach (var profession in rows
@@ -417,14 +439,14 @@ namespace CityManager
                 try
                 {
                     var accounts = BufferSettings.Read().Active.ToList();
-                    PaidBufferSession paid = ManagerMemory.Current.ReadPaidBuffer();
-                    if (paid != null)
-                        Reply(target, paid.Character + ": on-demand paid Fixer (lu / fsc), " +
+                    PaidBufferSession[] paidProviders = ManagerMemory.Current.ReadPaidBuffers();
+                    foreach (var paid in paidProviders)
+                        Reply(target, paid.Character + ": on-demand paid " + PaidBufferCatalogue.ProfessionName(paid.Profession) + ", " +
                             (paid.Blocked ? "blocked after cleanup failure; check host log" :
                              DateTime.UtcNow < paid.RetryAfterUtc ? "failure cooldown" :
                              paid.Draining && paid.Running ? "finishing queue and logging out" :
                              paid.Ready ? "ready" : paid.Running ? "starting" : "offline until requested") + ".");
-                    if (accounts.Count == 0 && paid == null) { Reply(target, "No buffers enabled."); return; }
+                    if (accounts.Count == 0 && paidProviders.Length == 0) { Reply(target, "No buffers enabled."); return; }
                     foreach (var account in accounts)
                     {
                         string message;

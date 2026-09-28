@@ -1384,6 +1384,131 @@
     ],
     "Metaphysicist": [
         {
+            "Name": "Composite Teachings",
+            "LevelToId": [
+                {
+                    "Level": 15,
+                    "Id": 220331
+                }
+            ],
+            "Type": 0,
+            "Description": "+25 Nano Skills, 4 hours; Shadowlands required",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ct"
+            ]
+        },
+        {
+            "Name": "Composite Mastery",
+            "LevelToId": [
+                {
+                    "Level": 40,
+                    "Id": 220333
+                }
+            ],
+            "Type": 0,
+            "Description": "+50 Nano Skills, 4 hours; Shadowlands required",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "cma",
+                "cmastery"
+            ]
+        },
+        {
+            "Name": "Composite Infuse With Knowledge",
+            "LevelToId": [
+                {
+                    "Level": 90,
+                    "Id": 220335
+                }
+            ],
+            "Type": 0,
+            "Description": "+90 Nano Skills, 4 hours; Shadowlands required",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ci"
+            ]
+        },
+        {
+            "Name": "Composite Mochams (1 hour)",
+            "LevelToId": [
+                {
+                    "Level": 175,
+                    "Id": 220337
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 Nano Skills, 1 hour; Shadowlands required",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "cm1h",
+                "cm1",
+                "cm"
+            ]
+        },
+        {
+            "Name": "Composite Mochams (2 hours)",
+            "LevelToId": [
+                {
+                    "Level": 201,
+                    "Id": 220339
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 Nano Skills, 2 hours; Shadowlands required",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "cm2h",
+                "cm2"
+            ]
+        },
+        {
+            "Name": "Composite Mochams (4 hours)",
+            "LevelToId": [
+                {
+                    "Level": 205,
+                    "Id": 220341
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 Nano Skills, 4 hours; Shadowlands required",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "cm4h",
+                "cm4"
+            ]
+        },
+        {
+            "Name": "Composite Mochams (8 hours)",
+            "LevelToId": [
+                {
+                    "Level": 209,
+                    "Id": 220343
+                }
+            ],
+            "Type": 0,
+            "Description": "+140 Nano Skills, 8 hours; Shadowlands required",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "cm8h",
+                "cm8"
+            ]
+        },
+        {
             "Name": "Mocham's Gift: BioMet",
             "LevelToId": [
                 {

@@ -147,10 +147,9 @@ namespace CityDwellers.Shared
                     _bufferPublicOutcomes.ContainsKey(request.Id))
                     return false;
 
+                var paid = PaidBufferLocked(request.TargetCharacter);
                 if (!string.IsNullOrWhiteSpace(request.TargetCharacter) &&
-                    (!IsPaidBufferLocked(request.TargetCharacter) ||
-                     _paidBuffer.Blocked ||
-                     DateTime.UtcNow < _paidBuffer.RetryAfterUtc)) return false;
+                    (paid == null || paid.Blocked || DateTime.UtcNow < paid.RetryAfterUtc)) return false;
 
                 BufferPublicCommandRequest copy = request.Copy();
                 if (copy.CreatedUtc == default(DateTime))
@@ -199,6 +198,7 @@ namespace CityDwellers.Shared
 
                 if (!string.IsNullOrWhiteSpace(request.TargetCharacter))
                 {
+                    var _paidBuffer = PaidBufferLocked(character);
                     if (!IsPaidBufferLocked(character) ||
                         !string.Equals(request.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) ||
                         !_paidBuffer.Running || _paidBuffer.Blocked || _paidBuffer.Draining || _paidBuffer.Parked) return false;

@@ -19,6 +19,7 @@ namespace MalisBuffBots
         public static RebuffProcessor RebuffProcessor;      // Rebuff processing logic
         public static UserRank UserRank;
         internal static bool PaidPilot;
+        internal static int PaidProfession;
 
         public override void Init(string pluginDir)
         {
@@ -36,6 +37,7 @@ namespace MalisBuffBots
 
                 SettingsJson = new SettingsJson(Path.SETTINGS_JSON);
                 PaidPilot = ManagerMemory.Current.IsPaidBuffer(Client.CharacterName);
+                PaidProfession = ManagerMemory.Current.ReadPaidBuffer(Client.CharacterName)?.Profession ?? 0;
                 int[] configuredKnownNanos = ConfiguredKnownNanoOverrides();
                 if (configuredKnownNanos.Length != 0)
                     Logger.Information("BUFFER configured known-nano override for " +
@@ -86,7 +88,11 @@ namespace MalisBuffBots
             var known = new HashSet<int>(
                 DynelManager.LocalPlayer?.SpellList ?? new int[0]);
 
-            if (PaidPilot) return known.Where(id => id == 252050 || id == 275043).ToArray();
+            if (PaidPilot)
+            {
+                var allowed = PaidBufferCatalogue.ForProfession(PaidProfession).Select(n => n.Id);
+                return known.Where(id => allowed.Contains(id)).ToArray();
+            }
 
             foreach (int id in ConfiguredKnownNanoOverrides())
                 known.Add(id);
@@ -149,9 +155,9 @@ namespace MalisBuffBots
 
             if (PaidPilot)
             {
-                if ((Profession)DynelManager.LocalPlayer.Profession != Profession.Fixer)
+                if ((int)DynelManager.LocalPlayer.Profession != PaidProfession)
                 {
-                    message = "The configured paid buffer must be a Fixer.";
+                    message = "The paid buffer's profession does not match its configured Profession. Check Buffers.Paid.";
                     return false;
                 }
                 return QueueProcessor.RequestPaidBuffs(entries.SelectMany(p => p.Value).Distinct().ToArray(), requester, out message);

@@ -40,9 +40,7 @@ namespace CityDwellers.Shared
                     throw new InvalidOperationException("Buffers.Froobs must use distinct characters and accounts.");
             }
 
-            // Initial on-demand pilot: one Fixer, sharing only with Flipper.
-            if (result.Paid.Count(a => a != null && a.Enabled) > 1)
-                throw new InvalidOperationException("The paid buffer pilot supports one enabled Fixer.");
+            // Paid characters can share accounts with each other and Flipper.
             var paidAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var account in result.Paid.Where(a => a == null || a.Enabled))
             {
@@ -54,6 +52,8 @@ namespace CityDwellers.Shared
                     throw new InvalidOperationException("Buffers.Froobs and Buffers.Paid must use distinct characters.");
                 if (froobAccounts.Contains(account.Username))
                     throw new InvalidOperationException("Paid buffers cannot share a persistent froob buffer account.");
+                if (PaidBufferCatalogue.ProfessionId(account.Profession) == 0)
+                    throw new InvalidOperationException("Paid buffer Profession must be Fixer or MP (Metaphysicist).");
                 paidAccounts.Add(account.Username);
             }
 
@@ -88,5 +88,7 @@ namespace CityDwellers.Shared
         public string Username;
         public string Password;
         public string Character;
+        // Legacy paid Fixer entries remain valid without this field.
+        public string Profession = "Fixer";
     }
 }
