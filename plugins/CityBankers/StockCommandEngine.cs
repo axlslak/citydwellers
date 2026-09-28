@@ -14,7 +14,7 @@ namespace CityBankers
     ///   stock
     ///   symb [family [slot [targetQl]]]
     ///   spirit [slot [targetQl]]
-    ///   dyna|phatz [partial name|ql]
+    ///   dyna [profession|partial name|ql], phatz [partial name|ql]
     /// </summary>
     internal static class StockCommandEngine
     {
@@ -277,12 +277,16 @@ namespace CityBankers
             if (!IsSlottedFamily(family))
             {
                 int familyQl;
+                string profession;
                 string search = string.Join(" ", raw.Skip(index));
                 if (string.Equals(search, "list", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(search, "print", StringComparison.OrdinalIgnoreCase))
                     response = BuildFamily(items, centralCharacter, commandPrefix, family);
                 else if (int.TryParse(search, out familyQl) && familyQl > 0)
                     response = BuildGenericQl(items, centralCharacter, commandPrefix, family, familyQl);
+                else if (string.Equals(family, "dyna", StringComparison.OrdinalIgnoreCase) &&
+                    TryDynaProfession(search, out profession))
+                    response = BuildDynaProfessions(FamilyItems(items, family), centralCharacter, commandPrefix, profession);
                 else
                     response = BuildGenericSearch(
                         items, centralCharacter, commandPrefix, family, search);
@@ -477,17 +481,28 @@ namespace CityBankers
         }
 
         private static string BuildDynaProfessions(
-            List<StockItemState> items, string centralCharacter, string commandPrefix)
+            List<StockItemState> items, string centralCharacter, string commandPrefix, string profession = null)
         {
+            if (profession != null)
+                items = items.Where(item => DynaProfession(item.AoId, item.HighId)
+                    .Split(new[] { " / " }, StringSplitOptions.None)
+                    .Contains(profession, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (items.Count == 0)
+                return "No Dyna stock for " + profession + ". " +
+                    ChatCommand("All professions", centralCharacter, commandPrefix + "dyna");
             var body = new StringBuilder();
-            body.Append(CityBankersChatPalette.White("Dyna Nanos by Profession"))
-                .Append("<br><br>Crystals and instruction discs. Search by name with dyna [name], or by QL with dyna [QL].<br><br>");
+            body.Append(CityBankersChatPalette.White(profession == null ? "Dyna Nanos by Profession" : "Dyna - " + profession))
+                .Append("<br><br>Use dyna [profession], dyna [nano name], or dyna [QL]. Profession aliases include doc, fix, enf, engi, crat, advy, ma, mp and nt.<br><br>");
+            if (profession != null)
+                body.Append(ChatCommand("All professions", centralCharacter, commandPrefix + "dyna")).Append("<br><br>");
             var groups = GroupTemplates(items).GroupBy(item => DynaProfession(item.AoId, item.HighId))
                 .OrderBy(group => group.Key == "Unclassified" ? 1 : 0)
                 .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase);
             foreach (var group in groups)
             {
-                body.Append(CityBankersChatPalette.Cyan(group.Key)).Append(" - ")
+                body.Append(string.Join(" / ", group.Key.Split(new[] { " / " }, StringSplitOptions.None)
+                    .Select(name => ChatCommand(name, centralCharacter, commandPrefix + "dyna " + name))))
+                    .Append(" - ")
                     .Append(group.Count()).Append(" types / ").Append(group.Sum(item => item.Count))
                     .Append(" copies<br>");
                 foreach (var item in group.OrderBy(item => item.Ql)
@@ -502,8 +517,33 @@ namespace CityBankers
                 body.Append("<br>");
             }
             body.Append(ChatCommand("Back to stock", centralCharacter, commandPrefix + "stock"));
-            return "Dyna: " + items.Count + " copies in " + CountTemplates(items) +
-                " stocked types. " + Blob("Dyna by profession", body.ToString());
+            return "Dyna" + (profession == null ? "" : " " + profession) + ": " + items.Count + " copies in " + CountTemplates(items) +
+                " stocked types. " + Blob(profession == null ? "Dyna by profession" : "Dyna " + profession, body.ToString());
+        }
+
+        // Match the entire argument, never the first word of a nano-name search.
+        private static bool TryDynaProfession(string text, out string profession)
+        {
+            profession = null;
+            switch ((text ?? string.Empty).Trim().ToLowerInvariant())
+            {
+                case "soldier": case "sol": case "sold": profession = "Soldier"; break;
+                case "martial artist": case "martialartist": case "ma": profession = "Martial Artist"; break;
+                case "engineer": case "engi": case "eng": profession = "Engineer"; break;
+                case "fixer": case "fix": profession = "Fixer"; break;
+                case "agent": case "agt": profession = "Agent"; break;
+                case "adventurer": case "adv": case "advy": profession = "Adventurer"; break;
+                case "trader": case "trad": profession = "Trader"; break;
+                case "bureaucrat": case "crat": profession = "Bureaucrat"; break;
+                case "enforcer": case "enf": case "enfo": profession = "Enforcer"; break;
+                case "doctor": case "doc": profession = "Doctor"; break;
+                case "nano-technician": case "nano technician": case "nanotechnician": case "nt": profession = "Nano-Technician"; break;
+                case "meta-physicist": case "meta physicist": case "metaphysicist": case "mp": profession = "Meta-Physicist"; break;
+                case "keeper": case "keep": profession = "Keeper"; break;
+                case "shade": profession = "Shade"; break;
+                case "unclassified": profession = "Unclassified"; break;
+            }
+            return profession != null;
         }
 
         private static string DynaProfession(int aoId, int highId)

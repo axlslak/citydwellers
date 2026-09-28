@@ -532,7 +532,7 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target,
                 "spirit [slot [targetQl]]", "Search spirits like symbiants. Alias: spirits."));
             body.Append(HelpSyntaxLine(target,
-                "dyna [name|QL]", "Browse dyna nanos and instruction discs by profession, or search by name or QL. Aliases: nano, nanos."));
+                "dyna [profession|name|QL]", "Browse dyna nanos by profession (fixer, doc, enf, etc.), or search by nano name or QL. Aliases: nano, nanos."));
             body.Append(HelpSyntaxLine(target,
                 "phatz [name|QL]", "List all Phatz with copy counts and GET links, or filter by name/QL. Alias: phat."));
             body.Append(HelpSyntaxLine(
