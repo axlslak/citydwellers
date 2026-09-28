@@ -860,6 +860,10 @@ public class BankerLoader
     {
         public int SymbiantMaxCopies = 10;
         public int SpiritMaxCopies = 5;
+        public int? IntelligentSymbiantMaxCopies;
+        public int? XanBetaSymbiantMaxCopies;
+        public int? WistfulSpiritMaxCopies;
+        public int? XanBetaSpiritMaxCopies;
         public Dictionary<string, AcceptanceItemConfig> Items;
     }
 

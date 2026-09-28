@@ -161,6 +161,13 @@ namespace CityBankers.Shared
                     ? "SpiritMaxCopies"
                     : "SymbiantMaxCopies";
                 maximum = ReadMaximum(policy.GetValue(key, StringComparison.OrdinalIgnoreCase), maximum);
+                string tierKey = GetTierLimitKey(aoid);
+                if (tierKey != null)
+                {
+                    JToken tierLimit = policy.GetValue(tierKey, StringComparison.OrdinalIgnoreCase);
+                    if (tierLimit != null && tierLimit.Type != JTokenType.Null)
+                        maximum = ReadMaximum(tierLimit, maximum);
+                }
             }
 
             JObject items = policy?.GetValue("Items", StringComparison.OrdinalIgnoreCase) as JObject;
@@ -411,6 +418,50 @@ namespace CityBankers.Shared
 
         private static PhatzPolicyState CopyPhatzPolicy(PhatzPolicyState state) =>
             Newtonsoft.Json.JsonConvert.DeserializeObject<PhatzPolicyState>(Newtonsoft.Json.JsonConvert.SerializeObject(state));
+
+        private static string GetTierLimitKey(int aoid)
+        {
+            if (Array.BinarySearch(IntelligentSymbiantIds, aoid) >= 0) return "IntelligentSymbiantMaxCopies";
+            if (Array.BinarySearch(XanBetaSymbiantIds, aoid) >= 0) return "XanBetaSymbiantMaxCopies";
+            if (Array.BinarySearch(WistfulSpiritIds, aoid) >= 0) return "WistfulSpiritMaxCopies";
+            if (Array.BinarySearch(XanBetaSpiritIds, aoid) >= 0) return "XanBetaSpiritMaxCopies";
+            return null;
+        }
+
+        // Exact accepted AOIDs selected from the item catalogue, not shared stock pools.
+        private static readonly int[] IntelligentSymbiantIds =
+        {
+            219139, 235422, 235440, 235457, 235475, 235492, 235509, 235527, 235544, 235562,
+            235579, 235596, 235614, 235631, 235646, 235663, 235680, 235696, 235713, 235729,
+            235746, 235763, 235781, 235798, 235815, 235833, 235849, 235866, 235883, 235901,
+            235918, 235935, 235952, 235969, 235987, 236005, 236023, 236040, 236057, 236074,
+            236091, 236108, 236124, 236143, 236164, 236183, 236200, 236218, 236235, 236252,
+            236268, 236284, 236299, 236314, 236331, 236349, 236366, 236384, 236402, 236420,
+            236437, 236455, 236473, 236489, 236505
+        };
+        private static readonly int[] XanBetaSymbiantIds =
+        {
+            278892, 278893, 278895, 278896, 278897, 278898, 278899, 278900, 278901, 278902,
+            278904, 279009, 279010, 279012, 279013, 279014, 279015, 279016, 279017, 279018,
+            279019, 279021, 279022, 279023, 279025, 279026, 279027, 279028, 279029, 279030,
+            279031, 279032, 279034, 279035, 279036, 279038, 279039, 279040, 279041, 279042,
+            279043, 279044, 279045, 279047, 279048, 279049, 279051, 279052, 279053, 279054,
+            279055, 279056, 279057, 279058, 279060
+        };
+        private static readonly int[] WistfulSpiritIds =
+        {
+            224693, 224708, 224725, 224742, 224759, 224777, 224795, 224812, 224828, 224844,
+            224862, 224880, 224898, 224915, 224929, 224936, 224963, 224980, 224996, 225014,
+            225032, 225050, 225067, 225084, 225102, 225120, 225137, 225150, 225170, 225188,
+            225212, 225228, 225246, 225264
+        };
+        private static readonly int[] XanBetaSpiritIds =
+        {
+            279068, 279069, 279070, 279071, 279072, 279073, 279074, 279075, 279076, 279077,
+            279078, 279079, 279080, 279081, 279082, 279083, 279084, 279085, 279086, 279087,
+            279088, 279089, 279090, 279091, 279092, 279093, 279094, 279095, 279096, 279097,
+            279098, 279099, 279100, 279101, 279102, 279173, 279321
+        };
 
         private static int ReadMaximum(JToken token, int fallback)
         {
