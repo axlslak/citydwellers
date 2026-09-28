@@ -23,6 +23,7 @@ namespace MalisBuffBots
         private const int CastCompletionTimeoutSeconds = 8;
         private int _paidInviteRequester;
         private DateTime _paidTeamDeadline;
+        private bool _paidTeamMemberConfirmed;
 
         internal bool RequestPaidBuffs(NanoEntry[] entries, PlayerChar requester, out string message)
         {
@@ -86,6 +87,7 @@ namespace MalisBuffBots
                         ClearCastAttempt();
                         TeamTimeout.Reset();
                         _paidInviteRequester = 0;
+                        _paidTeamMemberConfirmed = false;
                         _paidTeamDeadline = DateTime.UtcNow.AddSeconds(30);
                         Main.Ipc.BotCache.BroadcastQueueInfoMessage();
                         ProcessCurrentBuffEntry();
@@ -435,6 +437,8 @@ namespace MalisBuffBots
             {
                 if (DateTime.UtcNow >= _paidTeamDeadline)
                 {
+                    Logger.Warning("Paid team buff timed out for requester " + Queue.Current.Requester.Instance +
+                        "; membershipConfirmed=" + _paidTeamMemberConfirmed + ".");
                     CityBufferBridge.PaidResult(Queue.Current.Requester.Instance,
                         "Firewalled Sync Compressor: team invitation timed out. Leave your current team before requesting fsc.");
                     ResetCurrentBuffEntry();
@@ -442,7 +446,16 @@ namespace MalisBuffBots
                 }
                 if (Team.IsInTeam)
                 {
-                    if (Team.Members.Any(m => m.Identity == Queue.Current.Requester)) AttemptToBuffTarget();
+                    if (Team.Members.Any(m => m.Identity == Queue.Current.Requester))
+                    {
+                        if (!_paidTeamMemberConfirmed)
+                        {
+                            _paidTeamMemberConfirmed = true;
+                            Logger.Information("Paid team membership confirmed for requester " +
+                                Queue.Current.Requester.Instance + "; Firewalled Sync Compressor will be cast on self for the team.");
+                        }
+                        AttemptToBuffTarget();
+                    }
                     else LeaveTeam();
                     return;
                 }
@@ -451,6 +464,8 @@ namespace MalisBuffBots
                     _paidInviteRequester = Queue.Current.Requester.Instance;
                     ResetTeamTimer();
                     Team.Invite(Queue.Current.Requester);
+                    Logger.Information("Paid team invitation sent to requester " + _paidInviteRequester +
+                        "; waiting for team membership (30-second request deadline).");
                     CityBufferBridge.PaidResult(_paidInviteRequester,
                         "Accept " + Client.CharacterName + "'s team invitation for Firewalled Sync Compressor.");
                 }

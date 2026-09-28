@@ -113,7 +113,7 @@ namespace MalisBuffBots
             switch (actionMsg.Action)
             {
                 case CharacterActionType.AcceptTeamRequest:
-                    Logger.Information($"Team invite accepted from '{actionMsg.Target.Instance}'");
+                    Logger.Information($"Team acceptance received: actor={actionMsg.Identity}, target={actionMsg.Target}.");
                     break;
                 case CharacterActionType.TeamRequest:
                     OnTeamRequestAction(actionMsg.Identity, actionMsg.Target);
@@ -122,7 +122,9 @@ namespace MalisBuffBots
                     OnFinishNanoCastingAction(actionMsg.Identity, actionMsg.Target, actionMsg.Parameter2);
                     break;
                 case (CharacterActionType)21:
-                    Logger.Warning("Team invite failed for requester " + actionMsg.Target.Instance + ".");
+                    // This unnamed action also precedes successful team acceptance.
+                    // Do not infer failure or requester identity from its target.
+                    Logger.Debug($"Character action 21: actor={actionMsg.Identity}, target={actionMsg.Target}, parameter1={actionMsg.Parameter1}, parameter2={actionMsg.Parameter2}.");
                     break;
                 case CharacterActionType.TeamMemberLeft:
                     if (actionMsg.Target == DynelManager.LocalPlayer.Identity)
