@@ -28,7 +28,17 @@ namespace CityDwellers.Shared
             result.Froobs = result.Froobs ?? new List<BufferAccount>();
             result.Paid = result.Paid ?? new List<BufferAccount>();
             if (!result.Enabled) return result;
-            var characters = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Repeated character entries describe one worker. An enabled Paid entry
+            // selects on-demand operation when the character is also listed in Froobs.
+            result.Paid = result.Paid.Where(a => a == null || a.Enabled)
+                .GroupBy(a => a?.Character, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First()).ToList();
+            var paidCharacters = new HashSet<string>(result.Paid.Where(a => a != null)
+                .Select(a => a.Character), StringComparer.OrdinalIgnoreCase);
+            result.Froobs = result.Froobs.Where(a => a == null || a.Enabled)
+                .Where(a => a == null || !paidCharacters.Contains(a.Character))
+                .GroupBy(a => a?.Character, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First()).ToList();
             var froobAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var account in result.Froobs.Where(a => a == null || a.Enabled))
             {
@@ -36,8 +46,8 @@ namespace CityDwellers.Shared
                     string.IsNullOrWhiteSpace(account.Password) ||
                     !Regex.IsMatch(account.Character ?? "", @"\A" + CharacterNames.RegexClass + @"{1,30}\z"))
                     throw new InvalidOperationException("Each enabled Buffers.Froobs entry needs Username, Password and a valid Character.");
-                if (!characters.Add(account.Character) || !froobAccounts.Add(account.Username))
-                    throw new InvalidOperationException("Buffers.Froobs must use distinct characters and accounts.");
+                if (!froobAccounts.Add(account.Username))
+                    throw new InvalidOperationException("Buffers.Froobs must use distinct accounts.");
             }
 
             // Paid characters can share accounts with each other and Flipper.
@@ -48,8 +58,6 @@ namespace CityDwellers.Shared
                     string.IsNullOrWhiteSpace(account.Password) ||
                     !Regex.IsMatch(account.Character ?? "", @"\A" + CharacterNames.RegexClass + @"{1,30}\z"))
                     throw new InvalidOperationException("Each enabled Buffers.Paid entry needs Username, Password and a valid Character.");
-                if (!characters.Add(account.Character))
-                    throw new InvalidOperationException("Buffers.Froobs and Buffers.Paid must use distinct characters.");
                 if (froobAccounts.Contains(account.Username))
                     throw new InvalidOperationException("Paid buffers cannot share a persistent froob buffer account.");
                 if (PaidBufferCatalogue.ProfessionId(account.Profession) == 0)
