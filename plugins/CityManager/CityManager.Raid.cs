@@ -1121,7 +1121,7 @@ namespace CityManager
                 $"level={session.Level} count={count} " +
                 $"authority={authority} wave8={session.CityTargetedUtc.AddSeconds(Wave8OffsetSeconds):O}.");
             SaveRaidState();
-            ReplyRaidChoices(session);
+            Reply(session.Origin, BuildRaidWindow(session));
 
             if (string.Equals(
                     session.RaidType,
@@ -2744,6 +2744,10 @@ namespace CityManager
                 body.Append(
                     "Squad Commanders and higher: do you need " +
                     "City Dwellers for the remaining raid?\n\n");
+                body.Append($"Type: {RaidSelectionText(session.RaidType, "Not selected")}\n");
+                body.Append($"Level: <font color='#FFFF00'>{session.Level}</font>\n");
+                body.Append(
+                    $"Raiders: {RaidSelectionText(session.RaiderCount.HasValue ? session.RaiderCount.Value.ToString() : null, "Not selected")}\n\n");
                 body.Append("Select assistance type:\n");
                 body.Append(
                     RaidAssistTypeButton(
@@ -2931,12 +2935,14 @@ namespace CityManager
             int level,
             string label)
         {
+            if (session.Level == level)
+                return $"<font color='#00DE42'>[{SafeRaidText(label)}]</font>";
+
             string command =
                 $"chatcmd:///o #raidassist level {level} {session.Token}";
-            string color = session.Level == level ? "#00DE42" : "#00BFFF";
 
             return
-                $"<a href='{command}'><font color='{color}'>" +
+                $"<a href='{command}'><font color='#00BFFF'>" +
                 $"[{SafeRaidText(label)}]</font></a>";
         }
 
@@ -2945,17 +2951,14 @@ namespace CityManager
             string raidType,
             string label)
         {
+            if (string.Equals(session.RaidType, raidType, StringComparison.OrdinalIgnoreCase))
+                return $"<font color='#00DE42'>[{SafeRaidText(label)}]</font>";
+
             string command =
                 $"chatcmd:///o #raidassist type {raidType} {session.Token}";
-            string color = string.Equals(
-                session.RaidType,
-                raidType,
-                StringComparison.OrdinalIgnoreCase)
-                    ? "#00DE42"
-                    : "#00BFFF";
 
             return
-                $"<a href='{command}'><font color='{color}'>" +
+                $"<a href='{command}'><font color='#00BFFF'>" +
                 $"[{SafeRaidText(label)}]</font></a>";
         }
 
