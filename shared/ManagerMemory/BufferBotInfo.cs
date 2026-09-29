@@ -8,6 +8,7 @@ namespace CityDwellers.Shared
     public sealed class BufferAdvertisedBuff
     {
         public int Profession;
+        public bool IsGeneric;
         public string Name;
         public string Description;
         public string Tag;

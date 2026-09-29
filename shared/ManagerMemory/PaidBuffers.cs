@@ -22,8 +22,9 @@ namespace CityDwellers.Shared
     public static class PaidBufferCatalogue
     {
         private static readonly PaidBufferNano[] Nanos = {
-            new PaidBufferNano(252050, 4, 205, 25, "Lasting Ultimatum", "HoT", "lu"),
-            new PaidBufferNano(275043, 4, 215, 0, "Firewalled Sync Compressor", "Team +500 NCU", "fsc"),
+            new PaidBufferNano(252050, 4, 205, 25, "Lasting Ultimatum", "+466–502 HoT", "lh1", "lu"),
+            new PaidBufferNano(275043, 4, 215, 0, "Firewalled Sync Compressor", "Team +500 NCU", "ncu", "fsc"),
+            new PaidBufferNano(227680, 3, 210, 55, "Gift of Assurance", "+5000 AC, 4 hours, Shadowlands required", "goa"),
             new PaidBufferNano(220331, 12, 15, 6, "Composite Teachings", "+25 nano skills, 4 hours, Shadowlands required", "ct"),
             new PaidBufferNano(220333, 12, 40, 13, "Composite Mastery", "+50 nano skills, 4 hours, Shadowlands required", "cma", "cmastery"),
             new PaidBufferNano(220335, 12, 90, 25, "Composite Infuse With Knowledge", "+90 nano skills, 4 hours, Shadowlands required", "ci"),
@@ -34,13 +35,25 @@ namespace CityDwellers.Shared
         };
         public static int ProfessionId(string name)
         {
+            if (string.Equals(name, "Engineer", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "Engi", StringComparison.OrdinalIgnoreCase)) return 3;
             if (string.Equals(name, "Fixer", StringComparison.OrdinalIgnoreCase)) return 4;
             if (string.Equals(name, "MP", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "Metaphysicist", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "Meta-Physicist", StringComparison.OrdinalIgnoreCase)) return 12;
             return 0;
         }
-        public static string ProfessionName(int profession) => profession == 12 ? "MP" : "Fixer";
+        public static int ConfiguredProfession(string profession, string character)
+        {
+            if (!string.IsNullOrWhiteSpace(profession)) return ProfessionId(profession);
+            // Existing owner-specified providers: omission is not a universal Fixer default.
+            if (string.Equals(character, "Kavsta", StringComparison.OrdinalIgnoreCase)) return 4;
+            if (string.Equals(character, "Littleangie", StringComparison.OrdinalIgnoreCase)) return 3;
+            if (string.Equals(character, "Zdrahonia", StringComparison.OrdinalIgnoreCase)) return 12;
+            return 0;
+        }
+        public static string ProfessionName(int profession) => profession == 12 ? "MP" :
+            profession == 4 ? "Fixer" : profession == 3 ? "Engineer" : "Unconfigured";
         public static PaidBufferNano Find(string tag) => Nanos.FirstOrDefault(n =>
             n.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
         public static PaidBufferNano[] ForProfession(int profession) =>

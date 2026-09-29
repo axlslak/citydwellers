@@ -160,7 +160,12 @@ namespace MalisBuffBots
                     message = "The paid buffer's profession does not match its configured Profession. Check Buffers.Paid.";
                     return false;
                 }
-                return QueueProcessor.RequestPaidBuffs(entries.SelectMany(p => p.Value).Distinct().ToArray(), requester, out message);
+                var offered = PaidBufferCatalogue.ForProfession(PaidProfession).Select(n => n.Id).ToArray();
+                // Mali's ncu tag covers both the froob NCU line and paid FSC.
+                // A paid worker admits only the nanos in its own advertised profile.
+                return QueueProcessor.RequestPaidBuffs(entries.SelectMany(p => p.Value)
+                    .Where(e => e.LevelToId.Any(n => offered.Contains(n.Id)))
+                    .Distinct().ToArray(), requester, out message);
             }
             QueueProcessor.RequestBuffs(entries, requester);
             Logger.Information($"Received Manager cast request from '{requester.Name}'");

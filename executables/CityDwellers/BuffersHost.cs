@@ -44,12 +44,15 @@ internal static class BuffersHost
 
                 var paidAccounts = config.Enabled ? config.Paid.Where(a => a != null && a.Enabled).ToArray() : new BufferAccount[0];
                 ManagerMemory.Current.RegisterPaidBuffers(paidAccounts.Select(a => new PaidBufferSession {
-                    Character = a.Character, Profession = PaidBufferCatalogue.ProfessionId(a.Profession)
+                    Character = a.Character, Profession = PaidBufferCatalogue.ConfiguredProfession(a.Profession, a.Character)
                 }).ToArray());
                 foreach (var paid in paidAccounts)
                 {
                     runtimes.Add(new BufferRuntime { Account = paid, Paid = true });
-                    logger.Information("Paid buffer {Character} ({Profession}) is available on demand; staying offline until requested.", paid.Character, paid.Profession);
+                    int profession = PaidBufferCatalogue.ConfiguredProfession(paid.Profession, paid.Character);
+                    if (profession == 0)
+                        logger.Warning("Paid buffer {Character} has no supported buff profile; no buffs advertised. Configure Profession for this character.", paid.Character);
+                    else logger.Information("Paid buffer {Character} ({Profession}) is available on demand; staying offline until requested.", paid.Character, PaidBufferCatalogue.ProfessionName(profession));
                 }
 
                 foreach (var account in config.Active)

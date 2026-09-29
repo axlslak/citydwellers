@@ -730,6 +730,14 @@
     ],
     "Engineer": [
         {
+            "Name": "Gift of Assurance",
+            "LevelToId": [{ "Level": 210, "Id": 227680 }],
+            "Type": 0,
+            "Description": "+5000 AC, 4 hours; Shadowlands required",
+            "RemoveNanoIdUponCast": [0],
+            "Tags": ["goa"]
+        },
+        {
             "Name": "Aegis Barrier",
             "LevelToId": [
                 {
@@ -898,7 +906,7 @@
             "Type": 0,
             "Description": "+466-502 HoT, level 205+",
             "RemoveNanoIdUponCast": [0],
-            "Tags": ["lu"]
+            "Tags": ["lh1", "lu"]
         },
         {
             "Name": "Firewalled Sync Compressor",
@@ -906,7 +914,7 @@
             "Type": 1,
             "Description": "+500 team NCU, level 215+",
             "RemoveNanoIdUponCast": [0],
-            "Tags": ["fsc"]
+            "Tags": ["ncu", "fsc"]
         },
         {
             "Name": "Back Pain",

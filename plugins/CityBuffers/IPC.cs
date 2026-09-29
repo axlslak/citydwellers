@@ -325,19 +325,16 @@ namespace MalisBuffBots
                 .SelectMany(pair => (pair.Value ?? new List<NanoEntry>())
                     .Where(entry => entry != null && entry.LevelToId != null &&
                         entry.LevelToId.Any(level => known.Contains(level.Id)))
-                    .SelectMany(entry => (entry.Tags ?? new string[0])
-                        .Where(tag => !string.IsNullOrWhiteSpace(tag))
-                        .DefaultIfEmpty(string.Empty)
-                        .Distinct(StringComparer.OrdinalIgnoreCase)
-                        .Select(tag => new BufferAdvertisedBuff
+                    .Select(entry => new BufferAdvertisedBuff
                     {
                         Profession = (int)pair.Key,
+                        IsGeneric = pair.Key == Profession.Generic,
                         Name = entry.Name ?? string.Empty,
                         Description = entry.Description ?? string.Empty,
-                        Tag = tag,
+                        Tag = (entry.Tags ?? new string[0]).FirstOrDefault(tag => !string.IsNullOrWhiteSpace(tag)) ?? string.Empty,
                         Type = entry.Type.ToString(),
                         Ncu = AdvertisedNcu(entry)
-                    })))
+                    }))
                 .OrderBy(entry => entry.Profession)
                 .ThenBy(entry => entry.Tag, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)

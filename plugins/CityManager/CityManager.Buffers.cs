@@ -171,6 +171,15 @@ namespace CityManager
             string[] castTags = isCast ? parts.Skip(1).Select(value => value.ToLowerInvariant()).ToArray() : new string[0];
             var paidNanos = castTags.Select(PaidBufferCatalogue.Find).ToArray();
             bool paidCast = paidNanos.Any(n => n != null);
+            // Mali ncu is also an ordinary fleet tag. Keep lower-level requests
+            // and ordinary multi-buff commands on that route; fsc stays explicit.
+            if (castTags.Contains("ncu") && !paidNanos.Any(n => n != null && n.Id != 275043) &&
+                !castTags.Contains("fsc"))
+            {
+                var requester = DynelManager.Players.FirstOrDefault(p => p.Identity.Instance == target.SenderId);
+                if (paidNanos.Any(n => n == null) || (requester != null && requester.Level < 215) ||
+                    !ManagerMemory.Current.ReadPaidBuffers().Any(p => p.Profession == 4)) paidCast = false;
+            }
             PaidBufferSession paid = null;
             if (paidCast)
             {
@@ -233,7 +242,7 @@ namespace CityManager
             if (paidCast)
                 Reply(target, "Request queued for " + paid.Character +
                     ". Stay near the buffer; I will log them in when the shared account is free." +
-                    (castTags.Contains("fsc") ? " For fsc, leave your current team and accept their invitation (level 215+)." : ""));
+                    (paidNanos.Any(n => n != null && n.Id == 275043) ? " For ncu, leave your current team and accept their invitation (level 215+)." : ""));
 
             ThreadPool.QueueUserWorkItem(_ =>
             {
@@ -312,7 +321,8 @@ namespace CityManager
                         snapshot.AdvertisedBuffs.Length != 0)
                     .ToList();
 
-                PaidBufferSession[] paidProviders = ManagerMemory.Current.ReadPaidBuffers();
+                PaidBufferSession[] paidProviders = ManagerMemory.Current.ReadPaidBuffers()
+                    .Where(p => PaidBufferCatalogue.ForProfession(p.Profession).Length != 0).ToArray();
                 if (snapshots.Count == 0 && paidProviders.Length == 0)
                 {
                     ReplyBufferCatalogue(target,
@@ -328,66 +338,62 @@ namespace CityManager
                     .ToList();
 
                 var body = new StringBuilder();
-                body.Append("<font color='").Append(ColorMuted)
-                    .Append("'>Cached from buffer capability snapshots. READY means at least one advertising buffer is currently fresh and ready; CACHED remains visible while its buffer is offline.</font>\n\n");
-
-                foreach (var paid in paidProviders)
-                {
-                    body.Append("<b>On-demand paid ").Append(PaidBufferCatalogue.ProfessionName(paid.Profession))
-                        .Append(": ").Append(EscapeBlobText(paid.Character)).Append("</b>\n");
-                    foreach (var nano in PaidBufferCatalogue.ForProfession(paid.Profession))
-                        body.Append(CommandLink(target, "cast " + nano.Tags[0], nano.Tags[0]))
-                            .Append(" ").Append(EscapeBlobText(nano.Name)).Append(" - ")
-                            .Append(EscapeBlobText(nano.Description)).Append(", level ").Append(nano.Level).Append("+")
-                            .Append(nano.Ncu > 0 ? ", " + nano.Ncu + " NCU" : "").Append("\n");
-                    body.Append("Logs in on request when the shared account is free; uploaded nanos are checked at login.\n\n");
-                }
+                body.Append(CommandLink(target, "buffmacro", "Buffmacro"))
+                    .Append(" - create a macro of current buffs\n")
+                    .Append(CommandLink(target, "rebuff", "Rebuff"))
+                    .Append(" - refresh current buffs\n\n");
 
                 foreach (var profession in rows
-                    .GroupBy(row => row.Buff.Profession)
-                    .OrderBy(group => ((AOSharp.Common.GameData.Profession)group.Key).ToString(),
+                    .GroupBy(row => new { row.Buff.IsGeneric, row.Buff.Profession })
+                    .OrderBy(group => group.Key.IsGeneric ? 0 : 1)
+                    .ThenBy(group => ((AOSharp.Common.GameData.Profession)group.Key.Profession).ToString(),
                         StringComparer.OrdinalIgnoreCase))
                 {
-                    string professionName =
-                        ((AOSharp.Common.GameData.Profession)profession.Key).ToString();
+                    string professionName = profession.Key.IsGeneric ? "Generic" :
+                        ((AOSharp.Common.GameData.Profession)profession.Key.Profession).ToString();
+                    body.Append("<img src=tdb://id:GFX_GUI_FRIENDLIST_SPLITTER>\n");
+                    if (!profession.Key.IsGeneric)
+                        body.Append("<img src=tdb://id:GFX_GUI_ICON_PROFESSION_")
+                            .Append(profession.Key.Profession).Append("> ");
                     body.Append("<font color='").Append(ColorTitle).Append("'><b>")
                         .Append(EscapeBlobText(professionName)).Append("</b></font>\n");
 
                     foreach (var buffGroup in profession
-                        .GroupBy(row => (row.Buff.Tag ?? string.Empty) + "\u001f" +
-                            (row.Buff.Name ?? string.Empty), StringComparer.OrdinalIgnoreCase)
-                        .OrderBy(group => group.First().Buff.Name, StringComparer.OrdinalIgnoreCase))
+                        .GroupBy(row => row.Buff.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(group => profession.Key.IsGeneric ? group.First().Buff.Tag : group.Key,
+                            StringComparer.OrdinalIgnoreCase))
                     {
                         BufferAdvertisedBuff buff = buffGroup.First().Buff;
                         bool ready = buffGroup.Any(row => IsFreshReadyBuffer(row.Snapshot, now));
-                        string providers = string.Join(", ", buffGroup
-                            .Select(row => row.Snapshot.Character +
-                                (IsFreshReadyBuffer(row.Snapshot, now) ? " ready" : " offline"))
-                            .Distinct(StringComparer.OrdinalIgnoreCase)
-                            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase));
-
-                        body.Append("  <font color='")
-                            .Append(ready ? ColorGood : ColorMuted)
-                            .Append("'>").Append(ready ? "READY" : "CACHED")
-                            .Append("</font> ");
-
-                        if (!string.IsNullOrWhiteSpace(buff.Tag))
-                            body.Append(
-                                CommandLink(
-                                    target,
-                                    "cast " + buff.Tag,
-                                    buff.Tag))
-                                .Append(" ");
-
-                        body.Append(EscapeBlobText(buff.Name));
-                        if (!string.IsNullOrWhiteSpace(buff.Description))
-                            body.Append(" - ").Append(EscapeBlobText(buff.Description));
-                        if (buff.Ncu > 0)
-                            body.Append(" - ").Append(buff.Ncu).Append(" NCU");
-                        body.Append(" <font color='").Append(ColorMuted).Append("'>(")
-                            .Append(EscapeBlobText(providers)).Append(")</font>\n");
+                        body.Append("  ").Append(CommandLink(target, "cast " + buff.Tag, buff.Name));
+                        if (string.Equals(buff.Type, "Team", StringComparison.OrdinalIgnoreCase))
+                            body.Append(" <font color='#FBFF96'>[Team]</font>");
+                        body.Append(" <font color='#F07171'>[")
+                            .Append(EscapeBlobText(buff.Description)).Append("]</font>")
+                            .Append(" <font color='#00BDBD'>[NCU: ").Append(buff.Ncu).Append("]</font>");
+                        if (!ready) body.Append(" <font color='").Append(ColorMuted).Append("'>[Offline]</font>");
+                        body.Append("\n");
                     }
+                    body.Append("\n");
+                }
 
+                foreach (var profession in paidProviders.Where(p => p.Profession != 0)
+                    .GroupBy(p => p.Profession).OrderBy(p => p.Key))
+                {
+                    body.Append("<img src=tdb://id:GFX_GUI_FRIENDLIST_SPLITTER>\n")
+                        .Append("<img src=tdb://id:GFX_GUI_ICON_PROFESSION_").Append(profession.Key).Append("> ")
+                        .Append("<b>").Append(PaidBufferCatalogue.ProfessionName(profession.Key))
+                        .Append(" — on demand</b> (")
+                        .Append(EscapeBlobText(string.Join(", ", profession.Select(p => p.Character))))
+                        .Append(")\n");
+                    foreach (var nano in PaidBufferCatalogue.ForProfession(profession.Key))
+                    {
+                        body.Append("  ").Append(CommandLink(target, "cast " + nano.Tags[0], nano.Name));
+                        if (nano.Id == 275043) body.Append(" <font color='#FBFF96'>[Team]</font>");
+                        body.Append(" <font color='#F07171'>[").Append(EscapeBlobText(nano.Description))
+                            .Append("]</font> <font color='#00BDBD'>[Level: ").Append(nano.Level)
+                            .Append("+] [NCU: ").Append(nano.Ncu).Append("]</font>\n");
+                    }
                     body.Append("\n");
                 }
 

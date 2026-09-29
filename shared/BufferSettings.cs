@@ -60,8 +60,6 @@ namespace CityDwellers.Shared
                     throw new InvalidOperationException("Each enabled Buffers.Paid entry needs Username, Password and a valid Character.");
                 if (froobAccounts.Contains(account.Username))
                     throw new InvalidOperationException("Paid buffers cannot share a persistent froob buffer account.");
-                if (PaidBufferCatalogue.ProfessionId(account.Profession) == 0)
-                    throw new InvalidOperationException("Paid buffer Profession must be Fixer or MP (Metaphysicist).");
                 paidAccounts.Add(account.Username);
             }
 
@@ -96,7 +94,6 @@ namespace CityDwellers.Shared
         public string Username;
         public string Password;
         public string Character;
-        // Legacy paid Fixer entries remain valid without this field.
-        public string Profession = "Fixer";
+        public string Profession;
     }
 }
