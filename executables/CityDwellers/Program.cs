@@ -21,7 +21,15 @@ namespace CityDwellers.Host
                 return ClientlessGameDataBootstrap.Run(args);
 
             bool isWindows = Environment.OSVersion.Platform == PlatformID.Win32NT;
-            bool consoleMode = HasCommand(args, "console");
+            bool consoleMode = args != null && Array.Exists(args, arg =>
+                string.Equals(arg, "console", StringComparison.OrdinalIgnoreCase));
+            bool audit = args != null && Array.Exists(args, arg =>
+                string.Equals(arg, "audit", StringComparison.OrdinalIgnoreCase));
+            bool normalStart = args == null || Array.TrueForAll(args, arg =>
+                string.Equals(arg, "console", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(arg, "audit", StringComparison.OrdinalIgnoreCase));
+            if ((audit || consoleMode) && !normalStart) { PrintUsage(); return 1; }
+            CityDwellersCoordinator.StartupAuditRequested = audit;
             if (!isWindows && (HasCommand(args, "service") || HasCommand(args, "install-service") ||
                 HasCommand(args, "uninstall-service")))
             {
@@ -52,7 +60,7 @@ namespace CityDwellers.Host
             if (HasCommand(args, "bankers-bagaudit"))
                 return RunBankersBagAudit();
 
-            if (args != null && args.Length > 0 && !consoleMode)
+            if (!normalStart)
             {
                 PrintUsage();
                 return 1;
@@ -139,6 +147,8 @@ namespace CityDwellers.Host
             Console.WriteLine();
             Console.WriteLine("  CityDwellers.exe");
             Console.WriteLine("  CityDwellers.exe console   (Mono: mono CityDwellers.exe console)");
+            Console.WriteLine("  CityDwellers.exe [console] audit   (startup audit; either argument order)");
+            Console.WriteLine("  Normal startup uses saved banking state without a bag audit.");
             Console.WriteLine("  CityDwellers.exe install-service");
             Console.WriteLine("  CityDwellers.exe uninstall-service");
             Console.WriteLine("  CityDwellers.exe flipper-probe");
@@ -153,6 +163,7 @@ namespace CityDwellers.Host
         private static ManagerDatabase _database;
         private static Mutex _managerInstance;
         internal static bool OperatorShutdownRequested { get; private set; }
+        internal static bool StartupAuditRequested { get; set; }
 
         public static int Run(ManualResetEvent stop, bool interactive)
         {
@@ -202,6 +213,10 @@ namespace CityDwellers.Host
                 if (!created) { _managerInstance.Dispose(); _managerInstance = null; throw new InvalidOperationException("City Dwellers is already running on this host."); }
                 RuntimeLog.Initialize(dataDirectory);
                 ManagerHost.InitializeMemory();
+                ManagerMemory.Current.ConfigureStartupAudit(StartupAuditRequested);
+                RuntimeLog.Write(StartupAuditRequested
+                    ? "Banker startup audit requested for this host run."
+                    : "Banker startup audit disabled; using persisted banking state.");
                 RuntimeLog.Write("Opening Manager SQL connection.");
                 _database = new ManagerDatabase(runtimeDirectory, failure =>
                     HostFailure.Stop("Business persistence failed; stopping before further physical operations.", failure));

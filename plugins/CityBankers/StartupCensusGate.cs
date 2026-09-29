@@ -530,8 +530,30 @@ namespace CityBankers
                     Manager.ReportBankerPresence(_character, _connection, Stopwatch.GetTimestamp());
                     _presenceAge.Restart();
                 }
-                // Disabled: faults never publish roster recovery requests.
-                if (string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase) && _gather.ElapsedMilliseconds >= 5000) Locked(Coordinate);
+                if (!Manager.StartupAuditRequested && !InitialAuditUsed)
+                {
+                    // The ledger is authoritative on ordinary startup. Do not
+                    // scan bags, reconcile custody, or manufacture census results.
+                    string duplicates = StorageBagPolicy.DescribeDuplicates();
+                    if (duplicates != null)
+                    {
+                        Block("Duplicate container identities on startup: " + duplicates);
+                        return;
+                    }
+                    Locked(() =>
+                    {
+                        var admitted = Manager.AdmitPersistedBanker(_character, _connection);
+                        if (admitted == null) return;
+                        Hold("Starting from persisted banking state.");
+                        _auditCycle = admitted.Id;
+                        _auditPause = _holdVersion;
+                        _finished = true;
+                        Logger.Information("[CityBankers] " + _character +
+                            " admitted from persisted banking state; startup audit not requested.");
+                    });
+                }
+                // Only an explicit host audit start may coordinate physical scans.
+                if (Manager.StartupAuditRequested && string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase) && _gather.ElapsedMilliseconds >= 5000) Locked(Coordinate);
                 var cycle = Current();
                 if (_admission != null && (_admission.Cycle != cycle?.Id ||
                     cycle.Phase != "released" || _admission.Connection != _connection))

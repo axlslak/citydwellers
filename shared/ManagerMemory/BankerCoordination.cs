@@ -57,6 +57,27 @@ namespace CityDwellers.Shared
     {
         private readonly object _bankerSync = new object();
         private CensusCycle _census;
+        private bool _startupAuditRequested;
+        public bool StartupAuditRequested { get { lock (_bankerSync) return _startupAuditRequested; } }
+        public void ConfigureStartupAudit(bool requested)
+        { lock (_bankerSync) _startupAuditRequested = requested; }
+
+        // Admit once per host from persisted business state. This does not create
+        // audit evidence; subsequent connections still use normal local recovery.
+        public CensusCycle AdmitPersistedBanker(string character, string connection)
+        {
+            lock (_bankerSync)
+            {
+                if (_startupAuditRequested || _initialAudits.Contains(character)) return null;
+                if (_census == null) _census = new CensusCycle {
+                    Id = Guid.NewGuid().ToString("N"), Phase = "released",
+                    Participants = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) };
+                if (_census.Phase != "released") return null;
+                _initialAudits.Add(character); // Consume startup admission, not a physical scan.
+                _census.Participants[character] = connection;
+                return _census.Copy();
+            }
+        }
         private readonly Dictionary<string, BankerHealthHeartbeat> _bankerHealth = new Dictionary<string, BankerHealthHeartbeat>(StringComparer.OrdinalIgnoreCase);
         public void ReportBankerHealth(BankerHealthHeartbeat heartbeat)
         { lock (_bankerSync) _bankerHealth[heartbeat.Character] = heartbeat.Copy(); }
@@ -87,7 +108,7 @@ namespace CityDwellers.Shared
         public CensusCycle CurrentCensus() { lock (_bankerSync) return _census?.Copy(); }
         public void SetCensus(CensusCycle cycle) { lock (_bankerSync) _census = cycle?.Copy(); }
         public bool InitialAuditUsed(string character) { lock (_bankerSync) return _initialAudits.Contains(character); }
-        public bool ConsumeInitialAudit(string character) { lock (_bankerSync) return _initialAudits.Add(character); }
+        public bool ConsumeInitialAudit(string character) { lock (_bankerSync) return _startupAuditRequested && _initialAudits.Add(character); }
         public void ReportBankerPresence(string character, string connection, long stamp)
         {
             lock (_bankerSync) { var banker = Banker(character); banker.Connection = connection; banker.PresenceStamp = stamp; }
