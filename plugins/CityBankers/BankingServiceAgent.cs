@@ -330,16 +330,17 @@ namespace CityBankers
                     _operationalHeartbeatAge.Restart();
                 }
 
-                // Vegetative mode deliberately stops here. IPC is still serviced,
-                // readiness stays published, and the 2s fallback below detects
-                // Manager-created withdrawal work even if the explicit source wake
-                // hint was lost. Central must wake for every active withdrawal
-                // because it owns requested -> extracting and pickup/expiry
-                // orchestration; workers wake only for withdrawals sourced from
-                // themselves.
+                // The 2s idle fallback checks Manager memory for work that outlives
+                // local operation fields. In particular, _activeBatch is cleared
+                // after transfer, before the worker's storage result is collected.
+                // Queued dispatch and uncollected results must wake Central too.
                 if (!BankerActivityGovernor.IsActive && !liveWork)
                 {
-                    if (WithdrawalStore.LoadAll(_settingsDir).Any(row =>
+                    bool pendingDispatch = _isCentral &&
+                        RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(batch =>
+                            string.Equals(batch.Status, "queued", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(batch.Status, "transferred", StringComparison.OrdinalIgnoreCase));
+                    if (pendingDispatch || WithdrawalStore.LoadAll(_settingsDir).Any(row =>
                         WithdrawalStore.IsActive(row) &&
                         (_isCentral ||
                          string.Equals(row.SourceCharacter, Client.CharacterName,
@@ -347,7 +348,7 @@ namespace CityBankers
                     {
                         BankerActivityGovernor.Wake();
                     }
-                    return;
+                    else return;
                 }
 
                 if (_localCensus != null || !StartupCensusGate.IsOpen) return;
