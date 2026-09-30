@@ -167,7 +167,8 @@ namespace MalisBuffBots
                     .Where(e => e.LevelToId.Any(n => offered.Contains(n.Id)))
                     .Distinct().ToArray(), requester, out message);
             }
-            QueueProcessor.RequestBuffs(entries, requester);
+            if (!QueueProcessor.RequestBuffs(entries, requester))
+            { message = "The buffer readiness queue is full; please retry shortly."; return false; }
             Logger.Information($"Received Manager cast request from '{requester.Name}'");
             return true;
         }
@@ -198,7 +199,8 @@ namespace MalisBuffBots
                 return false;
             }
 
-            QueueProcessor.RequestBuffs(entries, requester);
+            if (!QueueProcessor.RequestBuffs(entries, requester))
+            { message = "The buffer readiness queue is full; please retry shortly."; return false; }
             Logger.Information($"Received Manager rebuff request from '{requester.Name}'");
             return true;
         }
