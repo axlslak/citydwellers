@@ -211,7 +211,7 @@ namespace MalisBuffBots
                     moveComponent.ChangeMovement(MovementAction.LeaveSit);
                     break;
                 default:
-                    Logger.Information($"Unregistered ldbfeedback msg:{feedbackMsg.MessageId}");
+                    Logger.Information($"Unregistered ldbfeedback msg:{feedbackMsg.MessageId}; currentNano={_queueProcessor.Queue.Current?.NanoEntry?.Name ?? "none"}; requester={_queueProcessor.Queue.Current?.Requester.Instance ?? 0}");
                     break;
             }
 

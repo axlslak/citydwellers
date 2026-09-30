@@ -18,6 +18,7 @@ namespace MalisBuffBots
     {
         public RebuffJson _rebuffInfo;
         private double _initDelay;
+        private readonly Dictionary<int, int> _startupRemovalAttempts = new Dictionary<int, int>();
 
         public RebuffProcessor(RebuffJson rebuffInfo, float initDelay = 1f)
         {
@@ -31,10 +32,14 @@ namespace MalisBuffBots
         {
             try
             {
+                if (!Client.InPlay || DynelManager.LocalPlayer == null) return;
                 _initDelay -= deltaTime;
 
                 if (_initDelay > 0)
                     return;
+
+                if (!RemoveUnconfiguredStartupBuffs())
+                { _initDelay = 1; return; }
 
                 if (!TryFindBuffs(_rebuffInfo.LocalPlayerRebuffTags()))
                 { _initDelay = 1; return; }
@@ -47,6 +52,35 @@ namespace MalisBuffBots
                 Logger.Error(ex.Message);
                 Logger.Error($"RebuffProcessorOnUpdate");
             }
+        }
+
+        private bool RemoveUnconfiguredStartupBuffs()
+        {
+            bool waiting = false;
+            // Login restores NCU without necessarily emitting SetNanoDuration.
+            // Only manage catalogue buffs here, never arbitrary hostile/unknown effects.
+            foreach (int id in DynelManager.LocalPlayer.Buffs.Select(b => b.Id).ToArray())
+            {
+                if (!Main.BuffsJson.FindById(id, out var known) || _rebuffInfo.Contains(known.Item2.Tags))
+                    continue;
+                _startupRemovalAttempts.TryGetValue(id, out int attempts);
+                if (attempts >= 3)
+                {
+                    if (attempts == 3)
+                    {
+                        Logger.Warning("Startup buff cancellation not confirmed: " + known.Item2.Name +
+                            " (" + id + "). Continuing configured requests; this effect may conflict.");
+                        _startupRemovalAttempts[id] = 4;
+                    }
+                    continue;
+                }
+                _startupRemovalAttempts[id] = attempts + 1;
+                if (attempts == 0)
+                    Logger.Information("Removing startup buff excluded by RebuffInfo: " + known.Item2.Name + " (" + id + ").");
+                DynelManager.LocalPlayer.ForceRemoveBuff(id);
+                waiting = true;
+            }
+            return !waiting;
         }
 
 
