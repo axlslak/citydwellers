@@ -22,6 +22,10 @@ namespace MalisBuffBots
         private string _attemptedEntryKey;
         private DateTime _attemptedEntryExpiresUtc;
         private const int CastCompletionTimeoutSeconds = 8;
+        private DateTime _requestDeadlineUtc;
+        private DateTime _retryAfterUtc;
+        private int _retryCount;
+        private int? _lastAttemptFeedback;
         private int _paidInviteRequester;
         private DateTime _paidTeamDeadline;
         private bool _paidTeamMemberConfirmed;
@@ -84,13 +88,17 @@ namespace MalisBuffBots
                 if (DynelManager.LocalPlayer.IsCasting)
                     return;
 
-                switch (Queue.Process())
+                switch (Queue.Process(DynelManager.LocalPlayer.Identity))
                 {
                     case QueueState.Current:
                         ProcessCurrentBuffEntry();
                         break;
                     case QueueState.Dequeue:
                         ClearCastAttempt();
+                        _retryCount = 0;
+                        _retryAfterUtc = DateTime.MinValue;
+                        _requestDeadlineUtc = Queue.Current.Requester == DynelManager.LocalPlayer.Identity
+                            ? DateTime.MaxValue : DateTime.UtcNow.AddMinutes(2);
                         TeamTimeout.Reset();
                         _paidInviteRequester = 0;
                         _paidTeamMemberConfirmed = false;
@@ -104,20 +112,9 @@ namespace MalisBuffBots
             }
             catch (Exception ex)
             {
-                // One failed cast must not discard every other user's queue.
-                var failed = Queue.Current;
-                ClearCastAttempt();
-                Queue.ClearCurrent();
                 try
                 {
-                    if (failed != null)
-                    {
-                        Logger.Warning("Buff cast failed for requester " + failed.Requester.Instance +
-                            "; remaining queued requests are retained.");
-                        if (Main.PaidPilot) CityBufferBridge.PaidResult(failed.Requester.Instance,
-                            failed.NanoEntry.Name + " failed; see the buffer log. Other queued requests are retained.");
-                    }
-                    Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+                    RetryCurrentBuffEntry("cast processing exception: " + ex.Message);
                 }
                 catch { /* Preserve the remaining queue even if reporting fails. */ }
                 Logger.Error(ex.Message);
@@ -345,6 +342,16 @@ namespace MalisBuffBots
 
         private void ProcessCurrentBuffEntry()
         {
+            if (DateTime.UtcNow >= _requestDeadlineUtc)
+            {
+                Logger.Warning("Buff request expired after two minutes of cast processing: " +
+                    Queue.Current.NanoEntry.Name + "; requester=" + Queue.Current.Requester.Instance + ".");
+                if (Main.PaidPilot) CityBufferBridge.PaidResult(Queue.Current.Requester.Instance,
+                    Queue.Current.NanoEntry.Name + ": retries exhausted after two minutes.");
+                ResetCurrentBuffEntry();
+                return;
+            }
+            if (DateTime.UtcNow < _retryAfterUtc) return;
             switch (Queue.Current.NanoEntry.Type)
             {
                 case CastType.Single:
@@ -360,6 +367,28 @@ namespace MalisBuffBots
         {
             _attemptedEntryKey = null;
             _attemptedEntryExpiresUtc = DateTime.MinValue;
+            _lastAttemptFeedback = null;
+        }
+
+        // Feedback has no nano id. Only attach it while a cast is outstanding.
+        internal bool HasOutstandingCast => _attemptedEntryKey != null &&
+            _attemptedEntryKey == CurrentCastAttemptKey();
+
+        internal void RecordCastFeedback(int messageId)
+        {
+            if (HasOutstandingCast)
+                _lastAttemptFeedback = messageId;
+        }
+
+        internal void RetryCurrentBuffEntry(string reason)
+        {
+            if (Queue.Current == null || DateTime.UtcNow < _retryAfterUtc) return;
+            ClearCastAttempt();
+            _retryCount = Math.Min(_retryCount + 1, 6);
+            int seconds = _retryCount * 5;
+            _retryAfterUtc = DateTime.UtcNow.AddSeconds(seconds);
+            Logger.Warning("Retaining '" + Queue.Current.NanoEntry.Name + "' for requester " +
+                Queue.Current.Requester.Instance + ": " + reason + "; retry in " + seconds + "s.");
         }
 
         private string CurrentCastAttemptKey()
@@ -387,15 +416,13 @@ namespace MalisBuffBots
             if (DateTime.UtcNow < _attemptedEntryExpiresUtc)
                 return true;
 
-            Logger.Warning("No cast completion or feedback received for '" + Queue.Current.NanoEntry.Name +
-                "' after " + (Main.PaidPilot ? 20 : CastCompletionTimeoutSeconds) + "s; clearing current request to avoid retry loop.");
-            if (Main.PaidPilot) CityBufferBridge.PaidResult(Queue.Current.Requester.Instance,
-                Queue.Current.NanoEntry.Name + ": no cast completion received; not retrying automatically.");
-            ResetCurrentBuffEntry();
+            RetryCurrentBuffEntry("no cast completion after " +
+                (Main.PaidPilot ? 20 : CastCompletionTimeoutSeconds) + "s; last feedback=" +
+                (_lastAttemptFeedback.HasValue ? _lastAttemptFeedback.Value.ToString() : "none"));
             return true;
         }
 
-        public void ResetCurrentBuffEntry(LdbFeedback? feedback = null)
+        public void ResetCurrentBuffEntry(LdbFeedback? feedback = null, bool completed = false)
         {
             if (Queue.Current == null) return;
             if (Main.PaidPilot && feedback != null)
@@ -405,7 +432,8 @@ namespace MalisBuffBots
                 Logger.Warning("Buff feedback for requester " + Queue.Current.Requester.Instance +
                     ": " + feedback.Value);
 
-            DynelManager.LocalPlayer.TryRemoveBuffs(Queue.Current.NanoEntry.RemoveNanoIdUponCast);
+            if (completed)
+                DynelManager.LocalPlayer.TryRemoveBuffs(Queue.Current.NanoEntry.RemoveNanoIdUponCast);
 
             Logger.Information("RESET TRIGGERED");
             ClearCastAttempt();
@@ -415,12 +443,13 @@ namespace MalisBuffBots
 
         private void AttemptToBuffTarget()
         {
-            var buffTarget = DynelManager.Players.FirstOrDefault(x => x.Identity == Queue.Current.Requester);
+            var buffTarget = Queue.Current.Requester == DynelManager.LocalPlayer.Identity
+                ? DynelManager.LocalPlayer
+                : DynelManager.Players.FirstOrDefault(x => x.Identity == Queue.Current.Requester);
 
             if (buffTarget == null || Queue.Current.Requester == Identity.None)
             {
-                Logger.Information($"Cast attempt on UNKNOWN character skipped.");
-                ResetCurrentBuffEntry();
+                RetryCurrentBuffEntry("requester is not visible yet");
                 return;
             }
 
@@ -458,6 +487,7 @@ namespace MalisBuffBots
             }
 
             _attemptedEntryKey = CurrentCastAttemptKey();
+            _lastAttemptFeedback = null;
             _attemptedEntryExpiresUtc = DateTime.UtcNow.AddSeconds(Main.PaidPilot ? 20 : CastCompletionTimeoutSeconds);
             // FSC is a self-cast whose effect is applied to the team, not a 1m targeted buff.
             PlayerChar castTarget = firstAvailableBuff.Id == 275043 ? DynelManager.LocalPlayer : buffTarget;
@@ -481,7 +511,7 @@ namespace MalisBuffBots
         {
             if (Main.PaidPilot)
             {
-                if (DateTime.UtcNow >= _paidTeamDeadline)
+                if (!_paidTeamMemberConfirmed && DateTime.UtcNow >= _paidTeamDeadline)
                 {
                     Logger.Warning("Paid team buff timed out for requester " + Queue.Current.Requester.Instance +
                         "; membershipConfirmed=" + _paidTeamMemberConfirmed + ".");

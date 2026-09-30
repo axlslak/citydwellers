@@ -18,6 +18,7 @@ namespace MalisBuffBots
     {
         public RebuffJson _rebuffInfo;
         private double _initDelay;
+        private bool _initialized;
         private readonly Dictionary<int, int> _startupRemovalAttempts = new Dictionary<int, int>();
 
         public RebuffProcessor(RebuffJson rebuffInfo, float initDelay = 1f)
@@ -38,14 +39,20 @@ namespace MalisBuffBots
                 if (_initDelay > 0)
                     return;
 
-                if (!RemoveUnconfiguredStartupBuffs())
+                if (!_initialized && !RemoveUnconfiguredStartupBuffs())
                 { _initDelay = 1; return; }
 
                 if (!TryFindBuffs(_rebuffInfo.LocalPlayerRebuffTags()))
                 { _initDelay = 1; return; }
 
-                BuffStatus.BuffChanged += OnBuffChanged;
-                Client.OnUpdate -= OnUpdate;
+                if (!_initialized)
+                {
+                    BuffStatus.BuffChanged += OnBuffChanged;
+                    _initialized = true;
+                }
+                // A rejected cast never enters NCU and therefore never expires.
+                // Recheck missing configured effects as well as listening for expiry.
+                _initDelay = 30;
             }
             catch (Exception ex)
             {
@@ -136,6 +143,14 @@ namespace MalisBuffBots
 
             if (!Main.BuffsJson.FindMissingBuffs(buffTags, out Dictionary<Profession, List<NanoEntry>> missingBuffs))
                 return true;
+
+            if (_initialized)
+            {
+                // FindMissingBuffs deliberately always includes team requests.
+                // Maintenance must not repeatedly invite for an effect already present.
+                foreach (var entries in missingBuffs.Values)
+                    entries.RemoveAll(entry => DynelManager.LocalPlayer.Buffs.Any(buff => entry.ContainsId(buff.Id)));
+            }
 
             return Main.QueueProcessor.RequestBuffs(missingBuffs, DynelManager.LocalPlayer);
         }
