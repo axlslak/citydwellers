@@ -182,8 +182,12 @@ namespace MalisBuffBots
             => SendPrivateMessage((uint)recipient, message, logMessage);
 
         internal static void PaidResult(int recipient, string message)
+            => RequestResult(recipient, message);
+
+        internal static void RequestResult(int recipient, string message)
         {
-            // Any online sender can deliver this after the paid character logs out.
+            if (recipient == 0) return;
+            // Results use the shared queue; any online sender can deliver them.
             TellQueue.Enqueue(_dataDir, Client.CharacterName, null, (uint)recipient, message);
         }
 

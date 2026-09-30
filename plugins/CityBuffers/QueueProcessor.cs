@@ -26,6 +26,8 @@ namespace MalisBuffBots
         private DateTime _retryAfterUtc;
         private int _retryCount;
         private int? _lastAttemptFeedback;
+        private bool _retryNoticeSent;
+        private string _lastRetryReason;
         private int _paidInviteRequester;
         private DateTime _paidTeamDeadline;
         private bool _paidTeamMemberConfirmed;
@@ -96,6 +98,8 @@ namespace MalisBuffBots
                     case QueueState.Dequeue:
                         ClearCastAttempt();
                         _retryCount = 0;
+                        _retryNoticeSent = false;
+                        _lastRetryReason = null;
                         _retryAfterUtc = DateTime.MinValue;
                         _requestDeadlineUtc = Queue.Current.Requester == DynelManager.LocalPlayer.Identity
                             ? DateTime.MaxValue : DateTime.UtcNow.AddMinutes(2);
@@ -346,8 +350,8 @@ namespace MalisBuffBots
             {
                 Logger.Warning("Buff request expired after two minutes of cast processing: " +
                     Queue.Current.NanoEntry.Name + "; requester=" + Queue.Current.Requester.Instance + ".");
-                if (Main.PaidPilot) CityBufferBridge.PaidResult(Queue.Current.Requester.Instance,
-                    Queue.Current.NanoEntry.Name + ": retries exhausted after two minutes.");
+                NotifyCurrentRequester("couldn't cast", "retry limit reached after two minutes" +
+                    (string.IsNullOrEmpty(_lastRetryReason) ? "." : ": " + _lastRetryReason));
                 ResetCurrentBuffEntry();
                 return;
             }
@@ -387,8 +391,46 @@ namespace MalisBuffBots
             _retryCount = Math.Min(_retryCount + 1, 6);
             int seconds = _retryCount * 5;
             _retryAfterUtc = DateTime.UtcNow.AddSeconds(seconds);
+            _lastRetryReason = reason;
             Logger.Warning("Retaining '" + Queue.Current.NanoEntry.Name + "' for requester " +
                 Queue.Current.Requester.Instance + ": " + reason + "; retry in " + seconds + "s.");
+            if (!_retryNoticeSent)
+            {
+                NotifyCurrentRequester("couldn't cast yet", reason + ". Your request is retained; retrying.");
+                _retryNoticeSent = true;
+            }
+        }
+
+        private void NotifyCurrentRequester(string outcome, string reason)
+        {
+            var entry = Queue.Current;
+            if (entry == null || entry.Requester == Identity.None ||
+                entry.Requester == DynelManager.LocalPlayer.Identity) return;
+            try
+            {
+                CityBufferBridge.RequestResult(entry.Requester.Instance,
+                    Client.CharacterName + " " + outcome + " " + entry.NanoEntry.Name + ": " + reason);
+            }
+            catch (Exception ex)
+            {
+                // Reporting must not change the cast outcome or discard retry state.
+                Logger.Warning("Could not enqueue buff result tell: " + ex.Message);
+            }
+        }
+
+        internal static string FeedbackReason(LdbFeedback feedback)
+        {
+            switch (feedback)
+            {
+                case LdbFeedback.BetterNanoInNcu: return "an equal or stronger buff is already running";
+                case LdbFeedback.NotEnoughNcu: return "you don't have enough free NCU";
+                case LdbFeedback.NotInLineOfSight: return "you are not in line of sight";
+                case LdbFeedback.OutOfRange: return "you are out of range";
+                case LdbFeedback.UnableToUseNano: return "the game rejected the nano's casting requirements";
+                case LdbFeedback.WaitForNanoToFinish: return "the caster is busy with another nano";
+                case LdbFeedback.NotEnoughNano: return "the caster doesn't have enough nano energy";
+                default: return feedback.ToString();
+            }
         }
 
         private string CurrentCastAttemptKey()
@@ -425,9 +467,8 @@ namespace MalisBuffBots
         public void ResetCurrentBuffEntry(LdbFeedback? feedback = null, bool completed = false)
         {
             if (Queue.Current == null) return;
-            if (Main.PaidPilot && feedback != null)
-                CityBufferBridge.PaidResult(Queue.Current.Requester.Instance,
-                    Queue.Current.NanoEntry.Name + " failed: " + feedback.Value + ".");
+            if (feedback != null)
+                NotifyCurrentRequester("couldn't cast", FeedbackReason(feedback.Value) + ".");
             if (feedback != null)
                 Logger.Warning("Buff feedback for requester " + Queue.Current.Requester.Instance +
                     ": " + feedback.Value);
@@ -455,7 +496,7 @@ namespace MalisBuffBots
 
             if (Main.SettingsJson.Data.PvpFlagCheck && buffTarget.IsPvpFlagged())
             {
-                if (Main.PaidPilot) CityBufferBridge.PaidResult(buffTarget.Identity.Instance, "Buff skipped: your character is PvP flagged.");
+                NotifyCurrentRequester("couldn't cast", "your character is PvP flagged.");
                 Logger.Warning("Skipping buff for flagged requester " + buffTarget.Name + ".");
                 ResetCurrentBuffEntry();
                 return;
@@ -472,6 +513,7 @@ namespace MalisBuffBots
             if (firstAvailableBuff == null)
             {
                 Logger.Warning("Skipping buff for requester " + buffTarget.Name + ": level is too low.");
+                NotifyCurrentRequester("couldn't cast", "no uploaded version is available for your level.");
                 ResetCurrentBuffEntry();
                 return;
             }
@@ -515,8 +557,7 @@ namespace MalisBuffBots
                 {
                     Logger.Warning("Paid team buff timed out for requester " + Queue.Current.Requester.Instance +
                         "; membershipConfirmed=" + _paidTeamMemberConfirmed + ".");
-                    CityBufferBridge.PaidResult(Queue.Current.Requester.Instance,
-                        "Firewalled Sync Compressor: team invitation timed out. Leave your current team before requesting fsc.");
+                    NotifyCurrentRequester("couldn't cast", "team invitation timed out. Leave your current team before requesting ncu.");
                     ResetCurrentBuffEntry();
                     return;
                 }
@@ -580,6 +621,7 @@ namespace MalisBuffBots
             {
                 Logger.Warning("Team buff timed out for requester " + Queue.Current.Requester.Instance +
                     ": " + Queue.Current.NanoEntry.Name + ".");
+                NotifyCurrentRequester("couldn't cast", "team membership was not established before the request timed out.");
                 ResetCurrentBuffEntry();
             }
         }
