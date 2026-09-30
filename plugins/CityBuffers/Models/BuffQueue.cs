@@ -15,13 +15,23 @@ namespace MalisBuffBots
             get { lock (_sync) return _current != null ? _queue.Concat(new[] { _current }).ToArray() : _queue.ToArray(); }
         }
 
-        public QueueState Process()
+        public QueueState Process(Identity preferredRequester)
         {
             lock (_sync)
             {
                 if (_current != null) return QueueState.Current;
                 if (_queue.Count == 0) return QueueState.Empty;
-                _current = _queue.Dequeue();
+                // Finish configured self buffs before dependent customer casts.
+                // Never preempt a cast already in progress.
+                var preferred = _queue.FirstOrDefault(e => e.Requester == preferredRequester);
+                if (preferred == null) _current = _queue.Dequeue();
+                else
+                {
+                    var remaining = _queue.Where(e => !ReferenceEquals(e, preferred)).ToArray();
+                    _queue.Clear();
+                    foreach (var entry in remaining) _queue.Enqueue(entry);
+                    _current = preferred;
+                }
                 return QueueState.Dequeue;
             }
         }

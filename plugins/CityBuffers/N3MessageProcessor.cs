@@ -183,7 +183,7 @@ namespace MalisBuffBots
             Logger.Information($"Finished casting '{_queueProcessor.Queue.Current.NanoEntry.Name}' on '{buffTargetName}'");
             if (Main.PaidPilot) CityBufferBridge.PaidResult(_queueProcessor.Queue.Current.Requester.Instance,
                 Client.CharacterName + " finished casting " + _queueProcessor.Queue.Current.NanoEntry.Name + ".");
-            _queueProcessor.ResetCurrentBuffEntry();
+            _queueProcessor.ResetCurrentBuffEntry(completed: true);
         }
 
         private void ProcessFeedbackMessage(FeedbackMessage feedbackMsg)
@@ -194,12 +194,18 @@ namespace MalisBuffBots
             if (feedbackMsg.CategoryId != 110)
                 return;
 
+            LastLdbMessage = feedbackMsg.MessageId;
+            if (!_queueProcessor.HasOutstandingCast) return;
+            _queueProcessor.RecordCastFeedback(feedbackMsg.MessageId);
             switch ((LdbFeedback)feedbackMsg.MessageId)
             {
                 case LdbFeedback.NotEnoughNcu:
                 case LdbFeedback.NotInLineOfSight:
                 case LdbFeedback.OutOfRange:
                 case LdbFeedback.UnableToUseNano:
+                case LdbFeedback.WaitForNanoToFinish:
+                    _queueProcessor.RetryCurrentBuffEntry(((LdbFeedback)feedbackMsg.MessageId).ToString());
+                    break;
                 case LdbFeedback.BetterNanoInNcu:
                     _queueProcessor.ResetCurrentBuffEntry((LdbFeedback)feedbackMsg.MessageId);
                     break;
@@ -209,13 +215,15 @@ namespace MalisBuffBots
                 case LdbFeedback.MustStandToCast:
                     var moveComponent = DynelManager.LocalPlayer.MovementComponent;
                     moveComponent.ChangeMovement(MovementAction.LeaveSit);
+                    _queueProcessor.RetryCurrentBuffEntry("standing up to cast");
+                    break;
+                case LdbFeedback.SuccessfulCast:
                     break;
                 default:
                     Logger.Information($"Unregistered ldbfeedback msg:{feedbackMsg.MessageId}; currentNano={_queueProcessor.Queue.Current?.NanoEntry?.Name ?? "none"}; requester={_queueProcessor.Queue.Current?.Requester.Instance ?? 0}");
                     break;
             }
 
-            LastLdbMessage = feedbackMsg.MessageId;
         }
 
         private void OnNotEnoughNanoFeedback(LdbFeedback messageId)
@@ -226,10 +234,11 @@ namespace MalisBuffBots
                 moveComponent.ChangeMovement(MovementAction.SwitchToSit);
                 item.Use();
                 moveComponent.ChangeMovement(MovementAction.LeaveSit);
+                _queueProcessor.RetryCurrentBuffEntry("restoring nano");
                 return;
             }
 
-            _queueProcessor.ResetCurrentBuffEntry(messageId);
+            _queueProcessor.RetryCurrentBuffEntry(messageId.ToString());
         }
 
     }
