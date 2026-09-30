@@ -204,7 +204,7 @@ namespace MalisBuffBots
                 case LdbFeedback.OutOfRange:
                 case LdbFeedback.UnableToUseNano:
                 case LdbFeedback.WaitForNanoToFinish:
-                    _queueProcessor.RetryCurrentBuffEntry(((LdbFeedback)feedbackMsg.MessageId).ToString());
+                    _queueProcessor.RetryCurrentBuffEntry(QueueProcessor.FeedbackReason((LdbFeedback)feedbackMsg.MessageId));
                     break;
                 case LdbFeedback.BetterNanoInNcu:
                     _queueProcessor.ResetCurrentBuffEntry((LdbFeedback)feedbackMsg.MessageId);
@@ -238,7 +238,7 @@ namespace MalisBuffBots
                 return;
             }
 
-            _queueProcessor.RetryCurrentBuffEntry(messageId.ToString());
+            _queueProcessor.RetryCurrentBuffEntry(QueueProcessor.FeedbackReason(messageId));
         }
 
     }
