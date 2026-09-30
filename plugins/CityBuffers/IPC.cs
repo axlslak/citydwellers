@@ -50,7 +50,7 @@ namespace MalisBuffBots
 
         public void DrainMemorySignals()
         {
-            if (!Client.InPlay || DynelManager.LocalPlayer == null || Main.QueueProcessor == null)
+            if (!Client.InPlay || !CityBufferBridge.Ready || DynelManager.LocalPlayer == null || Main.QueueProcessor == null)
                 return;
 
             foreach (BufferMemorySignal signal in
@@ -69,12 +69,14 @@ namespace MalisBuffBots
                     request.Entries == null || request.Entries.Length == 0)
                     continue;
 
-                var requester = DynelManager.Players.FirstOrDefault(
-                    x => x.Identity.Instance == request.Requester);
-                if (requester == null)
-                    continue;
-
-                Main.QueueProcessor.LocalEnqueue(requester, request.Entries);
+                if (!Main.QueueProcessor.DeferReceivedRequest((Profession)request.Caster,
+                    request.Requester, request.Entries))
+                {
+                    if (signal.CreatedUtc >= DateTime.UtcNow.AddMinutes(-2) &&
+                        ManagerMemory.Current.ReturnBufferSignal(Client.CharacterName, signal)) continue;
+                    Logger.Warning("Buffer handoff queue expired/full for requester " + request.Requester + ".");
+                    CityBufferBridge.PaidResult(request.Requester, "Buffer queue remained full; please retry your buff request.");
+                }
             }
 
             DrainPublicCommands();

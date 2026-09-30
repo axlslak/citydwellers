@@ -36,7 +36,8 @@ namespace MalisBuffBots
                 if (_initDelay > 0)
                     return;
 
-                TryFindBuffs(_rebuffInfo.LocalPlayerRebuffTags());
+                if (!TryFindBuffs(_rebuffInfo.LocalPlayerRebuffTags()))
+                { _initDelay = 1; return; }
 
                 BuffStatus.BuffChanged += OnBuffChanged;
                 Client.OnUpdate -= OnUpdate;
@@ -94,15 +95,15 @@ namespace MalisBuffBots
             return true;
         }
 
-        private void TryFindBuffs(IEnumerable<string> buffTags)
+        private bool TryFindBuffs(IEnumerable<string> buffTags)
         {
             if (buffTags.Count() == 0)
-                return;
+                return true;
 
             if (!Main.BuffsJson.FindMissingBuffs(buffTags, out Dictionary<Profession, List<NanoEntry>> missingBuffs))
-                return;
+                return true;
 
-            Main.QueueProcessor.RequestBuffs(missingBuffs, DynelManager.LocalPlayer);
+            return Main.QueueProcessor.RequestBuffs(missingBuffs, DynelManager.LocalPlayer);
         }
     }
 }

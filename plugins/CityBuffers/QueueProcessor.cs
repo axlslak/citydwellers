@@ -70,6 +70,8 @@ namespace MalisBuffBots
         {
             try
             {
+                if (!Client.InPlay || DynelManager.LocalPlayer == null) return;
+                RetryPendingRoutes();
                 if (!_gracePeriod.Elapsed)
                     return;
 
@@ -175,130 +177,170 @@ namespace MalisBuffBots
 
         public void LocalEnqueue(SimpleChar requester, IEnumerable<NanoEntry> entries)
         {
-            string rejection = null;
-            int[] knownNanos = Main.EffectiveSpellList();
-            foreach (var entry in entries.Where(x => knownNanos.Any(y => x.ContainsId(y))))
+            DeferReceivedRequest((Profession)DynelManager.LocalPlayer.Profession,
+                requester.Identity.Instance, entries);
+        }
+
+        private sealed class PendingRoute
+        {
+            public Profession Profession;
+            public int Requester;
+            public NanoEntry Entry;
+            public DateTime Expires;
+            public bool LocalOnly;
+            public bool WaitingLogged;
+        }
+        private readonly List<PendingRoute> _pendingRoutes = new List<PendingRoute>();
+        private DateTime _nextRouteCheck;
+
+        private void RetainRequest(Profession profession, int requester, NanoEntry entry, bool localOnly = false)
+        {
+            if (_pendingRoutes.Any(p => p.Requester == requester && p.Entry.Equals(entry))) return;
+            if (_pendingRoutes.Count >= 256 || _pendingRoutes.Count(p => p.Requester == requester) >= 32)
             {
-                string error;
-                if (!Queue.TryEnqueue(new BuffEntry { Requester = requester.Identity, NanoEntry = entry }, out error))
-                    rejection = error; // One duplicate must not skip later distinct buffs.
+                Logger.Warning("Buffer readiness queue full for requester " + requester + "; request not admitted.");
+                return;
             }
-            if (rejection != null) NotifyQueueLimit(requester.Identity, rejection);
+            _pendingRoutes.Add(new PendingRoute { Profession = profession, Requester = requester,
+                Entry = entry, LocalOnly = localOnly,
+                Expires = requester == DynelManager.LocalPlayer.Identity.Instance
+                    ? DateTime.MaxValue : DateTime.UtcNow.AddMinutes(2) });
+        }
+
+        // Signals transfer routing ownership once; receiver retains requests even
+        // when its local player view or casting queue is not ready yet.
+        internal bool DeferReceivedRequest(Profession profession, int requester, IEnumerable<NanoEntry> entries)
+        {
+            var requested = entries.Distinct().ToArray();
+            int additional = requested.Count(e => !_pendingRoutes.Any(p => p.Requester == requester && p.Entry.Equals(e)));
+            if (_pendingRoutes.Count + additional > 256 ||
+                _pendingRoutes.Count(p => p.Requester == requester) + additional > 32) return false;
+            foreach (var entry in requested) RetainRequest(profession, requester, entry, true);
+            return true;
+        }
+
+        public bool RequestBuffs(Dictionary<Profession, List<NanoEntry>> entries, PlayerChar requester)
+        {
+            var additional = entries.SelectMany(p => p.Value).Distinct()
+                .Count(e => !_pendingRoutes.Any(p => p.Requester == requester.Identity.Instance && p.Entry.Equals(e)));
+            if (_pendingRoutes.Count + additional > 256 ||
+                _pendingRoutes.Count(p => p.Requester == requester.Identity.Instance) + additional > 32)
+                return false;
+            foreach (var pair in entries)
+                FinalizeBuffRequest(pair.Key, pair.Value, requester);
+            return true;
+        }
+
+        public void FinalizeBuffRequest(Profession profession, IEnumerable<NanoEntry> entries, PlayerChar requester)
+        {
+            foreach (var entry in entries) RetainRequest(profession, requester.Identity.Instance, entry);
+        }
+
+        public void FinalizeBuffRequest(Profession profession, NanoEntry entry, PlayerChar requester) =>
+            RetainRequest(profession, requester.Identity.Instance, entry);
+
+        private void RetryPendingRoutes()
+        {
+            if (!CityBufferBridge.Ready || DateTime.UtcNow < _nextRouteCheck) return;
+            _nextRouteCheck = DateTime.UtcNow.AddSeconds(1);
+            foreach (var pending in _pendingRoutes.ToArray())
+            {
+                if (DateTime.UtcNow >= pending.Expires)
+                {
+                    _pendingRoutes.Remove(pending);
+                    Logger.Warning("Buffer readiness request expired: " + pending.Entry.Name +
+                        "; requester=" + pending.Requester + ".");
+                    CityBufferBridge.PaidResult(pending.Requester,
+                        pending.Entry.Name + " could not be queued within two minutes; stay near the buffers and retry.");
+                    continue;
+                }
+                var requester = pending.Requester == DynelManager.LocalPlayer.Identity.Instance
+                    ? DynelManager.LocalPlayer
+                    : DynelManager.Players.FirstOrDefault(p => p.Identity.Instance == pending.Requester);
+                bool routed = false;
+                try { routed = requester != null && TryRoute(pending, requester); }
+                catch (Exception ex)
+                {
+                    if (!pending.WaitingLogged)
+                        Logger.Warning("Buffer routing deferred: " + ex.Message);
+                }
+                if (routed)
+                {
+                    _pendingRoutes.Remove(pending);
+                    if (pending.WaitingLogged)
+                        Logger.Information("Deferred buff routed: " + pending.Entry.Name +
+                            "; requester=" + pending.Requester + ".");
+                }
+                else if (!pending.WaitingLogged)
+                {
+                    pending.WaitingLogged = true;
+                    Logger.Information("Waiting for buffer readiness/queue or nearby requester: " +
+                        pending.Entry.Name + "; requester=" + pending.Requester + ". Request retained.");
+                }
+            }
+        }
+
+        private bool TryLocal(NanoEntry nano, PlayerChar requester)
+        {
+            if (!Main.EffectiveSpellList().Any(nano.ContainsId)) return false;
+            var entry = new BuffEntry { Requester = requester.Identity, NanoEntry = nano };
+            if (Queue.AllEntries.Any(e => e.Equals(entry))) return true;
+            string error;
+            if (!Queue.TryEnqueue(entry, out error)) return false;
             Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+            return true;
         }
 
-        public void RequestBuffs(Dictionary<Profession, List<NanoEntry>> entries, PlayerChar requester)
+        private bool PrepareTeam(PlayerChar requester)
         {
-            var teamEntries = entries.Where(x => x.Value.Any(y => y.Type == CastType.Team));
-
-            if (teamEntries.Count() > 0 && !Main.Ipc.BotCache.Entries.Any(x => x.Value.TeamTrackerId == requester.Identity.Instance))
+            if (Main.Ipc.BotCache.Entries.Any(x => x.Value.TeamTrackerId == requester.Identity.Instance))
+                return true;
+            var ordered = Main.BuffsJson.Entries
+                .OrderBy(p => p.Value.Count(e => e.Type == CastType.Team)).Select(p => p.Key).ToList();
+            var candidates = Main.Ipc.BotCache.NonTeamTrackerBots()
+                .Where(p => DynelManager.Characters.Any(c => c.Identity == p.Value.Identity))
+                .OrderBy(p => ordered.IndexOf(p.Key)).ToArray();
+            if (candidates.Length == 0) return false;
+            var tracker = candidates[0];
+            if (tracker.Value.Identity == DynelManager.LocalPlayer.Identity)
             {
-                List<Profession> orderedEntries = Main.BuffsJson.Entries.OrderBy(kv => kv.Value.Count(entry => entry.Type == CastType.Team)).Select(x => x.Key).ToList();
-
-                var queueData = Main.Ipc.BotCache.NonTeamTrackerBots()
-                    .Where(x => DynelManager.Characters.Any(c => c.Identity == x.Value.Identity))
-                    .OrderBy(kv => orderedEntries.IndexOf(kv.Key));
-
-                foreach (var bla in DynelManager.Characters)
-                    if (queueData.Count() == 0)
-                    {
-                    Logger.Warning("No team buffer is currently available for requester " + requester.Identity.Instance + ".");
-                    return;
-                }
-
-                if (queueData.FirstOrDefault().Value.Identity == DynelManager.LocalPlayer.Identity)
-                {
-                    ResetTeamTimer();
-                    Team.Invite(requester.Identity);
-
-                    TeamTrackerId = requester.Identity.Instance;
-                }
-
-                Main.Ipc.BotCache.BroadcastTeamTrackerMessage(queueData.FirstOrDefault().Key, requester.Identity.Instance);
+                ResetTeamTimer();
+                Team.Invite(requester.Identity);
+                TeamTrackerId = requester.Identity.Instance;
             }
-
-
-            foreach (var entry in entries)
-            {
-                FinalizeBuffRequest(entry.Key, entry.Value, requester);
-            }
+            Main.Ipc.BotCache.BroadcastTeamTrackerMessage(tracker.Key, requester.Identity.Instance);
+            return true;
         }
 
-        public void FinalizeBuffRequest(Profession castProf, IEnumerable<NanoEntry> results, PlayerChar requester) => ProcessBuffRequest(castProf, results.ToList(), requester);
-
-        public void FinalizeBuffRequest(Profession castProf, NanoEntry result, PlayerChar requester) => ProcessBuffRequest(castProf, new List<NanoEntry> { result }, requester);
-
-        private void ProcessBuffRequest(Profession castProf, List<NanoEntry> results, PlayerChar requester)
+        private bool TryRoute(PendingRoute pending, PlayerChar requester)
         {
-            if (castProf == Profession.Generic) // We handle generic buffs by distributing the results evenly amongst all buffers
+            var nano = pending.Entry;
+            if (pending.LocalOnly) return TryLocal(nano, requester);
+            if (pending.Profession != Profession.Generic)
             {
-                EnqueueByBotQueuePriority(results, requester);
-            }
-            else if (castProf == (Profession)DynelManager.LocalPlayer.Profession) // If the caster is our local player, enqueue buffs
-            {
-                LocalEnqueue(requester, results);
-            }
-            else // If the caster is not our local player, broadcast to the required profession
-            {
-                if (!Main.Ipc.SendCastRequest(castProf, requester.Identity.Instance, results))
-                    Logger.Warning($"No ready buffer accepted cast routing for {castProf}.");
-            }
-        }
-
-        private void EnqueueByBotQueuePriority(IEnumerable<NanoEntry> results, PlayerChar requester)
-        {
-            Queue<NanoEntry> spells = new Queue<NanoEntry>(results);
-
-            while (spells.Count() > 0)
-            {
-                int cachedSpellCount = spells.Count();
-
-                foreach (var prof in Main.Ipc.BotCache.OrderByQueueEntries())
+                // Do not invite repeatedly while the actual caster is still starting.
+                if (pending.Profession == (Profession)DynelManager.LocalPlayer.Profession)
                 {
-                    if (spells.Count == 0)
-                        break;
-
-                    var nextSpellToCast = spells.Peek();
-
-                    if (!Main.Ipc.BotCache.ContainsKey(prof.Key))
-                        continue;
-
-                    if (!DynelManager.Characters.Any(x => x.Identity == prof.Value.Identity))
-                        continue;
-
-                    if (!Main.Ipc.BotCache.ContainsNanoEntry(prof.Key, nextSpellToCast))
-                        continue;
-
-                    if (prof.Key == (Profession)DynelManager.LocalPlayer.Profession)
-                    {
-                        string error;
-                        if (!Queue.TryEnqueue(new BuffEntry { Requester = requester.Identity, NanoEntry = nextSpellToCast }, out error))
-                            NotifyQueueLimit(requester.Identity, error);
-                        else
-                            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
-                    }
-                    else
-                    {
-                        if (!Main.Ipc.SendCastRequest(
-                                prof.Key,
-                                requester.Identity.Instance,
-                                new NanoEntry[1] { nextSpellToCast }))
-                        {
-                            Logger.Warning($"No ready buffer accepted generic cast routing for {prof.Key}.");
-                            continue;
-                        }
-                    }
-
-                    spells.Dequeue();
+                    if (!Main.EffectiveSpellList().Any(nano.ContainsId)) return false;
+                    if (nano.Type == CastType.Team && !PrepareTeam(requester)) return false;
+                    return TryLocal(nano, requester);
                 }
-
-                //Nobody can cast anything that is left
-                if (cachedSpellCount == spells.Count())
-                {
-                    Logger.Warning($"No buffers could cast queued buffs.");
-                    spells.Clear();
-                }
+                if (!Main.Ipc.BotCache.ContainsNanoEntry(pending.Profession, nano)) return false;
+                if (nano.Type == CastType.Team && !PrepareTeam(requester)) return false;
+                return Main.Ipc.SendCastRequest(pending.Profession, pending.Requester, new[] { nano });
             }
+            foreach (var caster in Main.Ipc.BotCache.OrderByQueueEntries())
+            {
+                if (!DynelManager.Characters.Any(c => c.Identity == caster.Value.Identity) ||
+                    !Main.Ipc.BotCache.ContainsNanoEntry(caster.Key, nano)) continue;
+                if (nano.Type == CastType.Team && !PrepareTeam(requester)) return false;
+                if (caster.Value.Identity == DynelManager.LocalPlayer.Identity)
+                {
+                    if (TryLocal(nano, requester)) return true;
+                }
+                else if (Main.Ipc.SendCastRequest(caster.Key, pending.Requester, new[] { nano })) return true;
+            }
+            return false;
         }
 
         private void ProcessCurrentBuffEntry()

@@ -116,6 +116,20 @@ namespace CityDwellers.Shared
             }
         }
 
+        public bool ReturnBufferSignal(string character, BufferMemorySignal signal)
+        {
+            lock (_bufferBotSync)
+            {
+                Queue<BufferMemorySignal> queue;
+                if (!_bufferSignals.TryGetValue(character, out queue))
+                    _bufferSignals.Add(character, queue = new Queue<BufferMemorySignal>());
+                if (queue.Any(s => s.Id == signal.Id)) return true;
+                if (queue.Count >= BufferSignalLimit) return false;
+                queue.Enqueue(signal.Copy());
+                return true;
+            }
+        }
+
         public List<BufferMemorySignal> TakeBufferSignals(string character, int maximum)
         {
             var result = new List<BufferMemorySignal>();
@@ -280,7 +294,7 @@ namespace CityDwellers.Shared
 
         private void PruneBufferPublicCommands(DateTime now)
         {
-            DateTime requestCutoff = now.AddSeconds(-15);
+            DateTime requestCutoff = now.AddSeconds(-125);
             DateTime outcomeCutoff = now.AddMinutes(-1);
 
             foreach (string id in _bufferPublicCommands

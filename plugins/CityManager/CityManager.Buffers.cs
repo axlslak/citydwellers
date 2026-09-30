@@ -12,7 +12,7 @@ namespace CityManager
     public partial class CityManager
     {
         private const int BufferControlTimeoutMilliseconds = 30000;
-        private const int BufferPublicCommandTimeoutMilliseconds = 6000;
+        private const int BufferPublicCommandTimeoutMilliseconds = 120000;
         private static readonly TimeSpan BufferAuthorityPublishInterval =
             TimeSpan.FromSeconds(1);
         private DateTime _nextBufferAuthorityPublishUtc = DateTime.MinValue;
@@ -212,12 +212,6 @@ namespace CityManager
             if (paidCast && paid.Blocked)
             {
                 Reply(target, "The paid buffer is blocked after a cleanup failure; an administrator must check the host log.");
-                return;
-            }
-            if (!paidCast && !ManagerMemory.Current.BufferBotInfos().Any(
-                    snapshot => !ManagerMemory.Current.IsPaidBuffer(snapshot.Character) && IsFreshReadyBuffer(snapshot, now)))
-            {
-                Reply(target, "No ready buffers are currently available.");
                 return;
             }
 
