@@ -1,4 +1,32 @@
 <Project>
+  <!-- CoreClean reads its manifest inside the target, so remove the obsolete
+       ownership entry on disk before it reads it. Keep every other entry. -->
+  <Target Name="ForgetRebuffConfigurationCleanEntry" BeforeTargets="CoreClean"
+          Condition="Exists('$(IntermediateOutputPath)$(CleanFile)')">
+    <ReadLinesFromFile File="$(IntermediateOutputPath)$(CleanFile)">
+      <Output TaskParameter="Lines" ItemName="_RebuffCleanManifest" />
+    </ReadLinesFromFile>
+    <ItemGroup>
+      <_RebuffCleanManifest Remove="@(_RebuffCleanManifest)"
+          Condition="'%(_RebuffCleanManifest.Filename)%(_RebuffCleanManifest.Extension)' == 'RebuffInfo.json'" />
+      <_CleanPriorFileWrites Remove="@(_CleanPriorFileWrites)"
+          Condition="'%(_CleanPriorFileWrites.Filename)%(_CleanPriorFileWrites.Extension)' == 'RebuffInfo.json'" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)$(CleanFile)"
+        Lines="@(_RebuffCleanManifest)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+  <!-- Earlier builds registered RebuffInfo as Content, including in projects
+       consuming CityBuffers. Protect owner edits from those old Clean manifests
+       as well as incremental-clean orphan removal during the transition. -->
+  <Target Name="PreserveRebuffConfigurationDuringClean"
+          AfterTargets="_CleanGetCurrentAndPriorFileWrites">
+    <ItemGroup>
+      <_CleanPriorFileWrites Remove="@(_CleanPriorFileWrites)"
+          Condition="'%(_CleanPriorFileWrites.Filename)%(_CleanPriorFileWrites.Extension)' == 'RebuffInfo.json'" />
+      <_CleanCurrentFileWrites Remove="@(_CleanCurrentFileWrites)"
+          Condition="'%(_CleanCurrentFileWrites.Filename)%(_CleanCurrentFileWrites.Extension)' == 'RebuffInfo.json'" />
+    </ItemGroup>
+  </Target>
   <!-- Run even on incremental builds: HEAD and dirty state can change without source edits. -->
   <Target Name="GenerateCityDwellersBuildIdentity" BeforeTargets="CoreCompile">
     <PropertyGroup>
