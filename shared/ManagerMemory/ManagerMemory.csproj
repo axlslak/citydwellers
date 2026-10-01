@@ -41,6 +41,7 @@
     <Compile Include="BankerSignals.cs" />
     <Compile Include="BankerHealth.cs" />
     <Compile Include="BufferBotInfo.cs" />
+    <Compile Include="NearbyPlayers.cs" />
     <Compile Include="BufferCoordination.cs" />
     <Compile Include="PaidBuffers.cs" />
     <Compile Include="..\TellQueue.cs" />

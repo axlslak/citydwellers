@@ -1544,8 +1544,12 @@ namespace CityBankers
                         return;
                     }
                     cleanup.DeletedCount++;
+                    Logger.Information("[CityBankers] DELETE VERIFIED transaction=" + cleanup.TransactionId +
+                        " item=" + deleted.Name + " AOID=" + deleted.AoId + " QL=" + deleted.Ql +
+                        " slot=" + cleanup.PendingDeleteSlot + " attempts=" + cleanup.DeleteAttempts + ".");
                     cleanup.DeleteIndex++;
                     cleanup.PendingDelete = null;
+                    cleanup.PendingDeleteItem = null;
                     cleanup.PendingBeforeCount = 0;
                     cleanup.DeleteDeadlineUtc = DateTime.MinValue;
                     RuntimeStateStore.AppendActivity(
@@ -1558,10 +1562,26 @@ namespace CityBankers
                 }
 
                 if (DateTime.UtcNow >= cleanup.DeleteDeadlineUtc)
+                {
+                    // Retry only the original object at its original address.
+                    // Never select another matching copy after a delayed reply.
+                    Item original = remaining.FirstOrDefault(item =>
+                        ReferenceEquals(item, cleanup.PendingDeleteItem) &&
+                        item.Slot == cleanup.PendingDeleteSlot &&
+                        item.UniqueIdentity == cleanup.PendingDeleteIdentity);
+                    if (cleanup.DeleteAttempts < 3 && original != null &&
+                        remaining.Count == cleanup.PendingBeforeCount && !Trade.IsTrading)
+                    {
+                        IssueDonationDelete(cleanup, original);
+                        return;
+                    }
                     FailDonationCleanup(
                         "AO did not confirm deletion of " + cleanup.PendingDelete.Name +
-                        " QL" + cleanup.PendingDelete.Ql + " before the verification timeout.",
+                        " QL" + cleanup.PendingDelete.Ql + " AOID=" + cleanup.PendingDelete.AoId +
+                        " slot=" + cleanup.PendingDeleteSlot + " after " + cleanup.DeleteAttempts +
+                        " attempt(s); cached matching copies=" + remaining.Count + ".",
                         RetainedItemEvidence.PresenceUnconfirmed);
+                }
                 return;
             }
 
@@ -1601,8 +1621,10 @@ namespace CityBankers
 
             cleanup.PendingDelete = expected;
             cleanup.PendingBeforeCount = matches.Count;
-            cleanup.DeleteDeadlineUtc = DateTime.UtcNow.AddMilliseconds(
-                ServicePolicy.DeleteVerifyTimeoutMs);
+            cleanup.PendingDeleteItem = matches[0];
+            cleanup.PendingDeleteSlot = matches[0].Slot;
+            cleanup.PendingDeleteIdentity = matches[0].UniqueIdentity;
+            cleanup.DeleteAttempts = 0;
             RuntimeStateStore.AppendActivity(
                 _settingsDir,
                 Client.CharacterName,
@@ -1611,7 +1633,18 @@ namespace CityBankers
                 expected.Name + " QL" + expected.Ql +
                 " because projected retention-group stock exceeds configured cap " +
                 GetAcceptanceRule(expected.AoId).MaxCopies + ".");
-            matches[0].Delete();
+            IssueDonationDelete(cleanup, matches[0]);
+        }
+
+        private void IssueDonationDelete(DonationCleanupState cleanup, Item item)
+        {
+            cleanup.DeleteAttempts++;
+            cleanup.DeleteDeadlineUtc = DateTime.UtcNow.AddMilliseconds(ServicePolicy.DeleteVerifyTimeoutMs);
+            Logger.Information("[CityBankers] DELETE REQUEST transaction=" + cleanup.TransactionId +
+                " item=" + cleanup.PendingDelete.Name + " AOID=" + item.Id + " QL=" + item.Ql +
+                " slot=" + item.Slot + " identity=" + item.UniqueIdentity +
+                " attempt=" + cleanup.DeleteAttempts + "/3; awaiting inventory removal.");
+            item.Delete();
         }
 
         // What a delete failure establishes about the items the hold keeps. The
@@ -1653,6 +1686,9 @@ namespace CityBankers
             DonationCleanupState cleanup = _donationCleanup;
             if (cleanup == null)
                 return;
+
+            Logger.Warning("[CityBankers] DELETE HOLD transaction=" + cleanup.TransactionId +
+                ": " + error + " " + DescribeRetainedItems(evidence));
 
             List<TransferItemState> remainingOverflow = cleanup.DeleteItems
                 .Skip(cleanup.DeleteIndex)
@@ -3827,6 +3863,10 @@ namespace CityBankers
             public string SourceBatchId;
             public TransferItemState PendingDelete;
             public int PendingBeforeCount;
+            public Item PendingDeleteItem;
+            public Identity PendingDeleteSlot;
+            public Identity PendingDeleteIdentity;
+            public int DeleteAttempts;
             public DateTime DeleteDeadlineUtc;
         }
 

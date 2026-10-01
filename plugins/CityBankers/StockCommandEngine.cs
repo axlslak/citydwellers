@@ -484,7 +484,9 @@ namespace CityBankers
             List<StockItemState> items, string centralCharacter, string commandPrefix, string profession = null)
         {
             if (profession != null)
-                items = items.Where(item => DynaProfession(item.AoId, item.HighId)
+                items = items.Where(item => (profession != "Unclassified" &&
+                    DynaProfession(item.AoId, item.HighId) == "All professions") ||
+                    DynaProfession(item.AoId, item.HighId)
                     .Split(new[] { " / " }, StringSplitOptions.None)
                     .Contains(profession, StringComparer.OrdinalIgnoreCase)).ToList();
             if (items.Count == 0)
@@ -541,6 +543,7 @@ namespace CityBankers
                 case "meta-physicist": case "meta physicist": case "metaphysicist": case "mp": profession = "Meta-Physicist"; break;
                 case "keeper": case "keep": profession = "Keeper"; break;
                 case "shade": profession = "Shade"; break;
+                case "all professions": profession = "All professions"; break;
                 case "unclassified": profession = "Unclassified"; break;
             }
             return profession != null;
@@ -548,6 +551,8 @@ namespace CityBankers
 
         private static string DynaProfession(int aoId, int highId)
         {
+            if (SymbiantCatalog.IsAllProfessionNanoBox(aoId) || SymbiantCatalog.IsAllProfessionNanoBox(highId))
+                return "All professions";
             string profession;
             return DynaProfessionById.TryGetValue(aoId, out profession) ||
                 DynaProfessionById.TryGetValue(highId, out profession) ? profession : "Unclassified";

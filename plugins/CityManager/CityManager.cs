@@ -268,6 +268,7 @@ namespace CityManager
                 }
 
                 Client.OnUpdate -= Tick;
+                ClearNearbyObserver();
                 SaveState();
             }
             catch (Exception ex)
@@ -3230,6 +3231,7 @@ namespace CityManager
 
         private void Tick(object sender, double e)
         {
+            TickNearbyObserver();
             ObserveOrgEcho(null);
             TickOrgRetryQueue();
             TickTellQueue();
