@@ -34,21 +34,6 @@ namespace CityDwellers.Shared
         private readonly Queue<ManagerChannelJob> _channelMessages = new Queue<ManagerChannelJob>();
         private readonly HashSet<string> _channelMessageIds = new HashSet<string>(StringComparer.Ordinal);
         private long _channelSequence;
-        public void ImportChannelMessages(ManagerChannelJob[] jobs)
-        {
-            lock (_channelSync)
-            {
-                foreach (var job in jobs)
-                    if (job == null || string.IsNullOrWhiteSpace(job.Id) || string.IsNullOrWhiteSpace(job.Message))
-                        throw new InvalidOperationException("Legacy Manager channel message is invalid.");
-                foreach (var job in jobs)
-                {
-                    if (!_channelMessageIds.Add(job.Id)) continue;
-                    _channelMessages.Enqueue(job.Copy());
-                    _channelSequence = Math.Max(_channelSequence, job.Sequence);
-                }
-            }
-        }
         public string EnqueueChannelMessage(string source, string message)
         {
             if (string.IsNullOrWhiteSpace(message)) throw new ArgumentException("Channel message required.");

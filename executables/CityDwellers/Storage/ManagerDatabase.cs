@@ -59,39 +59,28 @@ namespace CityDwellers.Host
             int version;
             using (var command = new MySqlCommand("SELECT COALESCE(MAX(version),0) FROM cd_storage_version", _connection)) version = Convert.ToInt32(command.ExecuteScalar());
             AccountingState state;
-            LegacyBusinessImport importer = null;
             if (version == 0)
             {
-                RuntimeLog.Write("Creating relational business tables for first import.");
+                using (var command = new MySqlCommand(
+                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name <> 'cd_storage_version'", _connection))
+                    if (Convert.ToInt32(command.ExecuteScalar()) != 0)
+                        throw new InvalidOperationException("Database has tables but no current schema version. Legacy import is no longer supported. Use an empty database or restore a current-schema backup.");
+                RuntimeLog.Write("Initializing empty business database (schema 5).");
                 _tables.Create(_connection);
-                importer = new LegacyBusinessImport(_connection, _root);
-                RuntimeLog.Write("Importing legacy business records and settings once.");
-                state = importer.ReadBusiness();
-                state.Alts = ReadLegacyAlts() ?? new AltState();
-                RuntimeLog.Write("Legacy alt state prepared; groups=" +
-                    (state.Alts.Groups?.Count ?? 0) + ".");
-                RuntimeLog.Write("Legacy records read; committing relational business data.");
+                state = new AccountingState
+                {
+                    Ledger = new ActiveLedgerState(), Stock = new CurrentStockState(),
+                    Dispatch = new DispatchQueueState(), Withdrawals = new WithdrawalQueueState(),
+                    LostItems = new LostItemsState()
+                };
                 _tables.Commit(_connection, new AccountingState { Reserve = null, Alts = null }, state, transaction =>
                 {
                     using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(5)", _connection, transaction)) command.ExecuteNonQuery();
                 });
             }
-            else if (version == 4)
-            {
-                RuntimeLog.Write("Upgrading relational schema 4 -> 5 for Manager alt state.");
-                _tables.Create(_connection);
-                state = _tables.Load(_connection);
-                state.Alts = ReadLegacyAlts() ?? new AltState();
-                RuntimeLog.Write("Legacy alt state prepared; groups=" +
-                    (state.Alts.Groups?.Count ?? 0) + ".");
-                _tables.Commit(_connection, state, state, transaction =>
-                {
-                    using (var command = new MySqlCommand("UPDATE cd_storage_version SET version=5 WHERE version=4", _connection, transaction)) command.ExecuteNonQuery();
-                });
-            }
             else
             {
-                if (version != 5) throw new InvalidOperationException("Unsupported business schema version.");
+                if (version != 5) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 5.");
                 RuntimeLog.Write("Loading relational business rows into Manager RAM.");
                 state = _tables.Load(_connection);
             }
@@ -115,28 +104,6 @@ namespace CityDwellers.Host
             state.Alts = state.Alts ?? new AltState();
             state.Alts.Groups = state.Alts.Groups ?? new List<AltGroupState>();
             ManagerMemory.InitializeAccounting(state, this);
-            if (importer != null)
-            {
-                ManagerMemory.Current.ImportPendingTells(importer.Tells.ToArray());
-                ManagerMemory.Current.ImportChannelMessages(importer.Channels.OrderBy(job => job?.Sequence ?? 0).ToArray());
-                ManagerMemory.Current.SetRaidCoordinator(importer.RaidCoordinator);
-                ManagerMemory.Current.SetOrgOutputBudget(importer.OrgOutputBudget);
-            }
-            // Business rows and the import version committed together. Interrupted
-            // DDL cleanup is safe to repeat; it can never restore stale documents.
-            RuntimeLog.Write("Finishing retired-table cleanup.");
-            foreach (string table in new[] { "cd_event_lines", "cd_document_chunks", "cd_documents", "cd_directories",
-                "cd_migration_chunks", "cd_migration_files", "cd_migration_runs", "cd_ledger_items", "cd_stock_items", "cd_banker_state", "cd_meta" })
-                using (var command = new MySqlCommand("DROP TABLE IF EXISTS " + table, _connection)) command.ExecuteNonQuery();
-        }
-        private AltState ReadLegacyAlts()
-        {
-            string path = Path.Combine(_root, "config", "alts.json");
-            if (!File.Exists(path)) return null;
-            var state = JsonConvert.DeserializeObject<AltState>(File.ReadAllText(path));
-            if (state == null || (state.Version != 1 && state.Version != 2) || state.Groups == null)
-                throw new InvalidDataException("Unsupported legacy alt-cache file.");
-            return state;
         }
 
         private T Configuration<T>(string name) where T : class
