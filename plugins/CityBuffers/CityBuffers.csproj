@@ -32,14 +32,26 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="**\*.cs" Exclude="obj\**;bin\**" />
-    <Content Include="JSON\Settings.json;JSON\BuffsDb.json;JSON\RebuffInfo.json;Templates\*.txt">
+    <Content Include="JSON\Settings.json;JSON\BuffsDb.json;Templates\*.txt">
       <Link>Buffers\%(Identity)</Link>
       <TargetPath>Buffers\%(Identity)</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <None Include="JSON\RebuffInfo.json" />
   </ItemGroup>
   <!-- Explicit SQL items: do not depend on an imported wildcard being refreshed by Visual Studio. -->
   <ItemGroup>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!-- Owner configuration: seed once, never replace based on timestamps and
+       never register this file as a disposable build output. -->
+  <Target Name="SeedRebuffConfiguration" AfterTargets="Build">
+    <PropertyGroup>
+      <RebuffConfigurationPath>$(TargetDir)Buffers\JSON\RebuffInfo.json</RebuffConfigurationPath>
+    </PropertyGroup>
+    <MakeDir Directories="$(TargetDir)Buffers\JSON" Condition="!Exists('$(RebuffConfigurationPath)')" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\JSON\RebuffInfo.json"
+          DestinationFiles="$(RebuffConfigurationPath)"
+          Condition="!Exists('$(RebuffConfigurationPath)')" />
+  </Target>
 </Project>
