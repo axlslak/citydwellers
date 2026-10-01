@@ -40,6 +40,15 @@ namespace CityBankers.Shared
             AddRoutes(CentralSpecialIds, "central");
             AddRoutes(SpiritIds, "spirit");
             AddRoutes(DynaNanoIds, "dyna");
+            // APF42 nano boxes belong with nanos, despite not being Dyna drops.
+            AddRoutes(AllProfessionNanoBoxIds, "dyna");
+        }
+
+        private static readonly int[] AllProfessionNanoBoxIds = { 275706, 275854 };
+
+        public static bool IsAllProfessionNanoBox(int aoid)
+        {
+            return Array.IndexOf(AllProfessionNanoBoxIds, aoid) >= 0;
         }
 
         public sealed class AcceptanceRule
