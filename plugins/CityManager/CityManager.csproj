@@ -34,6 +34,7 @@
     <Compile Include="AdminListStore.cs" />
     <Compile Include="BanListStore.cs" />
     <Compile Include="CityManager.cs" />
+    <Compile Include="CityManager.Observer.cs" />
     <Compile Include="CityManager.Shutdown.cs" />
     <Compile Include="..\..\shared\ShutdownControl.cs"><Link>ShutdownControl.cs</Link></Compile>
     <Compile Include="CityManager.Changelog.cs" />
