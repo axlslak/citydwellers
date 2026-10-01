@@ -75,29 +75,6 @@ namespace CityDwellers.Shared
         private TellQueueJob _assignedTell;
         private long _tellSequence;
 
-        public void ImportPendingTells(TellQueueJob[] jobs)
-        {
-            lock (_tellSync)
-            {
-                foreach (var old in jobs)
-                {
-                    if (old == null || old.Format != TellFormat || string.IsNullOrWhiteSpace(old.Id) ||
-                        string.IsNullOrWhiteSpace(old.Message) ||
-                        (string.IsNullOrWhiteSpace(old.RecipientName) &&
-                         (!old.RecipientId.HasValue || old.RecipientId.Value == 0)))
-                        throw new InvalidOperationException("Legacy pending tell is invalid.");
-                }
-                foreach (var old in jobs.OrderBy(x => x.Sequence))
-                {
-                    if (_pendingTells.ContainsKey(old.Id) || _assignedTell?.Id == old.Id) continue;
-                    var job = old.Copy();
-                    job.AssignedSender = null;
-                    job.AssignedUtc = null;
-                    _pendingTells.Add(job.Id, job);
-                    _tellSequence = Math.Max(_tellSequence, job.Sequence);
-                }
-            }
-        }
         public string EnqueueTell(string source, string recipient, uint? recipientId, string message, string requiredSender)
         {
             if (string.IsNullOrWhiteSpace(recipient) && (!recipientId.HasValue || recipientId.Value == 0))
