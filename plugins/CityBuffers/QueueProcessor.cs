@@ -346,6 +346,18 @@ namespace MalisBuffBots
 
         private void ProcessCurrentBuffEntry()
         {
+            var observedEntry = Queue.Current.NanoEntry;
+            if (observedEntry.ObserverRefreshUntilUtc != default(DateTime) &&
+                !string.Equals(_attemptedEntryKey, CurrentCastAttemptKey(), StringComparison.Ordinal) &&
+                (DateTime.UtcNow >= observedEntry.ObserverRefreshUntilUtc ||
+                 !CityDwellers.Shared.ManagerMemory.Current.ObservedBuffNeedsRefresh(
+                     Queue.Current.Requester.Instance, observedEntry.LevelToId[0].Id)))
+            {
+                Logger.Information("OBSERVER refresh no longer needed/visible or expired; requester=" +
+                    Queue.Current.Requester.Instance + " nano=" + observedEntry.LevelToId[0].Id);
+                ResetCurrentBuffEntry();
+                return;
+            }
             if (DateTime.UtcNow >= _requestDeadlineUtc)
             {
                 Logger.Warning("Buff request expired after two minutes of cast processing: " +

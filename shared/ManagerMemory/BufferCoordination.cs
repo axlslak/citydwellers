@@ -130,6 +130,26 @@ namespace CityDwellers.Shared
             }
         }
 
+        public bool RequestObservedBuffRefresh(string character, int requester, int nanoId)
+        {
+            if (!ObservedBuffNeedsRefresh(requester, nanoId)) return false;
+            lock (_bufferBotSync)
+            {
+                BufferBotInfo bot;
+                if (!_bufferBots.TryGetValue(character, out bot) || IsPaidBuffer(character) ||
+                    !bot.Ready || !bot.InPlay || bot.ObservedUtc < DateTime.UtcNow.AddSeconds(-5) ||
+                    !(bot.AdvertisedBuffs ?? new BufferAdvertisedBuff[0]).Any(b =>
+                        b.Type == "Single" && (b.NanoIds ?? new int[0]).Contains(nanoId))) return false;
+                Queue<BufferMemorySignal> queue;
+                if (!_bufferSignals.TryGetValue(character, out queue))
+                    _bufferSignals.Add(character, queue = new Queue<BufferMemorySignal>());
+                if (queue.Count >= BufferSignalLimit) return false;
+                queue.Enqueue(new BufferMemorySignal { Id = Guid.NewGuid().ToString("N"),
+                    Kind = "observer-refresh", Payload = requester + ":" + nanoId, CreatedUtc = DateTime.UtcNow });
+                return true;
+            }
+        }
+
         public List<BufferMemorySignal> TakeBufferSignals(string character, int maximum)
         {
             var result = new List<BufferMemorySignal>();
