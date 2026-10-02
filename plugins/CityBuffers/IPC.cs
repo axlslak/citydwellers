@@ -57,6 +57,11 @@ namespace MalisBuffBots
                 ManagerMemory.Current.TakeBufferSignals(Client.CharacterName, 32))
             {
                 if (Main.PaidPilot) continue;
+                if (signal.Kind == "observer-refresh")
+                {
+                    ReceiveObservedRefresh(signal);
+                    continue;
+                }
                 if (!string.Equals(signal.Kind, "cast", StringComparison.Ordinal))
                     continue;
 
@@ -157,6 +162,31 @@ namespace MalisBuffBots
                     $"for {request.SenderName ?? request.SenderId.ToString()} " +
                     $"claimed by {Client.CharacterName}; success={success}.");
             }
+        }
+
+        private void ReceiveObservedRefresh(BufferMemorySignal signal)
+        {
+            var parts = (signal.Payload ?? "").Split(':');
+            int requester, nanoId;
+            if (parts.Length != 2 || !int.TryParse(parts[0], out requester) ||
+                !int.TryParse(parts[1], out nanoId) || signal.CreatedUtc < DateTime.UtcNow.AddSeconds(-10) ||
+                !ManagerMemory.Current.ObservedBuffNeedsRefresh(requester, nanoId)) return;
+            var player = DynelManager.Players.FirstOrDefault(p => p.Identity.Instance == requester);
+            if (player == null || !Main.EffectiveSpellList().Contains(nanoId)) return;
+            var entry = Main.BuffsJson.Entries.Values.SelectMany(entries => entries)
+                .FirstOrDefault(e => e.Type == CastType.Single && e.LevelToId.Any(n =>
+                    n.Id == nanoId && n.Level <= player.Level));
+            if (entry == null) return;
+            if (Main.QueueProcessor.Queue.AllEntries.Any(e => e.Requester == player.Identity &&
+                e.NanoEntry.ContainsId(nanoId))) return;
+            var exact = JsonConvert.DeserializeObject<NanoEntry>(JsonConvert.SerializeObject(entry));
+            exact.LevelToId = exact.LevelToId.Where(n => n.Id == nanoId).ToArray();
+            exact.ObserverRefreshUntilUtc = DateTime.UtcNow.AddMinutes(2);
+            string error;
+            bool accepted = Main.QueueProcessor.Queue.TryEnqueue(
+                new BuffEntry { Requester = player.Identity, NanoEntry = exact }, out error);
+            Logger.Information("[CityBuffers] OBSERVER refresh requester=" + requester +
+                " nano=" + nanoId + " queued=" + accepted + (accepted ? "" : "; " + error));
         }
 
         private static bool CanClaimPublicCommand(BufferPublicCommandRequest request)
@@ -335,6 +365,8 @@ namespace MalisBuffBots
                         Description = entry.Description ?? string.Empty,
                         Tag = (entry.Tags ?? new string[0]).FirstOrDefault(tag => !string.IsNullOrWhiteSpace(tag)) ?? string.Empty,
                         Type = entry.Type.ToString(),
+                        NanoIds = entry.LevelToId.Where(level => known.Contains(level.Id))
+                            .Select(level => level.Id).Distinct().ToArray(),
                         Ncu = AdvertisedNcu(entry)
                     }))
                 .OrderBy(entry => entry.Profession)

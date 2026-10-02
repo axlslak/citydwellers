@@ -5,6 +5,17 @@ using System.Linq;
 namespace CityDwellers.Shared
 {
     [Serializable]
+    public sealed class NearbyNanoObservation
+    {
+        public int Id;
+        public double RemainingSeconds;
+        public double FullSeconds;
+        public bool NeedsRefresh => RemainingSeconds > 0 && FullSeconds > 0 &&
+            RemainingSeconds < FullSeconds / 2;
+        internal NearbyNanoObservation Copy() => (NearbyNanoObservation)MemberwiseClone();
+    }
+
+    [Serializable]
     public sealed class NearbyPlayerObservation
     {
         public int CharacterId;
@@ -16,13 +27,15 @@ namespace CityDwellers.Shared
         // AOSharp's visible effects, not proof of a complete remote NCU inspection.
         // An empty array must not be used to infer that the player needs buffs.
         public int[] VisibleNanoIds = new int[0];
+        public NearbyNanoObservation[] Nanos = new NearbyNanoObservation[0];
         public bool NcuComplete => false;
 
         internal NearbyPlayerObservation Copy() => new NearbyPlayerObservation
         {
             CharacterId = CharacterId, Name = Name, Level = Level,
             Profession = Profession, Observer = Observer, ObservedUtc = ObservedUtc,
-            VisibleNanoIds = (VisibleNanoIds ?? new int[0]).ToArray()
+            VisibleNanoIds = (VisibleNanoIds ?? new int[0]).ToArray(),
+            Nanos = (Nanos ?? new NearbyNanoObservation[0]).Select(n => n.Copy()).ToArray()
         };
     }
 
@@ -46,6 +59,13 @@ namespace CityDwellers.Shared
                 return _nearbyPlayers.Where(p => p.ObservedUtc <= now &&
                     now - p.ObservedUtc < TimeSpan.FromSeconds(5))
                     .Select(p => p.Copy()).ToList();
+        }
+
+        public bool ObservedBuffNeedsRefresh(int characterId, int nanoId)
+        {
+            return ReadNearbyPlayers().Any(p => p.CharacterId == characterId &&
+                p.Nanos.Any(n => n.Id == nanoId && n.NeedsRefresh &&
+                    n.RemainingSeconds > (DateTime.UtcNow - p.ObservedUtc).TotalSeconds));
         }
     }
 }

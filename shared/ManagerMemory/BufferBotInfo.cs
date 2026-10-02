@@ -14,8 +14,14 @@ namespace CityDwellers.Shared
         public string Tag;
         public string Type;
         public int Ncu;
+        public int[] NanoIds = new int[0];
 
-        internal BufferAdvertisedBuff Copy() => (BufferAdvertisedBuff)MemberwiseClone();
+        internal BufferAdvertisedBuff Copy()
+        {
+            var copy = (BufferAdvertisedBuff)MemberwiseClone();
+            copy.NanoIds = (NanoIds ?? new int[0]).ToArray();
+            return copy;
+        }
     }
 
     [Serializable]

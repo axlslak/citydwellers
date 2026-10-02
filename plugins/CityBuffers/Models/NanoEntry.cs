@@ -17,6 +17,9 @@ namespace MalisBuffBots
 {
     public class NanoEntry
     {
+        [JsonIgnore]
+        public DateTime ObserverRefreshUntilUtc { get; set; }
+
         [AoMember(0, SerializeSize = ArraySizeType.Int32)]
         public string Name { get; set; }
 
