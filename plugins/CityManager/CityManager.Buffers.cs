@@ -4,6 +4,8 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using AOSharp.Clientless;
+using AOSharp.Clientless.Logging;
+using AOSharp.Common.GameData;
 using CityDwellers.Shared;
 using Newtonsoft.Json.Linq;
 
@@ -16,6 +18,125 @@ namespace CityManager
         private static readonly TimeSpan BufferAuthorityPublishInterval =
             TimeSpan.FromSeconds(1);
         private DateTime _nextBufferAuthorityPublishUtc = DateTime.MinValue;
+
+        private DateTime _nextPaidTeamTick;
+        private string _paidTeamCharacter;
+        private bool _paidTeamOwnsTeam, _paidTeamStarted, _paidTeamClosing;
+        private int _paidTeamInviteId;
+        private DateTime _paidTeamInviteUntil;
+        private DateTime _nextPaidTeamCleanup;
+
+        // All AO team operations stay on Manager's update thread. The host only
+        // consumes the fresh membership snapshot published from here.
+        private void TickPaidFixerTeam()
+        {
+            var memory = ManagerMemory.Current;
+            var now = DateTime.UtcNow;
+            if (!Client.InPlay || DynelManager.LocalPlayer == null)
+            {
+                memory.PublishPaidFixerTeam(null, 0, new int[0]);
+                return;
+            }
+            if (now < _nextPaidTeamTick) return;
+            _nextPaidTeamTick = now.AddMilliseconds(500);
+            try
+            {
+                var providers = memory.ReadPaidBuffers().Where(p => p.Profession == 4).ToArray();
+                var pending = memory.PendingBufferPublicCommands(128)
+                    .Where(r => providers.Any(p => string.Equals(p.Character, r.TargetCharacter,
+                        StringComparison.OrdinalIgnoreCase))).ToArray();
+                if (_paidTeamCharacter == null)
+                {
+                    _paidTeamCharacter = providers.FirstOrDefault(p => p.Running)?.Character ??
+                        pending.FirstOrDefault()?.TargetCharacter;
+                    if (_paidTeamCharacter == null)
+                    {
+                        memory.PublishPaidFixerTeam(null, 0, new int[0]);
+                        return;
+                    }
+                }
+                var provider = providers.FirstOrDefault(p => string.Equals(p.Character,
+                    _paidTeamCharacter, StringComparison.OrdinalIgnoreCase));
+                var requests = pending.Where(r => string.Equals(r.TargetCharacter,
+                    _paidTeamCharacter, StringComparison.OrdinalIgnoreCase)).ToArray();
+                bool running = provider != null && provider.Running;
+                if (running) _paidTeamStarted = true;
+                if ((_paidTeamStarted && !running) || provider == null || provider.Blocked ||
+                    (!running && requests.Length == 0 && now >= _paidTeamInviteUntil))
+                    _paidTeamClosing = true;
+
+                if (_paidTeamClosing)
+                {
+                    memory.PublishPaidFixerTeam(null, 0, new int[0]);
+                    if (_paidTeamOwnsTeam && Team.IsInTeam)
+                    {
+                        if (now >= _nextPaidTeamCleanup)
+                        {
+                            _nextPaidTeamCleanup = now.AddSeconds(2);
+                            Team.Disband();
+                            Team.LeaveTeam();
+                        }
+                        return;
+                    }
+                    _paidTeamCharacter = null;
+                    _paidTeamOwnsTeam = _paidTeamStarted = _paidTeamClosing = false;
+                    _paidTeamInviteId = 0;
+                    _paidTeamInviteUntil = DateTime.MinValue;
+                    return;
+                }
+
+                // Never commandeer an unrelated team Manager was already in.
+                if (!_paidTeamOwnsTeam && Team.IsInTeam)
+                {
+                    memory.PublishPaidFixerTeam(null, 0, new int[0]);
+                    return;
+                }
+                var members = Team.IsInTeam ? Team.Members
+                    .Where(m => m.Identity != DynelManager.LocalPlayer.Identity)
+                    .Select(m => m.Identity.Instance).ToArray() : new int[0];
+                memory.PublishPaidFixerTeam(_paidTeamCharacter,
+                    DynelManager.LocalPlayer.Identity.Instance, members);
+                if (_paidTeamInviteId != 0 && members.Contains(_paidTeamInviteId))
+                {
+                    DevTrace("PAID FIXER team membership confirmed: " + _paidTeamInviteId + ".");
+                    _paidTeamInviteId = 0;
+                    _paidTeamInviteUntil = DateTime.MinValue;
+                }
+                if (running)
+                {
+                    var fixer = DynelManager.Players.FirstOrDefault(p => string.Equals(p.Name,
+                        _paidTeamCharacter, StringComparison.OrdinalIgnoreCase));
+                    if (fixer != null && members.Length > 0 && !members.Contains(fixer.Identity.Instance) &&
+                        (_paidTeamInviteId != fixer.Identity.Instance || now >= _paidTeamInviteUntil))
+                        InvitePaidTeamMember(fixer.Identity, now, "fixer " + _paidTeamCharacter);
+                    return;
+                }
+                if (_paidTeamInviteId != 0 && now < _paidTeamInviteUntil) return;
+                _paidTeamInviteId = 0;
+
+                // Four customers + Manager + fixer = one normal six-person team.
+                if (members.Length >= 4) return;
+                var next = requests.FirstOrDefault(r => !members.Contains(unchecked((int)r.SenderId)) &&
+                    DynelManager.Players.Any(p => p.Identity.Instance == unchecked((int)r.SenderId)));
+                if (next != null)
+                    InvitePaidTeamMember(new Identity(IdentityType.SimpleChar, unchecked((int)next.SenderId)),
+                        now, "requester " + next.SenderName);
+            }
+            catch (Exception ex)
+            {
+                memory.PublishPaidFixerTeam(null, 0, new int[0]);
+                Logger.Warning("Paid fixer team coordinator: " + ex.Message);
+            }
+        }
+
+        private void InvitePaidTeamMember(Identity identity, DateTime now, string description)
+        {
+            _paidTeamOwnsTeam = true;
+            _paidTeamInviteId = identity.Instance;
+            _paidTeamInviteUntil = now.AddSeconds(15);
+            Team.Invite(identity);
+            DevTrace("PAID FIXER Manager invited " + description + ".");
+        }
 
         private void PublishBufferAuthoritySnapshot(bool force = false)
         {
@@ -235,8 +356,9 @@ namespace CityManager
 
             if (paidCast)
                 Reply(target, "Request queued for " + paid.Character +
-                    ". Stay near the buffer; I will log them in when the shared account is free." +
-                    (paidNanos.Any(n => n != null && n.Id == 275043) ? " For ncu, leave your current team and accept their invitation (level 215+)." : ""));
+                    (paid.Profession == 4
+                        ? ". Leave your current team and accept my invitation. Stay nearby; I will bring the fixer into our team when a login slot and the account are available."
+                        : ". Stay near the buffer; I will log them in when the shared account is free."));
 
             ThreadPool.QueueUserWorkItem(_ =>
             {
@@ -477,3 +599,4 @@ namespace CityManager
         }
     }
 }
+

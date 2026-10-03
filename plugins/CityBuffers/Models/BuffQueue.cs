@@ -53,16 +53,30 @@ namespace MalisBuffBots
             }
         }
 
-        internal bool TryEnqueuePaid(BuffEntry[] requested, out string error)
+        internal bool TryEnqueuePaid(BuffEntry[] requested, out string error, int capacity = 4)
         {
             lock (_sync)
             {
                 var entries = AllEntries;
                 error = requested.Any(r => entries.Any(e => e.Equals(r))) ? "That buff is already queued." :
-                    entries.Length + requested.Length > 4 ? "The paid buffer has a full batch; please try again after it finishes." : null;
+                    entries.Length + requested.Length > capacity ? "The paid buffer has a full batch; please try again after it finishes." : null;
                 if (error != null) return false;
                 foreach (var entry in requested) _queue.Enqueue(entry);
                 return true;
+            }
+        }
+
+        internal int[] RemoveQueuedTeamBuff(int nanoId, int[] recipients)
+        {
+            lock (_sync)
+            {
+                var served = _queue.Where(e => e.NanoEntry.ContainsId(nanoId) &&
+                    recipients.Contains(e.Requester.Instance)).Select(e => e.Requester.Instance).Distinct().ToArray();
+                var keep = _queue.Where(e => !e.NanoEntry.ContainsId(nanoId) ||
+                    !recipients.Contains(e.Requester.Instance)).ToArray();
+                _queue.Clear();
+                foreach (var entry in keep) _queue.Enqueue(entry);
+                return served;
             }
         }
 
@@ -72,3 +86,4 @@ namespace MalisBuffBots
 
     public enum QueueState { Current, Empty, Dequeue }
 }
+

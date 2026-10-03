@@ -155,15 +155,12 @@ namespace MalisBuffBots
 
         private void OnTeamRequestAction(Identity identity, Identity target)
         {
-            if (Main.PaidPilot) return; // This pilot issues its own requester invitations.
-            Logger.Information($"Team request received from '{identity.Instance}'");
-
-            if (Main.Ipc.BotCache.Entries.Values.Any(x => x.Identity == target))
-            {
-                Logger.Information("Accepting team invite");
-                Team.Accept(target);
-                _queueProcessor.TeamTimeout.Reset();
-            }
+            if (!Main.PaidPilot || Main.PaidProfession != 4) return;
+            int manager = ManagerMemory.Current.PaidFixerManager(Client.CharacterName);
+            if (manager == 0 || target.Type != IdentityType.SimpleChar || target.Instance != manager) return;
+            Logger.Information("Accepting Manager's paid fixer team invitation.");
+            Team.Accept(target);
+            _queueProcessor.TeamTimeout.Reset();
         }
 
         private void OnFinishNanoCastingAction(Identity identity, Identity target, int param2)
@@ -179,8 +176,7 @@ namespace MalisBuffBots
 
             // An observer-confirmed request may already have left the queue. Do not
             // apply its late completion packet to a queued but unattempted request.
-            if (!Main.PaidPilot && _queueProcessor.Queue.Current.NanoEntry.Type == CastType.Single &&
-                !_queueProcessor.IsOutstandingNano(param2))
+            if (!_queueProcessor.IsOutstandingNano(param2))
                 return;
 
             var buffTarget = DynelManager.Players.FirstOrDefault(x => x.Identity == _queueProcessor.Queue.Current.Requester);
@@ -249,3 +245,4 @@ namespace MalisBuffBots
 
     }
 }
+

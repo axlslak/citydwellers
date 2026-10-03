@@ -180,7 +180,12 @@ internal static class BuffersHost
             string owner = "Buffers:" + Guid.NewGuid().ToString("N");
             if (!memory.TryAcquireAoAccount(runtime.Account.Username, owner, false)) return;
             runtime.AccountOwner = owner;
-            memory.StartPaidBufferSession(character);
+            if (!memory.StartPaidBufferSession(character))
+            {
+                memory.ReleaseAoAccount(runtime.Account.Username, owner);
+                runtime.AccountOwner = null;
+                return;
+            }
             try { StartBuffer(runtime, plugin, logger); }
             catch (Exception ex)
             {
@@ -306,3 +311,4 @@ internal static class BuffersHost
         ManagerMemory.Current.PublishBufferControlResult(operation.Id, success, result);
     }
 }
+

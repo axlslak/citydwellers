@@ -3231,6 +3231,7 @@ namespace CityManager
 
         private void Tick(object sender, double e)
         {
+            TickPaidFixerTeam();
             TickNearbyObserver();
             ObserveOrgEcho(null);
             TickOrgRetryQueue();
@@ -3555,3 +3556,4 @@ namespace CityManager
         }
     }
 }
+

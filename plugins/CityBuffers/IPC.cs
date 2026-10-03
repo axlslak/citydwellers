@@ -22,11 +22,8 @@ namespace MalisBuffBots
 
         public IPC(byte channelId, int pingPongUpdateMs) : base(channelId)
         {
-            // Only team coordination remains on Mali IPC. Bot/capability presence,
-            // queue state, cast routing and bans are now same-host ManagerMemory.
-            RegisterCallback((int)IPCOpcode.UpdateTeamMember, OnReceivedTeamInfoMessage);
-            RegisterCallback((int)IPCOpcode.RequestTeamInvite, OnRequestTeamInviteReceived);
-            RegisterCallback((int)IPCOpcode.RegisterTeamTracker, OnRegisterTeamTracker);
+            // Presence, routing and coordination use ManagerMemory. Free buffers
+            // invite directly; the paid fixer accepts only Manager's invitation.
         }
 
         private sealed class MemoryCastRequest
@@ -103,6 +100,14 @@ namespace MalisBuffBots
                     x => x.Identity.Instance == request.SenderId);
                 if (requester == null)
                     continue;
+
+                if (Main.PaidPilot && Main.PaidProfession == 4)
+                {
+                    int manager = ManagerMemory.Current.PaidFixerManager(Client.CharacterName);
+                    if (!Team.IsInTeam || manager == 0 ||
+                        !Team.Members.Any(m => m.Identity.Instance == manager) ||
+                        !Team.Members.Any(m => m.Identity == requester.Identity)) continue;
+                }
 
                 if (!CanClaimPublicCommand(request))
                     continue;
@@ -218,37 +223,6 @@ namespace MalisBuffBots
             BotCache.BroadcastBotInfoMessage();
             BotCache.BroadcastTeamInfoMessage();
             BotCache.BroadcastQueueInfoMessage();
-        }
-
-        private void OnRegisterTeamTracker(int arg1, IPCMessage msg)
-        {
-            if (Main.PaidPilot) return;
-            TeamTrackerMessage trackMsg = (TeamTrackerMessage)msg;
-
-            BotCache.TeamTracker(trackMsg.Profession, trackMsg.TeamTrackerId);
-
-            if (trackMsg.Profession != (Profession)DynelManager.LocalPlayer.Profession)
-                return;
-
-            Main.QueueProcessor.ResetTeamTimer();
-            Main.QueueProcessor.TeamTrackerId = trackMsg.TeamTrackerId;
-            Team.Invite(new Identity(IdentityType.SimpleChar, trackMsg.TeamTrackerId));
-        }
-
-        private void OnRequestTeamInviteReceived(int arg1, IPCMessage ipcMsg)
-        {
-            if (Main.PaidPilot) return;
-            RequestTeamInviteMessage teamInviteMsg = (RequestTeamInviteMessage)ipcMsg;
-
-            if (DynelManager.LocalPlayer.Identity.Instance != teamInviteMsg.Bot)
-                return;
-
-            if (teamInviteMsg.IsTeamTracker && Main.QueueProcessor.TeamTrackerId == 0)
-            {
-                Main.QueueProcessor.TeamTrackerId = teamInviteMsg.Requester;
-            }
-
-            Team.Invite(new Identity(IdentityType.SimpleChar, teamInviteMsg.Requester));
         }
 
         private void OnReceivedTeamInfoMessage(int arg1, IPCMessage msg)
@@ -501,3 +475,4 @@ namespace MalisBuffBots
         }
     }
 }
+
