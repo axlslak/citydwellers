@@ -177,6 +177,12 @@ namespace MalisBuffBots
             if (!_queueProcessor.Queue.Current.NanoEntry.ContainsId(param2))
                 return;
 
+            // An observer-confirmed request may already have left the queue. Do not
+            // apply its late completion packet to a queued but unattempted request.
+            if (!Main.PaidPilot && _queueProcessor.Queue.Current.NanoEntry.Type == CastType.Single &&
+                !_queueProcessor.IsOutstandingNano(param2))
+                return;
+
             var buffTarget = DynelManager.Players.FirstOrDefault(x => x.Identity == _queueProcessor.Queue.Current.Requester);
             var buffTargetName = buffTarget != null ? buffTarget.Name : target.Instance.ToString();
 

@@ -20,6 +20,10 @@ namespace MalisBuffBots
         public BuffQueue Queue = new BuffQueue();
         public N3MessageProcessor N3MessageProcessor;
         private string _attemptedEntryKey;
+        private string _observedAttemptKey;
+        private int _attemptedNanoId;
+        private DateTime _attemptedUtc;
+        private DateTime _previousObservedExpiryUtc;
         private DateTime _attemptedEntryExpiresUtc;
         private const int CastCompletionTimeoutSeconds = 8;
         private DateTime _requestDeadlineUtc;
@@ -80,6 +84,8 @@ namespace MalisBuffBots
                 RetryPendingRoutes();
                 if (!_gracePeriod.Elapsed)
                     return;
+
+                if (TryCompleteFromObservation()) return;
 
                 if (Team.IsInTeam)
                     ProcessLeaveTeam();
@@ -379,16 +385,44 @@ namespace MalisBuffBots
             }
         }
 
-        private void ClearCastAttempt()
+        private void ClearCastAttempt(bool clearObservation = true)
         {
             _attemptedEntryKey = null;
             _attemptedEntryExpiresUtc = DateTime.MinValue;
             _lastAttemptFeedback = null;
+            if (clearObservation)
+            {
+                _observedAttemptKey = null;
+                _attemptedNanoId = 0;
+                _attemptedUtc = DateTime.MinValue;
+                _previousObservedExpiryUtc = DateTime.MinValue;
+            }
+        }
+
+        private bool TryCompleteFromObservation()
+        {
+            if (Main.PaidPilot || _observedAttemptKey == null ||
+                _observedAttemptKey != CurrentCastAttemptKey()) return false;
+            var player = ManagerMemory.Current.ReadNearbyPlayers().FirstOrDefault(p =>
+                p.CharacterId == Queue.Current.Requester.Instance && p.ObservedUtc > _attemptedUtc);
+            var nano = player?.Nanos.FirstOrDefault(n => n.Id == _attemptedNanoId);
+            // A missing effect is not failure proof. Require a new expiry, not mere presence
+            // of the old buff, and tolerate one-second observation/timer rounding.
+            if (nano == null || nano.RemainingSeconds <= 0 ||
+                player.ObservedUtc.AddSeconds(nano.RemainingSeconds) <=
+                    _previousObservedExpiryUtc.AddSeconds(2)) return false;
+            Logger.Information("Manager NCU confirmed '" + Queue.Current.NanoEntry.Name +
+                "' for requester " + Queue.Current.Requester.Instance + " nano=" + _attemptedNanoId +
+                "; duration renewed after cast attempt.");
+            ResetCurrentBuffEntry(completed: true);
+            return true;
         }
 
         // Feedback has no nano id. Only attach it while a cast is outstanding.
         internal bool HasOutstandingCast => _attemptedEntryKey != null &&
             _attemptedEntryKey == CurrentCastAttemptKey();
+
+        internal bool IsOutstandingNano(int nanoId) => HasOutstandingCast && _attemptedNanoId == nanoId;
 
         internal void RecordCastFeedback(int messageId)
         {
@@ -399,7 +433,7 @@ namespace MalisBuffBots
         internal void RetryCurrentBuffEntry(string reason)
         {
             if (Queue.Current == null || DateTime.UtcNow < _retryAfterUtc) return;
-            ClearCastAttempt();
+            ClearCastAttempt(clearObservation: false);
             _retryCount = Math.Min(_retryCount + 1, 6);
             int seconds = _retryCount * 5;
             _retryAfterUtc = DateTime.UtcNow.AddSeconds(seconds);
@@ -545,6 +579,21 @@ namespace MalisBuffBots
             }
 
             _attemptedEntryKey = CurrentCastAttemptKey();
+            _observedAttemptKey = null;
+            _attemptedNanoId = firstAvailableBuff.Id;
+            _attemptedUtc = DateTime.UtcNow;
+            if (!Main.PaidPilot && Queue.Current.NanoEntry.Type == CastType.Single)
+            {
+                var before = ManagerMemory.Current.ReadNearbyPlayers().FirstOrDefault(p =>
+                    p.CharacterId == Queue.Current.Requester.Instance);
+                var oldNano = before?.Nanos.FirstOrDefault(n => n.Id == firstAvailableBuff.Id);
+                // Without a visible baseline, do not mistake an existing unseen buff for success.
+                if (oldNano != null && oldNano.RemainingSeconds > 0)
+                {
+                    _observedAttemptKey = _attemptedEntryKey;
+                    _previousObservedExpiryUtc = before.ObservedUtc.AddSeconds(oldNano.RemainingSeconds);
+                }
+            }
             _lastAttemptFeedback = null;
             _attemptedEntryExpiresUtc = DateTime.UtcNow.AddSeconds(Main.PaidPilot ? 20 : CastCompletionTimeoutSeconds);
             // FSC is a self-cast whose effect is applied to the team, not a 1m targeted buff.
