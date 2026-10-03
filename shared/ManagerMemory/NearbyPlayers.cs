@@ -63,9 +63,17 @@ namespace CityDwellers.Shared
 
         public bool ObservedBuffNeedsRefresh(int characterId, int nanoId)
         {
-            return ReadNearbyPlayers().Any(p => p.CharacterId == characterId &&
-                p.Nanos.Any(n => n.Id == nanoId && n.NeedsRefresh &&
-                    n.RemainingSeconds > (DateTime.UtcNow - p.ObservedUtc).TotalSeconds));
+            var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
+            if (player == null || IsPaidBuffer(player.Name)) return false;
+            // Buffer preparation belongs to RebuffInfo, not the nearby-player refresh loop.
+            // Include unready/offline registrations: startup must not create duplicate work.
+            lock (_bufferBotSync)
+                if (_bufferBots.Values.Any(b =>
+                    (characterId > 0 && b.IdentityInstance == characterId) ||
+                    string.Equals(b.Character, player.Name, StringComparison.OrdinalIgnoreCase)))
+                    return false;
+            return player.Nanos.Any(n => n.Id == nanoId && n.NeedsRefresh &&
+                n.RemainingSeconds > (DateTime.UtcNow - player.ObservedUtc).TotalSeconds);
         }
     }
 }
