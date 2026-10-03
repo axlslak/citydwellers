@@ -175,7 +175,7 @@ namespace MalisBuffBots
             if (player == null || !Main.EffectiveSpellList().Contains(nanoId)) return;
             var entry = Main.BuffsJson.Entries.Values.SelectMany(entries => entries)
                 .FirstOrDefault(e => e.Type == CastType.Single && e.LevelToId.Any(n =>
-                    n.Id == nanoId && n.Level <= player.Level));
+                    n.Id == nanoId));
             if (entry == null) return;
             if (Main.QueueProcessor.Queue.AllEntries.Any(e => e.Requester == player.Identity &&
                 e.NanoEntry.ContainsId(nanoId))) return;

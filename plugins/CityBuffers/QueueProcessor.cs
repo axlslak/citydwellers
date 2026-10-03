@@ -520,12 +520,16 @@ namespace MalisBuffBots
             Logger.Information($"Attempting to cast '{Queue.Current.NanoEntry.Name}' on '{buffTarget.Name}'");
 
             var knownNanos = new HashSet<int>(Main.EffectiveSpellList());
-            var firstAvailableBuff = Queue.Current.NanoEntry.LevelToId.FirstOrDefault(x => x.Level <= buffTarget.Level && knownNanos.Contains(x.Id));
+            bool observedRefresh = Queue.Current.NanoEntry.ObserverRefreshUntilUtc != default(DateTime);
+            var firstAvailableBuff = Queue.Current.NanoEntry.LevelToId.FirstOrDefault(x =>
+                knownNanos.Contains(x.Id) && (observedRefresh || x.Level <= buffTarget.Level));
 
             if (firstAvailableBuff == null)
             {
-                Logger.Warning("Skipping buff for requester " + buffTarget.Name + ": level is too low.");
-                NotifyCurrentRequester("couldn't cast", "no uploaded version is available for your level.");
+                string reason = observedRefresh ? "the observed nano is no longer uploaded" :
+                    "no uploaded version is available for your level";
+                Logger.Warning("Skipping buff for requester " + buffTarget.Name + ": " + reason + ".");
+                NotifyCurrentRequester("couldn't cast", reason + ".");
                 ResetCurrentBuffEntry();
                 return;
             }

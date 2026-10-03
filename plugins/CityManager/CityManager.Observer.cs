@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
+using AOSharp.Common.GameData;
 using CityDwellers.Shared;
 
 namespace CityManager
@@ -41,18 +42,30 @@ namespace CityManager
                 var current = new Dictionary<int, NearbyPlayerObservation>();
                 foreach (var player in DynelManager.Players.ToArray())
                 {
+                    if (player == null) continue;
                     if (player.Identity == DynelManager.LocalPlayer.Identity) continue;
-                    var observation = new NearbyPlayerObservation
+                    try
                     {
-                        CharacterId = player.Identity.Instance, Name = player.Name,
-                        Level = player.Level, Profession = (int)player.Profession,
-                        Observer = Client.CharacterName, ObservedUtc = DateTime.UtcNow,
-                        VisibleNanoIds = player.Buffs.Select(b => b.Id).Distinct().OrderBy(id => id).ToArray(),
-                        Nanos = player.Buffs.Select(b => new NearbyNanoObservation {
-                            Id = b.Id, RemainingSeconds = b.Cooldown?.RemainingTime ?? 0,
-                            FullSeconds = b.NanoItem?.TotalTime ?? 0 }).ToArray()
-                    };
-                    current[observation.CharacterId] = observation;
+                        var buffs = player.Buffs.ToArray();
+                        var observation = new NearbyPlayerObservation
+                        {
+                            CharacterId = player.Identity.Instance, Name = player.Name,
+                            Level = -1, Profession = -1,
+                            Observer = Client.CharacterName, ObservedUtc = DateTime.UtcNow,
+                            VisibleNanoIds = buffs.Select(b => b.Id).Distinct().OrderBy(id => id).ToArray(),
+                            Nanos = buffs.Select(b => new NearbyNanoObservation {
+                                Id = b.Id, RemainingSeconds = b.Cooldown?.RemainingTime ?? 0,
+                                FullSeconds = b.NanoItem?.TotalTime ?? 0 }).ToArray()
+                        };
+                        // Optional metadata must never invalidate the NCU observation.
+                        observation.Level = ReadOptionalObserverStat(player, Stat.Level, now);
+                        observation.Profession = ReadOptionalObserverStat(player, Stat.Profession, now);
+                        current[observation.CharacterId] = observation;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogObserverFailure("NCU scan player=" + player.Identity, ex, now);
+                    }
                 }
                 ManagerMemory.Current.PublishNearbyPlayers(current.Values.ToArray());
                 RefreshObservedBuffs(current.Values, now);
@@ -66,8 +79,9 @@ namespace CityManager
                         old.Profession == observation.Profession &&
                         old.VisibleNanoIds.SequenceEqual(observation.VisibleNanoIds)) continue;
                     RecordDiagnostic("OBSERVER " + (arrived ? "noticed " : "updated ") +
-                        observation.Name + " (" + observation.CharacterId + ") level=" + observation.Level +
-                        " profession=" + observation.Profession + " visibleNanoIds=[" +
+                        observation.Name + " (" + observation.CharacterId + ") level=" +
+                        (observation.Level < 0 ? "unknown" : observation.Level.ToString()) +
+                        " profession=" + (observation.Profession < 0 ? "unknown" : observation.Profession.ToString()) + " visibleNanoIds=[" +
                         string.Join(",", observation.VisibleNanoIds) + "]; durations=[" +
                         string.Join(",", observation.Nanos.Select(n => n.Id + ":" +
                             (int)n.RemainingSeconds + "/" + (int)n.FullSeconds + "s")) +
@@ -80,13 +94,32 @@ namespace CityManager
             {
                 // Do not let an observer fault affect banking, tells, or raids.
                 // Stop exposing the previous scan as current evidence.
-                ClearNearbyObserver();
-                if (now >= _nextObserverError)
-                {
-                    _nextObserverError = now + 30000;
-                    Logger.Warning("Nearby observer unavailable: " + ex.Message);
-                }
+                _nearbyObserved.Clear();
+                ManagerMemory.Current.PublishNearbyPlayers(new NearbyPlayerObservation[0]);
+                // Keep submission cooldowns: a scan error must not cause duplicate casts.
+                LogObserverFailure("scan", ex, now);
             }
+        }
+
+        private int ReadOptionalObserverStat(PlayerChar player, Stat stat, long now)
+        {
+            try
+            {
+                int value;
+                return player.TryGetStat(stat, out value) ? value : -1;
+            }
+            catch (Exception ex)
+            {
+                LogObserverFailure("optional " + stat + " player=" + player.Identity, ex, now);
+                return -1;
+            }
+        }
+
+        private void LogObserverFailure(string stage, Exception ex, long now)
+        {
+            if (now < _nextObserverError) return;
+            _nextObserverError = now + 30000;
+            Logger.Warning("Nearby observer failure at " + stage + ": " + ex);
         }
 
         private void RefreshObservedBuffs(IEnumerable<NearbyPlayerObservation> players, long now)
