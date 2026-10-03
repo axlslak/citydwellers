@@ -129,6 +129,14 @@ namespace CityManager
             var providers = ManagerMemory.Current.BufferBotInfos().Where(b => b.Ready && b.InPlay &&
                 b.ObservedUtc >= DateTime.UtcNow.AddSeconds(-5) &&
                 !ManagerMemory.Current.IsPaidBuffer(b.Character)).ToArray();
+            var memory = ManagerMemory.Current;
+            var paidProviders = memory.ReadPaidBuffers().Where(p => !p.Blocked &&
+                DateTime.UtcNow >= p.RetryAfterUtc).OrderBy(p => p.Character, StringComparer.OrdinalIgnoreCase).ToArray();
+            // Withdraw unclaimed automatic work if the player leaves or another
+            // caster has already restored it. An invitation is not a cast obligation.
+            foreach (var pending in memory.PendingBufferPublicCommands(128).Where(r => r.ObservedNanoId > 0))
+                if (!memory.ObservedBuffNeedsRefresh(unchecked((int)pending.SenderId), pending.ObservedNanoId))
+                    memory.CancelUnclaimedObservedBufferCommand(pending.Id);
             var visibleKeys = new HashSet<string>();
             foreach (var player in players)
             foreach (var nano in ManagerMemory.Current.ObservedBuffCandidates(player.CharacterId))
@@ -148,17 +156,42 @@ namespace CityManager
                 var provider = providers.OrderBy(b => b.Character, StringComparer.OrdinalIgnoreCase)
                     .FirstOrDefault(b => (b.AdvertisedBuffs ?? new BufferAdvertisedBuff[0]).Any(buff =>
                         buff.Type == "Single" && (buff.NanoIds ?? new int[0]).Contains(nano.Id)));
-                if (provider == null || !ManagerMemory.Current.RequestObservedBuffRefresh(
-                    provider.Character, player.CharacterId, nano.Id)) continue;
+                string providerName;
+                if (provider != null)
+                {
+                    if (!memory.RequestObservedBuffRefresh(provider.Character, player.CharacterId, nano.Id)) continue;
+                    providerName = provider.Character;
+                }
+                else
+                {
+                    var paid = paidProviders.FirstOrDefault(p =>
+                        PaidBufferCatalogue.ForProfession(p.Profession).Any(n => n.Id == nano.Id));
+                    if (paid == null) continue;
+                    providerName = paid.Character;
+                    // Join an existing manual request for this exact nano rather
+                    // than queueing another cast while it waits for team/account.
+                    bool alreadyQueued = memory.PendingBufferPublicCommands(128).Any(r =>
+                        r.SenderId == unchecked((uint)player.CharacterId) &&
+                        string.Equals(r.TargetCharacter, paid.Character, StringComparison.OrdinalIgnoreCase) &&
+                        (r.Arguments ?? new string[0]).Any(tag => tag == nano.Id.ToString() ||
+                            PaidBufferCatalogue.Find(tag)?.Id == nano.Id));
+                    if (!alreadyQueued && !memory.BeginBufferPublicCommand(new BufferPublicCommandRequest {
+                        Id = "observed:" + player.CharacterId + ":" + nano.Id,
+                        Command = "cast", TargetCharacter = paid.Character,
+                        SenderId = unchecked((uint)player.CharacterId), SenderName = player.Name,
+                        Arguments = new[] { nano.Id.ToString() }, ObservedNanoId = nano.Id,
+                        CreatedUtc = DateTime.UtcNow })) continue;
+                }
                 _refreshRetryAfter[key] = now + 180000;
                 _refreshAwaiting.Add(key);
                 RecordDiagnostic("OBSERVER refresh requested: " + player.Name + " nano=" + nano.Id +
                     " reason=" + (player.VisibleNanoIds.Contains(nano.Id) ? "below-half" : "missing-learned-buff") +
                     " remaining=" + (int)nano.RemainingSeconds + "s full=" + (int)nano.FullSeconds +
-                    "s buffer=" + provider.Character + ".");
+                    "s buffer=" + providerName + ".");
             }
             foreach (var key in _refreshRetryAfter.Keys.Where(k => !visibleKeys.Contains(k)).ToArray())
             { _refreshRetryAfter.Remove(key); _refreshAwaiting.Remove(key); }
         }
     }
 }
+

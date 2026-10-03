@@ -50,7 +50,8 @@ namespace MalisBuffBots
             {
                 if (!entry.LevelToId.Any(n => known.Contains(n.Id)))
                 { message = Client.CharacterName + " does not report " + entry.Name + " as uploaded."; return false; }
-                if (!entry.LevelToId.Any(n => known.Contains(n.Id) && n.Level <= requester.Level))
+                if (entry.ObserverRefreshUntilUtc == default(DateTime) &&
+                    !entry.LevelToId.Any(n => known.Contains(n.Id) && n.Level <= requester.Level))
                 { message = entry.Name + " requires recipient level " + entry.LevelToId.Min(n => n.Level) + "+."; return false; }
             }
             if (!Queue.TryEnqueuePaid(entries.Select(e => new BuffEntry {
@@ -371,7 +372,7 @@ namespace MalisBuffBots
 
         private bool TryCompleteFromObservation()
         {
-            if (Main.PaidPilot || _observedAttemptKey == null ||
+            if (_observedAttemptKey == null ||
                 _observedAttemptKey != CurrentCastAttemptKey()) return false;
             var player = ManagerMemory.Current.ReadNearbyPlayers().FirstOrDefault(p =>
                 p.CharacterId == Queue.Current.Requester.Instance && p.ObservedUtc > _attemptedUtc);
@@ -561,7 +562,7 @@ namespace MalisBuffBots
             _attemptedMissingLearnedBuff = false;
             _attemptedNanoId = firstAvailableBuff.Id;
             _attemptedUtc = DateTime.UtcNow;
-            if (!Main.PaidPilot && Queue.Current.NanoEntry.Type == CastType.Single)
+            if (Queue.Current.NanoEntry.Type == CastType.Single || observedRefresh)
             {
                 var before = ManagerMemory.Current.ReadNearbyPlayers().FirstOrDefault(p =>
                     p.CharacterId == Queue.Current.Requester.Instance);
@@ -645,3 +646,4 @@ namespace MalisBuffBots
         }
     }
 }
+
