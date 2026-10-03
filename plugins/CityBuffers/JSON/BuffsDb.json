@@ -199,6 +199,74 @@
                 "boon",
                 "botw"
             ]
+        },
+        {
+            "Name": "Retribution of the Aesir",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 55837
+                }
+            ],
+            "Type": 0,
+            "Description": "+91 Shield AC, +260 absorb",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "rota"
+            ]
+        },
+        {
+            "Name": "Precision of the Hunter",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 26702
+                }
+            ],
+            "Type": 0,
+            "Description": "+165 Aimed Shot",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "poth"
+            ]
+        },
+        {
+            "Name": "Eagle Eye",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 26107
+                }
+            ],
+            "Type": 0,
+            "Description": "+240 Perception",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ee"
+            ]
+        },
+        {
+            "Name": "Silent Dagger",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 210789
+                }
+            ],
+            "Type": 0,
+            "Description": "+70 Sneak Attack",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "sd"
+            ]
         }
     ],
     "Agent": [
@@ -726,16 +794,42 @@
                 "td",
                 "delight"
             ]
+        },
+        {
+            "Name": "Greater Fortify",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 270350
+                }
+            ],
+            "Type": 0,
+            "Description": "+857 Absorb AC",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "fortify"
+            ]
         }
     ],
     "Engineer": [
         {
             "Name": "Gift of Assurance",
-            "LevelToId": [{ "Level": 210, "Id": 227680 }],
+            "LevelToId": [
+                {
+                    "Level": 210,
+                    "Id": 227680
+                }
+            ],
             "Type": 0,
             "Description": "+5000 AC, 4 hours; Shadowlands required",
-            "RemoveNanoIdUponCast": [0],
-            "Tags": ["goa"]
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "goa"
+            ]
         },
         {
             "Name": "Aegis Barrier",
@@ -902,19 +996,39 @@
     "Fixer": [
         {
             "Name": "Lasting Ultimatum",
-            "LevelToId": [{ "Level": 205, "Id": 252050 }],
+            "LevelToId": [
+                {
+                    "Level": 205,
+                    "Id": 252050
+                }
+            ],
             "Type": 0,
             "Description": "+466-502 HoT, level 205+",
-            "RemoveNanoIdUponCast": [0],
-            "Tags": ["lh1", "lu"]
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "lh1",
+                "lu"
+            ]
         },
         {
             "Name": "Firewalled Sync Compressor",
-            "LevelToId": [{ "Level": 215, "Id": 275043 }],
+            "LevelToId": [
+                {
+                    "Level": 215,
+                    "Id": 275043
+                }
+            ],
             "Type": 1,
             "Description": "+500 team NCU, level 215+",
-            "RemoveNanoIdUponCast": [0],
-            "Tags": ["ncu", "fsc"]
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ncu",
+                "fsc"
+            ]
         },
         {
             "Name": "Back Pain",
@@ -1387,6 +1501,23 @@
             ],
             "Tags": [
                 "ra"
+            ]
+        },
+        {
+            "Name": "Fervor of the Henchman",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 210321
+                }
+            ],
+            "Type": 0,
+            "Description": "+30 Fast Attack",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "210321"
             ]
         }
     ],
@@ -2166,6 +2297,91 @@
                 "she",
                 "humidity",
                 "extractor"
+            ]
+        },
+        {
+            "Name": "CrunchCom Code Sieve",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95407
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost -6%",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "95407"
+            ]
+        },
+        {
+            "Name": "Run-Time Recompiler",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95416
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost -9%",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "95416"
+            ]
+        },
+        {
+            "Name": "CrunchCom Nano Compressor",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95415
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost -11%",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "95415"
+            ]
+        },
+        {
+            "Name": "On-The-Fly Compression",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95414
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost -13%",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "95414"
+            ]
+        },
+        {
+            "Name": "Jobe Nano Libraries",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 95413
+                }
+            ],
+            "Type": 0,
+            "Description": "Nano Cost -22%",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "95413"
             ]
         }
     ],

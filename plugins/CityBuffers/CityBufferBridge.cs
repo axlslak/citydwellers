@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
+using AOSharp.Common.GameData;
 using CityDwellers.Shared;
 using Newtonsoft.Json;
 
@@ -113,7 +114,9 @@ namespace MalisBuffBots
                     .Select(entry =>
                         entry.Profession + ":" +
                         (entry.Tag ?? string.Empty) + ":" +
-                        (entry.Name ?? string.Empty)));
+                        (entry.Name ?? string.Empty) + ":" +
+                        string.Join(",", (entry.NanoIds ?? new int[0]).OrderBy(id => id)))) +
+                ";uploaded=" + string.Join(",", (spellList ?? new int[0]).Distinct().OrderBy(id => id));
 
             if (_catalogueReadyLogged &&
                 string.Equals(
@@ -139,6 +142,28 @@ namespace MalisBuffBots
 
             _lastCatalogueFingerprint = fingerprint;
             _catalogueReadyLogged = true;
+            if (!Main.PaidPilot)
+            {
+                var definitions = Main.BuffsJson.Entries.Values.SelectMany(entries => entries)
+                    .Where(entry => entry != null && entry.LevelToId != null).ToArray();
+                foreach (int id in (spellList ?? new int[0]).Distinct().OrderBy(id => id))
+                {
+                    var matched = definitions.Where(entry => entry.ContainsId(id)).ToArray();
+                    var offered = (advertised ?? new BufferAdvertisedBuff[0])
+                        .Where(entry => (entry.NanoIds ?? new int[0]).Contains(id)).ToArray();
+                    string name = "unknown";
+                    try
+                    {
+                        NanoItem nano;
+                        if (ItemData.Find(id, out nano)) name = nano.Name;
+                    }
+                    catch { /* An unavailable name must not interrupt catalogue publication. */ }
+                    Logger.Information("BUFFER catalogue nano=" + id + " name='" + name +
+                        "' status=" + (offered.Length > 0 ? "advertised" :
+                            matched.Length > 0 ? "defined-not-advertised" : "no-definition") +
+                        " tags=[" + string.Join(",", offered.Select(entry => entry.Tag)) + "].");
+                }
+            }
         }
 
         private static async Task Serve(string name, CancellationToken stop)
