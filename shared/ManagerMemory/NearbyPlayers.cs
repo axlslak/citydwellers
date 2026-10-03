@@ -145,6 +145,16 @@ namespace CityDwellers.Shared
             if (player == null || IsObservedBuffer(player)) return false;
             // Buffer preparation belongs to RebuffInfo, not the nearby-player refresh loop.
             // Include unready/offline registrations: startup must not create duplicate work.
+            // Umbral's recipient variants share one uploaded emitter. A healthy
+            // variant must satisfy learned usage of the other perk-strength variants.
+            var paid = PaidBufferCatalogue.FindEffect(nanoId);
+            if (paid != null && paid.EffectIds != null)
+            {
+                var effects = player.Nanos.Where(n => paid.MatchesEffect(n.Id)).ToArray();
+                if (effects.Length != 0)
+                    return effects.All(n => n.NeedsRefresh &&
+                        n.RemainingSeconds > (DateTime.UtcNow - player.ObservedUtc).TotalSeconds);
+            }
             if (player.RestoreMissing && !player.VisibleNanoIds.Contains(nanoId))
                 lock (_accountingSync)
                     return Accounting(null).LearnedBuffs.Any(p => p.CharacterId == characterId && p.NanoIds.Contains(nanoId));
@@ -153,3 +163,4 @@ namespace CityDwellers.Shared
         }
     }
 }
+

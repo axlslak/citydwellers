@@ -26,6 +26,7 @@ namespace CityDwellers.Shared
         public uint SenderId;
         public string SenderName;
         public string[] Arguments;
+        public int ObservedNanoId; // Nonzero only for Manager-observed automatic refresh.
         public DateTime CreatedUtc;
         public string ClaimedBy;
         public DateTime? ClaimedUtc;
@@ -303,6 +304,17 @@ namespace CityDwellers.Shared
             }
         }
 
+        public void CancelUnclaimedObservedBufferCommand(string id)
+        {
+            lock (_bufferPublicCommandSync)
+            {
+                BufferPublicCommandRequest request;
+                if (_bufferPublicCommands.TryGetValue(id, out request) && request.ObservedNanoId > 0 &&
+                    string.IsNullOrWhiteSpace(request.ClaimedBy))
+                    _bufferPublicCommands.Remove(id);
+            }
+        }
+
         public void FinishBufferPublicCommand(string id)
         {
             if (string.IsNullOrWhiteSpace(id)) return;
@@ -344,4 +356,5 @@ namespace CityDwellers.Shared
 
     }
 }
+
 

@@ -505,7 +505,7 @@ namespace CityManager
                     foreach (var nano in PaidBufferCatalogue.ForProfession(profession.Key))
                     {
                         body.Append("  ").Append(CommandLink(target, "cast " + nano.Tags[0], nano.Name));
-                        if (nano.Id == 275043) body.Append(" <font color='#FBFF96'>[Team]</font>");
+                        if (nano.IsTeam) body.Append(" <font color='#FBFF96'>[Team]</font>");
                         body.Append(" <font color='#F07171'>[").Append(EscapeBlobText(nano.Description))
                             .Append("]</font> <font color='#00BDBD'>[Level: ").Append(nano.Level)
                             .Append("+] [NCU: ").Append(nano.Ncu).Append("]</font>\n");
@@ -599,4 +599,5 @@ namespace CityManager
         }
     }
 }
+
 

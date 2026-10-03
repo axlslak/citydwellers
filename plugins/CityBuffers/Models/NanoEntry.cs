@@ -19,6 +19,8 @@ namespace MalisBuffBots
     {
         [JsonIgnore]
         public DateTime ObserverRefreshUntilUtc { get; set; }
+        [JsonIgnore]
+        public int ObservedNanoId { get; set; }
 
         [AoMember(0, SerializeSize = ArraySizeType.Int32)]
         public string Name { get; set; }
@@ -88,3 +90,4 @@ namespace MalisBuffBots
         public int Id { get; set; }
     }
 }
+

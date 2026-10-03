@@ -550,8 +550,8 @@
                 0
             ],
             "Tags": [
-                "iic",
-                "instinctive"
+                "instinctive",
+                "iic"
             ]
         },
         {
@@ -665,6 +665,23 @@
                 "sfa",
                 "treat",
                 "treatment"
+            ]
+        },
+        {
+            "Name": "Improved Instinctive Control",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 222856
+                }
+            ],
+            "Type": 0,
+            "Description": "+350 Nano Init, +75 Nano Resist, +300 Max Nano",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "iic"
             ]
         }
     ],
@@ -810,6 +827,24 @@
             ],
             "Tags": [
                 "fortify"
+            ]
+        },
+        {
+            "Name": "Improved Essence of Behemoth",
+            "LevelToId": [
+                {
+                    "Level": 215,
+                    "Id": 273629
+                }
+            ],
+            "Type": 0,
+            "Description": "+1998 HP, +54 Strength/Stamina",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ibehe",
+                "ibehemo"
             ]
         }
     ],
@@ -3131,6 +3166,23 @@
             ],
             "Tags": [
                 "maestrows"
+            ]
+        },
+        {
+            "Name": "Umbral Wrangler (Premium)",
+            "LevelToId": [
+                {
+                    "Level": 205,
+                    "Id": 235291
+                }
+            ],
+            "Type": 1,
+            "Description": "Team +147-153 weapon/nano skills (perks); recipient effect 250 seconds",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "umbral"
             ]
         }
     ]
