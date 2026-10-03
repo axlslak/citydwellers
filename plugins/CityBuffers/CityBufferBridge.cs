@@ -227,6 +227,7 @@ namespace MalisBuffBots
                     bool parked = ManagerMemory.Current.UpdatePaidBufferActivity(Client.CharacterName,
                         Ready && inPlayNow,
                         !inPlayNow || Main.QueueProcessor == null ||
+                        Main.QueueProcessor.PaidFixerPostCastHold ||
                         Main.QueueProcessor.Queue.AllEntries.Length != 0 || DynelManager.LocalPlayer.IsCasting);
                     if (parked)
                     {

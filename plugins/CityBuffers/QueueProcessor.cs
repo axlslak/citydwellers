@@ -36,6 +36,8 @@ namespace MalisBuffBots
         private int _directInviteRequester;
         private DateTime _directTeamDeadline;
         private int[] _fixerCastMembers = new int[0];
+        private DateTime _paidFixerPostCastUntilUtc;
+        internal bool PaidFixerPostCastHold => DateTime.UtcNow < _paidFixerPostCastUntilUtc;
 
         internal bool RequestPaidBuffs(NanoEntry[] entries, PlayerChar requester, out string message)
         {
@@ -83,6 +85,7 @@ namespace MalisBuffBots
             try
             {
                 if (!Client.InPlay || DynelManager.LocalPlayer == null) return;
+                if (PaidFixerPostCastHold) return;
                 RetryPendingRoutes();
                 if (!_gracePeriod.Elapsed)
                     return;
@@ -495,6 +498,11 @@ namespace MalisBuffBots
 
             if (completed)
             {
+                if (Main.PaidPilot && Main.PaidProfession == 4 && Queue.Current.NanoEntry.ContainsId(275043))
+                {
+                    // Keep the team and session alive briefly for the team effect to land.
+                    _paidFixerPostCastUntilUtc = DateTime.UtcNow.AddSeconds(1);
+                }
                 if (!Main.PaidPilot)
                     DynelManager.LocalPlayer.TryRemoveBuffs(Queue.Current.NanoEntry.RemoveNanoIdUponCast);
                 if (Main.PaidPilot && Main.PaidProfession == 4 && Queue.Current.NanoEntry.ContainsId(275043))
