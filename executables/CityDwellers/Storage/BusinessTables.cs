@@ -54,6 +54,8 @@ namespace CityDwellers.Host
         private Dictionary<string, Dictionary<string, Row>> _committedRows;
         internal BusinessTables()
         {
+            Root("cd_learned_buffs", "LearnedBuffs", o => ((LearnedBuffProfile)o).CharacterId.ToString(CultureInfo.InvariantCulture))
+                .Child("cd_learned_buff_nanos", "NanoIds", o => ((int)o).ToString(CultureInfo.InvariantCulture));
             var reserve = Root("cd_reserve", "Reserve");
             reserve.Child("cd_reserve_bags", "Bags", o => ((ReserveBag)o).Identity);
             reserve.Child("cd_reserve_targets", "Targets", o => ((ReserveTarget)o).Character.ToLowerInvariant());

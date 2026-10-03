@@ -40,7 +40,8 @@ namespace CityManager
                     return;
                 }
                 var current = new Dictionary<int, NearbyPlayerObservation>();
-                foreach (var player in DynelManager.Players.ToArray())
+                var visiblePlayers = DynelManager.Players.Where(p => p != null).ToArray();
+                foreach (var player in visiblePlayers)
                 {
                     if (player == null) continue;
                     if (player.Identity == DynelManager.LocalPlayer.Identity) continue;
@@ -67,7 +68,8 @@ namespace CityManager
                         LogObserverFailure("NCU scan player=" + player.Identity, ex, now);
                     }
                 }
-                ManagerMemory.Current.PublishNearbyPlayers(current.Values.ToArray());
+                ManagerMemory.Current.PublishNearbyPlayers(current.Values.ToArray(),
+                    visiblePlayers.Select(p => p.Identity.Instance).ToArray());
                 RefreshObservedBuffs(current.Values, now);
                 var previous = _nearbyObserved;
                 _nearbyObserved = current;
@@ -95,7 +97,7 @@ namespace CityManager
                 // Do not let an observer fault affect banking, tells, or raids.
                 // Stop exposing the previous scan as current evidence.
                 _nearbyObserved.Clear();
-                ManagerMemory.Current.PublishNearbyPlayers(new NearbyPlayerObservation[0]);
+                ManagerMemory.Current.InvalidateNearbyPlayers();
                 // Keep submission cooldowns: a scan error must not cause duplicate casts.
                 LogObserverFailure("scan", ex, now);
             }
@@ -129,11 +131,11 @@ namespace CityManager
                 !ManagerMemory.Current.IsPaidBuffer(b.Character)).ToArray();
             var visibleKeys = new HashSet<string>();
             foreach (var player in players)
-            foreach (var nano in player.Nanos)
+            foreach (var nano in ManagerMemory.Current.ObservedBuffCandidates(player.CharacterId))
             {
                 string key = player.CharacterId + ":" + nano.Id;
                 visibleKeys.Add(key);
-                if (!nano.NeedsRefresh)
+                if (!ManagerMemory.Current.ObservedBuffNeedsRefresh(player.CharacterId, nano.Id))
                 {
                     if (nano.FullSeconds > 0 && nano.RemainingSeconds >= nano.FullSeconds / 2 &&
                         _refreshAwaiting.Remove(key))
@@ -151,11 +153,11 @@ namespace CityManager
                 _refreshRetryAfter[key] = now + 180000;
                 _refreshAwaiting.Add(key);
                 RecordDiagnostic("OBSERVER refresh requested: " + player.Name + " nano=" + nano.Id +
+                    " reason=" + (player.VisibleNanoIds.Contains(nano.Id) ? "below-half" : "missing-learned-buff") +
                     " remaining=" + (int)nano.RemainingSeconds + "s full=" + (int)nano.FullSeconds +
                     "s buffer=" + provider.Character + ".");
             }
-            foreach (var key in _refreshRetryAfter.Keys.Where(k => !visibleKeys.Contains(k) &&
-                now >= _refreshRetryAfter[k]).ToArray())
+            foreach (var key in _refreshRetryAfter.Keys.Where(k => !visibleKeys.Contains(k)).ToArray())
             { _refreshRetryAfter.Remove(key); _refreshAwaiting.Remove(key); }
         }
     }

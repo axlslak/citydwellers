@@ -5,6 +5,19 @@ using System.Linq;
 namespace CityDwellers.Shared
 {
     [Serializable]
+    public sealed class LearnedBuffProfile
+    {
+        public int CharacterId;
+        public string Name;
+        // Only first versus returning matters; do not persist every future visit.
+        public int Encounters;
+        public List<int> NanoIds = new List<int>();
+        internal LearnedBuffProfile Copy() => new LearnedBuffProfile {
+            CharacterId = CharacterId, Name = Name, Encounters = Encounters,
+            NanoIds = new List<int>(NanoIds) };
+    }
+
+    [Serializable]
     public sealed class NearbyNanoObservation
     {
         public int Id;
@@ -24,8 +37,9 @@ namespace CityDwellers.Shared
         public int Profession;
         public string Observer;
         public DateTime ObservedUtc;
+        public bool RestoreMissing;
         // AOSharp's visible effects, not proof of a complete remote NCU inspection.
-        // An empty array must not be used to infer that the player needs buffs.
+        // Missing-effect restoration is limited to learned usage on return encounters.
         public int[] VisibleNanoIds = new int[0];
         public NearbyNanoObservation[] Nanos = new NearbyNanoObservation[0];
         public bool NcuComplete => false;
@@ -34,6 +48,7 @@ namespace CityDwellers.Shared
         {
             CharacterId = CharacterId, Name = Name, Level = Level,
             Profession = Profession, Observer = Observer, ObservedUtc = ObservedUtc,
+            RestoreMissing = RestoreMissing,
             VisibleNanoIds = (VisibleNanoIds ?? new int[0]).ToArray(),
             Nanos = (Nanos ?? new NearbyNanoObservation[0]).Select(n => n.Copy()).ToArray()
         };
@@ -43,13 +58,76 @@ namespace CityDwellers.Shared
     {
         private readonly object _nearbyPlayerSync = new object();
         private NearbyPlayerObservation[] _nearbyPlayers = new NearbyPlayerObservation[0];
+        private readonly HashSet<int> _encounterPlayers = new HashSet<int>();
 
-        // Volatile observations only: never accounting, persistence, or commands.
-        public void PublishNearbyPlayers(NearbyPlayerObservation[] observations)
+        // Live timers remain volatile; only learned usage and first/returning status persist.
+        public void PublishNearbyPlayers(NearbyPlayerObservation[] observations, int[] visibleCharacterIds = null)
         {
             var copy = (observations ?? new NearbyPlayerObservation[0])
                 .Where(p => p != null).Select(p => p.Copy()).ToArray();
+            var customers = copy.Where(p => !IsObservedBuffer(p)).ToArray();
+            ManagerAccounting.Transaction("Learn nearby buff usage", () =>
+            {
+                lock (_accountingSync)
+                {
+                    var state = Writing(ManagerAccounting.TransactionId);
+                    var profiles = state.LearnedBuffs;
+                    foreach (var player in customers)
+                    {
+                        var old = profiles.FirstOrDefault(p => p.CharacterId == player.CharacterId);
+                        bool arrived = !_encounterPlayers.Contains(player.CharacterId);
+                        int encounters = old == null ? 1 : Math.Min(2, old.Encounters + (arrived ? 1 : 0));
+                        player.RestoreMissing = encounters >= 2;
+                        var added = player.VisibleNanoIds.Where(id => id > 0 &&
+                            (old == null || !old.NanoIds.Contains(id))).Distinct().ToArray();
+                        if (old != null && old.Encounters == encounters && old.Name == player.Name && added.Length == 0)
+                            continue;
+                        if (ReferenceEquals(profiles, state.LearnedBuffs)) profiles = new List<LearnedBuffProfile>(profiles);
+                        var next = old?.Copy() ?? new LearnedBuffProfile { CharacterId = player.CharacterId };
+                        next.Name = player.Name;
+                        next.Encounters = encounters;
+                        next.NanoIds.AddRange(added);
+                        if (old != null) profiles.Remove(old);
+                        profiles.Add(next);
+                    }
+                    state.LearnedBuffs = profiles;
+                }
+            });
+            // A failed NCU read is not a departure when the dynel is still present.
+            _encounterPlayers.IntersectWith(visibleCharacterIds ?? copy.Select(p => p.CharacterId).ToArray());
+            foreach (var player in customers) _encounterPlayers.Add(player.CharacterId);
             lock (_nearbyPlayerSync) _nearbyPlayers = copy;
+        }
+
+        public void InvalidateNearbyPlayers()
+        {
+            // A scan failure invalidates evidence, not encounter history.
+            lock (_nearbyPlayerSync) _nearbyPlayers = new NearbyPlayerObservation[0];
+        }
+
+        private bool IsObservedBuffer(NearbyPlayerObservation player)
+        {
+            if (IsPaidBuffer(player.Name)) return true;
+            lock (_bufferBotSync)
+                return _bufferBots.Values.Any(b =>
+                    (player.CharacterId > 0 && b.IdentityInstance == player.CharacterId) ||
+                    string.Equals(b.Character, player.Name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public NearbyNanoObservation[] ObservedBuffCandidates(int characterId)
+        {
+            var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
+            if (player == null || IsObservedBuffer(player)) return new NearbyNanoObservation[0];
+            var result = player.Nanos.ToList();
+            if (player.RestoreMissing)
+                lock (_accountingSync)
+                {
+                    var profile = Accounting(null).LearnedBuffs.FirstOrDefault(p => p.CharacterId == characterId);
+                    if (profile != null)
+                        result.AddRange(profile.NanoIds.Where(id => !player.VisibleNanoIds.Contains(id))
+                            .Select(id => new NearbyNanoObservation { Id = id }));
+                }
+            return result.ToArray();
         }
 
         public List<NearbyPlayerObservation> ReadNearbyPlayers()
@@ -64,14 +142,12 @@ namespace CityDwellers.Shared
         public bool ObservedBuffNeedsRefresh(int characterId, int nanoId)
         {
             var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
-            if (player == null || IsPaidBuffer(player.Name)) return false;
+            if (player == null || IsObservedBuffer(player)) return false;
             // Buffer preparation belongs to RebuffInfo, not the nearby-player refresh loop.
             // Include unready/offline registrations: startup must not create duplicate work.
-            lock (_bufferBotSync)
-                if (_bufferBots.Values.Any(b =>
-                    (characterId > 0 && b.IdentityInstance == characterId) ||
-                    string.Equals(b.Character, player.Name, StringComparison.OrdinalIgnoreCase)))
-                    return false;
+            if (player.RestoreMissing && !player.VisibleNanoIds.Contains(nanoId))
+                lock (_accountingSync)
+                    return Accounting(null).LearnedBuffs.Any(p => p.CharacterId == characterId && p.NanoIds.Contains(nanoId));
             return player.Nanos.Any(n => n.Id == nanoId && n.NeedsRefresh &&
                 n.RemainingSeconds > (DateTime.UtcNow - player.ObservedUtc).TotalSeconds);
         }
