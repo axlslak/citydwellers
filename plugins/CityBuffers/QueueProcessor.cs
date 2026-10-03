@@ -495,7 +495,8 @@ namespace MalisBuffBots
 
             if (completed)
             {
-                DynelManager.LocalPlayer.TryRemoveBuffs(Queue.Current.NanoEntry.RemoveNanoIdUponCast);
+                if (!Main.PaidPilot)
+                    DynelManager.LocalPlayer.TryRemoveBuffs(Queue.Current.NanoEntry.RemoveNanoIdUponCast);
                 if (Main.PaidPilot && Main.PaidProfession == 4 && Queue.Current.NanoEntry.ContainsId(275043))
                     foreach (int recipient in Queue.RemoveQueuedTeamBuff(275043, _fixerCastMembers))
                         CityBufferBridge.PaidResult(recipient,
