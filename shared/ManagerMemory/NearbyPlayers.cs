@@ -139,8 +139,29 @@ namespace CityDwellers.Shared
                     .Select(p => p.Copy()).ToList();
         }
 
+        // NCU is a per-recipient prerequisite for automatic restoration only.
+        // Keep checking observed effects: caster completion does not prove delivery.
+        public bool ObservedNcuNeedsRefresh(int characterId)
+        {
+            if (!ReadPaidBuffers().Any(p => p.Profession == 4)) return false;
+            var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
+            if (player == null || IsObservedBuffer(player)) return false;
+            var ncu = PaidBufferCatalogue.FindEffect(275043);
+            double age = (DateTime.UtcNow - player.ObservedUtc).TotalSeconds;
+            var effects = player.Nanos.Where(n => ncu.MatchesEffect(n.Id)).ToArray();
+            if (effects.Any(n => n.FullSeconds > 0 &&
+                n.RemainingSeconds - age >= n.FullSeconds / 2)) return false;
+            if (effects.Length != 0) return true;
+            if (!player.RestoreMissing) return false;
+            lock (_accountingSync)
+                return Accounting(null).LearnedBuffs.Any(p => p.CharacterId == characterId &&
+                    p.NanoIds.Any(ncu.MatchesEffect));
+        }
+
         public bool ObservedBuffNeedsRefresh(int characterId, int nanoId)
         {
+            if (!PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nanoId) &&
+                ObservedNcuNeedsRefresh(characterId)) return false;
             var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
             if (player == null || IsObservedBuffer(player)) return false;
             // Buffer preparation belongs to RebuffInfo, not the nearby-player refresh loop.
