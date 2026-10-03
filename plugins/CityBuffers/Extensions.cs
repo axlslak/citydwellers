@@ -33,6 +33,10 @@ namespace MalisBuffBots
 
         public static void ForceRemoveBuff(this LocalPlayer localPlayer, int id)
         {
+            // Paid service characters keep their owner's complete NCU loadout.
+            // This is the common boundary for startup, packet and post-cast removals.
+            if (Main.PaidPilot) return;
+
             Client.Send(new CharacterActionMessage
             {
                 Action = CharacterActionType.RemoveFriendlyNano,

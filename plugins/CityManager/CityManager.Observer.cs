@@ -16,6 +16,7 @@ namespace CityManager
         private long _nextObserverError;
         private readonly Dictionary<string, long> _refreshRetryAfter = new Dictionary<string, long>();
         private readonly HashSet<string> _refreshAwaiting = new HashSet<string>();
+        private readonly HashSet<int> _waitingForObservedNcu = new HashSet<int>();
         private Dictionary<int, NearbyPlayerObservation> _nearbyObserved =
             new Dictionary<int, NearbyPlayerObservation>();
 
@@ -24,6 +25,7 @@ namespace CityManager
             _nearbyObserved.Clear();
             _refreshRetryAfter.Clear();
             _refreshAwaiting.Clear();
+            _waitingForObservedNcu.Clear();
             ManagerMemory.Current.PublishNearbyPlayers(new NearbyPlayerObservation[0]);
         }
 
@@ -138,11 +140,32 @@ namespace CityManager
                 if (!memory.ObservedBuffNeedsRefresh(unchecked((int)pending.SenderId), pending.ObservedNanoId))
                     memory.CancelUnclaimedObservedBufferCommand(pending.Id);
             var visibleKeys = new HashSet<string>();
-            foreach (var player in players)
+            var present = players.ToArray();
+            _waitingForObservedNcu.IntersectWith(present.Select(p => p.CharacterId));
+            foreach (var player in present)
+            {
+                bool waiting = memory.ObservedNcuNeedsRefresh(player.CharacterId);
+                if (waiting && _waitingForObservedNcu.Add(player.CharacterId))
+                    RecordDiagnostic("OBSERVER NCU first: " + player.Name +
+                        "; holding other automatic buffs until fixer NCU is observed above half duration.");
+                else if (!waiting && _waitingForObservedNcu.Remove(player.CharacterId))
+                    RecordDiagnostic("OBSERVER NCU prerequisite cleared: " + player.Name +
+                        "; reevaluating automatic buffs.");
+            }
+            foreach (var player in present)
             foreach (var nano in ManagerMemory.Current.ObservedBuffCandidates(player.CharacterId))
             {
                 string key = player.CharacterId + ":" + nano.Id;
                 visibleKeys.Add(key);
+                if (_waitingForObservedNcu.Contains(player.CharacterId) &&
+                    !PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nano.Id))
+                {
+                    // Discard submission cooldowns for deferred work. Learned usage
+                    // remains intact and is reconsidered immediately after NCU lands.
+                    _refreshRetryAfter.Remove(key);
+                    _refreshAwaiting.Remove(key);
+                    continue;
+                }
                 if (!ManagerMemory.Current.ObservedBuffNeedsRefresh(player.CharacterId, nano.Id))
                 {
                     if (nano.FullSeconds > 0 && nano.RemainingSeconds >= nano.FullSeconds / 2 &&
