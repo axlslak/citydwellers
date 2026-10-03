@@ -727,6 +727,12 @@ namespace CityManager
                 return;
             }
 
+            // Authorize against the original channel above, then render banker
+            // replies for tells. This keeps catalogue pages out of org echo retries
+            // and uses the shared tell queue and tell-sized pagination from the start.
+            if (replyTarget.IsOrg && IsBankerReplyCommand(command))
+                replyTarget = ReplyTarget.ForTell(replyTarget.SenderId, senderName);
+
             switch (command)
             {
                 case "items":
@@ -1039,6 +1045,38 @@ namespace CityManager
                 case "restart":
                     BeginManagerRestart(senderName, parts, replyTarget);
                     break;
+            }
+        }
+
+        private static bool IsBankerReplyCommand(string command)
+        {
+            switch (command)
+            {
+                case "stock":
+                case "symb":
+                case "symbs":
+                case "spirit":
+                case "spirits":
+                case "dyna":
+                case "nano":
+                case "nanos":
+                case "phat":
+                case "phatz":
+                case "lost":
+                case "found":
+                case "pickups":
+                case "takers":
+                case "donor":
+                case "cru":
+                case "withdraw":
+                case "get":
+                case "inventory":
+                case "inv":
+                case "bankid":
+                case "dynel":
+                    return true;
+                default:
+                    return false;
             }
         }
 
