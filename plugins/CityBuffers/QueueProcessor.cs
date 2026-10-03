@@ -327,7 +327,8 @@ namespace MalisBuffBots
                 !string.Equals(_attemptedEntryKey, CurrentCastAttemptKey(), StringComparison.Ordinal) &&
                 (DateTime.UtcNow >= observedEntry.ObserverRefreshUntilUtc ||
                  !CityDwellers.Shared.ManagerMemory.Current.ObservedBuffNeedsRefresh(
-                     Queue.Current.Requester.Instance, observedEntry.LevelToId[0].Id)))
+                     Queue.Current.Requester.Instance, observedEntry.ObservedNanoId != 0
+                         ? observedEntry.ObservedNanoId : observedEntry.LevelToId[0].Id)))
             {
                 Logger.Information("OBSERVER refresh no longer needed/visible or expired; requester=" +
                     Queue.Current.Requester.Instance + " nano=" + observedEntry.LevelToId[0].Id);
@@ -376,7 +377,8 @@ namespace MalisBuffBots
                 _observedAttemptKey != CurrentCastAttemptKey()) return false;
             var player = ManagerMemory.Current.ReadNearbyPlayers().FirstOrDefault(p =>
                 p.CharacterId == Queue.Current.Requester.Instance && p.ObservedUtc > _attemptedUtc);
-            var nano = player?.Nanos.FirstOrDefault(n => n.Id == _attemptedNanoId);
+            var nano = player?.Nanos.FirstOrDefault(n => n.Id == _attemptedNanoId ||
+                PaidBufferCatalogue.FindEffect(_attemptedNanoId)?.MatchesEffect(n.Id) == true);
             // A missing effect is not failure proof. Require a new expiry, not mere presence
             // of the old buff, and tolerate one-second observation/timer rounding.
             if (nano == null || nano.RemainingSeconds <= 0 ||
@@ -566,7 +568,8 @@ namespace MalisBuffBots
             {
                 var before = ManagerMemory.Current.ReadNearbyPlayers().FirstOrDefault(p =>
                     p.CharacterId == Queue.Current.Requester.Instance);
-                var oldNano = before?.Nanos.FirstOrDefault(n => n.Id == firstAvailableBuff.Id);
+                var oldNano = before?.Nanos.FirstOrDefault(n => n.Id == firstAvailableBuff.Id ||
+                    PaidBufferCatalogue.FindEffect(firstAvailableBuff.Id)?.MatchesEffect(n.Id) == true);
                 // Without a visible baseline, do not mistake an existing unseen buff for success.
                 if (oldNano != null && oldNano.RemainingSeconds > 0)
                 {
@@ -582,8 +585,9 @@ namespace MalisBuffBots
             }
             _lastAttemptFeedback = null;
             _attemptedEntryExpiresUtc = DateTime.UtcNow.AddSeconds(Main.PaidPilot ? 20 : CastCompletionTimeoutSeconds);
-            // FSC is a self-cast whose effect is applied to the team, not a 1m targeted buff.
-            PlayerChar castTarget = firstAvailableBuff.Id == 275043 ? DynelManager.LocalPlayer : buffTarget;
+            // Team emitters are cast on the caster; the server applies their effects to teammates.
+            PlayerChar castTarget = PaidBufferCatalogue.FindEffect(firstAvailableBuff.Id)?.IsTeam == true
+                ? DynelManager.LocalPlayer : buffTarget;
             if (Main.PaidPilot && firstAvailableBuff.Id == 275043)
                 _fixerCastMembers = Team.Members.Select(m => m.Identity.Instance).ToArray();
             Targeting.SetTarget(castTarget);
@@ -646,4 +650,5 @@ namespace MalisBuffBots
         }
     }
 }
+
 

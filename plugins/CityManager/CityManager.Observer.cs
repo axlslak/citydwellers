@@ -165,21 +165,22 @@ namespace CityManager
                 else
                 {
                     var paid = paidProviders.FirstOrDefault(p =>
-                        PaidBufferCatalogue.ForProfession(p.Profession).Any(n => n.Id == nano.Id));
+                        PaidBufferCatalogue.ForProfession(p.Profession).Any(n => n.MatchesEffect(nano.Id)));
                     if (paid == null) continue;
                     providerName = paid.Character;
+                    int castId = PaidBufferCatalogue.FindEffect(nano.Id).Id;
                     // Join an existing manual request for this exact nano rather
                     // than queueing another cast while it waits for team/account.
                     bool alreadyQueued = memory.PendingBufferPublicCommands(128).Any(r =>
                         r.SenderId == unchecked((uint)player.CharacterId) &&
                         string.Equals(r.TargetCharacter, paid.Character, StringComparison.OrdinalIgnoreCase) &&
-                        (r.Arguments ?? new string[0]).Any(tag => tag == nano.Id.ToString() ||
-                            PaidBufferCatalogue.Find(tag)?.Id == nano.Id));
+                        (r.Arguments ?? new string[0]).Any(tag => tag == castId.ToString() ||
+                            PaidBufferCatalogue.Find(tag)?.Id == castId));
                     if (!alreadyQueued && !memory.BeginBufferPublicCommand(new BufferPublicCommandRequest {
                         Id = "observed:" + player.CharacterId + ":" + nano.Id,
                         Command = "cast", TargetCharacter = paid.Character,
                         SenderId = unchecked((uint)player.CharacterId), SenderName = player.Name,
-                        Arguments = new[] { nano.Id.ToString() }, ObservedNanoId = nano.Id,
+                        Arguments = new[] { castId.ToString() }, ObservedNanoId = nano.Id,
                         CreatedUtc = DateTime.UtcNow })) continue;
                 }
                 _refreshRetryAfter[key] = now + 180000;
@@ -194,4 +195,5 @@ namespace CityManager
         }
     }
 }
+
 

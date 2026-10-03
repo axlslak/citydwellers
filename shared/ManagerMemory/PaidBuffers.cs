@@ -9,6 +9,9 @@ namespace CityDwellers.Shared
         public readonly int Id, Profession, Level, Ncu;
         public readonly string Name, Description;
         public readonly string[] Tags;
+        public int[] EffectIds { get; internal set; }
+        public bool IsTeam => Id == 275043 || Id == 235291;
+        public bool MatchesEffect(int id) => Id == id || (EffectIds != null && EffectIds.Contains(id));
         internal PaidBufferNano(int id, int profession, int level, int ncu,
             string name, string description, params string[] tags)
         {
@@ -22,6 +25,10 @@ namespace CityDwellers.Shared
     public static class PaidBufferCatalogue
     {
         private static readonly PaidBufferNano[] Nanos = {
+            new PaidBufferNano(273629, 9, 215, 56, "Improved Essence of Behemoth", "+1998 HP, +54 Strength/Stamina", "ibehe", "ibehemo"),
+            new PaidBufferNano(222856, 10, 0, 56, "Improved Instinctive Control", "+350 Nano Init, +75 Nano Resist, +300 Max Nano", "iic"),
+            new PaidBufferNano(235291, 7, 205, 53, "Umbral Wrangler (Premium)", "Team +147-153 weapon/nano skills (perks); recipient effect 250 seconds", "umbral")
+                { EffectIds = new[] { 235064, 235263, 235264, 235265 } },
             new PaidBufferNano(252050, 4, 205, 25, "Lasting Ultimatum", "+466–502 HoT", "lh1", "lu"),
             new PaidBufferNano(275043, 4, 215, 0, "Firewalled Sync Compressor", "Team +500 NCU", "ncu", "fsc"),
             new PaidBufferNano(227680, 3, 210, 55, "Gift of Assurance", "+5000 AC, 4 hours, Shadowlands required", "goa"),
@@ -35,6 +42,11 @@ namespace CityDwellers.Shared
         };
         public static int ProfessionId(string name)
         {
+            if (string.Equals(name, "Enforcer", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "Enf", StringComparison.OrdinalIgnoreCase)) return 9;
+            if (string.Equals(name, "Doctor", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "Doc", StringComparison.OrdinalIgnoreCase)) return 10;
+            if (string.Equals(name, "Trader", StringComparison.OrdinalIgnoreCase)) return 7;
             if (string.Equals(name, "Engineer", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "Engi", StringComparison.OrdinalIgnoreCase)) return 3;
             if (string.Equals(name, "Fixer", StringComparison.OrdinalIgnoreCase)) return 4;
@@ -47,15 +59,20 @@ namespace CityDwellers.Shared
         {
             if (!string.IsNullOrWhiteSpace(profession)) return ProfessionId(profession);
             // Existing owner-specified providers: omission is not a universal Fixer default.
+            if (string.Equals(character, "Krumpie", StringComparison.OrdinalIgnoreCase)) return 9;
+            if (string.Equals(character, "Doczy", StringComparison.OrdinalIgnoreCase)) return 10;
+            if (string.Equals(character, "Patriciana", StringComparison.OrdinalIgnoreCase)) return 7;
             if (string.Equals(character, "Kavsta", StringComparison.OrdinalIgnoreCase)) return 4;
             if (string.Equals(character, "Littleangie", StringComparison.OrdinalIgnoreCase)) return 3;
             if (string.Equals(character, "Zdrahonia", StringComparison.OrdinalIgnoreCase)) return 12;
             return 0;
         }
         public static string ProfessionName(int profession) => profession == 12 ? "MP" :
-            profession == 4 ? "Fixer" : profession == 3 ? "Engineer" : "Unconfigured";
+            profession == 4 ? "Fixer" : profession == 3 ? "Engineer" :
+            profession == 9 ? "Enforcer" : profession == 10 ? "Doctor" : profession == 7 ? "Trader" : "Unconfigured";
         public static PaidBufferNano Find(string tag) => Nanos.FirstOrDefault(n =>
             n.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
+        public static PaidBufferNano FindEffect(int id) => Nanos.FirstOrDefault(n => n.MatchesEffect(id));
         public static PaidBufferNano[] ForProfession(int profession) =>
             Nanos.Where(n => n.Profession == profession).ToArray();
     }
@@ -316,4 +333,5 @@ namespace CityDwellers.Shared
         }
     }
 }
+
 

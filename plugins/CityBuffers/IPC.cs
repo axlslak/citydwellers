@@ -205,16 +205,18 @@ namespace MalisBuffBots
             message = null;
             if (!Main.PaidPilot || (int)DynelManager.LocalPlayer.Profession != Main.PaidProfession ||
                 !PaidBufferCatalogue.ForProfession(Main.PaidProfession)
-                .Any(n => n.Id == request.ObservedNanoId))
+                .Any(n => n.MatchesEffect(request.ObservedNanoId)))
             { message = "This provider does not offer the observed nano."; return false; }
             if (!ManagerMemory.Current.ObservedBuffNeedsRefresh(requester.Identity.Instance, request.ObservedNanoId))
             { message = "The observed buff no longer needs refreshing."; return true; }
+            int castId = PaidBufferCatalogue.FindEffect(request.ObservedNanoId).Id;
             var source = Main.BuffsJson.Entries.Values.SelectMany(entries => entries)
-                .FirstOrDefault(entry => entry != null && entry.ContainsId(request.ObservedNanoId));
+                .FirstOrDefault(entry => entry != null && entry.ContainsId(castId));
             if (source == null)
             { message = "Observed nano " + request.ObservedNanoId + " has no casting definition."; return false; }
             var exact = JsonConvert.DeserializeObject<NanoEntry>(JsonConvert.SerializeObject(source));
-            exact.LevelToId = exact.LevelToId.Where(n => n.Id == request.ObservedNanoId).ToArray();
+            exact.LevelToId = exact.LevelToId.Where(n => n.Id == castId).ToArray();
+            exact.ObservedNanoId = request.ObservedNanoId;
             exact.ObserverRefreshUntilUtc = DateTime.UtcNow.AddMinutes(2);
             return Main.QueueProcessor.RequestPaidBuffs(new[] { exact }, requester, out message);
         }
@@ -500,5 +502,6 @@ namespace MalisBuffBots
         }
     }
 }
+
 
 
