@@ -24,6 +24,7 @@ namespace MalisBuffBots
         private int _attemptedNanoId;
         private DateTime _attemptedUtc;
         private DateTime _previousObservedExpiryUtc;
+        private bool _attemptedMissingLearnedBuff;
         private DateTime _attemptedEntryExpiresUtc;
         private const int CastCompletionTimeoutSeconds = 8;
         private DateTime _requestDeadlineUtc;
@@ -396,6 +397,7 @@ namespace MalisBuffBots
                 _attemptedNanoId = 0;
                 _attemptedUtc = DateTime.MinValue;
                 _previousObservedExpiryUtc = DateTime.MinValue;
+                _attemptedMissingLearnedBuff = false;
             }
         }
 
@@ -409,11 +411,12 @@ namespace MalisBuffBots
             // A missing effect is not failure proof. Require a new expiry, not mere presence
             // of the old buff, and tolerate one-second observation/timer rounding.
             if (nano == null || nano.RemainingSeconds <= 0 ||
-                player.ObservedUtc.AddSeconds(nano.RemainingSeconds) <=
-                    _previousObservedExpiryUtc.AddSeconds(2)) return false;
+                (!_attemptedMissingLearnedBuff && player.ObservedUtc.AddSeconds(nano.RemainingSeconds) <=
+                    _previousObservedExpiryUtc.AddSeconds(2))) return false;
             Logger.Information("Manager NCU confirmed '" + Queue.Current.NanoEntry.Name +
                 "' for requester " + Queue.Current.Requester.Instance + " nano=" + _attemptedNanoId +
-                "; duration renewed after cast attempt.");
+                (_attemptedMissingLearnedBuff ? "; learned buff appeared after cast attempt." :
+                    "; duration renewed after cast attempt."));
             ResetCurrentBuffEntry(completed: true);
             return true;
         }
@@ -580,6 +583,7 @@ namespace MalisBuffBots
 
             _attemptedEntryKey = CurrentCastAttemptKey();
             _observedAttemptKey = null;
+            _attemptedMissingLearnedBuff = false;
             _attemptedNanoId = firstAvailableBuff.Id;
             _attemptedUtc = DateTime.UtcNow;
             if (!Main.PaidPilot && Queue.Current.NanoEntry.Type == CastType.Single)
@@ -592,6 +596,12 @@ namespace MalisBuffBots
                 {
                     _observedAttemptKey = _attemptedEntryKey;
                     _previousObservedExpiryUtc = before.ObservedUtc.AddSeconds(oldNano.RemainingSeconds);
+                }
+                else if (observedRefresh && before != null && before.RestoreMissing &&
+                    !before.VisibleNanoIds.Contains(firstAvailableBuff.Id))
+                {
+                    _observedAttemptKey = _attemptedEntryKey;
+                    _attemptedMissingLearnedBuff = true;
                 }
             }
             _lastAttemptFeedback = null;
