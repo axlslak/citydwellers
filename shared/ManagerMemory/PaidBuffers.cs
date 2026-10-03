@@ -159,7 +159,8 @@ namespace CityDwellers.Shared
 
         private bool HasPaidRequestsLocked(string character) =>
             _bufferPublicCommands.Values.Any(r =>
-                string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase));
+                string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) &&
+                (PaidBufferLocked(character)?.Profession != 4 || PaidFixerMemberLocked(r.SenderId)));
 
         public DateTime OldestPaidBufferRequest(string character)
         {
@@ -172,14 +173,67 @@ namespace CityDwellers.Shared
             }
         }
 
-        public void StartPaidBufferSession(string character)
+        private string _paidFixerTeamCharacter;
+        private int _paidFixerManagerId;
+        private int[] _paidFixerTeamMembers = new int[0];
+        private DateTime _paidFixerTeamObservedUtc;
+        private DateTime _nextPaidFixerLoginUtc;
+
+        // Only the Manager's AO thread publishes actual team membership. No invitation
+        // or chat acknowledgement is sufficient evidence to start a fixer session.
+        public void PublishPaidFixerTeam(string character, int managerId, int[] members)
+        {
+            lock (_bufferPublicCommandSync)
+            {
+                _paidFixerTeamCharacter = character;
+                _paidFixerManagerId = managerId;
+                _paidFixerTeamMembers = (members ?? new int[0]).Distinct().ToArray();
+                _paidFixerTeamObservedUtc = DateTime.UtcNow;
+            }
+        }
+
+        private bool PaidFixerMemberLocked(uint requester) =>
+            _paidFixerManagerId != 0 &&
+            _paidFixerTeamObservedUtc >= DateTime.UtcNow.AddSeconds(-3) &&
+            _paidFixerTeamMembers.Contains(unchecked((int)requester));
+
+        public int PaidFixerManager(string character)
+        {
+            lock (_bufferPublicCommandSync)
+            {
+                var state = PaidBufferLocked(character);
+                return state != null && state.Profession == 4 && state.Running &&
+                    _paidFixerTeamObservedUtc >= DateTime.UtcNow.AddSeconds(-3)
+                    ? _paidFixerManagerId : 0;
+            }
+        }
+
+        public bool PaidFixerMember(string character, int requester)
+        {
+            lock (_bufferPublicCommandSync)
+                return PaidBufferLocked(character)?.Profession == 4 &&
+                    PaidFixerMemberLocked(unchecked((uint)requester));
+        }
+
+        public bool StartPaidBufferSession(string character)
         {
             lock (_bufferPublicCommandSync)
             {
                 var _paidBuffer = _paidBuffers[character];
+                if (_paidBuffer.Running || _paidBuffer.Blocked || DateTime.UtcNow < _paidBuffer.RetryAfterUtc)
+                    return false;
+                if (_paidBuffer.Profession == 4)
+                {
+                    if (!string.Equals(character, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) ||
+                        DateTime.UtcNow < _nextPaidFixerLoginUtc ||
+                        _paidBuffers.Values.Any(p => p.Profession == 4 && p.Running) ||
+                        !HasPaidRequestsLocked(character)) return false;
+                    _nextPaidFixerLoginUtc = DateTime.UtcNow.AddSeconds(30);
+                }
                 _paidBuffer.Running = true;
                 _paidBuffer.Ready = _paidBuffer.Draining = _paidBuffer.Parked = false;
                 _paidBuffer.StartedUtc = _paidBuffer.ObservedUtc = _paidBuffer.BusyUtc = DateTime.UtcNow;
+                return true;
             }
         }
 
@@ -211,7 +265,9 @@ namespace CityDwellers.Shared
                 }
                 if (busy || (!_paidBuffer.Draining && HasPaidRequestsLocked(character))) _paidBuffer.BusyUtc = now;
                 if (ready && !busy && (_paidBuffer.Draining ||
-                    now - _paidBuffer.BusyUtc >= TimeSpan.FromSeconds(20)))
+                    (_paidBuffer.Profession == 4
+                        ? !HasPaidRequestsLocked(character)
+                        : now - _paidBuffer.BusyUtc >= TimeSpan.FromSeconds(20))))
                     _paidBuffer.Parked = _paidBuffer.Draining = true;
                 return _paidBuffer.Parked;
             }
@@ -260,3 +316,4 @@ namespace CityDwellers.Shared
         }
     }
 }
+

@@ -108,7 +108,7 @@ namespace MalisBuffBots
             try
             {
                 if (!Client.InPlay || DynelManager.LocalPlayer == null) return;
-                if ((SettingsJson.Data.InitConnectionDelay -= delta) < 0)
+                if ((PaidPilot && PaidProfession == 4) || (SettingsJson.Data.InitConnectionDelay -= delta) < 0)
                 {
                     if (!PaidPilot && UserRank.MeetsRank(Rank.Warper, DynelManager.LocalPlayer.Name))
                         return;
@@ -264,3 +264,4 @@ namespace MalisBuffBots
         }
     }
 }
+

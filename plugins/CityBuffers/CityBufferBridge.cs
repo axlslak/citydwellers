@@ -228,7 +228,11 @@ namespace MalisBuffBots
                         Ready && inPlayNow,
                         !inPlayNow || Main.QueueProcessor == null ||
                         Main.QueueProcessor.Queue.AllEntries.Length != 0 || DynelManager.LocalPlayer.IsCasting);
-                    if (parked) Ready = false;
+                    if (parked)
+                    {
+                        Ready = false;
+                        if (inPlayNow && Team.IsInTeam) Team.LeaveTeam();
+                    }
                 }
                 DateTime now = DateTime.UtcNow;
                 if (_lastSent > now.AddSeconds(5)) _lastSent = null;
@@ -292,3 +296,4 @@ namespace MalisBuffBots
         }
     }
 }
+
