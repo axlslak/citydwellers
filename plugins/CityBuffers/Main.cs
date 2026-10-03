@@ -108,7 +108,7 @@ namespace MalisBuffBots
             try
             {
                 if (!Client.InPlay || DynelManager.LocalPlayer == null) return;
-                if ((PaidPilot && PaidProfession == 4) || (SettingsJson.Data.InitConnectionDelay -= delta) < 0)
+                if ((PaidPilot && PaidBufferCatalogue.UsesManagerTeam(PaidProfession)) || (SettingsJson.Data.InitConnectionDelay -= delta) < 0)
                 {
                     if (!PaidPilot && UserRank.MeetsRank(Rank.Warper, DynelManager.LocalPlayer.Name))
                         return;
@@ -192,7 +192,7 @@ namespace MalisBuffBots
             }
 
             if (!BuffsJson.FindByIds(
-                    requesterBuffs.Select(x => x.Id),
+                    requesterBuffs.Select(x => x.Id).Where(id => !BufferRefreshPolicy.IsRequestOnlyNano(id)),
                     out Dictionary<Profession, List<NanoEntry>> entries))
             {
                 message = "No currently active NCU buffs match the configured buff catalogue.";
@@ -226,7 +226,7 @@ namespace MalisBuffBots
             }
 
             List<string> found;
-            if (!BuffsJson.FindByIds(requesterBuffs.Select(x => x.Id), out found) ||
+            if (!BuffsJson.FindByIds(requesterBuffs.Select(x => x.Id).Where(id => !BufferRefreshPolicy.IsRequestOnlyNano(id)), out found) ||
                 found.Count == 0)
             {
                 message = "No currently active NCU buffs match the configured buff catalogue.";

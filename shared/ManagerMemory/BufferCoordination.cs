@@ -237,7 +237,7 @@ namespace CityDwellers.Shared
                     if (!IsPaidBufferLocked(character) ||
                         !string.Equals(request.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) ||
                         !_paidBuffer.Running || _paidBuffer.Blocked || _paidBuffer.Draining || _paidBuffer.Parked) return false;
-                    if (_paidBuffer.Profession == 4 && !PaidFixerMemberLocked(request.SenderId)) return false;
+                    if (PaidBufferCatalogue.UsesManagerTeam(_paidBuffer.Profession) && !PaidFixerMemberLocked(request.SenderId)) return false;
                     _paidBuffer.BusyUtc = DateTime.UtcNow;
                 }
                 else if (IsPaidBufferLocked(character)) return false;

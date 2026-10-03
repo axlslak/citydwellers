@@ -41,6 +41,8 @@ namespace CityDwellers.Shared
             new PaidBufferNano(220341, 12, 205, 54, "Composite Mochams (4 hours)", "+140 nano skills, Shadowlands required", "cm4h", "cm4"),
             new PaidBufferNano(220343, 12, 209, 55, "Composite Mochams (8 hours)", "+140 nano skills, Shadowlands required", "cm8h", "cm8")
         };
+        public static bool UsesManagerTeam(int profession) => profession == 4 || profession == 7;
+
         public static int ProfessionId(string name)
         {
             if (string.Equals(name, "Enforcer", StringComparison.OrdinalIgnoreCase) ||
@@ -178,7 +180,7 @@ namespace CityDwellers.Shared
         private bool HasPaidRequestsLocked(string character) =>
             _bufferPublicCommands.Values.Any(r =>
                 string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) &&
-                (PaidBufferLocked(character)?.Profession != 4 || PaidFixerMemberLocked(r.SenderId)));
+                (!PaidBufferCatalogue.UsesManagerTeam(PaidBufferLocked(character)?.Profession ?? 0) || PaidFixerMemberLocked(r.SenderId)));
 
         public DateTime OldestPaidBufferRequest(string character)
         {
@@ -220,7 +222,8 @@ namespace CityDwellers.Shared
             lock (_bufferPublicCommandSync)
             {
                 var state = PaidBufferLocked(character);
-                return state != null && state.Profession == 4 && state.Running &&
+                return state != null && PaidBufferCatalogue.UsesManagerTeam(state.Profession) && state.Running &&
+                    string.Equals(character, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) &&
                     _paidFixerTeamObservedUtc >= DateTime.UtcNow.AddSeconds(-3)
                     ? _paidFixerManagerId : 0;
             }
@@ -229,7 +232,8 @@ namespace CityDwellers.Shared
         public bool PaidFixerMember(string character, int requester)
         {
             lock (_bufferPublicCommandSync)
-                return PaidBufferLocked(character)?.Profession == 4 &&
+                return PaidBufferCatalogue.UsesManagerTeam(PaidBufferLocked(character)?.Profession ?? 0) &&
+                    string.Equals(character, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) &&
                     PaidFixerMemberLocked(unchecked((uint)requester));
         }
 
@@ -240,11 +244,11 @@ namespace CityDwellers.Shared
                 var _paidBuffer = _paidBuffers[character];
                 if (_paidBuffer.Running || _paidBuffer.Blocked || DateTime.UtcNow < _paidBuffer.RetryAfterUtc)
                     return false;
-                if (_paidBuffer.Profession == 4)
+                if (PaidBufferCatalogue.UsesManagerTeam(_paidBuffer.Profession))
                 {
                     if (!string.Equals(character, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) ||
                         DateTime.UtcNow < _nextPaidFixerLoginUtc ||
-                        _paidBuffers.Values.Any(p => p.Profession == 4 && p.Running) ||
+                        _paidBuffers.Values.Any(p => PaidBufferCatalogue.UsesManagerTeam(p.Profession) && p.Running) ||
                         !HasPaidRequestsLocked(character)) return false;
                     _nextPaidFixerLoginUtc = DateTime.UtcNow.AddSeconds(30);
                 }
@@ -283,7 +287,7 @@ namespace CityDwellers.Shared
                 }
                 if (busy || (!_paidBuffer.Draining && HasPaidRequestsLocked(character))) _paidBuffer.BusyUtc = now;
                 if (ready && !busy && (_paidBuffer.Draining ||
-                    (_paidBuffer.Profession == 4
+                    (PaidBufferCatalogue.UsesManagerTeam(_paidBuffer.Profession)
                         ? !HasPaidRequestsLocked(character)
                         : now - _paidBuffer.BusyUtc >= TimeSpan.FromSeconds(20))))
                     _paidBuffer.Parked = _paidBuffer.Draining = true;

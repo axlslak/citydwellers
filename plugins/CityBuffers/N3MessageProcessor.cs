@@ -155,10 +155,10 @@ namespace MalisBuffBots
 
         private void OnTeamRequestAction(Identity identity, Identity target)
         {
-            if (!Main.PaidPilot || Main.PaidProfession != 4) return;
+            if (!Main.PaidPilot || !PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession)) return;
             int manager = ManagerMemory.Current.PaidFixerManager(Client.CharacterName);
             if (manager == 0 || target.Type != IdentityType.SimpleChar || target.Instance != manager) return;
-            Logger.Information("Accepting Manager's paid fixer team invitation.");
+            Logger.Information("Accepting Manager's paid buffer team invitation.");
             Team.Accept(target);
             _queueProcessor.TeamTimeout.Reset();
         }
