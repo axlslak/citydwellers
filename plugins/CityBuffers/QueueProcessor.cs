@@ -58,7 +58,7 @@ namespace MalisBuffBots
             }
             if (!Queue.TryEnqueuePaid(entries.Select(e => new BuffEntry {
                 Requester = requester.Identity, NanoEntry = e
-            }).ToArray(), out message, Main.PaidProfession == 4 ? 16 : 4)) return false;
+            }).ToArray(), out message, PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) ? 16 : 4)) return false;
             Main.Ipc.BotCache.BroadcastQueueInfoMessage();
             message = "Queued " + string.Join(" and ", entries.Select(e => e.Name)) + " on " + Client.CharacterName + ".";
             return true;
@@ -138,9 +138,9 @@ namespace MalisBuffBots
 
         private void ProcessLeaveTeam()
         {
-            // The paid fixer stays with Manager until its complete admitted batch
+            // The paid team buffer stays with Manager until its complete admitted batch
             // is finished. The activity bridge leaves immediately before parking.
-            if (Main.PaidPilot && Main.PaidProfession == 4) return;
+            if (Main.PaidPilot && PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession)) return;
             if (!Queue.AllEntries.Any(e => e.NanoEntry.Type == CastType.Team &&
                 Team.Members.Any(m => m.Identity == e.Requester)))
                 LeaveTeam();
@@ -498,17 +498,22 @@ namespace MalisBuffBots
 
             if (completed)
             {
-                if (Main.PaidPilot && Main.PaidProfession == 4 && Queue.Current.NanoEntry.ContainsId(275043))
+                if (Main.PaidPilot && PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) &&
+                    (Queue.Current.NanoEntry.ContainsId(275043) || Queue.Current.NanoEntry.ContainsId(235291)))
                 {
                     // Keep the team and session alive briefly for the team effect to land.
                     _paidFixerPostCastUntilUtc = DateTime.UtcNow.AddSeconds(1);
                 }
                 if (!Main.PaidPilot)
                     DynelManager.LocalPlayer.TryRemoveBuffs(Queue.Current.NanoEntry.RemoveNanoIdUponCast);
-                if (Main.PaidPilot && Main.PaidProfession == 4 && Queue.Current.NanoEntry.ContainsId(275043))
-                    foreach (int recipient in Queue.RemoveQueuedTeamBuff(275043, _fixerCastMembers))
+                if (Main.PaidPilot && PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) &&
+                    (Queue.Current.NanoEntry.ContainsId(275043) || Queue.Current.NanoEntry.ContainsId(235291)))
+                {
+                    int teamNano = Queue.Current.NanoEntry.ContainsId(275043) ? 275043 : 235291;
+                    foreach (int recipient in Queue.RemoveQueuedTeamBuff(teamNano, _fixerCastMembers))
                         CityBufferBridge.PaidResult(recipient,
-                            Client.CharacterName + " finished casting Firewalled Sync Compressor for the team.");
+                            Client.CharacterName + " finished casting " + Queue.Current.NanoEntry.Name + " for the team.");
+                }
             }
             _fixerCastMembers = new int[0];
 
@@ -597,7 +602,8 @@ namespace MalisBuffBots
             // Team emitters are cast on the caster; the server applies their effects to teammates.
             PlayerChar castTarget = PaidBufferCatalogue.FindEffect(firstAvailableBuff.Id)?.IsTeam == true
                 ? DynelManager.LocalPlayer : buffTarget;
-            if (Main.PaidPilot && firstAvailableBuff.Id == 275043)
+            if (Main.PaidPilot && PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) &&
+                PaidBufferCatalogue.FindEffect(firstAvailableBuff.Id)?.IsTeam == true)
                 _fixerCastMembers = Team.Members.Select(m => m.Identity.Instance).ToArray();
             Targeting.SetTarget(castTarget);
             DynelManager.LocalPlayer.Cast(castTarget, firstAvailableBuff.Id);
@@ -619,7 +625,7 @@ namespace MalisBuffBots
                 AttemptToBuffTarget();
                 return;
             }
-            if (Main.PaidPilot && Main.PaidProfession == 4)
+            if (Main.PaidPilot && PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession))
             {
                 int manager = ManagerMemory.Current.PaidFixerManager(Client.CharacterName);
                 if (manager != 0 && Team.IsInTeam &&

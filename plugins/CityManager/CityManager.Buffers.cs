@@ -41,7 +41,7 @@ namespace CityManager
             _nextPaidTeamTick = now.AddMilliseconds(500);
             try
             {
-                var providers = memory.ReadPaidBuffers().Where(p => p.Profession == 4).ToArray();
+                var providers = memory.ReadPaidBuffers().Where(p => PaidBufferCatalogue.UsesManagerTeam(p.Profession)).ToArray();
                 var pending = memory.PendingBufferPublicCommands(128)
                     .Where(r => providers.Any(p => string.Equals(p.Character, r.TargetCharacter,
                         StringComparison.OrdinalIgnoreCase))).ToArray();
@@ -98,7 +98,7 @@ namespace CityManager
                     DynelManager.LocalPlayer.Identity.Instance, members);
                 if (_paidTeamInviteId != 0 && members.Contains(_paidTeamInviteId))
                 {
-                    DevTrace("PAID FIXER team membership confirmed: " + _paidTeamInviteId + ".");
+                    DevTrace("PAID TEAM team membership confirmed: " + _paidTeamInviteId + ".");
                     _paidTeamInviteId = 0;
                     _paidTeamInviteUntil = DateTime.MinValue;
                 }
@@ -108,13 +108,13 @@ namespace CityManager
                         _paidTeamCharacter, StringComparison.OrdinalIgnoreCase));
                     if (fixer != null && members.Length > 0 && !members.Contains(fixer.Identity.Instance) &&
                         (_paidTeamInviteId != fixer.Identity.Instance || now >= _paidTeamInviteUntil))
-                        InvitePaidTeamMember(fixer.Identity, now, "fixer " + _paidTeamCharacter);
+                        InvitePaidTeamMember(fixer.Identity, now, "buffer " + _paidTeamCharacter);
                     return;
                 }
                 if (_paidTeamInviteId != 0 && now < _paidTeamInviteUntil) return;
                 _paidTeamInviteId = 0;
 
-                // Four customers + Manager + fixer = one normal six-person team.
+                // Four customers + Manager + buffer = one normal six-person team.
                 if (members.Length >= 4) return;
                 var next = requests.FirstOrDefault(r => !members.Contains(unchecked((int)r.SenderId)) &&
                     DynelManager.Players.Any(p => p.Identity.Instance == unchecked((int)r.SenderId)));
@@ -125,7 +125,7 @@ namespace CityManager
             catch (Exception ex)
             {
                 memory.PublishPaidFixerTeam(null, 0, new int[0]);
-                Logger.Warning("Paid fixer team coordinator: " + ex.Message);
+                Logger.Warning("Paid buffer team coordinator: " + ex.Message);
             }
         }
 
@@ -135,7 +135,7 @@ namespace CityManager
             _paidTeamInviteId = identity.Instance;
             _paidTeamInviteUntil = now.AddSeconds(15);
             Team.Invite(identity);
-            DevTrace("PAID FIXER Manager invited " + description + ".");
+            DevTrace("PAID TEAM Manager invited " + description + ".");
         }
 
         private void PublishBufferAuthoritySnapshot(bool force = false)
@@ -356,8 +356,8 @@ namespace CityManager
 
             if (paidCast)
                 Reply(target, "Request queued for " + paid.Character +
-                    (paid.Profession == 4
-                        ? ". Leave your current team and accept my invitation. Stay nearby; I will bring the fixer into our team when a login slot and the account are available."
+                    (PaidBufferCatalogue.UsesManagerTeam(paid.Profession)
+                        ? ". Leave your current team and accept my invitation. Stay nearby; I will bring the buffer into our team when a login slot and the account are available."
                         : ". Stay near the buffer; I will log them in when the shared account is free."));
 
             ThreadPool.QueueUserWorkItem(_ =>

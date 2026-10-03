@@ -101,7 +101,7 @@ namespace MalisBuffBots
                 if (requester == null)
                     continue;
 
-                if (Main.PaidPilot && Main.PaidProfession == 4)
+                if (Main.PaidPilot && PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession))
                 {
                     int manager = ManagerMemory.Current.PaidFixerManager(Client.CharacterName);
                     if (!Team.IsInTeam || manager == 0 ||

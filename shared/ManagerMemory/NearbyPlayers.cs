@@ -4,6 +4,19 @@ using System.Linq;
 
 namespace CityDwellers.Shared
 {
+    // Verified against the game nano catalogue: uploaded wrangles, recipient
+    // effects, drain variants and Umbral emitters are explicit-request only.
+    public static class BufferRefreshPolicy
+    {
+        public static bool IsRequestOnlyNano(int id) =>
+            (id >= 121215 && id <= 121258) ||
+            (id >= 121317 && id <= 121346) ||
+            (id >= 235054 && id <= 235064) ||
+            (id >= 235233 && id <= 235265) ||
+            (id >= 235271 && id <= 235291 && (id & 1) != 0) ||
+            id == 287001 || id == 288960 || (id >= 288964 && id <= 288978);
+    }
+
     [Serializable]
     public sealed class LearnedBuffProfile
     {
@@ -79,6 +92,7 @@ namespace CityDwellers.Shared
                         int encounters = old == null ? 1 : Math.Min(2, old.Encounters + (arrived ? 1 : 0));
                         player.RestoreMissing = encounters >= 2;
                         var added = player.VisibleNanoIds.Where(id => id > 0 &&
+                            !BufferRefreshPolicy.IsRequestOnlyNano(id) &&
                             (old == null || !old.NanoIds.Contains(id))).Distinct().ToArray();
                         if (old != null && old.Encounters == encounters && old.Name == player.Name && added.Length == 0)
                             continue;
@@ -127,7 +141,7 @@ namespace CityDwellers.Shared
                         result.AddRange(profile.NanoIds.Where(id => !player.VisibleNanoIds.Contains(id))
                             .Select(id => new NearbyNanoObservation { Id = id }));
                 }
-            return result.ToArray();
+            return result.Where(n => !BufferRefreshPolicy.IsRequestOnlyNano(n.Id)).ToArray();
         }
 
         public List<NearbyPlayerObservation> ReadNearbyPlayers()
@@ -160,6 +174,7 @@ namespace CityDwellers.Shared
 
         public bool ObservedBuffNeedsRefresh(int characterId, int nanoId)
         {
+            if (BufferRefreshPolicy.IsRequestOnlyNano(nanoId)) return false;
             if (!PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nanoId) &&
                 ObservedNcuNeedsRefresh(characterId)) return false;
             var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
