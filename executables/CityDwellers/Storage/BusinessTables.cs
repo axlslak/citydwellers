@@ -168,9 +168,9 @@ namespace CityDwellers.Host
             yield return table;
             foreach (var child in table.Children.SelectMany(Descendants)) yield return child;
         }
-        internal void Create(MySqlConnection connection)
+        internal void Create(MySqlConnection connection, params string[] onlyTables)
         {
-            foreach (var table in Tables())
+            foreach (var table in Tables().Where(t => onlyTables.Length == 0 || onlyTables.Contains(t.Name)))
             {
                 var columns = Scalar(table.Type) ? new[] { "`value` " + SqlType(table.Type) + " NULL" } :
                     table.Columns.Select(f => "`" + Column(f) + "` " + SqlType(f.FieldType) + " NULL");
