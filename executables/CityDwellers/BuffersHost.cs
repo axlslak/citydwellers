@@ -206,7 +206,6 @@ internal static class BuffersHost
         bool siblingWaiting = state.Ready && !memory.PendingBufferPublicCommands(128).Any(r =>
             string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase)) &&
             runtimes.Any(r => r.Paid && r != runtime && !r.Blocked &&
-                string.Equals(r.Account.Username, runtime.Account.Username, StringComparison.OrdinalIgnoreCase) &&
                 memory.OldestPaidBufferRequest(r.Account.Character) != DateTime.MaxValue);
         if (memory.AoAccountHasWaiter(runtime.Account.Username) || siblingWaiting)
             memory.DrainPaidBuffer(character);
@@ -311,4 +310,5 @@ internal static class BuffersHost
         ManagerMemory.Current.PublishBufferControlResult(operation.Id, success, result);
     }
 }
+
 

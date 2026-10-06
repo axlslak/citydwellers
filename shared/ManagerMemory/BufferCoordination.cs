@@ -61,6 +61,61 @@ namespace CityDwellers.Shared
     {
         private const int BufferSignalLimit = 256;
         private const int BufferPublicCommandLimit = 128;
+        private sealed class BufferCastWatch
+        {
+            internal uint Requester;
+            internal string Tag;
+            internal bool Finished;
+            internal DateTime ExpiresUtc;
+        }
+        private readonly Dictionary<string, BufferCastWatch> _bufferCastWatches =
+            new Dictionary<string, BufferCastWatch>();
+
+        public string WatchBufferCast(uint requester, string tag)
+        {
+            lock (_bufferPublicCommandSync)
+            {
+                foreach (var id in _bufferCastWatches.Where(p => p.Value.ExpiresUtc < DateTime.UtcNow)
+                    .Select(p => p.Key).ToArray()) _bufferCastWatches.Remove(id);
+                string idNew = Guid.NewGuid().ToString("N");
+                _bufferCastWatches.Add(idNew, new BufferCastWatch { Requester = requester, Tag = tag,
+                    ExpiresUtc = DateTime.UtcNow.AddMinutes(5) });
+                return idNew;
+            }
+        }
+
+        public void ReportBufferCastFinished(uint requester, string[] tags)
+        {
+            lock (_bufferPublicCommandSync)
+            {
+                foreach (var watch in _bufferCastWatches.Values.Where(w => w.Requester == requester &&
+                    (tags ?? new string[0]).Contains(w.Tag, StringComparer.OrdinalIgnoreCase)))
+                    watch.Finished = true;
+                Monitor.PulseAll(_bufferPublicCommandSync);
+            }
+        }
+
+        public bool WaitForBufferCast(string id, int timeoutMilliseconds)
+        {
+            var elapsed = Stopwatch.StartNew();
+            lock (_bufferPublicCommandSync)
+            {
+                BufferCastWatch watch;
+                while (_bufferCastWatches.TryGetValue(id, out watch))
+                {
+                    if (watch.Finished) return true;
+                    int remaining = timeoutMilliseconds - (int)elapsed.ElapsedMilliseconds;
+                    if (remaining <= 0) return false;
+                    Monitor.Wait(_bufferPublicCommandSync, remaining);
+                }
+                return false;
+            }
+        }
+
+        public void FinishBufferCastWatch(string id)
+        {
+            lock (_bufferPublicCommandSync) _bufferCastWatches.Remove(id);
+        }
         private readonly Dictionary<string, Queue<BufferMemorySignal>> _bufferSignals =
             new Dictionary<string, Queue<BufferMemorySignal>>(StringComparer.OrdinalIgnoreCase);
         private readonly object _bufferPublicCommandSync = new object();
@@ -356,5 +411,6 @@ namespace CityDwellers.Shared
 
     }
 }
+
 
 

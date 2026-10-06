@@ -41,27 +41,50 @@ namespace MalisBuffBots
 
         internal bool RequestPaidBuffs(NanoEntry[] entries, PlayerChar requester, out string message)
         {
-            message = null;
             int[] known = Main.EffectiveSpellList();
             var allowed = PaidBufferCatalogue.ForProfession(Main.PaidProfession).Select(n => n.Id).ToArray();
-            if (entries.Length == 0 || entries.Any(e => e.LevelToId.Any(n => !allowed.Contains(n.Id))))
-            { message = "That buff is not offered by this paid buffer's configured profession."; return false; }
-            if (Main.PaidProfession == 12 && entries.Length > 1)
-            { message = "Choose one MP composite; these buffs replace each other."; return false; }
-            foreach (var entry in entries)
+            int? recipientLevel = null;
+            try { recipientLevel = requester.Level; } catch { }
+            var accepted = new List<NanoEntry>();
+            var notices = new List<string>();
+            foreach (var entry in entries.Distinct())
             {
-                if (!entry.LevelToId.Any(n => known.Contains(n.Id)))
-                { message = Client.CharacterName + " does not report " + entry.Name + " as uploaded."; return false; }
-                if (entry.ObserverRefreshUntilUtc == default(DateTime) &&
-                    !entry.LevelToId.Any(n => known.Contains(n.Id) && n.Level <= requester.Level))
-                { message = entry.Name + " requires recipient level " + entry.LevelToId.Min(n => n.Level) + "+."; return false; }
+                if (!entry.LevelToId.Any(n => allowed.Contains(n.Id)))
+                    notices.Add("Can't cast " + entry.Name + ": not offered by " + Client.CharacterName + ".");
+                else if (!entry.LevelToId.Any(n => allowed.Contains(n.Id) && known.Contains(n.Id)))
+                    notices.Add("Can't cast " + entry.Name + ": " + Client.CharacterName + " has not uploaded it.");
+                else if (recipientLevel.HasValue && entry.ObserverRefreshUntilUtc == default(DateTime) &&
+                    !entry.LevelToId.Any(n => allowed.Contains(n.Id) && known.Contains(n.Id) && n.Level <= recipientLevel.Value))
+                    notices.Add("Can't cast " + entry.Name + ": requires recipient level " + entry.LevelToId.Min(n => n.Level) + "+.");
+                else accepted.Add(entry);
             }
-            if (!Queue.TryEnqueuePaid(entries.Select(e => new BuffEntry {
-                Requester = requester.Identity, NanoEntry = e
-            }).ToArray(), out message, PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) ? 16 : 4)) return false;
-            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
-            message = "Queued " + string.Join(" and ", entries.Select(e => e.Name)) + " on " + Client.CharacterName + ".";
-            return true;
+            if (Main.PaidProfession == 12 && accepted.Count > 1)
+            {
+                // These composites replace each other. Deliver the best eligible
+                // one instead of refusing the macro or downgrading it afterwards.
+                var best = accepted.OrderByDescending(e => e.LevelToId.Where(n => known.Contains(n.Id) &&
+                    (!recipientLevel.HasValue || n.Level <= recipientLevel.Value)).Select(n => n.Level).DefaultIfEmpty(0).Max()).First();
+                notices.Add("Using " + best.Name + " for the requested MP composites; they replace each other.");
+                accepted = new List<NanoEntry> { best };
+            }
+            var queued = new List<string>();
+            foreach (var entry in accepted.OrderBy(e => e.ContainsId(275043) ? 0 : 1))
+            {
+                string error;
+                if (Queue.TryEnqueuePaid(new[] { new BuffEntry {
+                    Requester = requester.Identity, NanoEntry = entry
+                } }, out error, PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) ? 16 : 4))
+                    queued.Add(entry.Name);
+                else notices.Add("Can't queue " + entry.Name + ": " + error);
+            }
+            if (queued.Count != 0)
+            {
+                Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+                notices.Insert(0, "Queued " + string.Join(" and ", queued) + " on " + Client.CharacterName + ".");
+            }
+            if (notices.Count == 0) notices.Add("No matching buff is offered by " + Client.CharacterName + ".");
+            message = string.Join(" ", notices);
+            return queued.Count != 0;
         }
 
         public QueueProcessor(int graceTimeMs = 1000)
@@ -225,14 +248,22 @@ namespace MalisBuffBots
 
         public bool RequestBuffs(Dictionary<Profession, List<NanoEntry>> entries, PlayerChar requester)
         {
-            var additional = entries.SelectMany(p => p.Value).Distinct()
-                .Count(e => !_pendingRoutes.Any(p => p.Requester == requester.Identity.Instance && p.Entry.Equals(e)));
-            if (_pendingRoutes.Count + additional > 256 ||
-                _pendingRoutes.Count(p => p.Requester == requester.Identity.Instance) + additional > 32)
-                return false;
+            bool accepted = false;
             foreach (var pair in entries)
-                FinalizeBuffRequest(pair.Key, pair.Value, requester);
-            return true;
+                foreach (var entry in pair.Value.Distinct())
+                {
+                    bool existing = _pendingRoutes.Any(p => p.Requester == requester.Identity.Instance && p.Entry.Equals(entry));
+                    if (!existing && (_pendingRoutes.Count >= 256 ||
+                        _pendingRoutes.Count(p => p.Requester == requester.Identity.Instance) >= 32))
+                    {
+                        CityBufferBridge.RequestResult(requester.Identity.Instance,
+                            "Can't queue " + entry.Name + ": the buffer readiness queue is full.");
+                        continue;
+                    }
+                    RetainRequest(pair.Key, requester.Identity.Instance, entry);
+                    accepted = true;
+                }
+            return accepted;
         }
 
         public void FinalizeBuffRequest(Profession profession, IEnumerable<NanoEntry> entries, PlayerChar requester)
@@ -252,10 +283,11 @@ namespace MalisBuffBots
                 if (DateTime.UtcNow >= pending.Expires)
                 {
                     _pendingRoutes.Remove(pending);
+                    ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)pending.Requester), pending.Entry.Tags.ToArray());
                     Logger.Warning("Buffer readiness request expired: " + pending.Entry.Name +
                         "; requester=" + pending.Requester + ".");
                     CityBufferBridge.PaidResult(pending.Requester,
-                        pending.Entry.Name + " could not be queued within two minutes; stay near the buffers and retry.");
+                        "Can't cast " + pending.Entry.Name + ": no ready nearby buffer with that nano could accept it within two minutes.");
                     continue;
                 }
                 var requester = pending.Requester == DynelManager.LocalPlayer.Identity.Instance
@@ -490,6 +522,8 @@ namespace MalisBuffBots
         public void ResetCurrentBuffEntry(LdbFeedback? feedback = null, bool completed = false)
         {
             if (Queue.Current == null) return;
+            ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)Queue.Current.Requester.Instance),
+                Queue.Current.NanoEntry.Tags.ToArray());
             if (feedback != null)
                 NotifyCurrentRequester("couldn't cast", FeedbackReason(feedback.Value) + ".");
             if (feedback != null)
@@ -665,5 +699,6 @@ namespace MalisBuffBots
         }
     }
 }
+
 
 
