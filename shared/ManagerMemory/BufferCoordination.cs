@@ -186,6 +186,95 @@ namespace CityDwellers.Shared
             }
         }
 
+        private sealed class ObservedBuffAssignment
+        {
+            internal string Character, Id, LastCharacter;
+        }
+        private readonly Dictionary<string, ObservedBuffAssignment> _observedBuffAssignments =
+            new Dictionary<string, ObservedBuffAssignment>();
+        private readonly Queue<string> _bufferDiagnostics = new Queue<string>();
+
+        public void ReportBufferDiagnostic(string message)
+        {
+            lock (_bufferBotSync)
+            {
+                // Console already has the complete record; bound pending dev output.
+                if (_bufferDiagnostics.Count >= 256) _bufferDiagnostics.Dequeue();
+                _bufferDiagnostics.Enqueue(message);
+            }
+        }
+
+        public string[] TakeBufferDiagnostics()
+        {
+            lock (_bufferBotSync)
+            {
+                var result = _bufferDiagnostics.ToArray();
+                _bufferDiagnostics.Clear();
+                return result;
+            }
+        }
+
+        public void PruneObservedBuffAssignments(string[] visibleKeys)
+        {
+            var keys = new HashSet<string>(visibleKeys);
+            lock (_bufferBotSync)
+                foreach (var key in _observedBuffAssignments.Keys.Where(k => !keys.Contains(k)).ToArray())
+                    _observedBuffAssignments.Remove(key);
+        }
+
+        public bool HasObservedBuffAssignment(int requester, int nanoId)
+        {
+            lock (_bufferBotSync)
+            {
+                ObservedBuffAssignment assignment;
+                if (!_observedBuffAssignments.TryGetValue(requester + ":" + nanoId, out assignment) ||
+                    assignment.Character == null) return false;
+                BufferBotInfo bot;
+                if (_bufferBots.TryGetValue(assignment.Character, out bot) && bot.Ready && bot.InPlay &&
+                    bot.ObservedUtc >= DateTime.UtcNow.AddSeconds(-5)) return true;
+                assignment.Character = assignment.Id = null;
+                return false;
+            }
+        }
+
+        public string LastObservedBuffProvider(int requester, int nanoId)
+        {
+            lock (_bufferBotSync)
+            {
+                ObservedBuffAssignment assignment;
+                return _observedBuffAssignments.TryGetValue(requester + ":" + nanoId, out assignment)
+                    ? assignment.LastCharacter : null;
+            }
+        }
+
+        public int PendingObservedBuffCount(string character)
+        {
+            lock (_bufferBotSync)
+                return _observedBuffAssignments.Values.Count(a =>
+                    string.Equals(a.Character, character, StringComparison.OrdinalIgnoreCase));
+        }
+
+        public bool OwnsObservedBuffRefresh(string character, int requester, int nanoId, string id)
+        {
+            lock (_bufferBotSync)
+            {
+                ObservedBuffAssignment assignment;
+                return _observedBuffAssignments.TryGetValue(requester + ":" + nanoId, out assignment) &&
+                    assignment.Id == id && string.Equals(assignment.Character, character, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        public void ReleaseObservedBuffRefresh(string character, int requester, int nanoId, string id)
+        {
+            lock (_bufferBotSync)
+            {
+                ObservedBuffAssignment assignment;
+                if (_observedBuffAssignments.TryGetValue(requester + ":" + nanoId, out assignment) &&
+                    assignment.Id == id && string.Equals(assignment.Character, character, StringComparison.OrdinalIgnoreCase))
+                    assignment.Character = assignment.Id = null;
+            }
+        }
+
         public bool RequestObservedBuffRefresh(string character, int requester, int nanoId)
         {
             if (!ObservedBuffNeedsRefresh(requester, nanoId)) return false;
@@ -196,12 +285,19 @@ namespace CityDwellers.Shared
                     !bot.Ready || !bot.InPlay || bot.ObservedUtc < DateTime.UtcNow.AddSeconds(-5) ||
                     !(bot.AdvertisedBuffs ?? new BufferAdvertisedBuff[0]).Any(b =>
                         b.Type == "Single" && (b.NanoIds ?? new int[0]).Contains(nanoId))) return false;
+                string key = requester + ":" + nanoId;
+                ObservedBuffAssignment assignment;
+                if (_observedBuffAssignments.TryGetValue(key, out assignment) && assignment.Character != null)
+                    return false;
                 Queue<BufferMemorySignal> queue;
                 if (!_bufferSignals.TryGetValue(character, out queue))
                     _bufferSignals.Add(character, queue = new Queue<BufferMemorySignal>());
                 if (queue.Count >= BufferSignalLimit) return false;
-                queue.Enqueue(new BufferMemorySignal { Id = Guid.NewGuid().ToString("N"),
-                    Kind = "observer-refresh", Payload = requester + ":" + nanoId, CreatedUtc = DateTime.UtcNow });
+                string id = Guid.NewGuid().ToString("N");
+                _observedBuffAssignments[key] = new ObservedBuffAssignment {
+                    Character = character, LastCharacter = character, Id = id };
+                queue.Enqueue(new BufferMemorySignal { Id = id,
+                    Kind = "observer-refresh", Payload = key, CreatedUtc = DateTime.UtcNow });
                 return true;
             }
         }
@@ -359,6 +455,18 @@ namespace CityDwellers.Shared
             }
         }
 
+        public bool ObservedPaidRefreshPending(string id, string character)
+        {
+            lock (_bufferPublicCommandSync)
+            {
+                if (_bufferPublicCommands.ContainsKey(id)) return true;
+                var paid = PaidBufferLocked(character);
+                if (paid != null && paid.Running && !paid.Parked) return true;
+                _bufferPublicOutcomes.Remove(id);
+                return false;
+            }
+        }
+
         public void CancelUnclaimedObservedBufferCommand(string id)
         {
             lock (_bufferPublicCommandSync)
@@ -411,6 +519,7 @@ namespace CityDwellers.Shared
 
     }
 }
+
 
 
 

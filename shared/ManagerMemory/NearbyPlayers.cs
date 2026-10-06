@@ -153,6 +153,20 @@ namespace CityDwellers.Shared
                     .Select(p => p.Copy()).ToList();
         }
 
+        // Caster feedback and cast-state transitions are not required for this
+        // answer. Manager's fresh target observation is the delivery evidence.
+        public bool ObservedCastLanded(int requester, int nanoId, DateTime attemptedUtc,
+            DateTime previousExpiryUtc, bool missingBefore)
+        {
+            var player = ReadNearbyPlayers().FirstOrDefault(p =>
+                p.CharacterId == requester && p.ObservedUtc > attemptedUtc);
+            var effect = PaidBufferCatalogue.FindEffect(nanoId);
+            return player != null && player.Nanos.Any(n =>
+                (n.Id == nanoId || effect?.MatchesEffect(n.Id) == true) && n.RemainingSeconds > 0 &&
+                (missingBefore || player.ObservedUtc.AddSeconds(n.RemainingSeconds) >
+                    previousExpiryUtc.AddSeconds(2)));
+        }
+
         // NCU is a per-recipient prerequisite for automatic restoration only.
         // Keep checking observed effects: caster completion does not prove delivery.
         public bool ObservedNcuNeedsRefresh(int characterId)
@@ -199,4 +213,5 @@ namespace CityDwellers.Shared
         }
     }
 }
+
 

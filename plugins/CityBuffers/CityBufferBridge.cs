@@ -206,6 +206,13 @@ namespace MalisBuffBots
         public static void SendPrivateMessage(int recipient, string message, bool logMessage = true)
             => SendPrivateMessage((uint)recipient, message, logMessage);
 
+        internal static void Diagnostic(int recipient, string message)
+        {
+            string text = "BUFFER " + Client.CharacterName + " requester=" + recipient + ": " + message;
+            Logger.Information(text);
+            ManagerMemory.Current.ReportBufferDiagnostic(text);
+        }
+
         internal static void PaidResult(int recipient, string message)
             => RequestResult(recipient, message);
 
@@ -297,4 +304,5 @@ namespace MalisBuffBots
         }
     }
 }
+
 

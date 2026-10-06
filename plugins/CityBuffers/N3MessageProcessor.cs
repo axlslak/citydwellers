@@ -183,9 +183,7 @@ namespace MalisBuffBots
             var buffTargetName = buffTarget != null ? buffTarget.Name : target.Instance.ToString();
 
             Logger.Information($"Finished casting '{_queueProcessor.Queue.Current.NanoEntry.Name}' on '{buffTargetName}'");
-            if (Main.PaidPilot) CityBufferBridge.PaidResult(_queueProcessor.Queue.Current.Requester.Instance,
-                Client.CharacterName + " finished casting " + _queueProcessor.Queue.Current.NanoEntry.Name + ".");
-            _queueProcessor.ResetCurrentBuffEntry(completed: true);
+            _queueProcessor.CastFinished();
         }
 
         private void ProcessFeedbackMessage(FeedbackMessage feedbackMsg)
@@ -198,7 +196,6 @@ namespace MalisBuffBots
 
             LastLdbMessage = feedbackMsg.MessageId;
             if (!_queueProcessor.HasOutstandingCast) return;
-            _queueProcessor.RecordCastFeedback(feedbackMsg.MessageId);
             switch ((LdbFeedback)feedbackMsg.MessageId)
             {
                 case LdbFeedback.NotEnoughNcu:
@@ -222,7 +219,7 @@ namespace MalisBuffBots
                 case LdbFeedback.SuccessfulCast:
                     break;
                 default:
-                    Logger.Information($"Unregistered ldbfeedback msg:{feedbackMsg.MessageId}; currentNano={_queueProcessor.Queue.Current?.NanoEntry?.Name ?? "none"}; requester={_queueProcessor.Queue.Current?.Requester.Instance ?? 0}");
+                    _queueProcessor.RetryCurrentBuffEntry("unregistered game feedback=" + feedbackMsg.MessageId);
                     break;
             }
 
@@ -245,4 +242,5 @@ namespace MalisBuffBots
 
     }
 }
+
 
