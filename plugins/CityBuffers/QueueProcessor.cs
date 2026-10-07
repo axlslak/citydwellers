@@ -19,17 +19,29 @@ namespace MalisBuffBots
         public int TeamTrackerId;
         public BuffQueue Queue = new BuffQueue();
         public N3MessageProcessor N3MessageProcessor;
-        private string _attemptedEntryKey;
-        private string _observedAttemptKey;
-        private int _attemptedNanoId;
-        private DateTime _attemptedUtc;
-        private DateTime _previousObservedExpiryUtc;
-        private bool _attemptedMissingLearnedBuff;
-        private DateTime _requestDeadlineUtc;
-        private string _lastRetryReason;
-        private int _directInviteRequester;
-        private DateTime _directTeamDeadline;
-        private int[] _fixerCastMembers = new int[0];
+        private sealed class CastWork
+        {
+            internal string AttemptKey, ObservationKey, LastRetryReason;
+            internal int NanoId, InviteRequester;
+            internal DateTime AttemptedUtc, PreviousExpiryUtc, DeadlineUtc, TeamDeadlineUtc;
+            internal DateTime CompletionUtc, FeedbackUtc;
+            internal bool MissingBefore;
+            internal int[] TeamMembers = new int[0];
+        }
+        private readonly Dictionary<BuffEntry, CastWork> _castWork = new Dictionary<BuffEntry, CastWork>();
+        private BuffEntry _feedbackEntry;
+
+        private CastWork Work(BuffEntry entry)
+        {
+            CastWork work;
+            if (!_castWork.TryGetValue(entry, out work))
+                _castWork.Add(entry, work = new CastWork {
+                    DeadlineUtc = entry.Requester == DynelManager.LocalPlayer.Identity
+                        ? DateTime.MaxValue : DateTime.UtcNow.AddMinutes(2),
+                    TeamDeadlineUtc = DateTime.UtcNow.AddSeconds(30) });
+            return work;
+        }
+
         private DateTime _paidFixerPostCastUntilUtc;
         internal bool PaidFixerPostCastHold => DateTime.UtcNow < _paidFixerPostCastUntilUtc;
 
@@ -107,7 +119,8 @@ namespace MalisBuffBots
                 if (!_gracePeriod.Elapsed)
                     return;
 
-                if (TryCompleteFromObservation()) return;
+                ProcessAwaitingObservations();
+                if (PaidFixerPostCastHold) return;
 
                 if (Team.IsInTeam)
                     ProcessLeaveTeam();
@@ -124,29 +137,28 @@ namespace MalisBuffBots
                         ProcessCurrentBuffEntry();
                         break;
                     case QueueState.Dequeue:
-                        ClearCastAttempt();
-                        _lastRetryReason = null;
-                        _requestDeadlineUtc = Queue.Current.Requester == DynelManager.LocalPlayer.Identity
-                            ? DateTime.MaxValue : DateTime.UtcNow.AddMinutes(2);
+                        Work(Queue.Current);
                         TeamTimeout.Reset();
-                        _directInviteRequester = 0;
-                        _directTeamDeadline = DateTime.UtcNow.AddSeconds(30);
                         Main.Ipc.BotCache.BroadcastQueueInfoMessage();
                         ProcessCurrentBuffEntry();
                         break;
                     case QueueState.Empty:
                         break;
                 }
+                YieldCurrentWork();
             }
             catch (Exception ex)
             {
                 try
                 {
                     RetryCurrentBuffEntry("cast processing exception: " + ex.Message);
+                    if (Queue.Current != null)
+                        Work(Queue.Current).FeedbackUtc = DateTime.UtcNow;
                 }
                 catch { /* Preserve the remaining queue even if reporting fails. */ }
                 Logger.Error(ex.Message);
                 Logger.Error("QueueProcessorOnUpdate");
+                YieldCurrentWork();
             }
         }
 
@@ -170,7 +182,8 @@ namespace MalisBuffBots
                     ManagerMemory.Current.ReleaseObservedBuffRefresh(Client.CharacterName,
                         queued.Requester.Instance, queued.NanoEntry.LevelToId[0].Id,
                         queued.NanoEntry.ObserverAssignmentId);
-            ClearCastAttempt();
+            _castWork.Clear();
+            _feedbackEntry = null;
             LeaveTeam();
             Queue.Clear();
             ProcessResetTeamTrackerId();
@@ -358,34 +371,67 @@ namespace MalisBuffBots
             return false;
         }
 
-        private void ReleaseObservedAssignment()
+        private void YieldCurrentWork()
         {
-            var entry = Queue.Current?.NanoEntry;
-            if (entry?.ObserverAssignmentId == null) return;
-            ManagerMemory.Current.ReleaseObservedBuffRefresh(Client.CharacterName,
-                Queue.Current.Requester.Instance, entry.LevelToId[0].Id, entry.ObserverAssignmentId);
+            var entry = Queue.Current;
+            if (entry == null) return;
+            Queue.YieldCurrent(Work(entry).AttemptKey != null);
+            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
         }
 
-        private bool TryReturnObservedAttempt()
+        private bool ObservationLanded(BuffEntry entry, CastWork work)
+            => work.ObservationKey != null && ManagerMemory.Current.ObservedCastLanded(
+                entry.Requester.Instance, work.NanoId, work.AttemptedUtc,
+                work.PreviousExpiryUtc, work.MissingBefore);
+
+        private void ProcessAwaitingObservations()
         {
-            var entry = Queue.Current.NanoEntry;
-            if (entry.ObserverAssignmentId == null || !HasOutstandingCast) return false;
-            // A subsequent Manager scan has not confirmed this attempt and the
-            // caster is ready again. Return ownership so Manager can choose a peer.
-            var player = ManagerMemory.Current.ReadNearbyPlayers().FirstOrDefault(p =>
-                p.CharacterId == Queue.Current.Requester.Instance && p.ObservedUtc > _attemptedUtc);
-            if (player == null) return false;
+            foreach (var entry in Queue.Awaiting)
+            {
+                var work = Work(entry);
+                if (ObservationLanded(entry, work))
+                {
+                    Logger.Information("Manager NCU confirmed '" + entry.NanoEntry.Name +
+                        "' for requester " + entry.Requester.Instance + " nano=" + work.NanoId);
+                    CompleteBuffEntry(entry, completed: true);
+                    continue;
+                }
+                if (DateTime.UtcNow >= work.DeadlineUtc)
+                {
+                    CityBufferBridge.Diagnostic(entry.Requester.Instance,
+                        "Buff request expired: " + entry.NanoEntry.Name);
+                    CompleteBuffEntry(entry);
+                    continue;
+                }
+                if (DynelManager.LocalPlayer.IsCasting) continue;
+                // A newly sampled snapshot may still contain old server data.
+                // Completion is positive evidence: don't undo it because Manager's
+                // remote client has not received the target update yet.
+                if (work.CompletionUtc != default(DateTime)) continue;
+                if (work.FeedbackUtc <= work.AttemptedUtc) continue;
+                // The server responded without completion. Keep the original NCU
+                // baseline, and put the request behind other admitted work.
+                if (ReturnObservedFailure(entry, work)) continue;
+                Queue.RetryAtTail(entry);
+            }
+        }
+
+        private bool ReturnObservedFailure(BuffEntry entry, CastWork work)
+        {
+            if (entry.NanoEntry.ObserverAssignmentId == null) return false;
             if (!ManagerMemory.Current.BufferBotInfos().Any(b =>
                 !string.Equals(b.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                 !ManagerMemory.Current.IsPaidBuffer(b.Character) && b.Ready && b.InPlay &&
                 b.ObservedUtc >= DateTime.UtcNow.AddSeconds(-5) &&
                 (b.AdvertisedBuffs ?? new BufferAdvertisedBuff[0]).Any(n => n.Type == "Single" &&
-                    (n.NanoIds ?? new int[0]).Contains(_attemptedNanoId)))) return false;
-            CityBufferBridge.Diagnostic(Queue.Current.Requester.Instance,
-                "Manager has not observed " + entry.Name + "; returning it for provider selection.");
-            ReleaseObservedAssignment();
-            ClearCastAttempt();
-            Queue.ClearCurrent();
+                    (n.NanoIds ?? new int[0]).Contains(work.NanoId)))) return false;
+            ManagerMemory.Current.ReleaseObservedBuffRefresh(Client.CharacterName,
+                entry.Requester.Instance, entry.NanoEntry.LevelToId[0].Id, entry.NanoEntry.ObserverAssignmentId);
+            Queue.Remove(entry);
+            _castWork.Remove(entry);
+            if (ReferenceEquals(_feedbackEntry, entry)) _feedbackEntry = null;
+            CityBufferBridge.Diagnostic(entry.Requester.Instance,
+                "Returning " + entry.NanoEntry.Name + " after game feedback for another capable buffer.");
             Main.Ipc.BotCache.BroadcastQueueInfoMessage();
             return true;
         }
@@ -398,7 +444,7 @@ namespace MalisBuffBots
                     Queue.Current.Requester.Instance, observedEntry.LevelToId[0].Id,
                     observedEntry.ObserverAssignmentId))
             {
-                ClearCastAttempt();
+                _castWork.Remove(Queue.Current);
                 Queue.ClearCurrent();
                 Main.Ipc.BotCache.BroadcastQueueInfoMessage();
                 return;
@@ -414,12 +460,12 @@ namespace MalisBuffBots
                 ResetCurrentBuffEntry();
                 return;
             }
-            if (DateTime.UtcNow >= _requestDeadlineUtc)
+            if (DateTime.UtcNow >= Work(Queue.Current).DeadlineUtc)
             {
                 Logger.Warning("Buff request expired after two minutes of cast processing: " +
                     Queue.Current.NanoEntry.Name + "; requester=" + Queue.Current.Requester.Instance + ".");
                 ReportCurrentDiagnostic("couldn't cast", "retry limit reached after two minutes" +
-                    (string.IsNullOrEmpty(_lastRetryReason) ? "." : ": " + _lastRetryReason));
+                    (string.IsNullOrEmpty(Work(Queue.Current).LastRetryReason) ? "." : ": " + Work(Queue.Current).LastRetryReason));
                 ResetCurrentBuffEntry();
                 return;
             }
@@ -434,46 +480,59 @@ namespace MalisBuffBots
             }
         }
 
-        private void ClearCastAttempt()
-        {
-            _attemptedEntryKey = null;
-            _observedAttemptKey = null;
-            _attemptedNanoId = 0;
-            _attemptedUtc = DateTime.MinValue;
-            _previousObservedExpiryUtc = DateTime.MinValue;
-            _attemptedMissingLearnedBuff = false;
-        }
-
         private bool TryCompleteFromObservation()
         {
-            if (_observedAttemptKey == null ||
-                _observedAttemptKey != CurrentCastAttemptKey()) return false;
+            if (Queue.Current == null || Work(Queue.Current).ObservationKey == null ||
+                Work(Queue.Current).ObservationKey != CurrentCastAttemptKey()) return false;
             if (!ManagerMemory.Current.ObservedCastLanded(Queue.Current.Requester.Instance,
-                _attemptedNanoId, _attemptedUtc, _previousObservedExpiryUtc,
-                _attemptedMissingLearnedBuff)) return false;
+                Work(Queue.Current).NanoId, Work(Queue.Current).AttemptedUtc, Work(Queue.Current).PreviousExpiryUtc,
+                Work(Queue.Current).MissingBefore)) return false;
             Logger.Information("Manager NCU confirmed '" + Queue.Current.NanoEntry.Name +
-                "' for requester " + Queue.Current.Requester.Instance + " nano=" + _attemptedNanoId +
-                (_attemptedMissingLearnedBuff ? "; learned buff appeared after cast attempt." :
+                "' for requester " + Queue.Current.Requester.Instance + " nano=" + Work(Queue.Current).NanoId +
+                (Work(Queue.Current).MissingBefore ? "; learned buff appeared after cast attempt." :
                     "; duration renewed after cast attempt."));
             ResetCurrentBuffEntry(completed: true);
             return true;
         }
 
-        // Feedback has no nano id. Only attach it while a cast is outstanding.
-        internal bool HasOutstandingCast => _attemptedEntryKey != null &&
-            _attemptedEntryKey == CurrentCastAttemptKey();
+        // Feedback has no nano id; correlate it with this caster's last send,
+        // never whichever recipient happens to occupy the queue's active slot.
+        internal bool HasOutstandingCast => _feedbackEntry != null && _castWork.ContainsKey(_feedbackEntry);
 
-        internal bool IsOutstandingNano(int nanoId) => HasOutstandingCast && _attemptedNanoId == nanoId;
+        internal void RetryFeedback(string reason)
+        {
+            if (!HasOutstandingCast) return;
+            Work(_feedbackEntry).FeedbackUtc = DateTime.UtcNow;
+            ReportRetry(_feedbackEntry, reason);
+        }
+
+        internal void RecordFeedback(string reason)
+        {
+            if (HasOutstandingCast) ReportRetry(_feedbackEntry, reason);
+        }
+
+        internal void SuccessfulCastFeedback()
+        {
+            if (HasOutstandingCast) MarkCastCompleted(_feedbackEntry, Work(_feedbackEntry));
+        }
+
+        internal void FinishFeedback(LdbFeedback feedback)
+        {
+            if (HasOutstandingCast) CompleteBuffEntry(_feedbackEntry, feedback);
+        }
 
         internal void RetryCurrentBuffEntry(string reason)
         {
-            if (Queue.Current == null) return;
-            // Retain the request, not an artificial cooldown. The normal update
-            // tick and the SDK casting state govern when another attempt is possible.
-            if (_lastRetryReason != reason)
-                CityBufferBridge.Diagnostic(Queue.Current.Requester.Instance,
-                    "Retaining " + Queue.Current.NanoEntry.Name + ": " + reason);
-            _lastRetryReason = reason;
+            if (Queue.Current != null) ReportRetry(Queue.Current, reason);
+        }
+
+        private void ReportRetry(BuffEntry entry, string reason)
+        {
+            var work = Work(entry);
+            if (work.LastRetryReason != reason)
+                CityBufferBridge.Diagnostic(entry.Requester.Instance,
+                    "Retaining " + entry.NanoEntry.Name + ": " + reason);
+            work.LastRetryReason = reason;
         }
 
         private void ReportCurrentDiagnostic(string outcome, string reason)
@@ -522,54 +581,79 @@ namespace MalisBuffBots
             return Queue.Current.Requester.Instance + "|" + Queue.Current.NanoEntry.Name + "|" + nanoIds;
         }
 
-        internal void CastFinished()
+        internal void FinishNanoCasting(int nanoId)
         {
-            // When Manager has a baseline, target NCU decides delivery, including
-            // instant casts. Outside Manager's view retain Mali's completion path.
-            if (_observedAttemptKey != null)
+            var match = _castWork.Where(p => p.Value.NanoId == nanoId &&
+                p.Value.AttemptKey != null && p.Value.CompletionUtc == default(DateTime) &&
+                p.Value.FeedbackUtc <= p.Value.AttemptedUtc)
+                .OrderBy(p => p.Value.AttemptedUtc).FirstOrDefault();
+            if (match.Key == null) return;
+            MarkCastCompleted(match.Key, match.Value);
+        }
+
+        private void MarkCastCompleted(BuffEntry entry, CastWork work)
+        {
+            if (work.CompletionUtc != default(DateTime)) return;
+            work.CompletionUtc = DateTime.UtcNow;
+            Logger.Information("Finished casting '" + entry.NanoEntry.Name + "' for requester " + entry.Requester.Instance);
+            if (work.ObservationKey == null || ObservationLanded(entry, work))
+                CompleteBuffEntry(entry, completed: true);
+            else
             {
-                TryCompleteFromObservation();
-                return;
+                // A late completion can arrive after a failure was put at the tail.
+                // Remove it from the ready queue as well as from the active slot.
+                Queue.AwaitConfirmation(entry);
+                Main.Ipc.BotCache.BroadcastQueueInfoMessage();
             }
-            ResetCurrentBuffEntry(completed: true);
+            // Otherwise this entry remains awaiting Manager, not eligible for an
+            // immediate recast. The caster can serve the rest of the queue.
         }
 
         public void ResetCurrentBuffEntry(LdbFeedback? feedback = null, bool completed = false)
+            => CompleteBuffEntry(Queue.Current, feedback, completed);
+
+        private void CompleteBuffEntry(BuffEntry entry, LdbFeedback? feedback = null, bool completed = false)
         {
-            if (Queue.Current == null) return;
-            ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)Queue.Current.Requester.Instance),
-                Queue.Current.NanoEntry.Tags.ToArray());
+            if (entry == null) return;
+            ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)entry.Requester.Instance),
+                entry.NanoEntry.Tags.ToArray());
             if (feedback != null)
-                ReportCurrentDiagnostic("couldn't cast", FeedbackReason(feedback.Value) + ".");
+                CityBufferBridge.Diagnostic(entry.Requester.Instance, entry.NanoEntry.Name + ": " + FeedbackReason(feedback.Value));
             if (feedback != null)
-                Logger.Warning("Buff feedback for requester " + Queue.Current.Requester.Instance +
+                Logger.Warning("Buff feedback for requester " + entry.Requester.Instance +
                     ": " + feedback.Value);
 
             if (completed)
             {
                 if (Main.PaidPilot && PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) &&
-                    (Queue.Current.NanoEntry.ContainsId(275043) || Queue.Current.NanoEntry.ContainsId(235291)))
+                    (entry.NanoEntry.ContainsId(275043) || entry.NanoEntry.ContainsId(235291)))
                 {
                     // Keep the team and session alive briefly for the team effect to land.
                     _paidFixerPostCastUntilUtc = DateTime.UtcNow.AddSeconds(1);
                 }
                 if (!Main.PaidPilot)
-                    DynelManager.LocalPlayer.TryRemoveBuffs(Queue.Current.NanoEntry.RemoveNanoIdUponCast);
+                    DynelManager.LocalPlayer.TryRemoveBuffs(entry.NanoEntry.RemoveNanoIdUponCast);
                 if (Main.PaidPilot && PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) &&
-                    (Queue.Current.NanoEntry.ContainsId(275043) || Queue.Current.NanoEntry.ContainsId(235291)))
+                    (entry.NanoEntry.ContainsId(275043) || entry.NanoEntry.ContainsId(235291)))
                 {
-                    int teamNano = Queue.Current.NanoEntry.ContainsId(275043) ? 275043 : 235291;
-                    foreach (int recipient in Queue.RemoveQueuedTeamBuff(teamNano, _fixerCastMembers))
+                    int teamNano = entry.NanoEntry.ContainsId(275043) ? 275043 : 235291;
+                    foreach (int recipient in Queue.RemoveQueuedTeamBuff(teamNano, Work(entry).TeamMembers))
                         CityBufferBridge.Diagnostic(recipient,
-                            Client.CharacterName + " finished casting " + Queue.Current.NanoEntry.Name + " for the team.");
+                            Client.CharacterName + " finished casting " + entry.NanoEntry.Name + " for the team.");
                 }
             }
-            _fixerCastMembers = new int[0];
-            ReleaseObservedAssignment();
+            Work(entry).TeamMembers = new int[0];
+            if (entry.NanoEntry.ObserverAssignmentId != null)
+                ManagerMemory.Current.ReleaseObservedBuffRefresh(Client.CharacterName,
+                    entry.Requester.Instance, entry.NanoEntry.LevelToId[0].Id, entry.NanoEntry.ObserverAssignmentId);
 
             Logger.Information("RESET TRIGGERED");
-            ClearCastAttempt();
-            Queue.ClearCurrent();
+            _castWork.Remove(entry);
+            if (ReferenceEquals(_feedbackEntry, entry)) _feedbackEntry = null;
+            Queue.Remove(entry);
+            var remaining = Queue.AllEntries;
+            foreach (var retired in _castWork.Keys.Where(e => !remaining.Contains(e)).ToArray())
+                _castWork.Remove(retired);
             Main.Ipc.BotCache.BroadcastQueueInfoMessage();
         }
 
@@ -594,9 +678,6 @@ namespace MalisBuffBots
             }
 
             if (TryCompleteFromObservation()) return;
-            if (TryReturnObservedAttempt()) return;
-
-            Logger.Information($"Attempting to cast '{Queue.Current.NanoEntry.Name}' on '{buffTarget.Name}'");
 
             var knownNanos = new HashSet<int>(Main.EffectiveSpellList());
             bool observedRefresh = Queue.Current.NanoEntry.ObserverRefreshUntilUtc != default(DateTime);
@@ -613,6 +694,18 @@ namespace MalisBuffBots
                 return;
             }
 
+            // FinishNanoCasting carries a nano id, not a recipient. Keep at most
+            // one unanswered send of this nano so two nearby players cannot
+            // borrow each other's completion. Other nanos remain ready to serve.
+            if (_castWork.Any(p => !ReferenceEquals(p.Key, Queue.Current) &&
+                p.Value.NanoId == firstAvailableBuff.Id && p.Value.AttemptKey != null &&
+                ((p.Value.CompletionUtc == default(DateTime) &&
+                  p.Value.FeedbackUtc <= p.Value.AttemptedUtc) ||
+                 (p.Value.TeamMembers.Contains(Queue.Current.Requester.Instance) &&
+                  p.Value.CompletionUtc != default(DateTime))))) return;
+
+            Logger.Information($"Attempting to cast '{Queue.Current.NanoEntry.Name}' on '{buffTarget.Name}'");
+
             if (Main.SettingsJson.Data.DanceOnCast)
             {
                 Client.Send(new SocialActionCmdMessage
@@ -623,14 +716,14 @@ namespace MalisBuffBots
                 });
             }
 
-            bool firstAttempt = _attemptedEntryKey != CurrentCastAttemptKey();
-            _attemptedEntryKey = CurrentCastAttemptKey();
+            bool firstAttempt = Work(Queue.Current).AttemptKey != CurrentCastAttemptKey();
+            Work(Queue.Current).AttemptKey = CurrentCastAttemptKey();
             if (firstAttempt)
             {
-                _observedAttemptKey = null;
-                _attemptedMissingLearnedBuff = false;
-                _attemptedNanoId = firstAvailableBuff.Id;
-                _attemptedUtc = DateTime.UtcNow;
+                Work(Queue.Current).ObservationKey = null;
+                Work(Queue.Current).MissingBefore = false;
+                Work(Queue.Current).NanoId = firstAvailableBuff.Id;
+                Work(Queue.Current).AttemptedUtc = DateTime.UtcNow;
                 if (Queue.Current.Requester != DynelManager.LocalPlayer.Identity)
                 {
                     var before = ManagerMemory.Current.ReadNearbyPlayers().FirstOrDefault(p =>
@@ -640,22 +733,26 @@ namespace MalisBuffBots
                     // Preserve the first baseline across retries; never chase the new expiry.
                     if (oldNano != null && oldNano.RemainingSeconds > 0)
                     {
-                        _observedAttemptKey = _attemptedEntryKey;
-                        _previousObservedExpiryUtc = before.ObservedUtc.AddSeconds(oldNano.RemainingSeconds);
+                        Work(Queue.Current).ObservationKey = Work(Queue.Current).AttemptKey;
+                        Work(Queue.Current).PreviousExpiryUtc = before.ObservedUtc.AddSeconds(oldNano.RemainingSeconds);
                     }
                     else if (before != null)
                     {
-                        _observedAttemptKey = _attemptedEntryKey;
-                        _attemptedMissingLearnedBuff = true;
+                        Work(Queue.Current).ObservationKey = Work(Queue.Current).AttemptKey;
+                        Work(Queue.Current).MissingBefore = true;
                     }
                 }
             }
+            Work(Queue.Current).AttemptedUtc = DateTime.UtcNow;
+            Work(Queue.Current).CompletionUtc = default(DateTime);
+            Work(Queue.Current).FeedbackUtc = default(DateTime);
+            _feedbackEntry = Queue.Current;
             // Team emitters are cast on the caster; the server applies their effects to teammates.
             PlayerChar castTarget = PaidBufferCatalogue.FindEffect(firstAvailableBuff.Id)?.IsTeam == true
                 ? DynelManager.LocalPlayer : buffTarget;
             if (Main.PaidPilot && PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) &&
                 PaidBufferCatalogue.FindEffect(firstAvailableBuff.Id)?.IsTeam == true)
-                _fixerCastMembers = Team.Members.Select(m => m.Identity.Instance).ToArray();
+                Work(Queue.Current).TeamMembers = Team.Members.Select(m => m.Identity.Instance).ToArray();
             Targeting.SetTarget(castTarget);
             DynelManager.LocalPlayer.Cast(castTarget, firstAvailableBuff.Id);
         }
@@ -689,7 +786,7 @@ namespace MalisBuffBots
                 return;
             }
 
-            if (DateTime.UtcNow >= _directTeamDeadline &&
+            if (DateTime.UtcNow >= Work(Queue.Current).TeamDeadlineUtc &&
                 (!Team.IsInTeam || !Team.Members.Any(m => m.Identity == Queue.Current.Requester)))
             {
                 ReportCurrentDiagnostic("couldn't cast", "team invitation timed out. Leave your current team and retry.");
@@ -700,23 +797,22 @@ namespace MalisBuffBots
             {
                 if (Team.Members.Any(m => m.Identity == Queue.Current.Requester))
                     AttemptToBuffTarget();
-                else LeaveTeam();
+                else if (!Queue.Awaiting.Any(e => e.NanoEntry.Type == CastType.Team &&
+                    Team.Members.Any(m => m.Identity == e.Requester))) LeaveTeam();
                 return;
             }
-            if (_directInviteRequester != Queue.Current.Requester.Instance)
+            if (Work(Queue.Current).InviteRequester != Queue.Current.Requester.Instance)
             {
-                _directInviteRequester = Queue.Current.Requester.Instance;
+                Work(Queue.Current).InviteRequester = Queue.Current.Requester.Instance;
                 ResetTeamTimer();
                 Team.Invite(Queue.Current.Requester);
-                Logger.Information("Direct team invitation sent to requester " + _directInviteRequester +
+                Logger.Information("Direct team invitation sent to requester " + Work(Queue.Current).InviteRequester +
                     " for " + Queue.Current.NanoEntry.Name + ".");
-                CityBufferBridge.RequestResult(_directInviteRequester,
+                CityBufferBridge.RequestResult(Work(Queue.Current).InviteRequester,
                     "Accept " + Client.CharacterName + "'s team invitation for " + Queue.Current.NanoEntry.Name + ".");
             }
         }
     }
 }
-
-
 
 
