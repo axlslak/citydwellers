@@ -168,22 +168,7 @@ namespace MalisBuffBots
             if (identity != DynelManager.LocalPlayer.Identity)
                 return;
 
-            if (_queueProcessor.Queue.Current == null)
-                return;
-
-            if (!_queueProcessor.Queue.Current.NanoEntry.ContainsId(param2))
-                return;
-
-            // An observer-confirmed request may already have left the queue. Do not
-            // apply its late completion packet to a queued but unattempted request.
-            if (!_queueProcessor.IsOutstandingNano(param2))
-                return;
-
-            var buffTarget = DynelManager.Players.FirstOrDefault(x => x.Identity == _queueProcessor.Queue.Current.Requester);
-            var buffTargetName = buffTarget != null ? buffTarget.Name : target.Instance.ToString();
-
-            Logger.Information($"Finished casting '{_queueProcessor.Queue.Current.NanoEntry.Name}' on '{buffTargetName}'");
-            _queueProcessor.CastFinished();
+            _queueProcessor.FinishNanoCasting(param2);
         }
 
         private void ProcessFeedbackMessage(FeedbackMessage feedbackMsg)
@@ -203,10 +188,10 @@ namespace MalisBuffBots
                 case LdbFeedback.OutOfRange:
                 case LdbFeedback.UnableToUseNano:
                 case LdbFeedback.WaitForNanoToFinish:
-                    _queueProcessor.RetryCurrentBuffEntry(QueueProcessor.FeedbackReason((LdbFeedback)feedbackMsg.MessageId));
+                    _queueProcessor.RetryFeedback(QueueProcessor.FeedbackReason((LdbFeedback)feedbackMsg.MessageId));
                     break;
                 case LdbFeedback.BetterNanoInNcu:
-                    _queueProcessor.ResetCurrentBuffEntry((LdbFeedback)feedbackMsg.MessageId);
+                    _queueProcessor.FinishFeedback((LdbFeedback)feedbackMsg.MessageId);
                     break;
                 case LdbFeedback.NotEnoughNano:
                     OnNotEnoughNanoFeedback((LdbFeedback)feedbackMsg.MessageId);
@@ -214,12 +199,13 @@ namespace MalisBuffBots
                 case LdbFeedback.MustStandToCast:
                     var moveComponent = DynelManager.LocalPlayer.MovementComponent;
                     moveComponent.ChangeMovement(MovementAction.LeaveSit);
-                    _queueProcessor.RetryCurrentBuffEntry("standing up to cast");
+                    _queueProcessor.RetryFeedback("standing up to cast");
                     break;
                 case LdbFeedback.SuccessfulCast:
+                    _queueProcessor.SuccessfulCastFeedback();
                     break;
                 default:
-                    _queueProcessor.RetryCurrentBuffEntry("unregistered game feedback=" + feedbackMsg.MessageId);
+                    _queueProcessor.RecordFeedback("unregistered game feedback=" + feedbackMsg.MessageId);
                     break;
             }
 
@@ -233,11 +219,11 @@ namespace MalisBuffBots
                 moveComponent.ChangeMovement(MovementAction.SwitchToSit);
                 item.Use();
                 moveComponent.ChangeMovement(MovementAction.LeaveSit);
-                _queueProcessor.RetryCurrentBuffEntry("restoring nano");
+                _queueProcessor.RetryFeedback("restoring nano");
                 return;
             }
 
-            _queueProcessor.RetryCurrentBuffEntry(QueueProcessor.FeedbackReason(messageId));
+            _queueProcessor.RetryFeedback(QueueProcessor.FeedbackReason(messageId));
         }
 
     }

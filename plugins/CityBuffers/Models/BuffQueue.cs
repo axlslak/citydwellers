@@ -9,10 +9,13 @@ namespace MalisBuffBots
         private readonly object _sync = new object();
         private readonly Queue<BuffEntry> _queue = new Queue<BuffEntry>();
         private BuffEntry _current;
+        private readonly List<BuffEntry> _awaiting = new List<BuffEntry>();
+        private readonly HashSet<BuffEntry> _deferred = new HashSet<BuffEntry>();
+        internal BuffEntry[] Awaiting { get { lock (_sync) return _awaiting.ToArray(); } }
         public BuffEntry Current { get { lock (_sync) return _current; } }
         public BuffEntry[] AllEntries
         {
-            get { lock (_sync) return _current != null ? _queue.Concat(new[] { _current }).ToArray() : _queue.ToArray(); }
+            get { lock (_sync) return _queue.Concat(_awaiting).Concat(_current == null ? new BuffEntry[0] : new[] { _current }).ToArray(); }
         }
 
         public QueueState Process(Identity preferredRequester)
@@ -23,7 +26,7 @@ namespace MalisBuffBots
                 if (_queue.Count == 0) return QueueState.Empty;
                 // Finish configured self buffs before dependent customer casts.
                 // Never preempt a cast already in progress.
-                var preferred = _queue.FirstOrDefault(e => e.Requester == preferredRequester);
+                var preferred = _queue.FirstOrDefault(e => e.Requester == preferredRequester && !_deferred.Contains(e));
                 if (preferred == null) _current = _queue.Dequeue();
                 else
                 {
@@ -41,7 +44,7 @@ namespace MalisBuffBots
         {
             lock (_sync)
             {
-                var entries = _current != null ? _queue.Concat(new[] { _current }).ToArray() : _queue.ToArray();
+                var entries = AllEntries;
                 error = entry == null || entry.NanoEntry == null || entry.Requester == Identity.None
                     ? "Invalid buff request."
                     : entries.Any(e => e.Equals(entry)) ? "That buff is already queued."
@@ -76,14 +79,63 @@ namespace MalisBuffBots
                     !recipients.Contains(e.Requester.Instance)).ToArray();
                 _queue.Clear();
                 foreach (var entry in keep) _queue.Enqueue(entry);
+                _deferred.RemoveWhere(e => e.NanoEntry.ContainsId(nanoId) && recipients.Contains(e.Requester.Instance));
                 return served;
             }
         }
 
-        internal void ClearCurrent() { lock (_sync) _current = null; }
-        internal void Clear() { lock (_sync) { _queue.Clear(); _current = null; } }
+        // Waiting for Manager is still admitted work (capacity, deduplication and
+        // paid-session activity), but must not monopolize the active caster.
+        internal void YieldCurrent(bool awaitingObservation)
+        {
+            lock (_sync)
+            {
+                if (_current == null) return;
+                if (awaitingObservation) _awaiting.Add(_current);
+                else
+                {
+                    _deferred.Add(_current);
+                    _queue.Enqueue(_current);
+                }
+                _current = null;
+            }
+        }
+
+        internal void RetryAtTail(BuffEntry entry)
+        {
+            lock (_sync)
+                if (_awaiting.Remove(entry))
+                {
+                    _deferred.Add(entry);
+                    _queue.Enqueue(entry);
+                }
+        }
+
+        internal void AwaitConfirmation(BuffEntry entry)
+        {
+            lock (_sync)
+            {
+                Remove(entry);
+                _awaiting.Add(entry);
+            }
+        }
+
+        internal void Remove(BuffEntry entry)
+        {
+            lock (_sync)
+            {
+                if (ReferenceEquals(_current, entry)) _current = null;
+                _awaiting.Remove(entry);
+                _deferred.Remove(entry);
+                var keep = _queue.Where(e => !ReferenceEquals(e, entry)).ToArray();
+                _queue.Clear();
+                foreach (var item in keep) _queue.Enqueue(item);
+            }
+        }
+
+        internal void ClearCurrent() { lock (_sync) { if (_current != null) _deferred.Remove(_current); _current = null; } }
+        internal void Clear() { lock (_sync) { _queue.Clear(); _awaiting.Clear(); _deferred.Clear(); _current = null; } }
     }
 
     public enum QueueState { Current, Empty, Dequeue }
 }
-
