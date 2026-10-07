@@ -264,160 +264,169 @@ namespace CityManager
         }
 
         private void BeginBufferPublicCommand(
-            string senderName,
-            string command,
-            string[] parts,
-            ReplyTarget target)
+            string senderName, string command, string[] parts, ReplyTarget target)
         {
             if (target == null || target.SenderId == 0)
             {
                 Reply(target, "I could not resolve your AO character identity for this buff request.");
                 return;
             }
-
             bool isCast = string.Equals(command, "cast", StringComparison.OrdinalIgnoreCase);
-            bool isRebuff = string.Equals(command, "rebuff", StringComparison.OrdinalIgnoreCase);
-            bool isBuffmacro = string.Equals(command, "buffmacro", StringComparison.OrdinalIgnoreCase);
-
-            if ((isCast && parts.Length < 2) ||
-                ((isRebuff || isBuffmacro) && parts.Length != 1))
+            if ((isCast && parts.Length < 2) || (!isCast && parts.Length != 1))
             {
-                Reply(target, isCast
-                    ? Usage(target, "cast [buff tag...]")
-                    : Usage(target, command));
+                Reply(target, Usage(target, isCast ? "cast [buff tag...]" : command));
                 return;
             }
-
-            DateTime now = DateTime.UtcNow;
-            string[] castTags = isCast ? parts.Skip(1).Select(value => value.ToLowerInvariant()).ToArray() : new string[0];
-            var paidNanos = castTags.Select(PaidBufferCatalogue.Find).ToArray();
-            bool paidCast = paidNanos.Any(n => n != null);
-            // Mali ncu is also an ordinary fleet tag. Keep lower-level requests
-            // and ordinary multi-buff commands on that route; fsc stays explicit.
-            if (castTags.Contains("ncu") && !paidNanos.Any(n => n != null && n.Id != 275043) &&
-                !castTags.Contains("fsc"))
+            // Read the live dynel only on the AO command thread. Missing metadata
+            // must not reject a macro; individual casters can check actual requirements.
+            int? level = null;
+            if (isCast)
             {
                 var requester = DynelManager.Players.FirstOrDefault(p => p.Identity.Instance == target.SenderId);
-                if (paidNanos.Any(n => n == null) || (requester != null && requester.Level < 215) ||
-                    !ManagerMemory.Current.ReadPaidBuffers().Any(p => p.Profession == 4)) paidCast = false;
+                try { if (requester != null) level = requester.Level; } catch { }
             }
-            PaidBufferSession paid = null;
-            if (paidCast)
+            var tags = parts.Skip(1).Select(t => t.ToLowerInvariant()).Distinct().ToArray();
+            QueuePublicWork(target, () =>
             {
-                if (paidNanos.Any(n => n == null) || paidNanos.Select(n => n.Profession).Distinct().Count() != 1)
+                if (isCast)
                 {
-                    Reply(target, "Please request each paid profession separately from other professions and ordinary buffer tags.");
+                    ServeBufferMacro(senderName, tags, level, target);
                     return;
                 }
-                int profession = paidNanos[0].Profession;
-                if (profession == 12 && paidNanos.Select(n => n.Id).Distinct().Count() > 1)
+                var outcome = RunBufferCommand(senderName, command, new string[0], target, null);
+                if (outcome == null || !outcome.Success) return;
+                if (string.Equals(command, "buffmacro", StringComparison.OrdinalIgnoreCase))
                 {
-                    Reply(target, "Choose one MP composite at a time; Teachings, Mastery, Infuse and Mochams replace each other.");
-                    return;
-                }
-                paid = ManagerMemory.Current.ReadPaidBuffers().Where(p => p.Profession == profession)
-                    .OrderBy(p => p.Blocked || now < p.RetryAfterUtc)
-                    .ThenByDescending(p => p.Ready && !p.Draining)
-                    .ThenBy(p => p.Character, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
-                if (paid == null)
-                {
-                    Reply(target, "No on-demand paid " + PaidBufferCatalogue.ProfessionName(profession) + " is configured.");
-                    return;
-                }
-            }
-            if (paidCast && now < paid.RetryAfterUtc)
-            {
-                Reply(target, "The paid buffer is cooling down after a failed session. Please retry in a minute.");
-                return;
-            }
-            if (paidCast && paid.Blocked)
-            {
-                Reply(target, "The paid buffer is blocked after a cleanup failure; an administrator must check the host log.");
-                return;
-            }
-
-            string id = Guid.NewGuid().ToString("N");
-            var request = new BufferPublicCommandRequest
-            {
-                Id = id,
-                Command = command.ToLowerInvariant(),
-                TargetCharacter = paid?.Character,
-                SenderId = target.SenderId,
-                SenderName = senderName,
-                Arguments = castTags,
-                CreatedUtc = now
-            };
-
-            if (!ManagerMemory.Current.BeginBufferPublicCommand(request))
-            {
-                Reply(target, "The buffer command queue is busy. Try again shortly.");
-                return;
-            }
-
-            if (paidCast)
-                Reply(target, "Request queued for " + paid.Character +
-                    (PaidBufferCatalogue.UsesManagerTeam(paid.Profession)
-                        ? ". Leave your current team and accept my invitation. Stay nearby; I will bring the buffer into our team when a login slot and the account are available."
-                        : ". Stay near the buffer; I will log them in when the shared account is free."));
-
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                try
-                {
-                    BufferPublicCommandOutcome outcome =
-                        ManagerMemory.Current.WaitForBufferPublicCommandOutcome(
-                            id, paidCast ? 120000 : BufferPublicCommandTimeoutMilliseconds);
-
-                    if (outcome == null)
-                    {
-                        Reply(
-                            target,
-                            paidCast ? "The paid buffer could not serve this request within two minutes. The account may still be busy, or your character was not nearby; check buffer status before retrying." :
-                            "No ready buffer could see your character nearby. Stand near the buffer fleet and try again.");
-                        return;
-                    }
-
-                    DevTrace(
-                        $"BUFFER COMMAND {command} requester={senderName} " +
-                        $"claimedBy={outcome.ClaimedBy ?? "unknown"} success={outcome.Success}.");
-
-                    if (!outcome.Success)
-                    {
-                        Reply(
-                            target,
-                            "Buffers: " +
-                            (outcome.Message ?? "the request could not be completed."));
-                        return;
-                    }
-
-                    if (paidCast) Reply(target, "Buffers: " + (outcome.Message ?? "Buffs accepted into the casting queue."));
-
-                    if (isBuffmacro)
-                    {
-                        string[] tags = outcome.Tags ?? new string[0];
-                        if (tags.Length == 0)
-                        {
-                            Reply(target, "No recognized active buffs were available for a macro.");
-                            return;
-                        }
-
-                        Reply(
-                            target,
-                            "<font color='" + ColorCommand + "'>/macro buffpreset /tell " +
-                            Client.CharacterName + " cast " +
-                            EscapeBlobText(string.Join(" ", tags)) +
-                            "</font>");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Reply(target, "Buffer command failed: " + ex.Message);
-                }
-                finally
-                {
-                    ManagerMemory.Current.FinishBufferPublicCommand(id);
+                    var found = outcome.Tags ?? new string[0];
+                    Reply(target, found.Length == 0
+                        ? "No recognized active buffs were available for a macro."
+                        : "<font color='" + ColorCommand + "'>/macro buffpreset /tell " +
+                          Client.CharacterName + " cast " + EscapeBlobText(string.Join(" ", found)) + "</font>");
                 }
             });
+        }
+
+        private void ServeBufferMacro(string senderName, string[] tags, int? level, ReplyTarget target)
+        {
+            var memory = ManagerMemory.Current;
+            var ordinary = new List<string>();
+            var paid = new List<PaidBufferNano>();
+            foreach (string tag in tags)
+            {
+                var nano = PaidBufferCatalogue.Find(tag);
+                bool configured = nano != null && memory.ReadPaidBuffers().Any(p => p.Profession == nano.Profession);
+                // Shared Mali tags retain their free alternative when the paid role
+                // is disabled, or this recipient needs the lower-level NCU line.
+                if (nano == null || ((tag == "ncu" || tag == "iic") &&
+                    (!configured || (tag == "ncu" && level.HasValue && level.Value < nano.Level))))
+                {
+                    ordinary.Add(tag);
+                    continue;
+                }
+                if (!configured)
+                {
+                    Reply(target, "Can't cast " + nano.Name + " (" + tag + "): no enabled paid " +
+                        PaidBufferCatalogue.ProfessionName(nano.Profession) + " is configured.");
+                    continue;
+                }
+                if (level.HasValue && level.Value < nano.Level)
+                {
+                    Reply(target, "Can't cast " + nano.Name + " (" + tag + "): requires recipient level " + nano.Level + "+.");
+                    continue;
+                }
+                if (!paid.Any(n => n.Id == nano.Id)) paid.Add(nano);
+            }
+
+            // Preserve the learned NCU prerequisite even when a copied macro
+            // omitted it. Explicit NCU requests also run before everything else.
+            if (!ordinary.Contains("ncu") && !paid.Any(n => n.Id == 275043) &&
+                memory.ObservedNcuNeedsRefresh(unchecked((int)target.SenderId)))
+            {
+                var ncu = PaidBufferCatalogue.Find("fsc");
+                if ((!level.HasValue || level.Value >= ncu.Level) &&
+                    memory.ReadPaidBuffers().Any(p => p.Profession == 4)) paid.Insert(0, ncu);
+            }
+
+            bool fixerFirst = paid.Any(n => n.Id == 275043);
+            var ncuNanos = paid.Where(n => fixerFirst && n.Profession == 4).ToArray();
+            if (ncuNanos.Length != 0) ServePaidMacroPart(senderName, ncuNanos, target);
+            if (ordinary.Remove("ncu"))
+            {
+                string watch = memory.WatchBufferCast(target.SenderId, "ncu");
+                try
+                {
+                    var result = RunBufferCommand(senderName, "cast", new[] { "ncu" }, target, null);
+                    if (result != null && result.Success && !memory.WaitForBufferCast(watch, 125000))
+                        Reply(target, "NCU request has not finished yet; continuing with the other buffs I can provide.");
+                }
+                finally { memory.FinishBufferCastWatch(watch); }
+            }
+
+            if (ordinary.Count != 0)
+                RunBufferCommand(senderName, "cast", ordinary.ToArray(), target, null);
+
+            foreach (var group in paid.Where(n => !fixerFirst || n.Profession != 4).GroupBy(n => n.Profession))
+                ServePaidMacroPart(senderName, group.ToArray(), target);
+        }
+
+        private void ServePaidMacroPart(string senderName, PaidBufferNano[] nanos, ReplyTarget target)
+        {
+            var memory = ManagerMemory.Current;
+            string names = string.Join(", ", nanos.Select(n => n.Name));
+            var provider = memory.ReadPaidBuffers().Where(p => p.Profession == nanos[0].Profession)
+                .OrderBy(p => p.Blocked || DateTime.UtcNow < p.RetryAfterUtc)
+                .ThenByDescending(p => p.Ready && !p.Draining)
+                .ThenBy(p => p.Character, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+            string unavailable = provider == null ? "no enabled provider is configured" :
+                provider.Blocked ? provider.Character + " is unavailable after a cleanup failure" :
+                DateTime.UtcNow < provider.RetryAfterUtc ? provider.Character + " is recovering from a failed session" : null;
+            if (unavailable != null)
+            {
+                Reply(target, "Can't cast " + names + ": " + unavailable + ".");
+                return;
+            }
+            RunBufferCommand(senderName, "cast", nanos.Select(n => n.Tags[0]).ToArray(), target, provider);
+            if (memory.ReadPaidBuffer(provider.Character)?.Running == true &&
+                !memory.WaitForPaidBufferIdle(provider.Character, 180000))
+                Reply(target, names + ": " + provider.Character + " is still finishing its queue; remaining requests will wait their turn.");
+        }
+
+        private BufferPublicCommandOutcome RunBufferCommand(
+            string senderName, string command, string[] tags, ReplyTarget target, PaidBufferSession paid)
+        {
+            string id = Guid.NewGuid().ToString("N");
+            string description = command == "cast" ? string.Join(" ", tags) : command;
+            var memory = ManagerMemory.Current;
+            try
+            {
+                if (!memory.BeginBufferPublicCommand(new BufferPublicCommandRequest {
+                    Id = id, Command = command.ToLowerInvariant(), TargetCharacter = paid?.Character,
+                    SenderId = target.SenderId, SenderName = senderName, Arguments = tags, CreatedUtc = DateTime.UtcNow }))
+                {
+                    Reply(target, "Could not queue " + description + ": the buffer queue is busy or its provider is unavailable.");
+                    return null;
+                }
+                if (paid != null && PaidBufferCatalogue.UsesManagerTeam(paid.Profession))
+                    Reply(target, "Queued " + description + " with " + paid.Character +
+                        ". Leave your current team and accept my invitation.");
+                var outcome = memory.WaitForBufferPublicCommandOutcome(id, BufferPublicCommandTimeoutMilliseconds);
+                if (outcome == null)
+                    Reply(target, "Could not deliver " + description + ": no ready nearby buffer accepted it within two minutes.");
+                else
+                {
+                    DevTrace("BUFFER COMMAND " + command + " requester=" + senderName +
+                        " claimedBy=" + outcome.ClaimedBy + " success=" + outcome.Success + ".");
+                    if (!outcome.Success || !string.IsNullOrWhiteSpace(outcome.Message))
+                        Reply(target, description + ": " + (outcome.Message ?? "the request could not be completed."));
+                }
+                return outcome;
+            }
+            catch (Exception ex)
+            {
+                Reply(target, "Could not deliver " + description + ": " + ex.Message);
+                return null;
+            }
+            finally { memory.FinishBufferPublicCommand(id); }
         }
 
         private void ProcessBufferBuffListCommand(string[] parts, ReplyTarget target)
@@ -599,5 +608,6 @@ namespace CityManager
         }
     }
 }
+
 
 

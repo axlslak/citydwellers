@@ -77,7 +77,7 @@ namespace MalisBuffBots
                     if (signal.CreatedUtc >= DateTime.UtcNow.AddMinutes(-2) &&
                         ManagerMemory.Current.ReturnBufferSignal(Client.CharacterName, signal)) continue;
                     Logger.Warning("Buffer handoff queue expired/full for requester " + request.Requester + ".");
-                    CityBufferBridge.PaidResult(request.Requester, "Buffer queue remained full; please retry your buff request.");
+                    CityBufferBridge.Diagnostic(request.Requester, "Buffer queue remained full; please retry your buff request.");
                 }
             }
 
@@ -153,7 +153,7 @@ namespace MalisBuffBots
                 }
 
                 if (request.ObservedNanoId > 0 && !success)
-                    CityBufferBridge.RequestResult(requester.Identity.Instance,
+                    CityBufferBridge.Diagnostic(requester.Identity.Instance,
                         "Automatic buff request: " + (message ?? "could not queue the buff."));
 
                 ManagerMemory.Current.CompleteBufferPublicCommand(
@@ -179,24 +179,37 @@ namespace MalisBuffBots
             var parts = (signal.Payload ?? "").Split(':');
             int requester, nanoId;
             if (parts.Length != 2 || !int.TryParse(parts[0], out requester) ||
-                !int.TryParse(parts[1], out nanoId) || signal.CreatedUtc < DateTime.UtcNow.AddSeconds(-10) ||
-                !ManagerMemory.Current.ObservedBuffNeedsRefresh(requester, nanoId)) return;
-            var player = DynelManager.Players.FirstOrDefault(p => p.Identity.Instance == requester);
-            if (player == null || !Main.EffectiveSpellList().Contains(nanoId)) return;
-            var entry = Main.BuffsJson.Entries.Values.SelectMany(entries => entries)
-                .FirstOrDefault(e => e.Type == CastType.Single && e.LevelToId.Any(n =>
-                    n.Id == nanoId));
-            if (entry == null) return;
-            if (Main.QueueProcessor.Queue.AllEntries.Any(e => e.Requester == player.Identity &&
-                e.NanoEntry.ContainsId(nanoId))) return;
-            var exact = JsonConvert.DeserializeObject<NanoEntry>(JsonConvert.SerializeObject(entry));
-            exact.LevelToId = exact.LevelToId.Where(n => n.Id == nanoId).ToArray();
-            exact.ObserverRefreshUntilUtc = DateTime.UtcNow.AddMinutes(2);
-            string error;
-            bool accepted = Main.QueueProcessor.Queue.TryEnqueue(
-                new BuffEntry { Requester = player.Identity, NanoEntry = exact }, out error);
-            Logger.Information("[CityBuffers] OBSERVER refresh requester=" + requester +
-                " nano=" + nanoId + " queued=" + accepted + (accepted ? "" : "; " + error));
+                !int.TryParse(parts[1], out nanoId)) return;
+            var memory = ManagerMemory.Current;
+            if (!memory.OwnsObservedBuffRefresh(Client.CharacterName, requester, nanoId, signal.Id)) return;
+            bool accepted = false;
+            try
+            {
+                if (!memory.ObservedBuffNeedsRefresh(requester, nanoId)) return;
+                var player = DynelManager.Players.FirstOrDefault(p => p.Identity.Instance == requester);
+                if (player == null || !Main.EffectiveSpellList().Contains(nanoId)) return;
+                var entry = Main.BuffsJson.Entries.Values.SelectMany(entries => entries)
+                    .FirstOrDefault(e => e.Type == CastType.Single && e.ContainsId(nanoId));
+                if (entry == null) return;
+                // A manual request already owns this nano on this caster. Let it
+                // finish; Manager will see delivery or reconsider on the next scan.
+                if (Main.QueueProcessor.Queue.AllEntries.Any(e => e.Requester == player.Identity &&
+                    e.NanoEntry.ContainsId(nanoId))) return;
+                var exact = JsonConvert.DeserializeObject<NanoEntry>(JsonConvert.SerializeObject(entry));
+                exact.LevelToId = exact.LevelToId.Where(n => n.Id == nanoId).ToArray();
+                exact.ObserverRefreshUntilUtc = DateTime.UtcNow.AddMinutes(2);
+                exact.ObserverAssignmentId = signal.Id;
+                string error;
+                accepted = Main.QueueProcessor.Queue.TryEnqueue(
+                    new BuffEntry { Requester = player.Identity, NanoEntry = exact }, out error);
+                Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+                if (!accepted) CityBufferBridge.Diagnostic(requester,
+                    "Observer assignment not admitted for nano=" + nanoId + ": " + error);
+            }
+            finally
+            {
+                if (!accepted) memory.ReleaseObservedBuffRefresh(Client.CharacterName, requester, nanoId, signal.Id);
+            }
         }
 
         private static bool TryProcessObservedPaidRequest(
@@ -502,6 +515,7 @@ namespace MalisBuffBots
         }
     }
 }
+
 
 
 

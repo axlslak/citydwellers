@@ -33,13 +33,13 @@ namespace CityDwellers.Shared
             new PaidBufferNano(275043, 4, 215, 0, "Firewalled Sync Compressor", "Team +500 NCU", "ncu", "fsc")
                 { EffectIds = new[] { 275044, 275135 } },
             new PaidBufferNano(227680, 3, 210, 55, "Gift of Assurance", "+5000 AC, 4 hours, Shadowlands required", "goa"),
-            new PaidBufferNano(220331, 12, 15, 6, "Composite Teachings", "+25 nano skills, 4 hours, Shadowlands required", "ct"),
-            new PaidBufferNano(220333, 12, 40, 13, "Composite Mastery", "+50 nano skills, 4 hours, Shadowlands required", "cma", "cmastery"),
-            new PaidBufferNano(220335, 12, 90, 25, "Composite Infuse With Knowledge", "+90 nano skills, 4 hours, Shadowlands required", "ci"),
-            new PaidBufferNano(220337, 12, 175, 48, "Composite Mochams (1 hour)", "+140 nano skills, Shadowlands required", "cm1h", "cm1", "cm"),
-            new PaidBufferNano(220339, 12, 201, 51, "Composite Mochams (2 hours)", "+140 nano skills, Shadowlands required", "cm2h", "cm2"),
-            new PaidBufferNano(220341, 12, 205, 54, "Composite Mochams (4 hours)", "+140 nano skills, Shadowlands required", "cm4h", "cm4"),
-            new PaidBufferNano(220343, 12, 209, 55, "Composite Mochams (8 hours)", "+140 nano skills, Shadowlands required", "cm8h", "cm8")
+            new PaidBufferNano(220331, 12, 15, 6, "Composite Teachings", "+25 nano skills, 4 hours, Shadowlands required", "ct", "compt"),
+            new PaidBufferNano(220333, 12, 40, 13, "Composite Mastery", "+50 nano skills, 4 hours, Shadowlands required", "cma", "cmastery", "compmast"),
+            new PaidBufferNano(220335, 12, 90, 25, "Composite Infuse With Knowledge", "+90 nano skills, 4 hours, Shadowlands required", "ci", "cominf"),
+            new PaidBufferNano(220337, 12, 175, 48, "Composite Mochams (1 hour)", "+140 nano skills, Shadowlands required", "cm1h", "cm1", "cm", "compmoch1"),
+            new PaidBufferNano(220339, 12, 201, 51, "Composite Mochams (2 hours)", "+140 nano skills, Shadowlands required", "cm2h", "cm2", "compmoch2"),
+            new PaidBufferNano(220341, 12, 205, 54, "Composite Mochams (4 hours)", "+140 nano skills, Shadowlands required", "cm4h", "cm4", "compmoch4"),
+            new PaidBufferNano(220343, 12, 209, 55, "Composite Mochams (8 hours)", "+140 nano skills, Shadowlands required", "cm8h", "cm8", "compmoch8")
         };
         public static bool UsesManagerTeam(int profession) => profession == 4 || profession == 7;
 
@@ -73,8 +73,13 @@ namespace CityDwellers.Shared
         public static string ProfessionName(int profession) => profession == 12 ? "MP" :
             profession == 4 ? "Fixer" : profession == 3 ? "Engineer" :
             profession == 9 ? "Enforcer" : profession == 10 ? "Doctor" : profession == 7 ? "Trader" : "Unconfigured";
-        public static PaidBufferNano Find(string tag) => Nanos.FirstOrDefault(n =>
-            n.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
+        public static PaidBufferNano Find(string tag)
+        {
+            int id;
+            bool numeric = int.TryParse(tag, out id);
+            return Nanos.FirstOrDefault(n => (numeric && n.Id == id) ||
+                n.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
+        }
         public static PaidBufferNano FindEffect(int id) => Nanos.FirstOrDefault(n => n.MatchesEffect(id));
         public static PaidBufferNano[] ForProfession(int profession) =>
             Nanos.Where(n => n.Profession == profession).ToArray();
@@ -242,7 +247,7 @@ namespace CityDwellers.Shared
             lock (_bufferPublicCommandSync)
             {
                 var _paidBuffer = _paidBuffers[character];
-                if (_paidBuffer.Running || _paidBuffer.Blocked || DateTime.UtcNow < _paidBuffer.RetryAfterUtc)
+                if (_paidBuffers.Values.Any(p => p.Running) || _paidBuffer.Blocked || DateTime.UtcNow < _paidBuffer.RetryAfterUtc)
                     return false;
                 if (PaidBufferCatalogue.UsesManagerTeam(_paidBuffer.Profession))
                 {
@@ -291,6 +296,7 @@ namespace CityDwellers.Shared
                         ? !HasPaidRequestsLocked(character)
                         : now - _paidBuffer.BusyUtc >= TimeSpan.FromSeconds(20))))
                     _paidBuffer.Parked = _paidBuffer.Draining = true;
+                System.Threading.Monitor.PulseAll(_bufferPublicCommandSync);
                 return _paidBuffer.Parked;
             }
         }
@@ -304,6 +310,25 @@ namespace CityDwellers.Shared
                 _paidBuffer.Running = _paidBuffer.Ready = false;
                 _paidBuffer.RetryAfterUtc = DateTime.UtcNow.AddSeconds(failed ? 60 : 0);
                 if (failed) FailPaidRequestsLocked(character, message);
+                System.Threading.Monitor.PulseAll(_bufferPublicCommandSync);
+            }
+        }
+
+        // An accepted public command means queued, not cast. A macro advances
+        // only after the provider has finished its queue and post-cast team hold.
+        public bool WaitForPaidBufferIdle(string character, int timeoutMilliseconds)
+        {
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+            lock (_bufferPublicCommandSync)
+            {
+                while (true)
+                {
+                    var state = PaidBufferLocked(character);
+                    if (state == null || !state.Running || state.Parked || state.Blocked) return true;
+                    int remaining = timeoutMilliseconds - (int)elapsed.ElapsedMilliseconds;
+                    if (remaining <= 0) return false;
+                    System.Threading.Monitor.Wait(_bufferPublicCommandSync, remaining);
+                }
             }
         }
 
@@ -338,5 +363,6 @@ namespace CityDwellers.Shared
         }
     }
 }
+
 
 

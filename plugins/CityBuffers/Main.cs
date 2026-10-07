@@ -146,6 +146,9 @@ namespace MalisBuffBots
                 message = "Cast requires at least one buff tag.";
                 return false;
             }
+            var unknown = nanoTags.Where(tag => !BuffsJson.FindByTags(new[] { tag }, out var ignored)).ToArray();
+            string unknownMessage = unknown.Length == 0 ? null :
+                "Unknown buff tag(s): " + string.Join(", ", unknown) + ".";
             if (!BuffsJson.FindByTags(nanoTags, out Dictionary<Profession, List<NanoEntry>> entries))
             {
                 message = "No configured buff matches: " +
@@ -167,8 +170,17 @@ namespace MalisBuffBots
                     .Where(e => e.LevelToId.Any(n => offered.Contains(n.Id)))
                     .Distinct().ToArray(), requester, out message);
             }
+            // Paid-only definitions share some Mali tags with free alternatives.
+            // Manager has already routed paid work; a free worker must not also
+            // retain an impossible paid cast for the same tag.
+            entries = entries.ToDictionary(pair => pair.Key, pair => pair.Value
+                .Where(e => !e.LevelToId.All(n => PaidBufferCatalogue.FindEffect(n.Id) != null)).ToList());
+            entries = entries.Where(pair => pair.Value.Count != 0).ToDictionary(pair => pair.Key, pair => pair.Value);
+            if (entries.Count == 0)
+            { message = "No free buffer offers " + string.Join(", ", nanoTags) + "."; return false; }
             if (!QueueProcessor.RequestBuffs(entries, requester))
             { message = "The buffer readiness queue is full; please retry shortly."; return false; }
+            message = unknownMessage;
             Logger.Information($"Received Manager cast request from '{requester.Name}'");
             return true;
         }
@@ -242,6 +254,8 @@ namespace MalisBuffBots
         {
             string ignored;
             TryProcessManagerCastRequest(nanoTags, requester, out ignored);
+            if (!string.IsNullOrWhiteSpace(ignored))
+                CityBufferBridge.RequestResult(requester.Identity.Instance, ignored);
         }
 
         private void ProcessRebuffRequest(PlayerChar requester)
@@ -264,4 +278,5 @@ namespace MalisBuffBots
         }
     }
 }
+
 

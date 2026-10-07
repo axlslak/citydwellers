@@ -14,7 +14,7 @@ namespace CityManager
         private readonly Stopwatch _observerClock = Stopwatch.StartNew();
         private long _nextNearbyObservation;
         private long _nextObserverError;
-        private readonly Dictionary<string, long> _refreshRetryAfter = new Dictionary<string, long>();
+        private readonly Dictionary<string, string> _paidRefreshProviders = new Dictionary<string, string>();
         private readonly HashSet<string> _refreshAwaiting = new HashSet<string>();
         private readonly HashSet<int> _waitingForObservedNcu = new HashSet<int>();
         private Dictionary<int, NearbyPlayerObservation> _nearbyObserved =
@@ -23,9 +23,10 @@ namespace CityManager
         private void ClearNearbyObserver()
         {
             _nearbyObserved.Clear();
-            _refreshRetryAfter.Clear();
+            _paidRefreshProviders.Clear();
             _refreshAwaiting.Clear();
             _waitingForObservedNcu.Clear();
+            ManagerMemory.Current.PruneObservedBuffAssignments(new string[0]);
             ManagerMemory.Current.PublishNearbyPlayers(new NearbyPlayerObservation[0]);
         }
 
@@ -34,6 +35,8 @@ namespace CityManager
             long now = _observerClock.ElapsedMilliseconds;
             if (now < _nextNearbyObservation) return;
             _nextNearbyObservation = now + 1000;
+            foreach (var diagnostic in ManagerMemory.Current.TakeBufferDiagnostics())
+                DevTrace(diagnostic);
             try
             {
                 if (!Client.InPlay || DynelManager.LocalPlayer == null)
@@ -100,7 +103,7 @@ namespace CityManager
                 // Stop exposing the previous scan as current evidence.
                 _nearbyObserved.Clear();
                 ManagerMemory.Current.InvalidateNearbyPlayers();
-                // Keep submission cooldowns: a scan error must not cause duplicate casts.
+                // Keep assignment ownership across scan errors; unknown is not delivery.
                 LogObserverFailure("scan", ex, now);
             }
         }
@@ -124,6 +127,23 @@ namespace CityManager
             if (now < _nextObserverError) return;
             _nextObserverError = now + 30000;
             Logger.Warning("Nearby observer failure at " + stage + ": " + ex);
+        }
+
+        private static int ObserverQueueLength(BufferBotInfo bot)
+        {
+            try { return Newtonsoft.Json.Linq.JArray.Parse(bot.QueueJson ?? "[]").Count; }
+            catch { return 0; }
+        }
+
+        private static bool ObserverHasQueuedBuff(BufferBotInfo bot, int requester, int nanoId)
+        {
+            try
+            {
+                return Newtonsoft.Json.Linq.JArray.Parse(bot.QueueJson ?? "[]").Any(e =>
+                    (int?)e["Requester"]?["Instance"] == requester &&
+                    e["NanoEntry"]?["LevelToId"]?.Any(n => (int?)n["Id"] == nanoId) == true);
+            }
+            catch { return false; }
         }
 
         private void RefreshObservedBuffs(IEnumerable<NearbyPlayerObservation> players, long now)
@@ -160,9 +180,8 @@ namespace CityManager
                 if (_waitingForObservedNcu.Contains(player.CharacterId) &&
                     !PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nano.Id))
                 {
-                    // Discard submission cooldowns for deferred work. Learned usage
-                    // remains intact and is reconsidered immediately after NCU lands.
-                    _refreshRetryAfter.Remove(key);
+                    // Learned usage remains intact and is reconsidered as soon as NCU lands.
+                    _paidRefreshProviders.Remove(key);
                     _refreshAwaiting.Remove(key);
                     continue;
                 }
@@ -174,9 +193,13 @@ namespace CityManager
                             " remaining=" + (int)nano.RemainingSeconds + "s full=" + (int)nano.FullSeconds + "s.");
                     continue;
                 }
-                long retryAfter;
-                if (_refreshRetryAfter.TryGetValue(key, out retryAfter) && now < retryAfter) continue;
-                var provider = providers.OrderBy(b => b.Character, StringComparer.OrdinalIgnoreCase)
+                if (memory.HasObservedBuffAssignment(player.CharacterId, nano.Id) ||
+                    providers.Any(b => ObserverHasQueuedBuff(b, player.CharacterId, nano.Id))) continue;
+                string previousProvider = memory.LastObservedBuffProvider(player.CharacterId, nano.Id);
+                var provider = providers
+                    .OrderBy(b => string.Equals(b.Character, previousProvider, StringComparison.OrdinalIgnoreCase) ? 1 : 0)
+                    .ThenBy(b => memory.PendingObservedBuffCount(b.Character) + ObserverQueueLength(b))
+                    .ThenBy(b => b.Character, StringComparer.OrdinalIgnoreCase)
                     .FirstOrDefault(b => (b.AdvertisedBuffs ?? new BufferAdvertisedBuff[0]).Any(buff =>
                         buff.Type == "Single" && (buff.NanoIds ?? new int[0]).Contains(nano.Id)));
                 string providerName;
@@ -187,6 +210,10 @@ namespace CityManager
                 }
                 else
                 {
+                    string assignedPaid;
+                    if (_paidRefreshProviders.TryGetValue(key, out assignedPaid) &&
+                        memory.ObservedPaidRefreshPending("observed:" + key, assignedPaid)) continue;
+                    _paidRefreshProviders.Remove(key);
                     var paid = paidProviders.FirstOrDefault(p =>
                         PaidBufferCatalogue.ForProfession(p.Profession).Any(n => n.MatchesEffect(nano.Id)));
                     if (paid == null) continue;
@@ -206,17 +233,20 @@ namespace CityManager
                         Arguments = new[] { castId.ToString() }, ObservedNanoId = nano.Id,
                         CreatedUtc = DateTime.UtcNow })) continue;
                 }
-                _refreshRetryAfter[key] = now + 180000;
+                if (provider == null) _paidRefreshProviders[key] = providerName;
                 _refreshAwaiting.Add(key);
                 RecordDiagnostic("OBSERVER refresh requested: " + player.Name + " nano=" + nano.Id +
                     " reason=" + (player.VisibleNanoIds.Contains(nano.Id) ? "below-half" : "missing-learned-buff") +
                     " remaining=" + (int)nano.RemainingSeconds + "s full=" + (int)nano.FullSeconds +
                     "s buffer=" + providerName + ".");
             }
-            foreach (var key in _refreshRetryAfter.Keys.Where(k => !visibleKeys.Contains(k)).ToArray())
-            { _refreshRetryAfter.Remove(key); _refreshAwaiting.Remove(key); }
+            memory.PruneObservedBuffAssignments(visibleKeys.ToArray());
+            _refreshAwaiting.IntersectWith(visibleKeys);
+            foreach (var key in _paidRefreshProviders.Keys.Where(k => !visibleKeys.Contains(k)).ToArray())
+            { _paidRefreshProviders.Remove(key); _refreshAwaiting.Remove(key); }
         }
     }
 }
+
 
 
