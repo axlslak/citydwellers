@@ -31,7 +31,6 @@ namespace MalisBuffBots
         public bool PvpFlagCheck;
         public bool AutoBanMeepers;
         public int SitKitItemId;
-        public byte IPCChannelId;
         public double InitConnectionDelay;
         public double TeamTimeoutInSeconds;
         public int SocialAction;

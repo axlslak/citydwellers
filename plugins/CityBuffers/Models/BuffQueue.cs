@@ -39,7 +39,7 @@ namespace MalisBuffBots
             }
         }
 
-        // IPC and local requests share one atomic duplicate/capacity decision.
+        // Manager memory and local requests share one atomic duplicate/capacity decision.
         public bool TryEnqueue(BuffEntry entry, out string error)
         {
             lock (_sync)

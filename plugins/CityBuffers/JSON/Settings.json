@@ -3,7 +3,6 @@
   "PvpFlagCheck": true,
   "AutoBanMeepers": true,
   "SitKitItemId": 297274,
-  "IPCChannelId": 255,
   "InitConnectionDelay": 30,
   "TeamTimeoutInSeconds": 30,
   "SocialAction": 7,

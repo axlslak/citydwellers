@@ -143,7 +143,7 @@ namespace MalisBuffBots
                     break;
                 case CharacterActionType.TeamMemberLeft:
                     if (actionMsg.Target == DynelManager.LocalPlayer.Identity)
-                        Main.Ipc.BotCache.BroadcastTeamInfoMessage();
+                        Main.Coordination.BotCache.PublishTeamInfo();
                     break;
                 case CharacterActionType.SetNanoDuration:
                     OnSetNanoDurationAction(actionMsg.Identity,actionMsg.Target.Instance);
@@ -165,7 +165,7 @@ namespace MalisBuffBots
 
         internal static void OnTeamMemberMessage(TeamMemberMessage teamMsg)
         {
-            Main.Ipc.BotCache.BroadcastTeamInfoMessage(teamMsg.Character);
+            Main.Coordination.BotCache.PublishTeamInfo(teamMsg.Character);
         }
 
         private void OnTeamRequestAction(Identity identity, Identity target)
@@ -243,6 +243,3 @@ namespace MalisBuffBots
 
     }
 }
-
-
-

@@ -85,7 +85,7 @@ namespace MalisBuffBots
             }
             if (queued.Count != 0)
             {
-                Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+                Main.Coordination.BotCache.PublishQueueInfo();
                 notices.Insert(0, "Queued " + string.Join(" and ", queued) + " on " + Client.CharacterName + ".");
             }
             if (notices.Count == 0) notices.Add("No matching buff is offered by " + Client.CharacterName + ".");
@@ -125,7 +125,7 @@ namespace MalisBuffBots
                 if (Team.IsInTeam)
                     ProcessLeaveTeam();
 
-                if (!Main.PaidPilot && TeamTrackerId != 0 && Main.Ipc.BotCache.IsTeamQueueEmpty(TeamTrackerId) && !Queue.AllEntries.Any(x => x.Requester.Instance == TeamTrackerId && x.NanoEntry.Type == CastType.Team))
+                if (!Main.PaidPilot && TeamTrackerId != 0 && Main.Coordination.BotCache.IsTeamQueueEmpty(TeamTrackerId) && !Queue.AllEntries.Any(x => x.Requester.Instance == TeamTrackerId && x.NanoEntry.Type == CastType.Team))
                     ProcessResetTeamTrackerId();
 
                 if (DynelManager.LocalPlayer.IsCasting)
@@ -139,7 +139,7 @@ namespace MalisBuffBots
                     case QueueState.Dequeue:
                         Work(Queue.Current);
                         TeamTimeout.Reset();
-                        Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+                        Main.Coordination.BotCache.PublishQueueInfo();
                         ProcessCurrentBuffEntry();
                         break;
                     case QueueState.Empty:
@@ -187,13 +187,13 @@ namespace MalisBuffBots
             LeaveTeam();
             Queue.Clear();
             ProcessResetTeamTrackerId();
-            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+            Main.Coordination.BotCache.PublishQueueInfo();
             TeamTrackerId = 0;
         }
 
         private void ProcessResetTeamTrackerId()
         {
-            Main.Ipc.BotCache.BroadcastTeamTrackerMessage((Profession)DynelManager.LocalPlayer.Profession, 0);
+            Main.Coordination.BotCache.PublishTeamTracker((Profession)DynelManager.LocalPlayer.Profession, 0);
             TeamTrackerId = 0;
         }
 
@@ -334,7 +334,7 @@ namespace MalisBuffBots
             if (Queue.AllEntries.Any(e => e.Equals(entry))) return true;
             string error;
             if (!Queue.TryEnqueue(entry, out error)) return false;
-            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+            Main.Coordination.BotCache.PublishQueueInfo();
             return true;
         }
 
@@ -350,20 +350,20 @@ namespace MalisBuffBots
                     if (!Main.EffectiveSpellList().Any(nano.ContainsId)) return false;
                     return TryLocal(nano, requester);
                 }
-                if (!Main.Ipc.BotCache.ContainsNanoEntry(pending.Profession, nano)) return false;
-                return Main.Ipc.SendCastRequest(pending.Profession, pending.Requester, new[] { nano });
+                if (!Main.Coordination.BotCache.ContainsNanoEntry(pending.Profession, nano)) return false;
+                return Main.Coordination.SendCastRequest(pending.Profession, pending.Requester, new[] { nano });
             }
-            foreach (var caster in Main.Ipc.BotCache.OrderByQueueEntries()
+            foreach (var caster in Main.Coordination.BotCache.OrderByQueueEntries()
                 .OrderBy(c => (c.Value.Queue ?? new BuffEntry[0]).Length +
                     (_genericAssignments.ContainsKey(c.Key) ? _genericAssignments[c.Key] : 0)))
             {
                 if (!DynelManager.Characters.Any(c => c.Identity == caster.Value.Identity) ||
-                    !Main.Ipc.BotCache.ContainsNanoEntry(caster.Key, nano)) continue;
+                    !Main.Coordination.BotCache.ContainsNanoEntry(caster.Key, nano)) continue;
                 if (caster.Value.Identity == DynelManager.LocalPlayer.Identity)
                 {
                     if (!TryLocal(nano, requester)) continue;
                 }
-                else if (!Main.Ipc.SendCastRequest(caster.Key, pending.Requester, new[] { nano })) continue;
+                else if (!Main.Coordination.SendCastRequest(caster.Key, pending.Requester, new[] { nano })) continue;
                 _genericAssignments[caster.Key] = (_genericAssignments.ContainsKey(caster.Key)
                     ? _genericAssignments[caster.Key] : 0) + 1;
                 return true;
@@ -376,7 +376,7 @@ namespace MalisBuffBots
             var entry = Queue.Current;
             if (entry == null) return;
             Queue.YieldCurrent(Work(entry).AttemptKey != null);
-            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+            Main.Coordination.BotCache.PublishQueueInfo();
         }
 
         private bool ObservationLanded(BuffEntry entry, CastWork work)
@@ -457,7 +457,7 @@ namespace MalisBuffBots
             if (ReferenceEquals(_feedbackEntry, entry)) _feedbackEntry = null;
             CityBufferBridge.Diagnostic(entry.Requester.Instance,
                 "Returning " + entry.NanoEntry.Name + " after game feedback for another capable buffer.");
-            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+            Main.Coordination.BotCache.PublishQueueInfo();
             return true;
         }
 
@@ -471,7 +471,7 @@ namespace MalisBuffBots
             {
                 _castWork.Remove(Queue.Current);
                 Queue.ClearCurrent();
-                Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+                Main.Coordination.BotCache.PublishQueueInfo();
                 return;
             }
             if (observedEntry.ObserverRefreshUntilUtc != default(DateTime) &&
@@ -630,7 +630,7 @@ namespace MalisBuffBots
                 // A late completion can arrive after a failure was put at the tail.
                 // Remove it from the ready queue as well as from the active slot.
                 Queue.AwaitConfirmation(entry);
-                Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+                Main.Coordination.BotCache.PublishQueueInfo();
             }
             // Otherwise this entry remains awaiting Manager, not eligible for an
             // immediate recast. The caster can serve the rest of the queue.
@@ -681,7 +681,7 @@ namespace MalisBuffBots
             var remaining = Queue.AllEntries;
             foreach (var retired in _castWork.Keys.Where(e => !remaining.Contains(e)).ToArray())
                 _castWork.Remove(retired);
-            Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+            Main.Coordination.BotCache.PublishQueueInfo();
         }
 
         private void AttemptToBuffTarget()
@@ -841,6 +841,3 @@ namespace MalisBuffBots
         }
     }
 }
-
-
-

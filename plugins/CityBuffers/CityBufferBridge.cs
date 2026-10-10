@@ -1,15 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO.Pipes;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
 using CityDwellers.Shared;
-using Newtonsoft.Json;
 
 namespace MalisBuffBots
 {
@@ -19,9 +15,6 @@ namespace MalisBuffBots
         private static string _dataDir;
         private static DateTime _nextHeartbeat;
         private static DateTime? _lastSent;
-        private static CancellationTokenSource _lifetime;
-        private static Task _server;
-        private static volatile string _snapshot = "{}";
         private static string _lastCatalogueFingerprint;
         private static bool _catalogueReadyLogged;
         public static bool Ready;
@@ -78,9 +71,6 @@ namespace MalisBuffBots
             if (!SettingsPaths.TryEnsureDirectories(out settings, out _dataDir, out error))
                 throw new InvalidOperationException(error);
             TellQueue.EnsureDirectories(_dataDir);
-            _lifetime = new CancellationTokenSource();
-            string pipeName = BufferSettings.PipeName(Client.CharacterName);
-            _server = Serve(pipeName, _lifetime.Token);
             Client.OnUpdate += Tick;
             Logger.Information("BUFFER status bridge and shared tell sender initialized for " + Client.CharacterName + ".");
         }
@@ -89,12 +79,8 @@ namespace MalisBuffBots
         {
             Client.OnUpdate -= Tick;
             Ready = false;
-            _lifetime?.Cancel();
-            if (_server != null) try { _server.Wait(1500); } catch (AggregateException) { }
             if (_dataDir != null) TellQueue.DeleteHeartbeat(_dataDir, Client.CharacterName);
             try { ManagerMemory.Current.MarkBufferBotOffline(Client.CharacterName); } catch { }
-            _lifetime?.Dispose();
-            _lifetime = null;
         }
 
         private static void LogCatalogueChange(
@@ -166,31 +152,6 @@ namespace MalisBuffBots
             }
         }
 
-        private static async Task Serve(string name, CancellationToken stop)
-        {
-            while (!stop.IsCancellationRequested)
-            {
-                try
-                {
-                    using (var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1,
-                        PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
-                    using (stop.Register(() => pipe.Dispose()))
-                    {
-                        await pipe.WaitForConnectionAsync(stop).ConfigureAwait(false);
-                        await LocalIpc.RespondAsync(pipe, request => Task.FromResult(_snapshot),
-                            5000, stop).ConfigureAwait(false);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (stop.IsCancellationRequested) break;
-                    Logger.Warning("BUFFER status IPC: " + ex.Message);
-                    try { await Task.Delay(1000, stop).ConfigureAwait(false); }
-                    catch (OperationCanceledException) { break; }
-                }
-            }
-        }
-
         // Match Mali's overload, including the existing suppress-log argument.
         public static void SendPrivateMessage(uint recipient, string message, bool logMessage = true)
         {
@@ -227,7 +188,7 @@ namespace MalisBuffBots
         {
             try
             {
-                Main.Ipc?.DrainMemorySignals();
+                Main.Coordination?.DrainMemorySignals();
                 if (Main.PaidPilot)
                 {
                     bool inPlayNow = Client.InPlay && DynelManager.LocalPlayer != null;
@@ -249,17 +210,10 @@ namespace MalisBuffBots
                     _nextHeartbeat = now.AddSeconds(1);
                     bool inPlay = Client.InPlay && DynelManager.LocalPlayer != null;
                     int[] spellList = inPlay ? Main.EffectiveSpellList() : new int[0];
-                    _snapshot = JsonConvert.SerializeObject(new {
-                        Character = Client.CharacterName, Kind = Main.PaidPilot ? "paid" : "froob", InPlay = inPlay,
-                        Ready = inPlay && Ready, ObservedUtc = now,
-                        Profession = inPlay ? ((Profession)DynelManager.LocalPlayer.Profession).ToString() : "Unknown",
-                        NanoCount = spellList.Length,
-                        QueueLength = Main.QueueProcessor?.Queue.AllEntries.Length ?? 0
-                    });
                     if (inPlay)
                     {
                         BufferAdvertisedBuff[] advertised =
-                            IPCBotCacheData.BuildAdvertisedBuffs(spellList);
+                            BufferBotCache.BuildAdvertisedBuffs(spellList);
 
                         ManagerMemory.Current.PublishBufferBotInfo(new BufferBotInfo
                         {
@@ -271,6 +225,7 @@ namespace MalisBuffBots
                             ObservedUtc = now,
                             InPlay = true,
                             Ready = Ready,
+                            QueueLength = Main.QueueProcessor?.Queue.AllEntries.Length ?? 0,
                             AdvertisedBuffs = advertised
                         });
 
@@ -304,5 +259,3 @@ namespace MalisBuffBots
         }
     }
 }
-
-
