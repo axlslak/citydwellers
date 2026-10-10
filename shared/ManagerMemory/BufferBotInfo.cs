@@ -35,6 +35,9 @@ namespace CityDwellers.Shared
         public DateTime ObservedUtc;
         public bool InPlay;
         public bool Ready;
+        public int QueueLength;
+        public int TeamMemberId;
+        public int TeamTrackerId;
         public string QueueJson;
         public DateTime QueueObservedUtc;
         public BufferAdvertisedBuff[] AdvertisedBuffs;
@@ -49,6 +52,9 @@ namespace CityDwellers.Shared
             ObservedUtc = ObservedUtc,
             InPlay = InPlay,
             Ready = Ready,
+            QueueLength = QueueLength,
+            TeamMemberId = TeamMemberId,
+            TeamTrackerId = TeamTrackerId,
             QueueJson = QueueJson,
             QueueObservedUtc = QueueObservedUtc,
             AdvertisedBuffs = AdvertisedBuffs == null
@@ -80,6 +86,11 @@ namespace CityDwellers.Shared
                 BufferBotInfo copy = info.Copy();
                 copy.QueueJson = queueJson;
                 copy.QueueObservedUtc = queueObservedUtc;
+                if (existing != null)
+                {
+                    copy.TeamMemberId = existing.TeamMemberId;
+                    copy.TeamTrackerId = existing.TeamTrackerId;
+                }
                 if (copy.AdvertisedBuffs == null && existing != null)
                     copy.AdvertisedBuffs = existing.AdvertisedBuffs == null
                         ? null
@@ -99,6 +110,9 @@ namespace CityDwellers.Shared
                     BufferBotInfo copy = existing.Copy();
                     copy.InPlay = false;
                     copy.Ready = false;
+                    copy.QueueLength = 0;
+                    copy.TeamMemberId = 0;
+                    copy.TeamTrackerId = 0;
                     copy.ObservedUtc = DateTime.UtcNow;
                     _bufferBots[character] = copy;
                 }
@@ -116,6 +130,26 @@ namespace CityDwellers.Shared
         public List<BufferBotInfo> BufferBotInfos()
         {
             lock (_bufferBotSync) return _bufferBots.Values.Select(x => x.Copy()).ToList();
+        }
+
+        public void PublishBufferTeamMember(string character, int memberId)
+        {
+            if (string.IsNullOrWhiteSpace(character)) return;
+            lock (_bufferBotSync)
+            {
+                BufferBotInfo info;
+                if (_bufferBots.TryGetValue(character, out info)) info.TeamMemberId = memberId;
+            }
+        }
+
+        public void PublishBufferTeamTracker(string character, int requesterId)
+        {
+            if (string.IsNullOrWhiteSpace(character)) return;
+            lock (_bufferBotSync)
+            {
+                BufferBotInfo info;
+                if (_bufferBots.TryGetValue(character, out info)) info.TeamTrackerId = requesterId;
+            }
         }
     }
 }

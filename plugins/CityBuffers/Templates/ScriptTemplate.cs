@@ -45,11 +45,11 @@ namespace MalisBuffBots
             _helpMenuPreset = new
             {
                 Botname = DynelManager.LocalPlayer.Name,
-                Db = Main.BuffsJson.Entries.Where(x => x.Key == Profession.Generic || Main.Ipc.BotCache.ContainsKey(x.Key)).Select(kv => new
+                Db = Main.BuffsJson.Entries.Where(x => x.Key == Profession.Generic || Main.Coordination.BotCache.ContainsKey(x.Key)).Select(kv => new
                 {
                     Prof = kv.Key,
                     Id = (int)kv.Key,
-                    Entries = kv.Value.Where(x => Main.Ipc.BotCache.Entries.Values.Where(c => c.SpellData != null && c.SpellData.Count() > 0).SelectMany(y => y.SpellData).Any(y => x.ContainsId(y))).Select(entry => new
+                    Entries = kv.Value.Where(x => Main.Coordination.BotCache.Entries.Values.Where(c => c.SpellData != null && c.SpellData.Count() > 0).SelectMany(y => y.SpellData).Any(y => x.ContainsId(y))).Select(entry => new
                     {
                         Tag = entry.Tags[0],
                         Nanoname = entry.Name,

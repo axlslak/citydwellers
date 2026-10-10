@@ -11,7 +11,7 @@ namespace MalisBuffBots
 {
     public class Main : ClientlessPluginEntry
     {
-        public static IPC Ipc;                              // Team IPC compatibility plus ManagerMemory buffer coordination
+        public static BufferCoordinator Coordination;       // Same-process ManagerMemory coordination
         public static SettingsJson SettingsJson;            // Behavior defaults plus citydwellers.json Buffers.Behavior overrides
         public static BuffsJson BuffsJson;                  // All bot nanos (configurable in JSON/BuffsDb.json)
         public static RebuffJson RebuffJson;                // Rebuff info (configurable in JSON/RebuffInfo.json)
@@ -43,7 +43,7 @@ namespace MalisBuffBots
                     Logger.Information("BUFFER configured known-nano override for " +
                         Client.CharacterName + ": [" + string.Join(",", configuredKnownNanos) + "].");
                 CityBufferBridge.Start();
-                Ipc = new IPC(SettingsJson.Data.IPCChannelId, 5000);
+                Coordination = new BufferCoordinator();
                 BuffsJson = new BuffsJson(Path.BUFF_JSON);
                 RebuffJson = new RebuffJson(Path.REBUFF_JSON);
                 UserRank = new UserRank();
@@ -65,7 +65,7 @@ namespace MalisBuffBots
             Client.OnUpdate -= OnUpdate;
             if (QueueProcessor != null) Client.OnUpdate -= QueueProcessor.OnUpdate;
             CityBufferBridge.Stop();
-            (Ipc as IDisposable)?.Dispose();
+            Coordination = null;
         }
 
         // AOSharp.Clientless exposes FullCharacter.UploadedNanoIds as SpellList.
@@ -114,10 +114,9 @@ namespace MalisBuffBots
                         return;
 
                     DynelManager.LocalPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
-                    Ipc.Init();
+                    Coordination.Init();
                     if (!PaidPilot) RebuffProcessor = new RebuffProcessor(RebuffJson);
                     CityBufferBridge.Ready = true;
-                    // Client.OnUpdate += Ipc.OnUpdate; TODO
 
                     Client.OnUpdate += QueueProcessor.OnUpdate;
                     Client.OnUpdate -= OnUpdate;
@@ -278,5 +277,3 @@ namespace MalisBuffBots
         }
     }
 }
-
-

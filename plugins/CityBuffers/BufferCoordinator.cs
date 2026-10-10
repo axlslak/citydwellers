@@ -8,23 +8,14 @@ using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.GameData;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
-using AOSharp.Core.IPC;
 using CityDwellers.Shared;
 using Newtonsoft.Json;
 
 namespace MalisBuffBots
 {
-    public class IPC : IPCChannelBase
+    public class BufferCoordinator
     {
-        public IPCBotCacheData BotCache = new IPCBotCacheData();
-
-        protected override int _localDynelId => Client.LocalDynelId;
-
-        public IPC(byte channelId, int pingPongUpdateMs) : base(channelId)
-        {
-            // Presence, routing and coordination use ManagerMemory. Free buffers
-            // invite directly; the paid fixer accepts only Manager's invitation.
-        }
+        public BufferBotCache BotCache = new BufferBotCache();
 
         private sealed class MemoryCastRequest
         {
@@ -202,7 +193,7 @@ namespace MalisBuffBots
                 string error;
                 accepted = Main.QueueProcessor.Queue.TryEnqueue(
                     new BuffEntry { Requester = player.Identity, NanoEntry = exact }, out error);
-                Main.Ipc.BotCache.BroadcastQueueInfoMessage();
+                Main.Coordination.BotCache.PublishQueueInfo();
                 if (!accepted) CityBufferBridge.Diagnostic(requester,
                     "Observer assignment not admitted for nano=" + nanoId + ": " + error);
             }
@@ -254,26 +245,16 @@ namespace MalisBuffBots
                 .Any(entry => entry != null && knownNanos.Any(entry.ContainsId));
         }
 
-        // Retained for Mali's existing surface. Presence now comes from ManagerMemory;
-        // no peer Ping/Pong traffic is generated.
-        public void OnUpdate(object _, double deltaTime) { }
-
         public void Init()
         {
-            BotCache.BroadcastBotInfoMessage();
-            BotCache.BroadcastTeamInfoMessage();
-            BotCache.BroadcastQueueInfoMessage();
+            BotCache.PublishBotInfo();
+            BotCache.PublishTeamInfo();
+            BotCache.PublishQueueInfo();
         }
 
-        private void OnReceivedTeamInfoMessage(int arg1, IPCMessage msg)
-        {
-            if (Main.PaidPilot) return;
-            TeamInfoMessage sMsg = (TeamInfoMessage)msg;
-            BotCache.UpdateTeamInfo(sMsg.Profession, sMsg.TeamMemberId);
-        }
     }
 
-    public class IPCBotCacheData
+    public class BufferBotCache
     {
         private readonly Dictionary<Profession, BotData> _entries = new Dictionary<Profession, BotData>();
         public Dictionary<Profession, BotData> Entries
@@ -305,6 +286,8 @@ namespace MalisBuffBots
                     : Identity.None;
                 _entries[profession].SpellData = fresh ? snapshot.SpellData ?? new int[0] : new int[0];
                 _entries[profession].LastUpdateInTicks = fresh ? snapshot.ObservedUtc.Ticks : 0;
+                _entries[profession].TeamMemberId = fresh ? snapshot.TeamMemberId : 0;
+                _entries[profession].TeamTrackerId = fresh ? snapshot.TeamTrackerId : 0;
                 if (fresh && !string.IsNullOrWhiteSpace(snapshot.QueueJson))
                 {
                     try
@@ -343,7 +326,7 @@ namespace MalisBuffBots
             return _entries.Values.Any(x => x.Identity.Instance == identityInstance);
         }
 
-        public void BroadcastBotInfoMessage()
+        public void PublishBotInfo()
         {
             Profession prof = (Profession)DynelManager.LocalPlayer.Profession;
             Identity identity = DynelManager.LocalPlayer.Identity;
@@ -402,7 +385,7 @@ namespace MalisBuffBots
             return nanoId != 0 && ItemData.Find(nanoId, out nano) ? nano.NCU : 0;
         }
 
-        public void BroadcastQueueInfoMessage()
+        public void PublishQueueInfo()
         {
             Profession prof = (Profession)DynelManager.LocalPlayer.Profession;
             BuffEntry[] queue = Main.QueueProcessor.Queue.AllEntries.ToArray();
@@ -414,34 +397,26 @@ namespace MalisBuffBots
                 JsonConvert.SerializeObject(queue));
         }
 
-        public void BroadcastTeamTrackerMessage(Profession prof, int requester)
+        public void PublishTeamTracker(Profession prof, int requester)
         {
             if (Main.PaidPilot) return;
             TeamTracker(prof, requester);
 
-            Main.Ipc.Broadcast(new TeamTrackerMessage
-            {
-                Profession = prof,
-                TeamTrackerId = requester,
-            });
+            ManagerMemory.Current.PublishBufferTeamTracker(Client.CharacterName, requester);
         }
 
-        public void BroadcastTeamInfoMessage() => BroadcastTeamInfoMessage(Identity.None);
+        public void PublishTeamInfo() => PublishTeamInfo(Identity.None);
 
-        public void BroadcastTeamInfoMessage(Identity target)
+        public void PublishTeamInfo(Identity target)
         {
             if (Main.PaidPilot) return;
-            if (target != Identity.None && Main.Ipc.BotCache.Entries.Any(x => x.Value.Identity == target))
+            if (target != Identity.None && Main.Coordination.BotCache.Entries.Any(x => x.Value.Identity == target))
                 return;
 
             Profession prof = (Profession)DynelManager.LocalPlayer.Profession;
             UpdateTeamInfo(prof, target.Instance);
 
-            Main.Ipc.Broadcast(new TeamInfoMessage
-            {
-                Profession = (Profession)DynelManager.LocalPlayer.Profession,
-                TeamMemberId = target.Instance
-            });
+            ManagerMemory.Current.PublishBufferTeamMember(Client.CharacterName, target.Instance);
         }
 
         public void TeamTracker(Profession prof, int trackId)
@@ -515,7 +490,3 @@ namespace MalisBuffBots
         }
     }
 }
-
-
-
-

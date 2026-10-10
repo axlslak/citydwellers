@@ -85,7 +85,6 @@ namespace CityDwellers.Shared
 
         public IEnumerable<BufferAccount> Active => Enabled
             ? Froobs.Where(a => a != null && a.Enabled) : Enumerable.Empty<BufferAccount>();
-        public static string PipeName(string character) => "CityDwellers.Buffer." + character.ToLowerInvariant();
     }
 
     internal sealed class BufferAccount

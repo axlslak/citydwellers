@@ -34,7 +34,7 @@ namespace MalisBuffBots
             requesterId = (int)msg.SenderId;
             command = new Command();
 
-            if (Main.Ipc.BotCache.ContainsIdentity(requesterId))
+            if (Main.Coordination.BotCache.ContainsIdentity(requesterId))
                 return false;
 
             if (!Enum.TryParse(commandParts[0].ToTitleCase(), out command))

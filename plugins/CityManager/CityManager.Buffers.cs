@@ -570,6 +570,7 @@ namespace CityManager
                 try
                 {
                     var accounts = BufferSettings.Read().Active.ToList();
+                    var bufferStates = ManagerMemory.Current.BufferBotInfos();
                     PaidBufferSession[] paidProviders = ManagerMemory.Current.ReadPaidBuffers();
                     foreach (var paid in paidProviders)
                         Reply(target, paid.Character + ": on-demand paid " + PaidBufferCatalogue.ProfessionName(paid.Profession) + ", " +
@@ -588,16 +589,16 @@ namespace CityManager
                         }
                         try
                         {
-                            string response = LocalIpc.RequestLineAsync(BufferSettings.PipeName(account.Character),
-                                "{\"Kind\":\"status\"}", 1000, 3000).GetAwaiter().GetResult();
-                            var state = JObject.Parse(response);
-                            DateTime? observed = (DateTime?)state["ObservedUtc"];
-                            if (!observed.HasValue || observed.Value < DateTime.UtcNow.AddSeconds(-5))
+                            var state = bufferStates.FirstOrDefault(info =>
+                                string.Equals(info.Character, account.Character, StringComparison.OrdinalIgnoreCase));
+                            TimeSpan age;
+                            if (state == null || !UtcTimestamp.TryGetAge(state.ObservedUtc, DateTime.UtcNow, out age) ||
+                                age > TimeSpan.FromSeconds(5))
                                 message = account.Character + ": waiting for a fresh buffer update.";
                             else
-                                message = account.Character + ": " + ((bool?)state["Ready"] == true ? "ready" : "starting") +
-                                    ", " + (string)state["Profession"] + ", " + (int?)state["NanoCount"] +
-                                    " known nanos, " + (int?)state["QueueLength"] + " queued buffs.";
+                                message = account.Character + ": " + (!state.InPlay ? "offline" : state.Ready ? "ready" : "starting") +
+                                    ", " + ((Profession)state.Profession).ToString() + ", " + (state.SpellData?.Length ?? 0) +
+                                    " known nanos, " + state.QueueLength + " queued buffs.";
                         }
                         catch (Exception) { message = account.Character + ": buffer status unavailable."; }
                         Reply(target, message);
@@ -608,6 +609,3 @@ namespace CityManager
         }
     }
 }
-
-
-
