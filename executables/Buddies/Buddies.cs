@@ -5,7 +5,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
 using System.Reflection;
 using System.Threading;
 
@@ -22,7 +21,6 @@ using WorkerResponse = CityDwellers.Shared.WorkerResponse;
 
 public class BuddiesHost
 {
-    private const string PipeName = "citydwellers-buddies";
     private const int WakeupTimeoutMs = 20000;
     // Match Manager's measured general-only presence window: buddies enter at
     // +975s and leave at +1125s after the city-targeted event.
@@ -140,7 +138,7 @@ public class BuddiesHost
             $"Buddy workers: {_config.AccountCount}; " +
             $"parallel AO logins: {_config.MaxParallelLogins.Value}");
         Console.WriteLine("Character scheme: Apcr{level:000}{index:00}");
-        Console.WriteLine("Control: Governor memory (legacy pipe retained but dormant)");
+        Console.WriteLine("Control: Governor memory");
         Console.WriteLine();
         Console.WriteLine("Buddies service idle. Zero buddy AO sessions are started automatically.");
         Console.WriteLine("Waiting for Manager requests.");
@@ -370,61 +368,6 @@ public class BuddiesHost
         finally
         {
             ManagerMemory.Current.SetLifecycleConsumerReady("Buddies", false);
-        }
-    }
-
-    private static void RunPipeServer()
-    {
-        while (!_stopping)
-        {
-            NamedPipeServerStream pipe = null;
-
-            try
-            {
-                pipe = new NamedPipeServerStream(
-                    PipeName,
-                    PipeDirection.InOut,
-                    NamedPipeServerStream.MaxAllowedServerInstances,
-                    PipeTransmissionMode.Byte,
-                    PipeOptions.Asynchronous);
-
-                pipe.WaitForConnection();
-                ThreadPool.QueueUserWorkItem(HandlePipeConnection, pipe);
-                pipe = null;
-            }
-            catch (Exception ex)
-            {
-                if (!_stopping)
-                {
-                    Console.WriteLine($"Buddies pipe listener error: {ex}");
-                    Thread.Sleep(500);
-                }
-            }
-            finally
-            {
-                pipe?.Dispose();
-            }
-        }
-    }
-
-    private static void HandlePipeConnection(object state)
-    {
-        using (var pipe = (NamedPipeServerStream)state)
-        {
-            try
-            {
-                CityDwellers.Shared.LocalIpc.Respond<WorkerRequest, WorkerResponse>(
-                    pipe, HandleRequest, ex => new WorkerResponse
-                    {
-                        Ok = false,
-                        Message = $"Invalid Buddies request: {ex.Message}"
-                    });
-            }
-            catch (Exception ex)
-            {
-                if (!_stopping)
-                    Console.WriteLine($"Buddies pipe request error: {ex}");
-            }
         }
     }
 
