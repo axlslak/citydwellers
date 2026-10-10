@@ -35,6 +35,7 @@
     <Compile Include="Governance.cs" />
     <Compile Include="AoLoginAdmission.cs" />
     <Compile Include="ServiceCoordination.cs" />
+    <Compile Include="ServiceEventInbox.cs" />
     <Compile Include="..\BuddyPositionSnapshot.cs" />
     <Compile Include="BagAuditModels.cs" />
     <Compile Include="BankerCoordination.cs" />

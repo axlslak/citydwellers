@@ -24,7 +24,7 @@ namespace CityManager
                 // Syslog stays the durable archive; the ring is convenience.
                 report => { traces.Observe(report); sender?.Enqueue(report); });
             ServiceEvents.Report("manager.logging", "info", "Manager event reporting started.");
-            Logger.Information("Manager event relay ready; banker events arrive through Central.");
+            Logger.Information("Manager event relay ready; banker events arrive through Manager memory.");
         }
 
         private void ShutdownEventReporting()

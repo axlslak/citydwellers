@@ -4,7 +4,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -47,8 +46,6 @@ namespace CityBankers
         private readonly ConcurrentQueue<DispatchProposal> _dispatchProposals =
             new ConcurrentQueue<DispatchProposal>();
         private int _queuedProposals;
-        private CancellationTokenSource _ipcLifetime;
-        private Task _ipcServer;
         private DispatchCommand _reservedDispatch;
         private Stopwatch _reservationAge;
         private Task<string> _dispatchPreparation;
@@ -78,63 +75,12 @@ namespace CityBankers
             _ipcOwner._donationActive && _ipcOwner._donationPartner == partner &&
             _ipcOwner._receipt?.Kind == "donation" && _ipcOwner._afterReceipt == null;
 
-        private static string BankerPipe(string character)
-        {
-            // All character AppDomains belong to one unified host. No wall-clock leases.
-            return "CityDwellers.Bankers." + Process.GetCurrentProcess().Id + "." + character.ToLowerInvariant();
-        }
-
-        private void StartBankerIpc()
+        private void StartBankerMemory()
         {
             _ipcOwner = this;
             _bankerMemoryWake = new BankerMemoryWake();
             CityDwellers.Shared.ManagerMemory.Current.RegisterBankerSignalWake(
                 Client.CharacterName, _bankerMemoryWake);
-            _ipcLifetime = new CancellationTokenSource();
-            string pipeName = BankerPipe(Client.CharacterName);
-            _ipcServer = ServeBankerIpc(pipeName, _ipcLifetime.Token);
-        }
-
-        private async Task ServeBankerIpc(string name, CancellationToken token)
-        {
-            while (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    using (var pipe = new NamedPipeServerStream(name, PipeDirection.InOut, 1,
-                        PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
-                    using (token.Register(() => pipe.Dispose()))
-                    {
-                        await pipe.WaitForConnectionAsync(token).ConfigureAwait(false);
-                        await CityDwellers.Shared.LocalIpc.RespondAsync(pipe, async line =>
-                        {
-                            var proposal = JsonConvert.DeserializeObject<DispatchProposal>(line ?? "null");
-                            if (proposal == null) return "busy";
-                            if (Interlocked.Increment(ref _queuedProposals) > 64)
-                            { Interlocked.Decrement(ref _queuedProposals); return "busy"; }
-                            _dispatchProposals.Enqueue(proposal);
-                            BankerActivityGovernor.Wake();
-                            // The AO update thread evaluates readiness and reserves capacity.
-                            // The pipe thread never reads inventory or calls an AO operation.
-                            Task done = await Task.WhenAny(proposal.Reply.Task,
-                                Task.Delay(3000, token)).ConfigureAwait(false);
-                            if (done == proposal.Reply.Task)
-                                return await proposal.Reply.Task.ConfigureAwait(false);
-                            // Timeout may cancel only unclaimed work. A started admission
-                            // can still commit; never tell its caller it was rejected.
-                            return proposal.TryCancel() ? "busy" : "pending";
-                        }, 5000, token).ConfigureAwait(false);
-                    }
-                }
-                catch (Exception)
-                {
-                    if (!token.IsCancellationRequested)
-                    {
-                        try { await Task.Delay(250, token).ConfigureAwait(false); }
-                        catch (OperationCanceledException) { }
-                    }
-                }
-            }
         }
 
         private static async Task<string> SendBankerMemory(

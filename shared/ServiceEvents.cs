@@ -1,9 +1,7 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,8 +32,8 @@ namespace CityDwellers.Shared
         public string Via;
     }
 
-    // Per-client AppDomain. Reports contain original identity/time; relaying never
-    // turns a banker's event into an event attributed to Central or Manager.
+    // Per-client AppDomain. Manager memory retains immutable reports with their
+    // original identity/time; only Manager delivers to its diagnostic sink.
     public static class ServiceEvents
     {
         private static Router _router;
@@ -49,13 +47,11 @@ namespace CityDwellers.Shared
             var roles = (root["Bankers"]?["Roles"] as JObject)?.Properties().ToDictionary(
                 p => (string)p.Value["Character"], p => p.Name, StringComparer.OrdinalIgnoreCase)
                 ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            string central = roles.FirstOrDefault(p => p.Value == "central").Key;
-            if (managerSink == null && string.IsNullOrWhiteSpace(central)) throw new InvalidDataException("Event reporting requires configured Central.");
             string role;
             if (managerSink != null) role = "manager";
             else if (!roles.TryGetValue(character, out role)) throw new InvalidDataException("Unknown banker event source.");
             _character = character; _role = role; _identity = identity;
-            _router = new Router(role, central, roles, warning, managerSink);
+            _router = new Router(roles, warning, managerSink);
         }
 
         public static void Report(string name, string severity, string message, object data = null)
@@ -78,120 +74,104 @@ namespace CityDwellers.Shared
 
         private sealed class Router : IDisposable
         {
-            private readonly string _role, _central;
+            private readonly string _character;
             private readonly Dictionary<string, string> _roles;
             private readonly Action<string> _warning;
             private readonly Action<ServiceEvent> _sink;
-            private readonly BlockingCollection<ServiceEvent> _queue = new BlockingCollection<ServiceEvent>(256);
             private readonly CancellationTokenSource _stop = new CancellationTokenSource();
             private readonly HashSet<string> _seen = new HashSet<string>();
             private readonly Queue<string> _seenOrder = new Queue<string>();
-            private readonly Task _worker, _server;
+            private readonly Task _worker;
+            private readonly string _consumer;
+            private readonly object _dropSync = new object();
+            private readonly Stopwatch _dropNoticeAge = Stopwatch.StartNew();
             private long _dropped;
-            private static string Pipe(string owner) => "CityDwellers.Events." + Process.GetCurrentProcess().Id + "." + owner;
+            private bool _dropNoticeSent;
 
-            public Router(string role, string central, Dictionary<string, string> roles, Action<string> warning, Action<ServiceEvent> sink)
+            public Router(Dictionary<string, string> roles, Action<string> warning, Action<ServiceEvent> sink)
             {
-                _role = role; _central = central; _roles = roles; _warning = warning; _sink = sink;
-                _worker = Task.Run(() => Send());
-                if (role == "central" || role == "manager") _server = Task.Run(() => Listen());
+                _character = ServiceEvents._character;
+                _roles = roles; _warning = warning; _sink = sink;
+                if (sink != null)
+                {
+                    _consumer = ManagerMemory.Current.BeginServiceEventConsumer();
+                    _worker = Task.Run(() => Send());
+                }
             }
 
             public bool Add(ServiceEvent report)
             {
-                try
+                if (_stop.IsCancellationRequested) return false;
+                // No game operations or remote sink callbacks execute on this thread.
+                if (ManagerMemory.Current.EnqueueServiceEvent(JsonConvert.SerializeObject(report))) return true;
+                lock (_dropSync)
                 {
-                    if (JsonConvert.SerializeObject(report).Length <= 60000 && _queue.TryAdd(report)) return true;
+                    _dropped++;
+                    if (!_dropNoticeSent || _dropNoticeAge.ElapsedMilliseconds >= 30000)
+                    {
+                        _warning("Event reporting queue full or report too large: " + _dropped + " reports not queued.");
+                        _dropped = 0;
+                        _dropNoticeSent = true;
+                        _dropNoticeAge.Restart();
+                    }
                 }
-                catch (InvalidOperationException) { }
-                Interlocked.Increment(ref _dropped);
                 return false;
             }
 
             private bool Valid(ServiceEvent report)
             {
+                // Manager's own reports retain their previous local-sink behavior.
+                if (report != null && report.Role == "manager")
+                    return string.Equals(report.Character, _character, StringComparison.OrdinalIgnoreCase);
                 Guid id;
                 string role;
                 return report != null && Guid.TryParseExact(report.Id, "N", out id) &&
                     report.TimeUtc != default(DateTime) && !string.IsNullOrWhiteSpace(report.Event) && report.Event.Length <= 32 &&
                     (report.Severity == "info" || report.Severity == "warning" || report.Severity == "error") &&
-                    _roles.TryGetValue(report.Character ?? "", out role) && role == report.Role &&
-                    (_role == "central" ? report.Via == null : report.Via == _central);
-            }
-
-            private async Task Listen()
-            {
-                while (!_stop.IsCancellationRequested)
-                {
-                    try
-                    {
-                        using (var pipe = new NamedPipeServerStream(Pipe(_role), PipeDirection.InOut, 1,
-                            PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
-                        using (_stop.Token.Register(() => pipe.Dispose()))
-                        {
-                            await pipe.WaitForConnectionAsync(_stop.Token).ConfigureAwait(false);
-                            await LocalIpc.RespondAsync(pipe, line =>
-                            {
-                                if (line == null || line.Length > 65536) return Task.FromResult("invalid");
-                                var report = JsonConvert.DeserializeObject<ServiceEvent>(line);
-                                if (!Valid(report)) return Task.FromResult("invalid");
-                                if (_role == "central") report.Via = _central;
-                                return Task.FromResult(Add(report) ? "accepted" : "busy");
-                            }, 3000, _stop.Token).ConfigureAwait(false);
-                        }
-                    }
-                    catch (Exception) when (!_stop.IsCancellationRequested)
-                    { await Task.Delay(1000, _stop.Token).ConfigureAwait(false); }
-                    catch (Exception) when (_stop.IsCancellationRequested) { break; }
-                }
+                    _roles.TryGetValue(report.Character ?? "", out role) && role == report.Role;
             }
 
             private async Task Send()
             {
-                ServiceEvent pending = null;
                 bool failed = false;
-                var interval = Stopwatch.StartNew();
                 try
                 {
-                    while (!_stop.IsCancellationRequested)
+                    while (!_stop.IsCancellationRequested && ManagerMemory.Current.IsServiceEventConsumer(_consumer))
                     {
-                        if (interval.ElapsedMilliseconds >= 30000)
+                        string payload = ManagerMemory.Current.ReadServiceEvent(_consumer, 250);
+                        if (payload == null) continue;
+                        ServiceEvent report;
+                        try { report = JsonConvert.DeserializeObject<ServiceEvent>(payload); }
+                        catch (JsonException)
                         {
-                            long dropped = Interlocked.Exchange(ref _dropped, 0);
-                            if (dropped > 0) _warning("Event reporting queue full or report too large: " + dropped + " reports not queued.");
-                            interval.Restart();
-                        }
-                        if (pending == null && !_queue.TryTake(out pending, 250, _stop.Token))
-                        {
-                            if (_queue.IsCompleted) break;
+                            ManagerMemory.Current.CompleteServiceEvent(_consumer, payload);
+                            _warning("Invalid service event discarded.");
                             continue;
                         }
+                        if (!Valid(report))
+                        {
+                            ManagerMemory.Current.CompleteServiceEvent(_consumer, payload);
+                            _warning("Invalid service event source or fields discarded.");
+                            continue;
+                        }
+                        if (_stop.IsCancellationRequested || !ManagerMemory.Current.IsServiceEventConsumer(_consumer)) break;
                         try
                         {
-                            if (_role == "manager")
+                            if (!_seen.Contains(report.Id))
                             {
-                                if (!_seen.Contains(pending.Id))
-                                {
-                                    _sink(pending);
-                                    _seen.Add(pending.Id); _seenOrder.Enqueue(pending.Id);
-                                    if (_seenOrder.Count > 4096) _seen.Remove(_seenOrder.Dequeue());
-                                }
+                                _sink(report);
+                                _seen.Add(report.Id); _seenOrder.Enqueue(report.Id);
+                                if (_seenOrder.Count > 4096) _seen.Remove(_seenOrder.Dequeue());
                             }
-                            else
-                            {
-                                if (_role == "central") pending.Via = _central;
-                                string reply = await LocalIpc.RequestLineAsync(Pipe(_role == "central" ? "manager" : "central"),
-                                    JsonConvert.SerializeObject(pending), 1000, 3000).ConfigureAwait(false);
-                                if (reply != "accepted") throw new IOException("Event relay not ready.");
-                            }
-                            pending = null;
+                            ManagerMemory.Current.CompleteServiceEvent(_consumer, payload);
                             if (failed) _warning("Event reporting resumed.");
                             failed = false;
                         }
                         catch (Exception) when (!_stop.IsCancellationRequested)
                         {
-                            if (!failed) _warning("Event reporting waiting for " + (_role == "manager" ? "event log" : _role == "central" ? "Manager" : "Central") + ".");
+                            if (!failed) _warning("Event reporting waiting for event log.");
                             failed = true;
+                            // Existing sink-failure retry only; arrival wakes the inbox immediately.
                             await Task.Delay(2000, _stop.Token).ConfigureAwait(false);
                         }
                     }
@@ -201,9 +181,10 @@ namespace CityDwellers.Shared
 
             public void Dispose()
             {
-                _queue.CompleteAdding();
-                if (!_worker.Wait(1000)) _stop.Cancel();
                 _stop.Cancel();
+                if (_consumer != null) ManagerMemory.Current.EndServiceEventConsumer(_consumer);
+                if (_worker != null) try { _worker.Wait(1000); } catch (AggregateException) { }
+                // Unacknowledged events stay in host memory across Manager restart.
             }
         }
     }
