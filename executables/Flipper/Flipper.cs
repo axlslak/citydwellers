@@ -4,7 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
 using System.Threading;
 
 using AOSharp.Clientless;
@@ -20,7 +19,6 @@ using WorkerResponse = CityDwellers.Shared.WorkerResponse;
 
 public class FlipperLoader
 {
-    private const string PipeName = "citydwellers-flipper";
     private const int FailedProbeCooldownMilliseconds = 90000;
 
     private static Config _config;
@@ -186,7 +184,7 @@ public class FlipperLoader
         Console.WriteLine("======================================");
         Console.WriteLine();
         Console.WriteLine($"Character: {_account.Character}");
-        Console.WriteLine("Control:   Governor memory (legacy pipe retained but dormant)");
+        Console.WriteLine("Control:   Governor memory");
         Console.WriteLine($"Cache:     {(_config.CacheFreshSeconds > 0 ? _config.CacheFreshSeconds : 60)}s fresh window");
         Console.WriteLine();
         Console.WriteLine("Flipper service idle. Apcflipper is NOT logged in.");
@@ -273,37 +271,6 @@ public class FlipperLoader
         finally
         {
             ManagerMemory.Current.SetLifecycleConsumerReady("Flipper", false);
-        }
-    }
-
-    private static void RunPipeServer()
-    {
-        while (!_stopping)
-        {
-            try
-            {
-                using (var pipe = new NamedPipeServerStream(
-                    PipeName,
-                    PipeDirection.InOut,
-                    1,
-                    PipeTransmissionMode.Byte,
-                    PipeOptions.None))
-                {
-                    pipe.WaitForConnection();
-
-                    CityDwellers.Shared.LocalIpc.Respond<WorkerRequest, WorkerResponse>(
-                        pipe, HandleRequest, ex => new WorkerResponse
-                        {
-                            Ok = false,
-                            Message = $"Invalid Flipper request: {ex.Message}"
-                        });
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Flipper pipe server error: {ex}");
-                Thread.Sleep(500);
-            }
         }
     }
 
