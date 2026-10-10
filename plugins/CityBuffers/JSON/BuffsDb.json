@@ -1558,6 +1558,23 @@
     ],
     "Metaphysicist": [
         {
+            "Name": "Neuronal Stimulator",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 220345
+                }
+            ],
+            "Type": 0,
+            "Description": "+23 Intelligence/Psychic, 4 hours",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "ns"
+            ]
+        },
+        {
             "Name": "Composite Teachings",
             "LevelToId": [
                 {
