@@ -380,12 +380,37 @@ namespace MalisBuffBots
         }
 
         private bool ObservationLanded(BuffEntry entry, CastWork work)
-            => work.ObservationKey != null && ManagerMemory.Current.ObservedCastLanded(
+            => work.AttemptKey != null && ManagerMemory.Current.ObservedCastLanded(
                 entry.Requester.Instance, work.NanoId, work.AttemptedUtc,
                 work.PreviousExpiryUtc, work.MissingBefore);
 
+        internal void ConfirmServerEvidence()
+        {
+            if (DynelManager.LocalPlayer == null) return;
+            foreach (var pair in _castWork.ToArray())
+            {
+                var entry = pair.Key;
+                var work = pair.Value;
+                if (!_castWork.ContainsKey(entry) || work.AttemptKey == null) continue;
+                if (ObservationLanded(entry, work))
+                {
+                    Logger.Information("Server/Manager confirmed '" + entry.NanoEntry.Name +
+                        "' for requester " + entry.Requester.Instance + " nano=" + work.NanoId);
+                    CompleteBuffEntry(entry, completed: true);
+                }
+                else if (work.CompletionUtc == default(DateTime))
+                {
+                    int target = PaidBufferCatalogue.FindEffect(work.NanoId)?.IsTeam == true
+                        ? DynelManager.LocalPlayer.Identity.Instance : entry.Requester.Instance;
+                    if (ManagerMemory.Current.ServerNanoCastExecuted(DynelManager.LocalPlayer.Identity.Instance,
+                        target, work.NanoId, work.AttemptedUtc)) MarkCastCompleted(entry, work);
+                }
+            }
+        }
+
         private void ProcessAwaitingObservations()
         {
+            ConfirmServerEvidence();
             foreach (var entry in Queue.Awaiting)
             {
                 var work = Work(entry);
@@ -596,7 +621,9 @@ namespace MalisBuffBots
             if (work.CompletionUtc != default(DateTime)) return;
             work.CompletionUtc = DateTime.UtcNow;
             Logger.Information("Finished casting '" + entry.NanoEntry.Name + "' for requester " + entry.Requester.Instance);
-            if (work.ObservationKey == null || ObservationLanded(entry, work))
+            bool teamRecipient = PaidBufferCatalogue.FindEffect(work.NanoId)?.IsTeam == true &&
+                entry.Requester != DynelManager.LocalPlayer.Identity;
+            if ((!teamRecipient && work.ObservationKey == null) || ObservationLanded(entry, work))
                 CompleteBuffEntry(entry, completed: true);
             else
             {
@@ -814,5 +841,6 @@ namespace MalisBuffBots
         }
     }
 }
+
 
 

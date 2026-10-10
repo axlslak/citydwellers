@@ -285,6 +285,7 @@ namespace CityManager
                     return;
 
                 var n3Message = (N3Message)e.Body;
+                ObserveServerBuffMessage(n3Message);
 
                 if (n3Message.N3MessageType == N3MessageType.AOTransportSignal)
                 {
@@ -3594,4 +3595,5 @@ namespace CityManager
         }
     }
 }
+
 
