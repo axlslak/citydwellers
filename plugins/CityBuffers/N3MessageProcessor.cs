@@ -8,6 +8,7 @@ using System;
 using System.IO;
 using System.Linq;
 using CityDwellers.Shared;
+using BuffMessage = AOSharp.Common.SmokeLounge.AOtomation.Messaging.Messages.N3Messages.BuffMessage;
 
 namespace MalisBuffBots
 {
@@ -46,6 +47,15 @@ namespace MalisBuffBots
                     case N3MessageType.CastNanoSpell:
                         OnCastNanoSpellMessage((CastNanoSpellMessage)n3Msg);
                         break;
+                    case N3MessageType.Buff:
+                        var buff = (BuffMessage)n3Msg;
+                        if (buff.Unknown1 == 0 && buff.Identity.Type == IdentityType.SimpleChar &&
+                            (int)buff.Buff.Type == buff.Identity.Instance)
+                        {
+                            ManagerMemory.Current.RecordServerBuffApplied(buff.Identity.Instance, buff.Buff.Instance);
+                            _queueProcessor.ConfirmServerEvidence();
+                        }
+                        break;
                     case N3MessageType.CharInPlay:
                         OnCharInPlayMessage((CharInPlayMessage)n3Msg);
                         break;
@@ -72,6 +82,11 @@ namespace MalisBuffBots
 
         private void OnCastNanoSpellMessage(CastNanoSpellMessage n3Msg)
         {
+            if (n3Msg.Caster.Type == IdentityType.SimpleChar && n3Msg.Target.Type == IdentityType.SimpleChar)
+            {
+                ManagerMemory.Current.RecordServerNanoCast(n3Msg.Caster.Instance, n3Msg.Target.Instance, n3Msg.NanoId);
+                _queueProcessor.ConfirmServerEvidence();
+            }
             if (!_meepNanos.Contains(n3Msg.NanoId))
                 return;
 
@@ -228,5 +243,6 @@ namespace MalisBuffBots
 
     }
 }
+
 
 

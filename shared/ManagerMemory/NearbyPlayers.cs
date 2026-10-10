@@ -73,6 +73,96 @@ namespace CityDwellers.Shared
         private NearbyPlayerObservation[] _nearbyPlayers = new NearbyPlayerObservation[0];
         private readonly HashSet<int> _encounterPlayers = new HashSet<int>();
 
+        private sealed class ServerNanoEvidence
+        {
+            internal DateTime ReceivedUtc;
+            internal bool Observed;
+        }
+        private readonly object _serverNanoSync = new object();
+        private readonly Dictionary<string, ServerNanoEvidence> _serverNanos =
+            new Dictionary<string, ServerNanoEvidence>();
+        private DateTime _nextServerNanoPruneUtc;
+
+        public void RecordServerNanoCast(int caster, int target, int nanoId)
+            => RecordServerNano(caster, target, nanoId, false);
+
+        public void RecordServerBuffApplied(int target, int nanoId)
+            => RecordServerNano(0, target, nanoId, true);
+
+        private void RecordServerNano(int caster, int target, int nanoId, bool applied)
+        {
+            if (target <= 0 || nanoId <= 0 || (!applied && caster <= 0)) return;
+            var now = DateTime.UtcNow;
+            lock (_serverNanoSync)
+            {
+                PruneServerNanos(now);
+                string key = (applied ? "buff:" : "cast:" + caster + ":") + target + ":" + nanoId;
+                _serverNanos[key] = new ServerNanoEvidence {
+                    ReceivedUtc = now };
+                // Bound live evidence even in a crowded playfield. No SQL/history.
+                if (_serverNanos.Count > 4096)
+                    _serverNanos.Remove(_serverNanos.OrderBy(p => p.Value.ReceivedUtc).First().Key);
+            }
+        }
+
+        private void PruneServerNanos(DateTime now)
+        {
+            if (now < _nextServerNanoPruneUtc) return;
+            _nextServerNanoPruneUtc = now.AddSeconds(1);
+            // Same lifetime as admitted cast work; this is retention, not a retry wait.
+            foreach (var key in _serverNanos.Where(p => now - p.Value.ReceivedUtc >
+                TimeSpan.FromMinutes(2)).Select(p => p.Key).ToArray()) _serverNanos.Remove(key);
+        }
+
+        public bool ServerNanoCastExecuted(int caster, int target, int nanoId, DateTime attemptedUtc)
+        {
+            lock (_serverNanoSync)
+            {
+                PruneServerNanos(DateTime.UtcNow);
+                ServerNanoEvidence evidence;
+                return _serverNanos.TryGetValue("cast:" + caster + ":" + target + ":" + nanoId, out evidence) &&
+                    evidence.ReceivedUtc >= attemptedUtc;
+            }
+        }
+
+        private bool ServerBuffApplied(int target, int nanoId, DateTime afterUtc, bool unobservedOnly = false)
+        {
+            var effect = PaidBufferCatalogue.FindEffect(nanoId);
+            lock (_serverNanoSync)
+            {
+                PruneServerNanos(DateTime.UtcNow);
+                foreach (int id in new[] { nanoId }.Concat(effect?.EffectIds ?? new int[0]))
+                {
+                    ServerNanoEvidence evidence;
+                    if (_serverNanos.TryGetValue("buff:" + target + ":" + id, out evidence) &&
+                        (!unobservedOnly || !evidence.Observed) && evidence.ReceivedUtc >= afterUtc) return true;
+                }
+                return false;
+            }
+        }
+
+        private void AcknowledgeServerBuffs(NearbyPlayerObservation[] players)
+        {
+            lock (_serverNanoSync)
+            {
+                PruneServerNanos(DateTime.UtcNow);
+                foreach (var player in players)
+                foreach (var nano in player.Nanos.Where(n => n.FullSeconds > 0 &&
+                    n.RemainingSeconds >= n.FullSeconds / 2))
+                {
+                    ServerNanoEvidence evidence;
+                    if (_serverNanos.TryGetValue("buff:" + player.CharacterId + ":" + nano.Id, out evidence) &&
+                        player.ObservedUtc >= evidence.ReceivedUtc)
+                        evidence.Observed = true;
+                    // Retain receipt time for pending cast confirmation; stop using
+                    // it to override later absence after NCU has caught up.
+                }
+            }
+        }
+
+        private bool UnobservedServerBuff(int target, int nanoId)
+            => ServerBuffApplied(target, nanoId, DateTime.MinValue, true);
+
         // Live timers remain volatile; only learned usage and first/returning status persist.
         public void PublishNearbyPlayers(NearbyPlayerObservation[] observations, int[] visibleCharacterIds = null)
         {
@@ -110,6 +200,7 @@ namespace CityDwellers.Shared
             // A failed NCU read is not a departure when the dynel is still present.
             _encounterPlayers.IntersectWith(visibleCharacterIds ?? copy.Select(p => p.CharacterId).ToArray());
             foreach (var player in customers) _encounterPlayers.Add(player.CharacterId);
+            AcknowledgeServerBuffs(copy);
             lock (_nearbyPlayerSync) _nearbyPlayers = copy;
         }
 
@@ -158,6 +249,8 @@ namespace CityDwellers.Shared
         public bool ObservedCastLanded(int requester, int nanoId, DateTime attemptedUtc,
             DateTime previousExpiryUtc, bool missingBefore)
         {
+            if (ServerBuffApplied(requester, nanoId, attemptedUtc)) return true;
+            if (!missingBefore && previousExpiryUtc == default(DateTime)) return false;
             var player = ReadNearbyPlayers().FirstOrDefault(p =>
                 p.CharacterId == requester && p.ObservedUtc > attemptedUtc);
             var effect = PaidBufferCatalogue.FindEffect(nanoId);
@@ -175,6 +268,7 @@ namespace CityDwellers.Shared
             var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
             if (player == null || IsObservedBuffer(player)) return false;
             var ncu = PaidBufferCatalogue.FindEffect(275043);
+            if (UnobservedServerBuff(characterId, ncu.Id)) return false;
             double age = (DateTime.UtcNow - player.ObservedUtc).TotalSeconds;
             var effects = player.Nanos.Where(n => ncu.MatchesEffect(n.Id)).ToArray();
             if (effects.Any(n => n.FullSeconds > 0 &&
@@ -189,6 +283,7 @@ namespace CityDwellers.Shared
         public bool ObservedBuffNeedsRefresh(int characterId, int nanoId)
         {
             if (BufferRefreshPolicy.IsRequestOnlyNano(nanoId)) return false;
+            if (UnobservedServerBuff(characterId, nanoId)) return false;
             if (!PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nanoId) &&
                 ObservedNcuNeedsRefresh(characterId)) return false;
             var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
@@ -213,5 +308,6 @@ namespace CityDwellers.Shared
         }
     }
 }
+
 
 

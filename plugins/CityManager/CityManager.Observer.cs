@@ -6,6 +6,10 @@ using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
 using CityDwellers.Shared;
+using SmokeLounge.AOtomation.Messaging.GameData;
+using SmokeLounge.AOtomation.Messaging.Messages;
+using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
+using BuffMessage = AOSharp.Common.SmokeLounge.AOtomation.Messaging.Messages.N3Messages.BuffMessage;
 
 namespace CityManager
 {
@@ -19,6 +23,24 @@ namespace CityManager
         private readonly HashSet<int> _waitingForObservedNcu = new HashSet<int>();
         private Dictionary<int, NearbyPlayerObservation> _nearbyObserved =
             new Dictionary<int, NearbyPlayerObservation>();
+
+        private void ObserveServerBuffMessage(N3Message message)
+        {
+            if (message.N3MessageType == N3MessageType.CastNanoSpell)
+            {
+                var cast = (CastNanoSpellMessage)message;
+                if (cast.Caster.Type == IdentityType.SimpleChar && cast.Target.Type == IdentityType.SimpleChar)
+                    ManagerMemory.Current.RecordServerNanoCast(cast.Caster.Instance, cast.Target.Instance, cast.NanoId);
+            }
+            else if (message.N3MessageType == N3MessageType.Buff)
+            {
+                var buff = (BuffMessage)message;
+                // Buff.Type contains the recipient id (not IdentityType.NanoProgram).
+                if (buff.Unknown1 == 0 && buff.Identity.Type == IdentityType.SimpleChar &&
+                    (int)buff.Buff.Type == buff.Identity.Instance)
+                    ManagerMemory.Current.RecordServerBuffApplied(buff.Identity.Instance, buff.Buff.Instance);
+            }
+        }
 
         private void ClearNearbyObserver()
         {
@@ -247,6 +269,7 @@ namespace CityManager
         }
     }
 }
+
 
 
 
