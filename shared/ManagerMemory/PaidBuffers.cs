@@ -33,6 +33,7 @@ namespace CityDwellers.Shared
             new PaidBufferNano(275043, 4, 215, 0, "Firewalled Sync Compressor", "Team +500 NCU", "ncu", "fsc")
                 { EffectIds = new[] { 275044, 275135 } },
             new PaidBufferNano(227680, 3, 210, 55, "Gift of Assurance", "+5000 AC, 4 hours, Shadowlands required", "goa"),
+            new PaidBufferNano(220345, 12, 0, 7, "Neuronal Stimulator", "+23 Intelligence/Psychic, 4 hours", "ns"),
             new PaidBufferNano(220331, 12, 15, 6, "Composite Teachings", "+25 nano skills, 4 hours, Shadowlands required", "ct", "compt"),
             new PaidBufferNano(220333, 12, 40, 13, "Composite Mastery", "+50 nano skills, 4 hours, Shadowlands required", "cma", "cmastery", "compmast"),
             new PaidBufferNano(220335, 12, 90, 25, "Composite Infuse With Knowledge", "+90 nano skills, 4 hours, Shadowlands required", "ci", "cominf"),
