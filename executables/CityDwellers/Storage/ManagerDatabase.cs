@@ -65,7 +65,7 @@ namespace CityDwellers.Host
                     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name <> 'cd_storage_version'", _connection))
                     if (Convert.ToInt32(command.ExecuteScalar()) != 0)
                         throw new InvalidOperationException("Database has tables but no current schema version. Legacy import is no longer supported. Use an empty database or restore a current-schema backup.");
-                RuntimeLog.Write("Initializing empty business database (schema 7).");
+                RuntimeLog.Write("Initializing empty business database (schema 8).");
                 _tables.Create(_connection);
                 state = new AccountingState
                 {
@@ -75,7 +75,7 @@ namespace CityDwellers.Host
                 };
                 _tables.Commit(_connection, new AccountingState { Reserve = null, Alts = null }, state, transaction =>
                 {
-                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(7)", _connection, transaction)) command.ExecuteNonQuery();
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(8)", _connection, transaction)) command.ExecuteNonQuery();
                 });
             }
             else
@@ -96,7 +96,15 @@ namespace CityDwellers.Host
                     using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(7)", _connection)) command.ExecuteNonQuery();
                     version = 7;
                 }
-                if (version != 7) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 7.");
+                if (version == 7)
+                {
+                    RuntimeLog.Write("Upgrading business schema 7 to 8: adding saved buffer catalogues.");
+                    _tables.Create(_connection, "cd_buffer_catalogues", "cd_buffer_known_nanos",
+                        "cd_buffer_offered_buffs", "cd_buffer_offered_nanos");
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(8)", _connection)) command.ExecuteNonQuery();
+                    version = 8;
+                }
+                if (version != 8) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 8.");
                 RuntimeLog.Write("Loading relational business rows into Manager RAM.");
                 state = _tables.Load(_connection);
             }

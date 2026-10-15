@@ -39,6 +39,7 @@ namespace CityDwellers.Shared
         public List<CloakEvent> CloakEvents = new List<CloakEvent>();
         public AltState Alts = new AltState();
         public List<LearnedBuffProfile> LearnedBuffs = new List<LearnedBuffProfile>();
+        public List<BufferCatalogue> BufferCatalogues = new List<BufferCatalogue>();
         internal long LedgerVersion = 1, PolicyVersion = 1;
         internal AccountingState Fork() => (AccountingState)MemberwiseClone();
         internal bool BusinessChanged(AccountingState other) =>
@@ -52,7 +53,8 @@ namespace CityDwellers.Shared
             !ReferenceEquals(ItemPairs, other.ItemPairs) || !ReferenceEquals(Reserve, other.Reserve) ||
             !ReferenceEquals(ReserveOperations, other.ReserveOperations) || !ReferenceEquals(BagHistory, other.BagHistory) ||
             !ReferenceEquals(BankTerminal, other.BankTerminal) || !ReferenceEquals(Alts, other.Alts) ||
-            !ReferenceEquals(LearnedBuffs, other.LearnedBuffs);
+            !ReferenceEquals(LearnedBuffs, other.LearnedBuffs) ||
+            !ReferenceEquals(BufferCatalogues, other.BufferCatalogues);
     }
 
     public interface IAccountingPersistence

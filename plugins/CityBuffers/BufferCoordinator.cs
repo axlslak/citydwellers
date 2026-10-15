@@ -343,7 +343,7 @@ namespace MalisBuffBots
                 ObservedUtc = DateTime.UtcNow,
                 InPlay = Client.InPlay,
                 Ready = CityBufferBridge.Ready,
-                AdvertisedBuffs = BuildAdvertisedBuffs(spellList)
+                AdvertisedBuffs = CityBufferBridge.CatalogueBuffs
             });
         }
 

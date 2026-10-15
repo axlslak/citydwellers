@@ -25,11 +25,15 @@ namespace CityDwellers.Host
                 string.Equals(arg, "console", StringComparison.OrdinalIgnoreCase));
             bool audit = args != null && Array.Exists(args, arg =>
                 string.Equals(arg, "audit", StringComparison.OrdinalIgnoreCase));
+            bool buffAudit = args != null && Array.Exists(args, arg =>
+                string.Equals(arg, "buff-audit", StringComparison.OrdinalIgnoreCase));
             bool normalStart = args == null || Array.TrueForAll(args, arg =>
                 string.Equals(arg, "console", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(arg, "audit", StringComparison.OrdinalIgnoreCase));
-            if ((audit || consoleMode) && !normalStart) { PrintUsage(); return 1; }
+                string.Equals(arg, "audit", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(arg, "buff-audit", StringComparison.OrdinalIgnoreCase));
+            if ((audit || buffAudit || consoleMode) && !normalStart) { PrintUsage(); return 1; }
             CityDwellersCoordinator.StartupAuditRequested = audit;
+            CityDwellersCoordinator.StartupBuffAuditRequested = buffAudit;
             if (!isWindows && (HasCommand(args, "service") || HasCommand(args, "install-service") ||
                 HasCommand(args, "uninstall-service")))
             {
@@ -149,6 +153,8 @@ namespace CityDwellers.Host
             Console.WriteLine("  CityDwellers.exe console   (Mono: mono CityDwellers.exe console)");
             Console.WriteLine("  CityDwellers.exe [console] audit   (startup audit; either argument order)");
             Console.WriteLine("  Normal startup uses saved banking state without a bag audit.");
+            Console.WriteLine("  CityDwellers.exe [console] buff-audit   (refresh saved buffer catalogues)");
+            Console.WriteLine("  Normal startup restores known buff catalogues; new buffers learn once.");
             Console.WriteLine("  CityDwellers.exe install-service");
             Console.WriteLine("  CityDwellers.exe uninstall-service");
             Console.WriteLine("  CityDwellers.exe flipper-probe");
@@ -164,6 +170,7 @@ namespace CityDwellers.Host
         private static Mutex _managerInstance;
         internal static bool OperatorShutdownRequested { get; private set; }
         internal static bool StartupAuditRequested { get; set; }
+        internal static bool StartupBuffAuditRequested { get; set; }
 
         public static int Run(ManualResetEvent stop, bool interactive)
         {
@@ -214,6 +221,10 @@ namespace CityDwellers.Host
                 RuntimeLog.Initialize(dataDirectory);
                 ManagerHost.InitializeMemory();
                 ManagerMemory.Current.ConfigureStartupAudit(StartupAuditRequested);
+                ManagerMemory.Current.ConfigureBufferCatalogueAudit(StartupBuffAuditRequested);
+                RuntimeLog.Write(StartupBuffAuditRequested
+                    ? "Buffer catalogue refresh requested as each buffer becomes ready; paid buffers remain on demand."
+                    : "Buffer catalogues use saved capabilities; only new buffers learn their nanos.");
                 RuntimeLog.Write(StartupAuditRequested
                     ? "Banker startup audit requested for this host run."
                     : "Banker startup audit disabled; using persisted banking state.");

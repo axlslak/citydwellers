@@ -15,8 +15,8 @@ namespace MalisBuffBots
         private static string _dataDir;
         private static DateTime _nextHeartbeat;
         private static DateTime? _lastSent;
-        private static string _lastCatalogueFingerprint;
-        private static bool _catalogueReadyLogged;
+        internal static int[] CatalogueSpellList { get; private set; }
+        internal static BufferAdvertisedBuff[] CatalogueBuffs { get; private set; }
         public static bool Ready;
 
         private sealed class RequestBudget
@@ -71,6 +71,18 @@ namespace MalisBuffBots
             if (!SettingsPaths.TryEnsureDirectories(out settings, out _dataDir, out error))
                 throw new InvalidOperationException(error);
             TellQueue.EnsureDirectories(_dataDir);
+            CatalogueSpellList = null;
+            CatalogueBuffs = null;
+            var saved = ManagerMemory.Current.ReadBufferCatalogue(Client.CharacterName);
+            if (saved != null && saved.Paid == Main.PaidPilot &&
+                (!Main.PaidPilot || saved.Profession == Main.PaidProfession) &&
+                !ManagerMemory.Current.BufferCatalogueAuditRequested(Client.CharacterName))
+            {
+                CatalogueSpellList = saved.KnownNanos.ToArray();
+                CatalogueBuffs = saved.AdvertisedBuffs();
+                Logger.Information("BUFFER catalogue restored: knownNanos=" + CatalogueSpellList.Length +
+                    " advertised=" + CatalogueBuffs.Length + "; no discovery requested.");
+            }
             Client.OnUpdate += Tick;
             Logger.Information("BUFFER status bridge and shared tell sender initialized for " + Client.CharacterName + ".");
         }
@@ -83,34 +95,24 @@ namespace MalisBuffBots
             try { ManagerMemory.Current.MarkBufferBotOffline(Client.CharacterName); } catch { }
         }
 
-        private static void LogCatalogueChange(
+        internal static bool InitializeCatalogue()
+        {
+            if (CatalogueSpellList != null) return true;
+            int[] known = Main.UploadedSpellList();
+            if (known.Length == 0) return false;
+            var advertised = BufferBotCache.BuildAdvertisedBuffs(known);
+            ManagerMemory.Current.SaveBufferCatalogue(Client.CharacterName,
+                (int)DynelManager.LocalPlayer.Profession, Main.PaidPilot, known, advertised);
+            CatalogueSpellList = known;
+            CatalogueBuffs = advertised;
+            LogCatalogueDiscovery(known, advertised);
+            return true;
+        }
+
+        private static void LogCatalogueDiscovery(
             int[] spellList,
             BufferAdvertisedBuff[] advertised)
         {
-            if (!Ready)
-                return;
-
-            string fingerprint = string.Join(
-                "|",
-                (advertised ?? new BufferAdvertisedBuff[0])
-                    .Where(entry => entry != null)
-                    .OrderBy(entry => entry.Profession)
-                    .ThenBy(entry => entry.Tag ?? string.Empty, StringComparer.OrdinalIgnoreCase)
-                    .ThenBy(entry => entry.Name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
-                    .Select(entry =>
-                        entry.Profession + ":" +
-                        (entry.Tag ?? string.Empty) + ":" +
-                        (entry.Name ?? string.Empty) + ":" +
-                        string.Join(",", (entry.NanoIds ?? new int[0]).OrderBy(id => id)))) +
-                ";uploaded=" + string.Join(",", (spellList ?? new int[0]).Distinct().OrderBy(id => id));
-
-            if (_catalogueReadyLogged &&
-                string.Equals(
-                    _lastCatalogueFingerprint,
-                    fingerprint,
-                    StringComparison.Ordinal))
-                return;
-
             string tags = string.Join(
                 ",",
                 (advertised ?? new BufferAdvertisedBuff[0])
@@ -120,14 +122,10 @@ namespace MalisBuffBots
                     .OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase));
 
             Logger.Information(
-                "BUFFER catalogue " +
-                (_catalogueReadyLogged ? "changed" : "ready") +
-                ": knownNanos=" + (spellList?.Length ?? 0) +
+                "BUFFER catalogue learned and saved: knownNanos=" + (spellList?.Length ?? 0) +
                 " advertised=" + (advertised?.Length ?? 0) +
                 " tags=[" + tags + "].");
 
-            _lastCatalogueFingerprint = fingerprint;
-            _catalogueReadyLogged = true;
             if (!Main.PaidPilot)
             {
                 var definitions = Main.BuffsJson.Entries.Values.SelectMany(entries => entries)
@@ -212,9 +210,6 @@ namespace MalisBuffBots
                     int[] spellList = inPlay ? Main.EffectiveSpellList() : new int[0];
                     if (inPlay)
                     {
-                        BufferAdvertisedBuff[] advertised =
-                            BufferBotCache.BuildAdvertisedBuffs(spellList);
-
                         ManagerMemory.Current.PublishBufferBotInfo(new BufferBotInfo
                         {
                             Character = Client.CharacterName,
@@ -226,10 +221,8 @@ namespace MalisBuffBots
                             InPlay = true,
                             Ready = Ready,
                             QueueLength = Main.QueueProcessor?.Queue.AllEntries.Length ?? 0,
-                            AdvertisedBuffs = advertised
+                            AdvertisedBuffs = CatalogueBuffs
                         });
-
-                        LogCatalogueChange(spellList, advertised);
                     }
                     TellQueue.WriteHeartbeatBestEffort(_dataDir, Client.CharacterName, inPlay, false, _lastSent,
                         message => Logger.Warning(message));

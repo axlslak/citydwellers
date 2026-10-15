@@ -63,6 +63,9 @@ internal static class BuffersHost
                     ManagerMemory.Current.SetBufferSleeping(account.Character, false);
                 }
 
+                ManagerMemory.Current.RestoreBufferCatalogues(runtimes.Select(r => r.Account.Character)
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+
                 foreach (BufferRuntime runtime in runtimes)
                 {
                     if (stop.WaitOne(0)) break;

@@ -84,6 +84,9 @@ namespace MalisBuffBots
         }
 
         internal static int[] EffectiveSpellList()
+            => CityBufferBridge.CatalogueSpellList ?? UploadedSpellList();
+
+        internal static int[] UploadedSpellList()
         {
             var known = new HashSet<int>(
                 DynelManager.LocalPlayer?.SpellList ?? new int[0]);
@@ -114,6 +117,7 @@ namespace MalisBuffBots
                         return;
 
                     DynelManager.LocalPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
+                    if (!CityBufferBridge.InitializeCatalogue()) return;
                     Coordination.Init();
                     if (!PaidPilot) RebuffProcessor = new RebuffProcessor(RebuffJson);
                     CityBufferBridge.Ready = true;
