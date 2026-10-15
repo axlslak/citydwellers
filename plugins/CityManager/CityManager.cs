@@ -51,6 +51,8 @@ namespace CityManager
                 "status",
                 "buffers",
                 "bufflist",
+                "buff",
+                "buffs",
                 "cast",
                 "rebuff",
                 "buffmacro",
@@ -548,6 +550,7 @@ namespace CityManager
                   command == "dump" ||
                   command == "restart" ||
                   command == "shutdown") && parts.Length == 1) ||
+                (command == "buff" || command == "buffs") ||
                 (command == "cast" && parts.Length >= 2) ||
                 (command == "trace" && parts.Length <= 2) ||
                 ((command == "inventory" || command == "inv") && parts.Length <= 2) ||
@@ -678,6 +681,9 @@ namespace CityManager
                  string.Equals(command, "withdraw", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "get", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "cru", StringComparison.OrdinalIgnoreCase) ||
+                 ((string.Equals(command, "buff", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(command, "buffs", StringComparison.OrdinalIgnoreCase)) &&
+                   parts.Length > 1 && !string.Equals(parts[1], "list", StringComparison.OrdinalIgnoreCase)) ||
                  string.Equals(command, "cast", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "rebuff", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "buffmacro", StringComparison.OrdinalIgnoreCase)) &&
@@ -771,6 +777,11 @@ namespace CityManager
 
                 case "buffers":
                     BeginBufferStatus(replyTarget);
+                    break;
+
+                case "buff":
+                case "buffs":
+                    ProcessBuffCommand(senderName, parts, replyTarget);
                     break;
 
                 case "bufflist":
@@ -3594,5 +3605,3 @@ namespace CityManager
         }
     }
 }
-
-
