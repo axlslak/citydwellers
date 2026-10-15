@@ -50,6 +50,7 @@ namespace CityManager
             _waitingForObservedNcu.Clear();
             ManagerMemory.Current.PruneObservedBuffAssignments(new string[0]);
             ManagerMemory.Current.PublishNearbyPlayers(new NearbyPlayerObservation[0]);
+            ManagerMemory.Current.PublishPaidPoolPlayers(new NearbyPlayerObservation[0], new int[0]);
         }
 
         private void TickNearbyObserver()
@@ -88,6 +89,9 @@ namespace CityManager
                         // Optional metadata must never invalidate the NCU observation.
                         observation.Level = ReadOptionalObserverStat(player, Stat.Level, now);
                         observation.Profession = ReadOptionalObserverStat(player, Stat.Profession, now);
+                        int usedNcu = ReadOptionalObserverStat(player, Stat.CurrentNCU, now);
+                        int maxNcu = ReadOptionalObserverStat(player, Stat.MaxNCU, now);
+                        if (usedNcu >= 0 && maxNcu > 0) observation.FreeNcu = Math.Max(0, maxNcu - usedNcu);
                         current[observation.CharacterId] = observation;
                     }
                     catch (Exception ex)
@@ -97,7 +101,15 @@ namespace CityManager
                 }
                 ManagerMemory.Current.PublishNearbyPlayers(current.Values.ToArray(),
                     visiblePlayers.Select(p => p.Identity.Instance).ToArray());
-                RefreshObservedBuffs(current.Values, now);
+                var memory = ManagerMemory.Current;
+                memory.BeginPaidPoolUpdate();
+                try
+                {
+                    memory.PublishPaidPoolPlayers(current.Values.ToArray(), current.Values.Where(p =>
+                        memory.ObservedNcuNeedsRefresh(p.CharacterId)).Select(p => p.CharacterId).ToArray());
+                    RefreshObservedBuffs(current.Values, now);
+                }
+                finally { memory.EndPaidPoolUpdate(); }
                 var previous = _nearbyObserved;
                 _nearbyObserved = current;
                 foreach (var observation in current.Values)
@@ -106,6 +118,7 @@ namespace CityManager
                     bool arrived = !previous.TryGetValue(observation.CharacterId, out old);
                     if (!arrived && old.Name == observation.Name && old.Level == observation.Level &&
                         old.Profession == observation.Profession &&
+                        old.FreeNcu == observation.FreeNcu &&
                         old.VisibleNanoIds.SequenceEqual(observation.VisibleNanoIds)) continue;
                     RecordDiagnostic("OBSERVER " + (arrived ? "noticed " : "updated ") +
                         observation.Name + " (" + observation.CharacterId + ") level=" +
@@ -114,7 +127,8 @@ namespace CityManager
                         string.Join(",", observation.VisibleNanoIds) + "]; durations=[" +
                         string.Join(",", observation.Nanos.Select(n => n.Id + ":" +
                             (int)n.RemainingSeconds + "/" + (int)n.FullSeconds + "s")) +
-                        "]; NCU completeness unknown.");
+                        "]; freeNCU=" + (observation.FreeNcu < 0 ? "unknown" : observation.FreeNcu.ToString()) +
+                        "; NCU completeness unknown.");
                 }
                 foreach (var departed in previous.Values.Where(p => !current.ContainsKey(p.CharacterId)))
                     RecordDiagnostic("OBSERVER no longer visible: " + departed.Name + " (" + departed.CharacterId + ").");
@@ -179,14 +193,21 @@ namespace CityManager
             // Withdraw unclaimed automatic work if the player leaves or another
             // caster has already restored it. An invitation is not a cast obligation.
             foreach (var pending in memory.PendingBufferPublicCommands(128).Where(r => r.ObservedNanoId > 0))
-                if (!memory.ObservedBuffNeedsRefresh(unchecked((int)pending.SenderId), pending.ObservedNanoId))
+                if (!memory.ObservedBuffNeedsRefresh(unchecked((int)pending.SenderId), pending.ObservedNanoId, false))
                     memory.CancelUnclaimedObservedBufferCommand(pending.Id);
             var visibleKeys = new HashSet<string>();
             var present = players.ToArray();
+            var ncuIds = new HashSet<int>(memory.BufferBotInfos().SelectMany(b =>
+                (b.AdvertisedBuffs ?? new BufferAdvertisedBuff[0]).Where(n =>
+                    string.Equals(n.Tag, "ncu", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(n => n.NanoIds ?? new int[0])).Concat(new[] { 275043, 275044, 275135 }));
             _waitingForObservedNcu.IntersectWith(present.Select(p => p.CharacterId));
             foreach (var player in present)
             {
                 bool waiting = memory.ObservedNcuNeedsRefresh(player.CharacterId);
+                if (!waiting && player.Nanos.Any(n => ncuIds.Contains(n.Id) && n.FullSeconds > 0 &&
+                    n.RemainingSeconds >= n.FullSeconds / 2))
+                    memory.ReportBufferCastFinished(unchecked((uint)player.CharacterId), new[] { "ncu" });
                 if (waiting && _waitingForObservedNcu.Add(player.CharacterId))
                     RecordDiagnostic("OBSERVER NCU first: " + player.Name +
                         "; holding other automatic buffs until fixer NCU is observed above half duration.");
@@ -200,14 +221,15 @@ namespace CityManager
                 string key = player.CharacterId + ":" + nano.Id;
                 visibleKeys.Add(key);
                 if (_waitingForObservedNcu.Contains(player.CharacterId) &&
-                    !PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nano.Id))
+                    PaidBufferCatalogue.FindEffect(nano.Id) == null)
                 {
                     // Learned usage remains intact and is reconsidered as soon as NCU lands.
                     _paidRefreshProviders.Remove(key);
                     _refreshAwaiting.Remove(key);
                     continue;
                 }
-                if (!ManagerMemory.Current.ObservedBuffNeedsRefresh(player.CharacterId, nano.Id))
+                if (!ManagerMemory.Current.ObservedBuffNeedsRefresh(player.CharacterId, nano.Id,
+                    PaidBufferCatalogue.FindEffect(nano.Id) == null))
                 {
                     if (nano.FullSeconds > 0 && nano.RemainingSeconds >= nano.FullSeconds / 2 &&
                         _refreshAwaiting.Remove(key))

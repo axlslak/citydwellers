@@ -206,11 +206,9 @@ internal static class BuffersHost
 
         // Finish the admitted queue before releasing a shared account to another toon.
         // Do not drain during startup: the first request must get a chance to be claimed.
-        bool siblingWaiting = state.Ready && !memory.PendingBufferPublicCommands(128).Any(r =>
-            string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase)) &&
-            runtimes.Any(r => r.Paid && r != runtime && !r.Blocked &&
-                memory.OldestPaidBufferRequest(r.Account.Character) != DateTime.MaxValue);
-        if (memory.AoAccountHasWaiter(runtime.Account.Username) || siblingWaiting)
+        // Other paid professions wait for this provider's eligible pool to finish.
+        // Flipper's actual account priority remains the sole preemption request.
+        if (memory.AoAccountHasWaiter(runtime.Account.Username))
             memory.DrainPaidBuffer(character);
         bool failed = !state.Parked &&
             ((!state.Ready && DateTime.UtcNow - state.StartedUtc > TimeSpan.FromSeconds(90)) ||

@@ -50,6 +50,7 @@ namespace CityDwellers.Shared
         public string Name;
         public int Level;
         public int Profession;
+        public int FreeNcu = -1; // Unknown remote stats must not prevent a real cast attempt.
         public string Observer;
         public DateTime ObservedUtc;
         public bool RestoreMissing;
@@ -62,7 +63,7 @@ namespace CityDwellers.Shared
         internal NearbyPlayerObservation Copy() => new NearbyPlayerObservation
         {
             CharacterId = CharacterId, Name = Name, Level = Level,
-            Profession = Profession, Observer = Observer, ObservedUtc = ObservedUtc,
+            Profession = Profession, FreeNcu = FreeNcu, Observer = Observer, ObservedUtc = ObservedUtc,
             RestoreMissing = RestoreMissing,
             VisibleNanoIds = (VisibleNanoIds ?? new int[0]).ToArray(),
             Nanos = (Nanos ?? new NearbyNanoObservation[0]).Select(n => n.Copy()).ToArray()
@@ -351,11 +352,11 @@ namespace CityDwellers.Shared
                     p.NanoIds.Any(ncu.MatchesEffect));
         }
 
-        public bool ObservedBuffNeedsRefresh(int characterId, int nanoId)
+        public bool ObservedBuffNeedsRefresh(int characterId, int nanoId, bool requireNcu = true)
         {
             if (BufferRefreshPolicy.IsRequestOnlyNano(nanoId) || IsBuffExcluded(characterId, nanoId)) return false;
             if (UnobservedServerBuff(characterId, nanoId)) return false;
-            if (!PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nanoId) &&
+            if (requireNcu && !PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nanoId) &&
                 ObservedNcuNeedsRefresh(characterId)) return false;
             var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
             if (player == null || IsObservedBuffer(player)) return false;

@@ -199,6 +199,13 @@ namespace MalisBuffBots
             switch ((LdbFeedback)feedbackMsg.MessageId)
             {
                 case LdbFeedback.NotEnoughNcu:
+                    if (Main.PaidPilot)
+                    {
+                        _queueProcessor.FinishFeedback(LdbFeedback.NotEnoughNcu);
+                        break;
+                    }
+                    _queueProcessor.RetryFeedback(QueueProcessor.FeedbackReason(LdbFeedback.NotEnoughNcu));
+                    break;
                 case LdbFeedback.NotInLineOfSight:
                 case LdbFeedback.OutOfRange:
                 case LdbFeedback.UnableToUseNano:

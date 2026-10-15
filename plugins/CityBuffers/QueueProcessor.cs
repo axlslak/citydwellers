@@ -47,9 +47,18 @@ namespace MalisBuffBots
 
         private DateTime _paidFixerPostCastUntilUtc;
         internal bool PaidFixerPostCastHold => DateTime.UtcNow < _paidFixerPostCastUntilUtc;
+        internal bool PaidQueueAtCapacity { get; private set; }
+        internal int[] PaidAcceptedNanoIds { get; private set; } = new int[0];
+        internal void ClearPaidAdmission()
+        {
+            PaidQueueAtCapacity = false;
+            PaidAcceptedNanoIds = new int[0];
+        }
 
         internal bool RequestPaidBuffs(NanoEntry[] entries, PlayerChar requester, out string message)
         {
+            PaidQueueAtCapacity = false;
+            PaidAcceptedNanoIds = new int[0];
             int[] known = Main.EffectiveSpellList();
             var allowed = PaidBufferCatalogue.ForProfession(Main.PaidProfession).Select(n => n.Id).ToArray();
             int? recipientLevel = null;
@@ -67,25 +76,31 @@ namespace MalisBuffBots
                     notices.Add("Can't cast " + entry.Name + ": requires recipient level " + entry.LevelToId.Min(n => n.Level) + "+.");
                 else accepted.Add(entry);
             }
-            if (Main.PaidProfession == 12 && accepted.Count > 1)
+            var composites = accepted.Where(e => !e.ContainsId(220345)).ToArray();
+            if (Main.PaidProfession == 12 && composites.Length > 1)
             {
                 // These composites replace each other. Deliver the best eligible
                 // one instead of refusing the macro or downgrading it afterwards.
-                var best = accepted.OrderByDescending(e => e.LevelToId.Where(n => known.Contains(n.Id) &&
+                var best = composites.OrderByDescending(e => e.LevelToId.Where(n => known.Contains(n.Id) &&
                     (!recipientLevel.HasValue || n.Level <= recipientLevel.Value)).Select(n => n.Level).DefaultIfEmpty(0).Max()).First();
                 notices.Add("Using " + best.Name + " for the requested MP composites; they replace each other.");
-                accepted = new List<NanoEntry> { best };
+                accepted = accepted.Where(e => e.ContainsId(220345) || ReferenceEquals(e, best)).ToList();
             }
             var queued = new List<string>();
-            foreach (var entry in accepted.OrderBy(e => e.ContainsId(275043) ? 0 : 1))
+            var requested = accepted.Select(entry => new BuffEntry {
+                Requester = requester.Identity, NanoEntry = entry }).ToArray();
+            var additional = requested.Where(entry => !Queue.AllEntries.Any(e => e.Equals(entry))).ToArray();
+            string error;
+            if (additional.Length != 0 && !Queue.TryEnqueuePaid(additional, out error,
+                PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) ? 16 : 4))
             {
-                string error;
-                if (Queue.TryEnqueuePaid(new[] { new BuffEntry {
-                    Requester = requester.Identity, NanoEntry = entry
-                } }, out error, PaidBufferCatalogue.UsesManagerTeam(Main.PaidProfession) ? 16 : 4))
-                    queued.Add(entry.Name);
-                else notices.Add("Can't queue " + entry.Name + ": " + error);
+                PaidQueueAtCapacity = true;
+                message = null; // Backpressure leaves the request in Manager's pool.
+                return false;
             }
+            queued.AddRange(accepted.Select(e => e.Name));
+            PaidAcceptedNanoIds = accepted.SelectMany(e => e.LevelToId)
+                .Where(n => allowed.Contains(n.Id) && known.Contains(n.Id)).Select(n => n.Id).Distinct().ToArray();
             if (queued.Count != 0)
             {
                 Main.Coordination.BotCache.PublishQueueInfo();
@@ -124,6 +139,8 @@ namespace MalisBuffBots
 
                 ProcessAwaitingObservations();
                 if (PaidFixerPostCastHold) return;
+                if (Main.PaidPilot && ManagerMemory.Current.PaidPoolUpdating) return;
+                ReturnBlockedPaidWork();
 
                 if (Team.IsInTeam)
                     ProcessLeaveTeam();
@@ -299,7 +316,6 @@ namespace MalisBuffBots
                 if (DateTime.UtcNow >= pending.Expires)
                 {
                     _pendingRoutes.Remove(pending);
-                    ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)pending.Requester), pending.Entry.Tags.ToArray());
                     Logger.Warning("Buffer readiness request expired: " + pending.Entry.Name +
                         "; requester=" + pending.Requester + ".");
                     CityBufferBridge.Diagnostic(pending.Requester,
@@ -381,6 +397,26 @@ namespace MalisBuffBots
             var entry = Queue.Current;
             if (entry == null) return;
             Queue.YieldCurrent(Work(entry).AttemptKey != null);
+            Main.Coordination.BotCache.PublishQueueInfo();
+        }
+
+        private void ReturnBlockedPaidWork()
+        {
+            if (!Main.PaidPilot) return;
+            foreach (var entry in Queue.AllEntries)
+            {
+                if (entry.Requester == DynelManager.LocalPlayer.Identity) continue;
+                CastWork work;
+                if (_castWork.TryGetValue(entry, out work) && work.AttemptKey != null &&
+                    work.FeedbackUtc <= work.AttemptedUtc) continue; // A real send must settle first.
+                int nano = entry.NanoEntry.LevelToId[0].Id;
+                if (ManagerMemory.Current.CanCastPaidBuff(Client.CharacterName, entry.Requester.Instance, nano)) continue;
+                ManagerMemory.Current.ReportPaidBuffFinished(Client.CharacterName, entry.Requester.Instance,
+                    nano, false, false);
+                Queue.Remove(entry);
+                _castWork.Remove(entry);
+                if (ReferenceEquals(_feedbackEntry, entry)) _feedbackEntry = null;
+            }
             Main.Coordination.BotCache.PublishQueueInfo();
         }
 
@@ -670,6 +706,13 @@ namespace MalisBuffBots
         {
             if (entry == null) return;
             if (completed) RecordNanoRecharge(Work(entry));
+            if (Main.PaidPilot)
+            {
+                int nanoId = Work(entry).NanoId;
+                if (nanoId == 0) nanoId = entry.NanoEntry.LevelToId[0].Id;
+                ManagerMemory.Current.ReportPaidBuffFinished(Client.CharacterName,
+                    entry.Requester.Instance, nanoId, completed);
+            }
             CastWork completedWork;
             if (completed && _castWork.TryGetValue(entry, out completedWork) && !completedWork.Counted &&
                 completedWork.AttemptKey != null && completedWork.NanoId > 0 &&
@@ -685,7 +728,7 @@ namespace MalisBuffBots
                 }
                 catch (Exception ex) { Logger.Warning("Buff counter update unavailable: " + ex.Message); }
             }
-            ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)entry.Requester.Instance),
+            if (completed) ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)entry.Requester.Instance),
                 entry.NanoEntry.Tags.ToArray());
             if (feedback != null)
                 CityBufferBridge.Diagnostic(entry.Requester.Instance, entry.NanoEntry.Name + ": " + FeedbackReason(feedback.Value));
@@ -702,7 +745,7 @@ namespace MalisBuffBots
                     _paidFixerPostCastUntilUtc = DateTime.UtcNow.AddSeconds(1);
                     ManagerMemory.Current.ReportPaidTeamDelivery(Client.CharacterName,
                         Work(entry).NanoId, Work(entry).TeamMembers, Work(entry).AttemptedUtc,
-                        _paidFixerPostCastUntilUtc);
+                        _paidFixerPostCastUntilUtc, Work(entry).TeamDeadlineUtc);
                 }
                 if (!Main.PaidPilot)
                     DynelManager.LocalPlayer.TryRemoveBuffs(entry.NanoEntry.RemoveNanoIdUponCast);
@@ -711,8 +754,10 @@ namespace MalisBuffBots
                 {
                     int teamNano = entry.NanoEntry.ContainsId(275043) ? 275043 : 235291;
                     foreach (int recipient in Queue.RemoveQueuedTeamBuff(teamNano, Work(entry).TeamMembers))
+                    {
                         CityBufferBridge.Diagnostic(recipient,
-                            Client.CharacterName + " finished casting " + entry.NanoEntry.Name + " for the team.");
+                            Client.CharacterName + " cast " + entry.NanoEntry.Name + "; Manager will confirm team delivery.");
+                    }
                 }
             }
             Work(entry).TeamMembers = new int[0];

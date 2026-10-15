@@ -43,12 +43,14 @@ namespace CityManager
                 return;
             }
             if (now < _nextPaidTeamTick) return;
+            if (memory.PaidPoolUpdating) return;
             _nextPaidTeamTick = now.AddMilliseconds(500);
             try
             {
                 var providers = memory.ReadPaidBuffers().Where(p => PaidBufferCatalogue.UsesManagerTeam(p.Profession)).ToArray();
                 var pending = memory.PendingBufferPublicCommands(128)
                     .Where(r => PaidBufferCatalogue.RequiresManagerTeam(r) &&
+                        memory.PaidTeamRequestReady(r) &&
                         providers.Any(p => string.Equals(p.Character, r.TargetCharacter,
                         StringComparison.OrdinalIgnoreCase))).ToArray();
                 if (_paidTeamCharacter == null)
@@ -80,6 +82,9 @@ namespace CityManager
                     DevTrace("PAID TEAM team buff delivery confirmed; closing completed customer batch.");
                     _paidTeamClosing = true;
                 }
+                if (_paidTeamStarted && _paidTeamBatchReady && provider != null &&
+                    (provider.TeamCastAttemptedUtc < _paidTeamBatchSinceUtc || provider.TeamCastNano == 0) &&
+                    !memory.HasPaidTeamWork(_paidTeamCharacter, _paidTeamCustomers)) _paidTeamClosing = true;
 
                 if (_paidTeamClosing)
                 {
@@ -147,6 +152,8 @@ namespace CityManager
                     {
                         if (now < _paidTeamInviteUntil) return;
                         _paidTeamSkipped.Add(_paidTeamInviteId);
+                        memory.DeferPaidBuff(_paidTeamCharacter, _paidTeamInviteId,
+                            PaidBufferCatalogue.ForProfession(provider.Profession).First(n => n.IsTeam).Id);
                         DevTrace("PAID TEAM invitation expired for " + _paidTeamInviteId + "; gathering other requesters.");
                         _paidTeamInviteId = 0;
                     }
@@ -196,12 +203,27 @@ namespace CityManager
                 provider.TeamCastAttemptedUtc < _paidTeamBatchSinceUtc || now < provider.TeamReleaseAfterUtc)
                 return false;
             var memory = ManagerMemory.Current;
-            return _paidTeamCustomers.All(id => !members.Contains(id) ||
-                !DynelManager.Players.Any(p => p.Identity.Instance == id) ||
-                (provider.TeamCastMembers.Contains(id) &&
-                 memory.ObservedCastLanded(id, provider.TeamCastNano, provider.TeamCastAttemptedUtc,
-                     DateTime.MinValue, true) &&
-                 (provider.TeamCastNano != 275043 || !memory.ObservedNcuNeedsRefresh(id))));
+            bool allSettled = true;
+            foreach (int id in _paidTeamCustomers)
+            {
+                bool landed = provider.TeamCastMembers.Contains(id) &&
+                    memory.ObservedCastLanded(id, provider.TeamCastNano, provider.TeamCastAttemptedUtc,
+                        DateTime.MinValue, true) &&
+                    (provider.TeamCastNano != 275043 || !memory.ObservedNcuNeedsRefresh(id));
+                bool skip = !members.Contains(id) || !DynelManager.Players.Any(p => p.Identity.Instance == id) ||
+                    !memory.PaidBuffRecipientCanReceive(provider.Character, id, provider.TeamCastNano) ||
+                    now >= provider.TeamCastDeadlineUtc;
+                if (landed)
+                {
+                    memory.ReportPaidBuffFinished(provider.Character, id, provider.TeamCastNano, true);
+                    memory.ReportBufferCastFinished(unchecked((uint)id),
+                        PaidBufferCatalogue.FindEffect(provider.TeamCastNano).Tags);
+                }
+                else if (skip)
+                    memory.ReportPaidBuffFinished(provider.Character, id, provider.TeamCastNano, false);
+                else allSettled = false;
+            }
+            return allSettled;
         }
 
         private void InvitePaidTeamMember(Identity identity, DateTime now, string description)
@@ -431,48 +453,53 @@ namespace CityManager
                     memory.ReadPaidBuffers().Any(p => p.Profession == 4)) paid.Insert(0, ncu);
             }
 
-            var ncuNanos = paid.Where(n => n.Id == 275043).ToArray();
-            if (ncuNanos.Length != 0) ServePaidMacroPart(senderName, ncuNanos, target);
+            // Publish the whole macro before any paid toon can be admitted. Local
+            // caster queues draw from this pool; they never define its batch size.
+            var knownNcuIds = new HashSet<int>(freeNcuIds.Concat(
+                new[] { 275043, 275044, 275135 }));
+            bool healthyNcu = memory.ReadNearbyPlayers().Any(p => p.CharacterId == unchecked((int)target.SenderId) &&
+                p.Nanos.Any(n => knownNcuIds.Contains(n.Id) && n.FullSeconds > 0 &&
+                    n.RemainingSeconds >= n.FullSeconds / 2));
+            string ncuWatch = !healthyNcu && (freeNcuTags.Length != 0 || paid.Any(n => n.Id == 275043))
+                ? memory.WatchBufferCast(target.SenderId, "ncu") : null;
             ordinary.RemoveAll(freeNcuTags.Contains);
-            if (freeNcuTags.Length != 0)
+            int queued = 0;
+            memory.BeginPaidPoolUpdate();
+            try
             {
-                string watch = memory.WatchBufferCast(target.SenderId, "ncu");
-                try
+                // MP composites replace each other; Neuronal Stimulator is separate.
+                var composite = paid.Where(n => n.Profession == 12 && n.Id != 220345)
+                    .OrderByDescending(n => n.Level).FirstOrDefault();
+                foreach (var nano in paid.Where(n => n.Profession != 12 || n.Id == 220345 || n == composite))
                 {
-                    var result = RunBufferCommand(senderName, "cast", freeNcuTags, target, null);
-                    if (result != null && result.Success && !memory.WaitForBufferCast(watch, 125000))
-                        Reply(target, "NCU request has not finished yet; continuing with the other buffs I can provide.");
+                    var provider = memory.ReadPaidBuffers().Where(p => p.Profession == nano.Profession &&
+                        !p.Blocked && DateTime.UtcNow >= p.RetryAfterUtc)
+                        .OrderByDescending(p => p.Running).FirstOrDefault();
+                    if (provider == null)
+                    {
+                        Reply(target, "Can't cast " + nano.Name + ": its paid provider is unavailable.");
+                        continue;
+                    }
+                    if (memory.BeginBufferPublicCommand(new BufferPublicCommandRequest {
+                        Id = Guid.NewGuid().ToString("N"), Command = "cast", TargetCharacter = provider.Character,
+                        SenderId = target.SenderId, SenderName = senderName,
+                        Arguments = new[] { nano.Id.ToString() }, CreatedUtc = DateTime.UtcNow,
+                        NcuWatchId = nano.Id == 275043 ? null : ncuWatch })) queued++;
+                    else Reply(target, "Can't queue " + nano.Name + ": the buff pool is full.");
                 }
-                finally { memory.FinishBufferCastWatch(watch); }
+                foreach (var group in new[] { freeNcuTags, ordinary.ToArray() })
+                {
+                    if (group.Length == 0) continue;
+                    if (memory.BeginBufferPublicCommand(new BufferPublicCommandRequest {
+                        Id = Guid.NewGuid().ToString("N"), Command = "cast", SenderId = target.SenderId,
+                        SenderName = senderName, Arguments = group, CreatedUtc = DateTime.UtcNow,
+                        NcuWatchId = ReferenceEquals(group, freeNcuTags) ? null : ncuWatch })) queued++;
+                    else Reply(target, "Can't queue " + string.Join(" ", group) + ": the buff pool is full.");
+                }
             }
-
-            if (ordinary.Count != 0)
-                RunBufferCommand(senderName, "cast", ordinary.ToArray(), target, null);
-
-            foreach (var group in paid.Where(n => n.Id != 275043).GroupBy(n => n.Profession))
-                ServePaidMacroPart(senderName, group.ToArray(), target);
-        }
-
-        private void ServePaidMacroPart(string senderName, PaidBufferNano[] nanos, ReplyTarget target)
-        {
-            var memory = ManagerMemory.Current;
-            string names = string.Join(", ", nanos.Select(n => n.Name));
-            var provider = memory.ReadPaidBuffers().Where(p => p.Profession == nanos[0].Profession)
-                .OrderBy(p => p.Blocked || DateTime.UtcNow < p.RetryAfterUtc)
-                .ThenByDescending(p => p.Ready && !p.Draining)
-                .ThenBy(p => p.Character, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
-            string unavailable = provider == null ? "no enabled provider is configured" :
-                provider.Blocked ? provider.Character + " is unavailable after a cleanup failure" :
-                DateTime.UtcNow < provider.RetryAfterUtc ? provider.Character + " is recovering from a failed session" : null;
-            if (unavailable != null)
-            {
-                Reply(target, "Can't cast " + names + ": " + unavailable + ".");
-                return;
-            }
-            RunBufferCommand(senderName, "cast", nanos.Select(n => n.Tags[0]).ToArray(), target, provider);
-            if (memory.ReadPaidBuffer(provider.Character)?.Running == true &&
-                !memory.WaitForPaidBufferIdle(provider.Character, 180000))
-                Reply(target, names + ": " + provider.Character + " is still finishing its queue; remaining requests will wait their turn.");
+            finally { memory.EndPaidPoolUpdate(); }
+            if (queued != 0 && paid.Any(n => n.IsTeam))
+                Reply(target, "Queued your buffs. Leave your current team and accept my invitation for the team buff.");
         }
 
         private BufferPublicCommandOutcome RunBufferCommand(

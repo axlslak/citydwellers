@@ -110,6 +110,7 @@ namespace MalisBuffBots
                 bool success = false;
                 string message = null;
                 string[] tags = null;
+                Main.QueueProcessor.ClearPaidAdmission();
 
                 try
                 {
@@ -143,9 +144,17 @@ namespace MalisBuffBots
                     message = ex.GetType().Name + ": " + ex.Message;
                 }
 
+                if (Main.PaidPilot && Main.QueueProcessor.PaidQueueAtCapacity)
+                {
+                    ManagerMemory.Current.ReturnBufferPublicCommand(request.Id, Client.CharacterName);
+                    continue;
+                }
                 if (request.ObservedNanoId > 0 && !success)
                     CityBufferBridge.Diagnostic(requester.Identity.Instance,
                         "Automatic buff request: " + (message ?? "could not queue the buff."));
+                else if ((!success || (message ?? "").StartsWith("Unknown buff tag", StringComparison.OrdinalIgnoreCase)) &&
+                    !string.IsNullOrWhiteSpace(message))
+                    CityBufferBridge.RequestResult(requester.Identity.Instance, message);
 
                 ManagerMemory.Current.CompleteBufferPublicCommand(
                     new BufferPublicCommandOutcome
@@ -154,6 +163,7 @@ namespace MalisBuffBots
                         Success = success,
                         Message = message,
                         Tags = tags,
+                        AcceptedNanoIds = Main.PaidPilot ? Main.QueueProcessor.PaidAcceptedNanoIds : new int[0],
                         ClaimedBy = Client.CharacterName,
                         CompletedUtc = DateTime.UtcNow
                     });

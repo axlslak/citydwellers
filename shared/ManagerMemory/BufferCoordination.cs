@@ -30,11 +30,15 @@ namespace CityDwellers.Shared
         public DateTime CreatedUtc;
         public string ClaimedBy;
         public DateTime? ClaimedUtc;
+        public bool Accepted;
+        public int[] PendingNanoIds = new int[0];
+        public string NcuWatchId;
 
         internal BufferPublicCommandRequest Copy()
         {
             var copy = (BufferPublicCommandRequest)MemberwiseClone();
             copy.Arguments = Arguments == null ? null : (string[])Arguments.Clone();
+            copy.PendingNanoIds = PendingNanoIds.ToArray();
             return copy;
         }
     }
@@ -46,6 +50,7 @@ namespace CityDwellers.Shared
         public bool Success;
         public string Message;
         public string[] Tags;
+        public int[] AcceptedNanoIds = new int[0];
         public string ClaimedBy;
         public DateTime CompletedUtc;
 
@@ -53,6 +58,7 @@ namespace CityDwellers.Shared
         {
             var copy = (BufferPublicCommandOutcome)MemberwiseClone();
             copy.Tags = Tags == null ? null : (string[])Tags.Clone();
+            copy.AcceptedNanoIds = AcceptedNanoIds.ToArray();
             return copy;
         }
     }
@@ -60,7 +66,7 @@ namespace CityDwellers.Shared
     public sealed partial class ManagerMemory
     {
         private const int BufferSignalLimit = 256;
-        private const int BufferPublicCommandLimit = 128;
+        private const int BufferPublicCommandLimit = 1024;
         private sealed class BufferCastWatch
         {
             internal uint Requester;
@@ -75,7 +81,8 @@ namespace CityDwellers.Shared
         {
             lock (_bufferPublicCommandSync)
             {
-                foreach (var id in _bufferCastWatches.Where(p => p.Value.ExpiresUtc < DateTime.UtcNow)
+                foreach (var id in _bufferCastWatches.Where(p => p.Value.ExpiresUtc < DateTime.UtcNow &&
+                    !_bufferPublicCommands.Values.Any(r => r.NcuWatchId == p.Key))
                     .Select(p => p.Key).ToArray()) _bufferCastWatches.Remove(id);
                 string idNew = Guid.NewGuid().ToString("N");
                 _bufferCastWatches.Add(idNew, new BufferCastWatch { Requester = requester, Tag = tag,
@@ -91,6 +98,9 @@ namespace CityDwellers.Shared
                 foreach (var watch in _bufferCastWatches.Values.Where(w => w.Requester == requester &&
                     (tags ?? new string[0]).Contains(w.Tag, StringComparer.OrdinalIgnoreCase)))
                     watch.Finished = true;
+                foreach (var request in _bufferPublicCommands.Values.Where(r => r.SenderId == requester &&
+                    r.NcuWatchId != null && _bufferCastWatches.ContainsKey(r.NcuWatchId) &&
+                    _bufferCastWatches[r.NcuWatchId].Finished)) request.NcuWatchId = null;
                 Monitor.PulseAll(_bufferPublicCommandSync);
             }
         }
@@ -336,13 +346,18 @@ namespace CityDwellers.Shared
                 var paid = PaidBufferLocked(request.TargetCharacter);
                 if (!string.IsNullOrWhiteSpace(request.TargetCharacter) &&
                     (paid == null || paid.Blocked || DateTime.UtcNow < paid.RetryAfterUtc)) return false;
+                if (paid != null && request.ObservedNanoId == 0)
+                    foreach (var nano in PaidRequestNanos(request))
+                        _paidPoolDeferred.Remove(PaidPoolKey(paid.Character, unchecked((int)request.SenderId), nano.Id));
 
                 BufferPublicCommandRequest copy = request.Copy();
+                copy.PendingNanoIds = PaidRequestNanos(copy).Select(n => n.Id).Distinct().ToArray();
                 if (copy.CreatedUtc == default(DateTime))
                     copy.CreatedUtc = DateTime.UtcNow;
                 copy.ClaimedBy = null;
                 copy.ClaimedUtc = null;
                 _bufferPublicCommands.Add(copy.Id, copy);
+                PaidPoolChangedLocked();
                 Monitor.PulseAll(_bufferPublicCommandSync);
                 return true;
             }
@@ -359,7 +374,12 @@ namespace CityDwellers.Shared
                 PruneBufferPublicCommands(now);
                 foreach (BufferPublicCommandRequest request in _bufferPublicCommands.Values
                     .Where(item => string.IsNullOrWhiteSpace(item.ClaimedBy))
-                    .OrderBy(item => item.CreatedUtc)
+                    .OrderBy(item => item.NcuWatchId != null ||
+                        (!string.IsNullOrWhiteSpace(item.TargetCharacter) && !PaidRequestReadyLocked(item)) ? 3 :
+                        PaidRequestNanos(item).Any(n => n.Id == 275043) ? 0 :
+                        string.IsNullOrWhiteSpace(item.TargetCharacter) ||
+                        PaidBufferLocked(item.TargetCharacter)?.Running == true ? 1 : 2)
+                    .ThenBy(item => item.CreatedUtc)
                     .Take(maximum))
                 {
                     result.Add(request.Copy());
@@ -381,6 +401,7 @@ namespace CityDwellers.Shared
                 if (!_bufferPublicCommands.TryGetValue(id, out request) ||
                     !string.IsNullOrWhiteSpace(request.ClaimedBy))
                     return false;
+                if (request.NcuWatchId != null) return false;
 
                 if (!string.IsNullOrWhiteSpace(request.TargetCharacter))
                 {
@@ -422,7 +443,23 @@ namespace CityDwellers.Shared
                 copy.ClaimedBy = request.ClaimedBy;
                 if (copy.CompletedUtc == default(DateTime))
                     copy.CompletedUtc = DateTime.UtcNow;
-                _bufferPublicCommands.Remove(outcome.Id);
+                if (!string.IsNullOrWhiteSpace(request.TargetCharacter) && copy.Success &&
+                    copy.AcceptedNanoIds.Length != 0)
+                {
+                    request.Accepted = true;
+                    request.PendingNanoIds = copy.AcceptedNanoIds.Distinct().ToArray();
+                }
+                else if (!string.IsNullOrWhiteSpace(request.TargetCharacter) && !copy.Success)
+                {
+                    request.ClaimedBy = null;
+                    request.ClaimedUtc = null;
+                    if (_paidPoolPlayers.ContainsKey(unchecked((int)request.SenderId)))
+                        foreach (var nano in PaidRequestNanos(request))
+                            _paidPoolDeferred.Add(PaidPoolKey(request.TargetCharacter,
+                                unchecked((int)request.SenderId), nano.Id));
+                }
+                else _bufferPublicCommands.Remove(outcome.Id);
+                PaidPoolChangedLocked();
                 _bufferPublicOutcomes[outcome.Id] = copy;
                 Monitor.PulseAll(_bufferPublicCommandSync);
             }
@@ -445,7 +482,9 @@ namespace CityDwellers.Shared
                         (int)Math.Min(int.MaxValue, elapsed.ElapsedMilliseconds);
                     if (remaining <= 0)
                     {
-                        _bufferPublicCommands.Remove(id);
+                        BufferPublicCommandRequest request;
+                        if (_bufferPublicCommands.TryGetValue(id, out request) &&
+                            string.IsNullOrWhiteSpace(request.TargetCharacter)) _bufferPublicCommands.Remove(id);
                         return null;
                     }
                     Monitor.Wait(_bufferPublicCommandSync, remaining);
@@ -474,7 +513,10 @@ namespace CityDwellers.Shared
                 BufferPublicCommandRequest request;
                 if (_bufferPublicCommands.TryGetValue(id, out request) && request.ObservedNanoId > 0 &&
                     string.IsNullOrWhiteSpace(request.ClaimedBy))
+                {
                     _bufferPublicCommands.Remove(id);
+                    PaidPoolChangedLocked();
+                }
             }
         }
 
@@ -483,7 +525,9 @@ namespace CityDwellers.Shared
             if (string.IsNullOrWhiteSpace(id)) return;
             lock (_bufferPublicCommandSync)
             {
-                _bufferPublicCommands.Remove(id);
+                BufferPublicCommandRequest request;
+                if (_bufferPublicCommands.TryGetValue(id, out request) &&
+                    string.IsNullOrWhiteSpace(request.TargetCharacter)) _bufferPublicCommands.Remove(id);
                 _bufferPublicOutcomes.Remove(id);
             }
         }
@@ -494,12 +538,14 @@ namespace CityDwellers.Shared
             DateTime outcomeCutoff = now.AddMinutes(-1);
 
             foreach (string id in _bufferPublicCommands
-                .Where(pair => pair.Value.CreatedUtc < (string.IsNullOrWhiteSpace(pair.Value.TargetCharacter)
-                    ? requestCutoff : now.AddSeconds(-125)))
+                .Where(pair => pair.Value.CreatedUtc < requestCutoff &&
+                    ((string.IsNullOrWhiteSpace(pair.Value.TargetCharacter) && pair.Value.NcuWatchId == null) ||
+                     (!pair.Value.Accepted && !_paidPoolPlayers.ContainsKey(unchecked((int)pair.Value.SenderId)))))
                 .Select(pair => pair.Key)
                 .ToArray())
             {
                 _bufferPublicCommands.Remove(id);
+                PaidPoolChangedLocked();
             }
 
             foreach (string id in _bufferPublicOutcomes

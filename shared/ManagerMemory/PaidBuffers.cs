@@ -30,7 +30,7 @@ namespace CityDwellers.Shared
             new PaidBufferNano(235291, 7, 205, 53, "Umbral Wrangler (Premium)", "Team +147-153 weapon/nano skills (perks); recipient effect 250 seconds", "umbral")
                 { EffectIds = new[] { 235064, 235263, 235264, 235265 } },
             new PaidBufferNano(252050, 4, 205, 25, "Lasting Ultimatum", "+466–502 HoT", "lh1", "lu"),
-            new PaidBufferNano(275043, 4, 215, 0, "Firewalled Sync Compressor", "Team +500 NCU", "ncu", "fsc")
+            new PaidBufferNano(275043, 4, 215, 1, "Firewalled Sync Compressor", "Team +500 NCU", "ncu", "fsc")
                 { EffectIds = new[] { 275044, 275135 } },
             new PaidBufferNano(227680, 3, 210, 55, "Gift of Assurance", "+5000 AC, 4 hours, Shadowlands required", "goa"),
             new PaidBufferNano(220345, 12, 0, 7, "Neuronal Stimulator", "+23 Intelligence/Psychic, 4 hours", "ns"),
@@ -103,7 +103,7 @@ namespace CityDwellers.Shared
         public bool Running, Ready, Draining, Parked, Blocked;
         public DateTime StartedUtc, ObservedUtc, BusyUtc, RetryAfterUtc;
         public int TeamCastNano;
-        public DateTime TeamCastAttemptedUtc, TeamReleaseAfterUtc;
+        public DateTime TeamCastAttemptedUtc, TeamReleaseAfterUtc, TeamCastDeadlineUtc;
         public int[] TeamCastMembers = new int[0];
         internal PaidBufferSession Copy()
         {
@@ -203,12 +203,12 @@ namespace CityDwellers.Shared
         private bool HasPaidRequestsLocked(string character) =>
             _bufferPublicCommands.Values.Any(r =>
                 string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) &&
-                PaidRequestAdmittedLocked(r));
+                (r.Accepted || PaidRequestReadyLocked(r)));
 
         private bool PaidRequestAdmittedLocked(BufferPublicCommandRequest request) =>
-            !PaidBufferCatalogue.RequiresManagerTeam(request) ||
+            PaidRequestReadyLocked(request) && (!PaidBufferCatalogue.RequiresManagerTeam(request) ||
             (string.Equals(request.TargetCharacter, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) &&
-             PaidFixerMemberLocked(request.SenderId));
+             PaidFixerMemberLocked(request.SenderId)));
 
         public DateTime OldestPaidBufferRequest(string character)
         {
@@ -216,7 +216,8 @@ namespace CityDwellers.Shared
             {
                 PruneBufferPublicCommands(DateTime.UtcNow);
                 return _bufferPublicCommands.Values.Where(r =>
-                    string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase))
+                    string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) &&
+                    !r.Accepted && PaidRequestReadyLocked(r))
                     .Select(r => r.CreatedUtc).DefaultIfEmpty(DateTime.MaxValue).Min();
             }
         }
@@ -274,7 +275,9 @@ namespace CityDwellers.Shared
                 var _paidBuffer = _paidBuffers[character];
                 if (_paidBuffers.Values.Any(p => p.Running) || _paidBuffer.Blocked || DateTime.UtcNow < _paidBuffer.RetryAfterUtc)
                     return false;
-                if (!HasPaidRequestsLocked(character)) return false;
+                if (_paidPoolUpdates != 0 || !_bufferPublicCommands.Values.Any(r =>
+                    string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) &&
+                    PaidRequestAdmittedLocked(r))) return false;
                 if (PaidBufferCatalogue.UsesManagerTeam(_paidBuffer.Profession))
                 {
                     if (DateTime.UtcNow < _nextPaidFixerLoginUtc) return false;
@@ -282,7 +285,7 @@ namespace CityDwellers.Shared
                     // Direct-only work needs neither a team nor four customers.
                     var teamRequests = _bufferPublicCommands.Values.Where(r =>
                         string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) &&
-                        PaidBufferCatalogue.RequiresManagerTeam(r)).ToArray();
+                        PaidBufferCatalogue.RequiresManagerTeam(r) && PaidRequestReadyLocked(r)).ToArray();
                     if (teamRequests.Length != 0 && !teamRequests.Any(PaidRequestAdmittedLocked)) return false;
                     _nextPaidFixerLoginUtc = DateTime.UtcNow.AddSeconds(30);
                 }
@@ -290,7 +293,8 @@ namespace CityDwellers.Shared
                 _paidBuffer.Ready = _paidBuffer.Draining = _paidBuffer.Parked = false;
                 _paidBuffer.StartedUtc = _paidBuffer.ObservedUtc = _paidBuffer.BusyUtc = DateTime.UtcNow;
                 _paidBuffer.TeamCastNano = 0;
-                _paidBuffer.TeamCastAttemptedUtc = _paidBuffer.TeamReleaseAfterUtc = DateTime.MinValue;
+                _paidBuffer.TeamCastAttemptedUtc = _paidBuffer.TeamReleaseAfterUtc =
+                    _paidBuffer.TeamCastDeadlineUtc = DateTime.MinValue;
                 _paidBuffer.TeamCastMembers = new int[0];
                 return true;
             }
@@ -306,7 +310,7 @@ namespace CityDwellers.Shared
         }
 
         public void ReportPaidTeamDelivery(string character, int nanoId, int[] members,
-            DateTime attemptedUtc, DateTime releaseAfterUtc)
+            DateTime attemptedUtc, DateTime releaseAfterUtc, DateTime deadlineUtc)
         {
             lock (_bufferPublicCommandSync)
             {
@@ -316,6 +320,7 @@ namespace CityDwellers.Shared
                 state.TeamCastMembers = members.Distinct().ToArray();
                 state.TeamCastAttemptedUtc = attemptedUtc;
                 state.TeamReleaseAfterUtc = releaseAfterUtc;
+                state.TeamCastDeadlineUtc = deadlineUtc;
             }
         }
 
@@ -331,20 +336,13 @@ namespace CityDwellers.Shared
                 _paidBuffer.ObservedUtc = now;
                 _paidBuffer.Ready = ready;
                 PruneBufferPublicCommands(now);
-                if (now - _paidBuffer.StartedUtc >= TimeSpan.FromSeconds(90))
-                {
-                    _paidBuffer.Draining = true;
-                    FailPaidRequestsLocked(character, "The paid buffer could not accept your request during this session. Stand near it and retry after it logs out.");
-                }
                 if (busy || (!_paidBuffer.Draining && HasPaidRequestsLocked(character))) _paidBuffer.BusyUtc = now;
                 // Queue completion alone must not park the team caster before
                 // Manager confirms delivery to every customer and releases the batch.
-                if (ready && !busy && (_paidBuffer.Draining ||
-                    (PaidBufferCatalogue.UsesManagerTeam(_paidBuffer.Profession)
-                        ? !HasPaidRequestsLocked(character) &&
-                          !(string.Equals(character, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) &&
-                            _paidFixerBatchReady && _paidFixerTeamObservedUtc >= now.AddSeconds(-3))
-                        : now - _paidBuffer.BusyUtc >= TimeSpan.FromSeconds(20))))
+                if (_paidPoolUpdates == 0 && ready && !busy && (_paidBuffer.Draining ||
+                    (!HasPaidRequestsLocked(character) &&
+                     !(string.Equals(character, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) &&
+                       _paidFixerBatchReady && _paidFixerTeamObservedUtc >= now.AddSeconds(-3)))))
                     _paidBuffer.Parked = _paidBuffer.Draining = true;
                 System.Threading.Monitor.PulseAll(_bufferPublicCommandSync);
                 return _paidBuffer.Parked;
@@ -358,6 +356,17 @@ namespace CityDwellers.Shared
                 var _paidBuffer = PaidBufferLocked(character);
                 if (_paidBuffer == null) return;
                 _paidBuffer.Running = _paidBuffer.Ready = false;
+                // A priority account handoff can unload between caster acceptance
+                // and Manager's delivery acknowledgement. Preserve that work.
+                foreach (var request in _bufferPublicCommands.Values.Where(r => r.Accepted &&
+                    string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase)))
+                {
+                    request.Accepted = false;
+                    request.Arguments = request.PendingNanoIds.Select(id => id.ToString()).ToArray();
+                    request.ClaimedBy = null;
+                    request.ClaimedUtc = null;
+                }
+                PaidPoolChangedLocked();
                 _paidBuffer.RetryAfterUtc = DateTime.UtcNow.AddSeconds(failed ? 60 : 0);
                 if (failed) FailPaidRequestsLocked(character, message);
                 System.Threading.Monitor.PulseAll(_bufferPublicCommandSync);
@@ -410,6 +419,7 @@ namespace CityDwellers.Shared
                 };
             }
             System.Threading.Monitor.PulseAll(_bufferPublicCommandSync);
+            PaidPoolChangedLocked();
         }
     }
 }

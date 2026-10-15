@@ -47,6 +47,7 @@
     <Compile Include="NearbyPlayers.cs" />
     <Compile Include="BufferCoordination.cs" />
     <Compile Include="PaidBuffers.cs" />
+    <Compile Include="PaidBufferPool.cs" />
     <Compile Include="..\TellQueue.cs" />
     <Compile Include="..\ManagerChannelQueue.cs" />
   </ItemGroup>
