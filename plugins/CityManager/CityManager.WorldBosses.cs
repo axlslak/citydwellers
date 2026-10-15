@@ -30,7 +30,7 @@ namespace CityManager
                     DateTime.UtcNow, immortalSeconds, source, text));
             if (changed)
             {
-                Logger.Information("World boss {Boss}: {Phase} via {Source}: {Announcement}", boss, phase, source, text);
+                Logger.Information($"World boss {boss}: {phase} via {source}: {text}");
                 DevTrace("WORLDBOSS " + boss + " " + phase + ": " + text);
             }
         }
