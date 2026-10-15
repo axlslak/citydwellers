@@ -14,7 +14,7 @@ namespace MalisBuffBots
         public static BufferCoordinator Coordination;       // Same-process ManagerMemory coordination
         public static SettingsJson SettingsJson;            // Behavior defaults plus citydwellers.json Buffers.Behavior overrides
         public static BuffsJson BuffsJson;                  // All bot nanos (configurable in JSON/BuffsDb.json)
-        public static RebuffJson RebuffJson;                // Rebuff info (configurable in JSON/RebuffInfo.json)
+        internal static string[] PreparationBuffs = new string[0]; // This character's Buffers entry
         public static QueueProcessor QueueProcessor;        // Queue processing logic
         public static RebuffProcessor RebuffProcessor;      // Rebuff processing logic
         public static UserRank UserRank;
@@ -38,6 +38,12 @@ namespace MalisBuffBots
                 SettingsJson = new SettingsJson(Path.SETTINGS_JSON);
                 PaidPilot = ManagerMemory.Current.IsPaidBuffer(Client.CharacterName);
                 PaidProfession = ManagerMemory.Current.ReadPaidBuffer(Client.CharacterName)?.Profession ?? 0;
+                var accounts = BufferSettings.Read();
+                var account = accounts.Froobs.Concat(accounts.Paid).FirstOrDefault(a => a != null &&
+                    string.Equals(a.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+                PreparationBuffs = (account?.Buffs ?? new List<string>())
+                    .Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value.Trim().ToLowerInvariant())
+                    .Distinct().ToArray();
                 int[] configuredKnownNanos = ConfiguredKnownNanoOverrides();
                 if (configuredKnownNanos.Length != 0)
                     Logger.Information("BUFFER configured known-nano override for " +
@@ -45,7 +51,6 @@ namespace MalisBuffBots
                 CityBufferBridge.Start();
                 Coordination = new BufferCoordinator();
                 BuffsJson = new BuffsJson(Path.BUFF_JSON);
-                RebuffJson = new RebuffJson(Path.REBUFF_JSON);
                 UserRank = new UserRank();
                 QueueProcessor = new QueueProcessor();
 
@@ -64,6 +69,7 @@ namespace MalisBuffBots
         {
             Client.OnUpdate -= OnUpdate;
             if (QueueProcessor != null) Client.OnUpdate -= QueueProcessor.OnUpdate;
+            RebuffProcessor?.Stop();
             CityBufferBridge.Stop();
             Coordination = null;
         }
@@ -119,7 +125,7 @@ namespace MalisBuffBots
                     DynelManager.LocalPlayer.MovementComponent.ChangeMovement(MovementAction.LeaveSit);
                     if (!CityBufferBridge.InitializeCatalogue()) return;
                     Coordination.Init();
-                    if (!PaidPilot) RebuffProcessor = new RebuffProcessor(RebuffJson);
+                    if (PreparationBuffs.Length != 0) RebuffProcessor = new RebuffProcessor(PreparationBuffs);
                     CityBufferBridge.Ready = true;
 
                     Client.OnUpdate += QueueProcessor.OnUpdate;

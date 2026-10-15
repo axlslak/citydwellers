@@ -218,7 +218,7 @@ namespace CityManager
                         "Alias: buff rebuff or rebuff. Scan your visible current NCU buffs and re-request the ones recognized by Mali's buff catalogue.",
                         "A ready buffer that can see your character performs the same NCU scan the old direct-buffer command used.",
                         "Athen Paladins member",
-                        "This does not use RebuffInfo; it re-requests recognized buffs that are currently active on you.");
+                        "This re-requests recognized buffs currently active on you; buffer preparation is configured separately per character.");
                     return true;
 
                 case "buffmacro":

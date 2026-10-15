@@ -157,7 +157,7 @@ namespace MalisBuffBots
             if (identity != DynelManager.LocalPlayer.Identity)
                 return;
 
-            if (Main.RebuffProcessor == null || Main.RebuffProcessor.Contains(nanoId, out _))
+            if (Main.RebuffProcessor == null || Main.RebuffProcessor.KeepEffect(nanoId))
                 return;
 
             DynelManager.LocalPlayer.ForceRemoveBuff(nanoId);

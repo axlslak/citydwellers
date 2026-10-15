@@ -359,7 +359,7 @@ namespace CityDwellers.Shared
                 ObservedNcuNeedsRefresh(characterId)) return false;
             var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
             if (player == null || IsObservedBuffer(player)) return false;
-            // Buffer preparation belongs to RebuffInfo, not the nearby-player refresh loop.
+            // Buffer preparation belongs to each character's Buffs configuration.
             // Include unready/offline registrations: startup must not create duplicate work.
             // Umbral's recipient variants share one uploaded emitter. A healthy
             // variant must satisfy learned usage of the other perk-strength variants.

@@ -94,5 +94,7 @@ namespace CityDwellers.Shared
         public string Password;
         public string Character;
         public string Profession;
+        // Json.NET accepts both string aliases and integer nano IDs as strings.
+        public List<string> Buffs = new List<string>();
     }
 }

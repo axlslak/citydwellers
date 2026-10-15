@@ -11,22 +11,53 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using CityDwellers.Shared;
 
 namespace MalisBuffBots
 {
     public class RebuffProcessor
     {
-        public RebuffJson _rebuffInfo;
+        private readonly Dictionary<Profession, List<NanoEntry>> _configured =
+            new Dictionary<Profession, List<NanoEntry>>();
         private double _initDelay;
         private bool _initialized;
         private readonly Dictionary<int, int> _startupRemovalAttempts = new Dictionary<int, int>();
 
-        public RebuffProcessor(RebuffJson rebuffInfo, float initDelay = 1f)
+        public RebuffProcessor(IEnumerable<string> selections, float initDelay = 1f)
         {
             _initDelay = initDelay;
-            _rebuffInfo = rebuffInfo;
+            foreach (string selection in selections)
+            {
+                int id;
+                bool numeric = int.TryParse(selection, out id);
+                int castId = numeric ? PaidBufferCatalogue.FindEffect(id)?.Id ?? id : 0;
+                if (!Main.BuffsJson.FindByTags(new[] { numeric ? castId.ToString() : selection }, out var definitions))
+                {
+                    Logger.Warning("Unknown preparation buff in Buffers entry for " + Client.CharacterName + ": " + selection);
+                    continue;
+                }
+                foreach (var pair in definitions)
+                foreach (var definition in pair.Value)
+                {
+                    var entry = definition;
+                    if (numeric)
+                    {
+                        entry = JsonConvert.DeserializeObject<NanoEntry>(JsonConvert.SerializeObject(definition));
+                        entry.LevelToId = entry.LevelToId.Where(n => n.Id == castId).ToArray();
+                    }
+                    if (!_configured.TryGetValue(pair.Key, out var entries))
+                        _configured.Add(pair.Key, entries = new List<NanoEntry>());
+                    if (!entries.Contains(entry)) entries.Add(entry);
+                }
+            }
             Client.OnUpdate += OnUpdate;
-            Logger.Information("Rebuff tracking initiated.");
+            Logger.Information("Preparation tracking initiated from Buffers entry for " + Client.CharacterName + ".");
+        }
+
+        public void Stop()
+        {
+            Client.OnUpdate -= OnUpdate;
+            if (_initialized) BuffStatus.BuffChanged -= OnBuffChanged;
         }
 
         private void OnUpdate(object sender, double deltaTime)
@@ -42,7 +73,7 @@ namespace MalisBuffBots
                 if (!_initialized && !RemoveUnconfiguredStartupBuffs())
                 { _initDelay = 1; return; }
 
-                if (!TryFindBuffs(_rebuffInfo.LocalPlayerRebuffTags()))
+                if (!TryFindBuffs())
                 { _initDelay = 1; return; }
 
                 if (!_initialized)
@@ -63,12 +94,13 @@ namespace MalisBuffBots
 
         private bool RemoveUnconfiguredStartupBuffs()
         {
+            if (Main.PaidPilot) return true; // Paid toons retain their existing preparation.
             bool waiting = false;
             // Login restores NCU without necessarily emitting SetNanoDuration.
             // Only manage catalogue buffs here, never arbitrary hostile/unknown effects.
             foreach (int id in DynelManager.LocalPlayer.Buffs.Select(b => b.Id).ToArray())
             {
-                if (!Main.BuffsJson.FindById(id, out var known) || _rebuffInfo.Contains(known.Item2.Tags))
+                if (!Main.BuffsJson.FindById(id, out var known) || KeepEffect(id))
                     continue;
                 _startupRemovalAttempts.TryGetValue(id, out int attempts);
                 if (attempts >= 3)
@@ -83,7 +115,7 @@ namespace MalisBuffBots
                 }
                 _startupRemovalAttempts[id] = attempts + 1;
                 if (attempts == 0)
-                    Logger.Information("Removing startup buff excluded by RebuffInfo: " + known.Item2.Name + " (" + id + ").");
+                    Logger.Information("Removing startup buff outside this character's Buffs list: " + known.Item2.Name + " (" + id + ").");
                 DynelManager.LocalPlayer.ForceRemoveBuff(id);
                 waiting = true;
             }
@@ -121,37 +153,33 @@ namespace MalisBuffBots
 
         public bool Contains(int id, out (Profession, NanoEntry) expiredNano)
         {
-            if (!Main.BuffsJson.FindById(id, out expiredNano))
+            foreach (var pair in _configured)
+            foreach (var entry in pair.Value)
             {
-                Logger.Information($"Couldn't find buff with id: {id}");
-                return false;
+                if (!entry.ContainsId(id) && !(entry.RemoveNanoIdUponCast ?? new int[0]).Contains(id)) continue;
+                expiredNano = (pair.Key, entry);
+                return true;
             }
-
-            if (!_rebuffInfo.Contains(expiredNano.Item2.Tags))
-            {
-                Logger.Information($"Buff with id {id} not found in local RebuffInfo. Removing from ncu.");
-                return false;
-            }
-
-            return true;
+            expiredNano = default;
+            return false;
         }
 
-        private bool TryFindBuffs(IEnumerable<string> buffTags)
+        internal bool KeepEffect(int id)
         {
-            if (buffTags.Count() == 0)
-                return true;
+            if (_configured.Count == 0) return true;
+            if (Contains(id, out _)) return true;
+            if (PaidBufferCatalogue.FindEffect(id)?.Id == 275043) return true;
+            return Main.BuffsJson.FindById(id, out var nano) &&
+                nano.Item2.Tags.Contains("ncu", StringComparer.OrdinalIgnoreCase);
+        }
 
-            if (!Main.BuffsJson.FindMissingBuffs(buffTags, out Dictionary<Profession, List<NanoEntry>> missingBuffs))
-                return true;
-
-            if (_initialized)
-            {
-                // FindMissingBuffs deliberately always includes team requests.
-                // Maintenance must not repeatedly invite for an effect already present.
-                foreach (var entries in missingBuffs.Values)
-                    entries.RemoveAll(entry => DynelManager.LocalPlayer.Buffs.Any(buff => entry.ContainsId(buff.Id)));
-            }
-
+        private bool TryFindBuffs()
+        {
+            var missingBuffs = _configured.ToDictionary(pair => pair.Key, pair => pair.Value.Where(entry =>
+                !DynelManager.LocalPlayer.Buffs.Any(buff =>
+                    (entry.ContainsId(buff.Id) || (entry.RemoveNanoIdUponCast ?? new int[0]).Contains(buff.Id)) &&
+                    (buff.Cooldown == null || buff.Cooldown.RemainingTime > 0.05f * buff.NanoItem.TotalTime))).ToList());
+            if (!missingBuffs.Values.Any(entries => entries.Count != 0)) return true;
             return Main.QueueProcessor.RequestBuffs(missingBuffs, DynelManager.LocalPlayer);
         }
     }
