@@ -214,19 +214,21 @@ namespace CityManager
         {
             var profile = ManagerMemory.Current.ReadLearnedBuffProfile(unchecked((int)target.SenderId));
             var choices = PersonalBuffChoices();
+            var offeredIds = new HashSet<int>(choices.SelectMany(choice => choice.Casts)
+                .Select(cast => cast.Key));
             var body = new StringBuilder();
             body.Append(CommandLink(target, "buff list", "Available buffs")).Append("\n")
-                .Append("These are the buffs remembered for your character. Remove turns off automatic refresh; it does not cancel your current NCU effect.\n\n");
+                .Append("These are your selected buffs from our available catalogue. Remove turns off automatic refresh; it does not cancel your current NCU effect.\n\n");
             var ids = (profile?.NanoIds ?? new List<int>()).Where(id => !BufferRefreshPolicy.IsRequestOnlyNano(id) &&
                 !ManagerMemory.Current.IsBuffExcluded(unchecked((int)target.SenderId), id))
                 .Select(id => PaidBufferCatalogue.FindEffect(id)?.Id ?? id).Distinct()
+                .Where(offeredIds.Contains)
                 .OrderBy(id => PersonalBuffName(id, choices), StringComparer.OrdinalIgnoreCase).ToArray();
-            if (ids.Length == 0) body.Append("No buffs selected yet.\n");
+            if (ids.Length == 0) body.Append("No supported buffs selected.\n");
             foreach (int id in ids)
             {
                 body.Append(CommandLink(target, "buff remove " + id, "Remove")).Append(" ")
                     .Append(EscapeBlobText(PersonalBuffName(id, choices))).Append(" (").Append(id).Append(")");
-                if (!choices.Any(c => c.Casts.Length != 0 && c.Ids.Contains(id))) body.Append(" [No configured provider]");
                 body.Append("\n");
             }
             ReplyBufferCatalogue(target, BuildBlobLinks(target, "My buffs", "My buffs", body.ToString()));
