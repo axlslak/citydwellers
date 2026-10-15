@@ -48,6 +48,7 @@ namespace CityManager
                 "itemid",
                 "bankid",
                 "cloak",
+                "wb",
                 "status",
                 "buffers",
                 "bufflist",
@@ -265,6 +266,7 @@ namespace CityManager
                 {
                     Client.Chat.PrivateMessageReceived -= HandlePrivateMessage;
                     Client.Chat.GroupMessageReceived -= HandleGroupMessage;
+                    Client.Chat.VicinityMessageReceived -= HandleWorldBossVicinity;
                     Client.Chat.PrivateGroupMessageReceived -= HandlePrivateGroupMessage;
                 }
 
@@ -286,6 +288,9 @@ namespace CityManager
                     return;
 
                 var n3Message = (N3Message)e.Body;
+                var serverText = n3Message as ChatTextMessage;
+                if (serverText != null)
+                    ObserveWorldBossText(serverText.Text, "AO.ChatText");
                 ObserveServerBuffMessage(n3Message);
 
                 if (n3Message.N3MessageType == N3MessageType.AOTransportSignal)
@@ -323,6 +328,7 @@ namespace CityManager
 
             Client.Chat.PrivateMessageReceived += HandlePrivateMessage;
             Client.Chat.GroupMessageReceived += HandleGroupMessage;
+            Client.Chat.VicinityMessageReceived += HandleWorldBossVicinity;
             Client.Chat.PrivateGroupMessageReceived += HandlePrivateGroupMessage;
             Client.OnUpdate += Tick;
 
@@ -383,6 +389,8 @@ namespace CityManager
                 if (msg == null || string.IsNullOrWhiteSpace(msg.Message))
                     return;
 
+                if (msg.SenderId == 0)
+                    ObserveWorldBossText(msg.Message, "AO.SystemGroup");
                 if (!IsOrganizationChannel(msg.ChannelId, msg.ChannelName))
                     return;
 
@@ -551,6 +559,7 @@ namespace CityManager
                   command == "restart" ||
                   command == "shutdown") && parts.Length == 1) ||
                 (command == "buff" || command == "buffs") ||
+                (command == "wb") ||
                 (command == "cast" && parts.Length >= 2) ||
                 (command == "trace" && parts.Length <= 2) ||
                 ((command == "inventory" || command == "inv") && parts.Length <= 2) ||
@@ -765,6 +774,10 @@ namespace CityManager
 
                 case "cloak":
                     BeginFlipperProbe(replyTarget);
+                    break;
+
+                case "wb":
+                    ProcessWorldBossCommand(parts, replyTarget);
                     break;
 
                 case "bankid":

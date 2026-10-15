@@ -37,6 +37,7 @@ namespace CityDwellers.Shared
         public BankTerminalState BankTerminal = new BankTerminalState();
         public CloakState Cloak;
         public List<CloakEvent> CloakEvents = new List<CloakEvent>();
+        public List<WorldBossRecord> WorldBosses = new List<WorldBossRecord>();
         public AltState Alts = new AltState();
         public List<LearnedBuffProfile> LearnedBuffs = new List<LearnedBuffProfile>();
         public List<BufferCatalogue> BufferCatalogues = new List<BufferCatalogue>();
@@ -54,7 +55,8 @@ namespace CityDwellers.Shared
             !ReferenceEquals(ReserveOperations, other.ReserveOperations) || !ReferenceEquals(BagHistory, other.BagHistory) ||
             !ReferenceEquals(BankTerminal, other.BankTerminal) || !ReferenceEquals(Alts, other.Alts) ||
             !ReferenceEquals(LearnedBuffs, other.LearnedBuffs) ||
-            !ReferenceEquals(BufferCatalogues, other.BufferCatalogues);
+            !ReferenceEquals(BufferCatalogues, other.BufferCatalogues) ||
+            !ReferenceEquals(WorldBosses, other.WorldBosses);
     }
 
     public interface IAccountingPersistence

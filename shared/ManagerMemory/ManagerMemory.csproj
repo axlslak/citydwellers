@@ -30,6 +30,7 @@
     <Compile Include="BagHistory.cs" />
     <Compile Include="PolicyModels.cs" />
     <Compile Include="CloakRecords.cs" />
+    <Compile Include="WorldBossRecords.cs" />
     <Compile Include="FlipperObservation.cs" />
     <Compile Include="HostControl.cs" />
     <Compile Include="Governance.cs" />

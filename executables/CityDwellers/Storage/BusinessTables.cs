@@ -72,6 +72,7 @@ namespace CityDwellers.Host
                 .Child("cd_bag_disposal_items", "Item", null);
             Root("cd_cloak", "Cloak");
             Root("cd_cloak_events", "CloakEvents", o => ((CloakEvent)o).Id);
+            Root("cd_worldboss_timers", "WorldBosses", o => ((WorldBossRecord)o).Boss);
             var alts = Root("cd_alts", "Alts");
             var altGroups = alts.Child("cd_alt_groups", "Groups", o =>
                 Part(((AltGroupState)o).Main));
