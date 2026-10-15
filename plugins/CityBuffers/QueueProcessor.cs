@@ -679,6 +679,9 @@ namespace MalisBuffBots
                 {
                     // Keep the team and session alive briefly for the team effect to land.
                     _paidFixerPostCastUntilUtc = DateTime.UtcNow.AddSeconds(1);
+                    ManagerMemory.Current.ReportPaidTeamDelivery(Client.CharacterName,
+                        Work(entry).NanoId, Work(entry).TeamMembers, Work(entry).AttemptedUtc,
+                        _paidFixerPostCastUntilUtc);
                 }
                 if (!Main.PaidPilot)
                     DynelManager.LocalPlayer.TryRemoveBuffs(entry.NanoEntry.RemoveNanoIdUponCast);

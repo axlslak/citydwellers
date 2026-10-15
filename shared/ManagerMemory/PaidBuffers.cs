@@ -93,7 +93,15 @@ namespace CityDwellers.Shared
         public int Profession;
         public bool Running, Ready, Draining, Parked, Blocked;
         public DateTime StartedUtc, ObservedUtc, BusyUtc, RetryAfterUtc;
-        internal PaidBufferSession Copy() => (PaidBufferSession)MemberwiseClone();
+        public int TeamCastNano;
+        public DateTime TeamCastAttemptedUtc, TeamReleaseAfterUtc;
+        public int[] TeamCastMembers = new int[0];
+        internal PaidBufferSession Copy()
+        {
+            var copy = (PaidBufferSession)MemberwiseClone();
+            copy.TeamCastMembers = TeamCastMembers.ToArray();
+            return copy;
+        }
     }
 
     public sealed partial class ManagerMemory
@@ -204,22 +212,24 @@ namespace CityDwellers.Shared
         private int[] _paidFixerTeamMembers = new int[0];
         private DateTime _paidFixerTeamObservedUtc;
         private DateTime _nextPaidFixerLoginUtc;
+        private bool _paidFixerBatchReady;
 
         // Only the Manager's AO thread publishes actual team membership. No invitation
         // or chat acknowledgement is sufficient evidence to start a fixer session.
-        public void PublishPaidFixerTeam(string character, int managerId, int[] members)
+        public void PublishPaidFixerTeam(string character, int managerId, int[] members, bool batchReady = false)
         {
             lock (_bufferPublicCommandSync)
             {
                 _paidFixerTeamCharacter = character;
                 _paidFixerManagerId = managerId;
                 _paidFixerTeamMembers = (members ?? new int[0]).Distinct().ToArray();
+                _paidFixerBatchReady = character != null && batchReady;
                 _paidFixerTeamObservedUtc = DateTime.UtcNow;
             }
         }
 
         private bool PaidFixerMemberLocked(uint requester) =>
-            _paidFixerManagerId != 0 &&
+            _paidFixerBatchReady && _paidFixerManagerId != 0 &&
             _paidFixerTeamObservedUtc >= DateTime.UtcNow.AddSeconds(-3) &&
             _paidFixerTeamMembers.Contains(unchecked((int)requester));
 
@@ -228,7 +238,7 @@ namespace CityDwellers.Shared
             lock (_bufferPublicCommandSync)
             {
                 var state = PaidBufferLocked(character);
-                return state != null && PaidBufferCatalogue.UsesManagerTeam(state.Profession) && state.Running &&
+                return state != null && _paidFixerBatchReady && PaidBufferCatalogue.UsesManagerTeam(state.Profession) && state.Running &&
                     string.Equals(character, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) &&
                     _paidFixerTeamObservedUtc >= DateTime.UtcNow.AddSeconds(-3)
                     ? _paidFixerManagerId : 0;
@@ -261,6 +271,9 @@ namespace CityDwellers.Shared
                 _paidBuffer.Running = true;
                 _paidBuffer.Ready = _paidBuffer.Draining = _paidBuffer.Parked = false;
                 _paidBuffer.StartedUtc = _paidBuffer.ObservedUtc = _paidBuffer.BusyUtc = DateTime.UtcNow;
+                _paidBuffer.TeamCastNano = 0;
+                _paidBuffer.TeamCastAttemptedUtc = _paidBuffer.TeamReleaseAfterUtc = DateTime.MinValue;
+                _paidBuffer.TeamCastMembers = new int[0];
                 return true;
             }
         }
@@ -271,6 +284,20 @@ namespace CityDwellers.Shared
             {
                 var state = PaidBufferLocked(character);
                 if (state != null) state.Draining = true;
+            }
+        }
+
+        public void ReportPaidTeamDelivery(string character, int nanoId, int[] members,
+            DateTime attemptedUtc, DateTime releaseAfterUtc)
+        {
+            lock (_bufferPublicCommandSync)
+            {
+                var state = PaidBufferLocked(character);
+                if (state == null || !state.Running || PaidBufferCatalogue.FindEffect(nanoId)?.IsTeam != true) return;
+                state.TeamCastNano = nanoId;
+                state.TeamCastMembers = members.Distinct().ToArray();
+                state.TeamCastAttemptedUtc = attemptedUtc;
+                state.TeamReleaseAfterUtc = releaseAfterUtc;
             }
         }
 

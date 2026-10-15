@@ -25,6 +25,10 @@ namespace CityManager
         private int _paidTeamInviteId;
         private DateTime _paidTeamInviteUntil;
         private DateTime _nextPaidTeamCleanup;
+        private bool _paidTeamBatchReady;
+        private DateTime _paidTeamBatchSinceUtc;
+        private int[] _paidTeamCustomers = new int[0];
+        private readonly HashSet<int> _paidTeamSkipped = new HashSet<int>();
 
         // All AO team operations stay on Manager's update thread. The host only
         // consumes the fresh membership snapshot published from here.
@@ -47,7 +51,8 @@ namespace CityManager
                         StringComparison.OrdinalIgnoreCase))).ToArray();
                 if (_paidTeamCharacter == null)
                 {
-                    _paidTeamCharacter = providers.FirstOrDefault(p => p.Running)?.Character ??
+                    _paidTeamCharacter = pending.FirstOrDefault(r => providers.Any(p => p.Running &&
+                        string.Equals(p.Character, r.TargetCharacter, StringComparison.OrdinalIgnoreCase)))?.TargetCharacter ??
                         pending.FirstOrDefault()?.TargetCharacter;
                     if (_paidTeamCharacter == null)
                     {
@@ -60,10 +65,19 @@ namespace CityManager
                 var requests = pending.Where(r => string.Equals(r.TargetCharacter,
                     _paidTeamCharacter, StringComparison.OrdinalIgnoreCase)).ToArray();
                 bool running = provider != null && provider.Running;
-                if (running) _paidTeamStarted = true;
+                if (running && _paidTeamBatchReady) _paidTeamStarted = true;
                 if ((_paidTeamStarted && !running) || provider == null || provider.Blocked ||
-                    (!running && requests.Length == 0 && now >= _paidTeamInviteUntil))
+                    ((!running || !_paidTeamBatchReady) && requests.Length == 0 && now >= _paidTeamInviteUntil))
                     _paidTeamClosing = true;
+
+                var members = Team.IsInTeam ? Team.Members
+                    .Where(m => m.Identity != DynelManager.LocalPlayer.Identity)
+                    .Select(m => m.Identity.Instance).ToArray() : new int[0];
+                if (!_paidTeamClosing && PaidTeamDeliveryObserved(provider, members, now))
+                {
+                    DevTrace("PAID TEAM team buff delivery confirmed; closing completed customer batch.");
+                    _paidTeamClosing = true;
+                }
 
                 if (_paidTeamClosing)
                 {
@@ -73,6 +87,7 @@ namespace CityManager
                         if (now >= _nextPaidTeamCleanup)
                         {
                             _nextPaidTeamCleanup = now.AddSeconds(2);
+                            DevTrace("PAID TEAM Manager requested disband and leave for completed/aborted batch.");
                             Team.Disband();
                             Team.LeaveTeam();
                         }
@@ -82,6 +97,11 @@ namespace CityManager
                     _paidTeamOwnsTeam = _paidTeamStarted = _paidTeamClosing = false;
                     _paidTeamInviteId = 0;
                     _paidTeamInviteUntil = DateTime.MinValue;
+                    _paidTeamBatchReady = false;
+                    _paidTeamBatchSinceUtc = DateTime.MinValue;
+                    _paidTeamCustomers = new int[0];
+                    _paidTeamSkipped.Clear();
+                    DevTrace("PAID TEAM Manager is out of the previous team; next batch may gather.");
                     return;
                 }
 
@@ -91,42 +111,74 @@ namespace CityManager
                     memory.PublishPaidFixerTeam(null, 0, new int[0]);
                     return;
                 }
-                var members = Team.IsInTeam ? Team.Members
-                    .Where(m => m.Identity != DynelManager.LocalPlayer.Identity)
-                    .Select(m => m.Identity.Instance).ToArray() : new int[0];
                 memory.PublishPaidFixerTeam(_paidTeamCharacter,
-                    DynelManager.LocalPlayer.Identity.Instance, members);
+                    DynelManager.LocalPlayer.Identity.Instance, members, _paidTeamBatchReady);
                 if (_paidTeamInviteId != 0 && members.Contains(_paidTeamInviteId))
                 {
                     DevTrace("PAID TEAM team membership confirmed: " + _paidTeamInviteId + ".");
                     _paidTeamInviteId = 0;
                     _paidTeamInviteUntil = DateTime.MinValue;
                 }
+                if (!_paidTeamBatchReady)
+                {
+                    if (_paidTeamInviteId != 0)
+                    {
+                        if (now < _paidTeamInviteUntil) return;
+                        _paidTeamSkipped.Add(_paidTeamInviteId);
+                        DevTrace("PAID TEAM invitation expired for " + _paidTeamInviteId + "; gathering other requesters.");
+                        _paidTeamInviteId = 0;
+                    }
+                    // Reserve both Manager's and the buffer's slots. Admission stays
+                    // closed while an invitation or another visible customer remains.
+                    var next = requests.FirstOrDefault(r => !members.Contains(unchecked((int)r.SenderId)) &&
+                        !_paidTeamSkipped.Contains(unchecked((int)r.SenderId)) &&
+                        DynelManager.Players.Any(p => p.Identity.Instance == unchecked((int)r.SenderId)));
+                    if (members.Length < 4 && next != null)
+                    {
+                        InvitePaidTeamMember(new Identity(IdentityType.SimpleChar, unchecked((int)next.SenderId)),
+                            now, "requester " + next.SenderName);
+                        return;
+                    }
+                    if (members.Length == 0) return;
+                    _paidTeamCustomers = members.ToArray();
+                    _paidTeamBatchSinceUtc = now;
+                    _paidTeamBatchReady = true;
+                    memory.PublishPaidFixerTeam(_paidTeamCharacter,
+                        DynelManager.LocalPlayer.Identity.Instance, members, true);
+                    DevTrace("PAID TEAM batch ready: " + _paidTeamCustomers.Length + " customers; buffer admission enabled.");
+                }
                 if (running)
                 {
+                    var snapshot = memory.BufferBotInfos().FirstOrDefault(b =>
+                        string.Equals(b.Character, _paidTeamCharacter, StringComparison.OrdinalIgnoreCase));
                     var fixer = DynelManager.Players.FirstOrDefault(p => string.Equals(p.Name,
                         _paidTeamCharacter, StringComparison.OrdinalIgnoreCase));
-                    if (fixer != null && members.Length > 0 && !members.Contains(fixer.Identity.Instance) &&
+                    if (fixer != null && IsFreshReadyBuffer(snapshot, now) &&
+                        snapshot.IdentityInstance == fixer.Identity.Instance && members.Length > 0 &&
+                        !members.Contains(fixer.Identity.Instance) &&
                         (_paidTeamInviteId != fixer.Identity.Instance || now >= _paidTeamInviteUntil))
                         InvitePaidTeamMember(fixer.Identity, now, "buffer " + _paidTeamCharacter);
-                    return;
                 }
-                if (_paidTeamInviteId != 0 && now < _paidTeamInviteUntil) return;
-                _paidTeamInviteId = 0;
-
-                // Four customers + Manager + buffer = one normal six-person team.
-                if (members.Length >= 4) return;
-                var next = requests.FirstOrDefault(r => !members.Contains(unchecked((int)r.SenderId)) &&
-                    DynelManager.Players.Any(p => p.Identity.Instance == unchecked((int)r.SenderId)));
-                if (next != null)
-                    InvitePaidTeamMember(new Identity(IdentityType.SimpleChar, unchecked((int)next.SenderId)),
-                        now, "requester " + next.SenderName);
             }
             catch (Exception ex)
             {
                 memory.PublishPaidFixerTeam(null, 0, new int[0]);
                 Logger.Warning("Paid buffer team coordinator: " + ex.Message);
             }
+        }
+
+        private bool PaidTeamDeliveryObserved(PaidBufferSession provider, int[] members, DateTime now)
+        {
+            if (!_paidTeamBatchReady || provider == null || provider.TeamCastNano == 0 ||
+                provider.TeamCastAttemptedUtc < _paidTeamBatchSinceUtc || now < provider.TeamReleaseAfterUtc)
+                return false;
+            var memory = ManagerMemory.Current;
+            return _paidTeamCustomers.All(id => !members.Contains(id) ||
+                !DynelManager.Players.Any(p => p.Identity.Instance == id) ||
+                (provider.TeamCastMembers.Contains(id) &&
+                 memory.ObservedCastLanded(id, provider.TeamCastNano, provider.TeamCastAttemptedUtc,
+                     DateTime.MinValue, true) &&
+                 (provider.TeamCastNano != 275043 || !memory.ObservedNcuNeedsRefresh(id))));
         }
 
         private void InvitePaidTeamMember(Identity identity, DateTime now, string description)
