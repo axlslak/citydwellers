@@ -117,7 +117,10 @@ namespace MalisBuffBots
             try
             {
                 if (!Client.InPlay || DynelManager.LocalPlayer == null) return;
-                if ((PaidPilot && PaidBufferCatalogue.UsesManagerTeam(PaidProfession)) || (SettingsJson.Data.InitConnectionDelay -= delta) < 0)
+                // A paid session must not burn thirty seconds of its shared-account
+                // turn on a warmup timer. InPlay and catalogue readiness are checked
+                // directly; a missing spell list is retried by InitializeCatalogue.
+                if (PaidPilot || (SettingsJson.Data.InitConnectionDelay -= delta) < 0)
                 {
                     if (!PaidPilot && UserRank.MeetsRank(Rank.Warper, DynelManager.LocalPlayer.Name))
                         return;

@@ -202,6 +202,7 @@ namespace MalisBuffBots
                 case LdbFeedback.NotInLineOfSight:
                 case LdbFeedback.OutOfRange:
                 case LdbFeedback.UnableToUseNano:
+                case LdbFeedback.AlreadyExecutingNano:
                 case LdbFeedback.WaitForNanoToFinish:
                     _queueProcessor.RetryFeedback(QueueProcessor.FeedbackReason((LdbFeedback)feedbackMsg.MessageId));
                     break;

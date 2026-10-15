@@ -27,10 +27,12 @@ namespace MalisBuffBots
             internal DateTime CompletionUtc, FeedbackUtc;
             internal bool MissingBefore;
             internal bool Counted;
+            internal bool RechargeRecorded;
             internal int[] TeamMembers = new int[0];
         }
         private readonly Dictionary<BuffEntry, CastWork> _castWork = new Dictionary<BuffEntry, CastWork>();
         private BuffEntry _feedbackEntry;
+        private DateTime _nanoRechargeUntilUtc;
 
         private CastWork Work(BuffEntry entry)
         {
@@ -129,7 +131,9 @@ namespace MalisBuffBots
                 if (!Main.PaidPilot && TeamTrackerId != 0 && Main.Coordination.BotCache.IsTeamQueueEmpty(TeamTrackerId) && !Queue.AllEntries.Any(x => x.Requester.Instance == TeamTrackerId && x.NanoEntry.Type == CastType.Team))
                     ProcessResetTeamTrackerId();
 
-                if (DynelManager.LocalPlayer.IsCasting)
+                // Clientless clears IsCasting on FinishNanoCasting. The nano's
+                // real recharge can still be running after that acknowledgement.
+                if (DynelManager.LocalPlayer.IsCasting || DateTime.UtcNow < _nanoRechargeUntilUtc)
                     return;
 
                 switch (Queue.Process(DynelManager.LocalPlayer.Identity))
@@ -593,6 +597,7 @@ namespace MalisBuffBots
                 case LdbFeedback.NotInLineOfSight: return "you are not in line of sight";
                 case LdbFeedback.OutOfRange: return "you are out of range";
                 case LdbFeedback.UnableToUseNano: return "the game rejected the nano's casting requirements";
+                case LdbFeedback.AlreadyExecutingNano:
                 case LdbFeedback.WaitForNanoToFinish: return "the caster is busy with another nano";
                 case LdbFeedback.NotEnoughNano: return "the caster doesn't have enough nano energy";
                 default: return feedback.ToString();
@@ -627,6 +632,7 @@ namespace MalisBuffBots
         {
             if (work.CompletionUtc != default(DateTime)) return;
             work.CompletionUtc = DateTime.UtcNow;
+            RecordNanoRecharge(work);
             Logger.Information("Finished casting '" + entry.NanoEntry.Name + "' for requester " + entry.Requester.Instance);
             bool teamRecipient = PaidBufferCatalogue.FindEffect(work.NanoId)?.IsTeam == true &&
                 entry.Requester != DynelManager.LocalPlayer.Identity;
@@ -643,12 +649,27 @@ namespace MalisBuffBots
             // immediate recast. The caster can serve the rest of the queue.
         }
 
+        private void RecordNanoRecharge(CastWork work)
+        {
+            if (work.RechargeRecorded || work.AttemptKey == null || work.NanoId <= 0) return;
+            work.RechargeRecorded = true;
+            NanoItem nano;
+            if (!ItemData.Find(work.NanoId, out nano) || nano.RechargeDelay <= 0) return;
+            // This is the program's game data, not a confirmation/retry timeout.
+            // Record once per send even if several success packets and Manager's
+            // observation confirm the same cast.
+            var until = DateTime.UtcNow.AddSeconds(nano.RechargeDelay);
+            if (until > _nanoRechargeUntilUtc) _nanoRechargeUntilUtc = until;
+            Logger.Debug("Nano recharge: nano=" + work.NanoId + " seconds=" + nano.RechargeDelay + ".");
+        }
+
         public void ResetCurrentBuffEntry(LdbFeedback? feedback = null, bool completed = false)
             => CompleteBuffEntry(Queue.Current, feedback, completed);
 
         private void CompleteBuffEntry(BuffEntry entry, LdbFeedback? feedback = null, bool completed = false)
         {
             if (entry == null) return;
+            if (completed) RecordNanoRecharge(Work(entry));
             CastWork completedWork;
             if (completed && _castWork.TryGetValue(entry, out completedWork) && !completedWork.Counted &&
                 completedWork.AttemptKey != null && completedWork.NanoId > 0 &&
@@ -798,6 +819,7 @@ namespace MalisBuffBots
             Work(Queue.Current).AttemptedUtc = DateTime.UtcNow;
             Work(Queue.Current).CompletionUtc = default(DateTime);
             Work(Queue.Current).FeedbackUtc = default(DateTime);
+            Work(Queue.Current).RechargeRecorded = false;
             _feedbackEntry = Queue.Current;
             // Team emitters are cast on the caster; the server applies their effects to teammates.
             PlayerChar castTarget = PaidBufferCatalogue.FindEffect(firstAvailableBuff.Id)?.IsTeam == true

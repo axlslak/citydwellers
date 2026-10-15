@@ -51,7 +51,8 @@ namespace MalisBuffBots
         SuccessfulCast = 124550313,
         MustStandToCast = 20556461,
         NotEnoughNano = 206104233,
-        WaitForNanoToFinish = 213890029,
+        AlreadyExecutingNano = 182802785,
+        WaitForNanoToFinish = 214890029,
         NotEnoughNcu = 220179189,
         OutOfRange = 32054429,
     }
