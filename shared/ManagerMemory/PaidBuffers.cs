@@ -44,6 +44,15 @@ namespace CityDwellers.Shared
         };
         public static bool UsesManagerTeam(int profession) => profession == 4 || profession == 7;
 
+        // Team ownership belongs to the requested nano, not the caster's profession.
+        // In particular, Lasting Ultimatum is a direct target HoT.
+        public static bool RequiresManagerTeam(BufferPublicCommandRequest request) =>
+            request != null && !string.IsNullOrWhiteSpace(request.TargetCharacter) &&
+            string.Equals(request.Command, "cast", StringComparison.OrdinalIgnoreCase) &&
+            (request.ObservedNanoId > 0
+                ? FindEffect(request.ObservedNanoId)?.IsTeam == true
+                : (request.Arguments ?? new string[0]).Any(tag => Find(tag)?.IsTeam == true));
+
         public static int ProfessionId(string name)
         {
             if (string.Equals(name, "Enforcer", StringComparison.OrdinalIgnoreCase) ||
@@ -194,7 +203,12 @@ namespace CityDwellers.Shared
         private bool HasPaidRequestsLocked(string character) =>
             _bufferPublicCommands.Values.Any(r =>
                 string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) &&
-                (!PaidBufferCatalogue.UsesManagerTeam(PaidBufferLocked(character)?.Profession ?? 0) || PaidFixerMemberLocked(r.SenderId)));
+                PaidRequestAdmittedLocked(r));
+
+        private bool PaidRequestAdmittedLocked(BufferPublicCommandRequest request) =>
+            !PaidBufferCatalogue.RequiresManagerTeam(request) ||
+            (string.Equals(request.TargetCharacter, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) &&
+             PaidFixerMemberLocked(request.SenderId));
 
         public DateTime OldestPaidBufferRequest(string character)
         {
@@ -260,12 +274,16 @@ namespace CityDwellers.Shared
                 var _paidBuffer = _paidBuffers[character];
                 if (_paidBuffers.Values.Any(p => p.Running) || _paidBuffer.Blocked || DateTime.UtcNow < _paidBuffer.RetryAfterUtc)
                     return false;
+                if (!HasPaidRequestsLocked(character)) return false;
                 if (PaidBufferCatalogue.UsesManagerTeam(_paidBuffer.Profession))
                 {
-                    if (!string.Equals(character, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) ||
-                        DateTime.UtcNow < _nextPaidFixerLoginUtc ||
-                        _paidBuffers.Values.Any(p => PaidBufferCatalogue.UsesManagerTeam(p.Profession) && p.Running) ||
-                        !HasPaidRequestsLocked(character)) return false;
+                    if (DateTime.UtcNow < _nextPaidFixerLoginUtc) return false;
+                    // Prefer gathering the pending team batch before spending a login.
+                    // Direct-only work needs neither a team nor four customers.
+                    var teamRequests = _bufferPublicCommands.Values.Where(r =>
+                        string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) &&
+                        PaidBufferCatalogue.RequiresManagerTeam(r)).ToArray();
+                    if (teamRequests.Length != 0 && !teamRequests.Any(PaidRequestAdmittedLocked)) return false;
                     _nextPaidFixerLoginUtc = DateTime.UtcNow.AddSeconds(30);
                 }
                 _paidBuffer.Running = true;
@@ -319,9 +337,13 @@ namespace CityDwellers.Shared
                     FailPaidRequestsLocked(character, "The paid buffer could not accept your request during this session. Stand near it and retry after it logs out.");
                 }
                 if (busy || (!_paidBuffer.Draining && HasPaidRequestsLocked(character))) _paidBuffer.BusyUtc = now;
+                // Queue completion alone must not park the team caster before
+                // Manager confirms delivery to every customer and releases the batch.
                 if (ready && !busy && (_paidBuffer.Draining ||
                     (PaidBufferCatalogue.UsesManagerTeam(_paidBuffer.Profession)
-                        ? !HasPaidRequestsLocked(character)
+                        ? !HasPaidRequestsLocked(character) &&
+                          !(string.Equals(character, _paidFixerTeamCharacter, StringComparison.OrdinalIgnoreCase) &&
+                            _paidFixerBatchReady && _paidFixerTeamObservedUtc >= now.AddSeconds(-3))
                         : now - _paidBuffer.BusyUtc >= TimeSpan.FromSeconds(20))))
                     _paidBuffer.Parked = _paidBuffer.Draining = true;
                 System.Threading.Monitor.PulseAll(_bufferPublicCommandSync);

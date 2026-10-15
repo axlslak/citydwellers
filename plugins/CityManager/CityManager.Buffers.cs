@@ -25,6 +25,7 @@ namespace CityManager
         private int _paidTeamInviteId;
         private DateTime _paidTeamInviteUntil;
         private DateTime _nextPaidTeamCleanup;
+        private int _paidTeamCleanupCount = -1;
         private bool _paidTeamBatchReady;
         private DateTime _paidTeamBatchSinceUtc;
         private int[] _paidTeamCustomers = new int[0];
@@ -47,7 +48,8 @@ namespace CityManager
             {
                 var providers = memory.ReadPaidBuffers().Where(p => PaidBufferCatalogue.UsesManagerTeam(p.Profession)).ToArray();
                 var pending = memory.PendingBufferPublicCommands(128)
-                    .Where(r => providers.Any(p => string.Equals(p.Character, r.TargetCharacter,
+                    .Where(r => PaidBufferCatalogue.RequiresManagerTeam(r) &&
+                        providers.Any(p => string.Equals(p.Character, r.TargetCharacter,
                         StringComparison.OrdinalIgnoreCase))).ToArray();
                 if (_paidTeamCharacter == null)
                 {
@@ -70,9 +72,9 @@ namespace CityManager
                     ((!running || !_paidTeamBatchReady) && requests.Length == 0 && now >= _paidTeamInviteUntil))
                     _paidTeamClosing = true;
 
-                var members = Team.IsInTeam ? Team.Members
+                var members = Team.Members
                     .Where(m => m.Identity != DynelManager.LocalPlayer.Identity)
-                    .Select(m => m.Identity.Instance).ToArray() : new int[0];
+                    .Select(m => m.Identity.Instance).ToArray();
                 if (!_paidTeamClosing && PaidTeamDeliveryObserved(provider, members, now))
                 {
                     DevTrace("PAID TEAM team buff delivery confirmed; closing completed customer batch.");
@@ -82,14 +84,32 @@ namespace CityManager
                 if (_paidTeamClosing)
                 {
                     memory.PublishPaidFixerTeam(null, 0, new int[0]);
-                    if (_paidTeamOwnsTeam && Team.IsInTeam)
+                    // IsInTeam reads Manager's team stat; it does not prove that the
+                    // other members have left. Keep ownership until their removal
+                    // messages clear the roster, then leave Manager's empty team.
+                    var remainingMembers = Team.Members.Where(m =>
+                        m.Identity != DynelManager.LocalPlayer.Identity).ToArray();
+                    if (_paidTeamOwnsTeam && (remainingMembers.Length != 0 || Team.IsInTeam))
                     {
+                        if (_paidTeamCleanupCount != remainingMembers.Length)
+                        {
+                            _paidTeamCleanupCount = remainingMembers.Length;
+                            _nextPaidTeamCleanup = now;
+                        }
                         if (now >= _nextPaidTeamCleanup)
                         {
                             _nextPaidTeamCleanup = now.AddSeconds(2);
-                            DevTrace("PAID TEAM Manager requested disband and leave for completed/aborted batch.");
-                            Team.Disband();
-                            Team.LeaveTeam();
+                            if (remainingMembers.Length != 0)
+                            {
+                                foreach (var member in remainingMembers) Team.Kick(member.Identity);
+                                DevTrace("PAID TEAM Manager requested removal of " + remainingMembers.Length +
+                                    " members; waiting for roster confirmation.");
+                            }
+                            else
+                            {
+                                Team.LeaveTeam();
+                                DevTrace("PAID TEAM member removals confirmed; Manager requested leave.");
+                            }
                         }
                         return;
                     }
@@ -101,6 +121,8 @@ namespace CityManager
                     _paidTeamBatchSinceUtc = DateTime.MinValue;
                     _paidTeamCustomers = new int[0];
                     _paidTeamSkipped.Clear();
+                    _paidTeamCleanupCount = -1;
+                    _nextPaidTeamCleanup = DateTime.MinValue;
                     DevTrace("PAID TEAM Manager is out of the previous team; next batch may gather.");
                     return;
                 }
@@ -128,8 +150,9 @@ namespace CityManager
                         DevTrace("PAID TEAM invitation expired for " + _paidTeamInviteId + "; gathering other requesters.");
                         _paidTeamInviteId = 0;
                     }
-                    // Reserve both Manager's and the buffer's slots. Admission stays
-                    // closed while an invitation or another visible customer remains.
+                    // Aim for four customers, reserving Manager's and the buffer's
+                    // slots. A smaller batch proceeds once no further eligible
+                    // visible customer remains; four is never a minimum.
                     var next = requests.FirstOrDefault(r => !members.Contains(unchecked((int)r.SenderId)) &&
                         !_paidTeamSkipped.Contains(unchecked((int)r.SenderId)) &&
                         DynelManager.Players.Any(p => p.Identity.Instance == unchecked((int)r.SenderId)));
@@ -408,8 +431,7 @@ namespace CityManager
                     memory.ReadPaidBuffers().Any(p => p.Profession == 4)) paid.Insert(0, ncu);
             }
 
-            bool fixerFirst = paid.Any(n => n.Id == 275043);
-            var ncuNanos = paid.Where(n => fixerFirst && n.Profession == 4).ToArray();
+            var ncuNanos = paid.Where(n => n.Id == 275043).ToArray();
             if (ncuNanos.Length != 0) ServePaidMacroPart(senderName, ncuNanos, target);
             ordinary.RemoveAll(freeNcuTags.Contains);
             if (freeNcuTags.Length != 0)
@@ -427,7 +449,7 @@ namespace CityManager
             if (ordinary.Count != 0)
                 RunBufferCommand(senderName, "cast", ordinary.ToArray(), target, null);
 
-            foreach (var group in paid.Where(n => !fixerFirst || n.Profession != 4).GroupBy(n => n.Profession))
+            foreach (var group in paid.Where(n => n.Id != 275043).GroupBy(n => n.Profession))
                 ServePaidMacroPart(senderName, group.ToArray(), target);
         }
 
@@ -461,14 +483,15 @@ namespace CityManager
             var memory = ManagerMemory.Current;
             try
             {
-                if (!memory.BeginBufferPublicCommand(new BufferPublicCommandRequest {
+                var request = new BufferPublicCommandRequest {
                     Id = id, Command = command.ToLowerInvariant(), TargetCharacter = paid?.Character,
-                    SenderId = target.SenderId, SenderName = senderName, Arguments = tags, CreatedUtc = DateTime.UtcNow }))
+                    SenderId = target.SenderId, SenderName = senderName, Arguments = tags, CreatedUtc = DateTime.UtcNow };
+                if (!memory.BeginBufferPublicCommand(request))
                 {
                     Reply(target, "Could not queue " + description + ": the buffer queue is busy or its provider is unavailable.");
                     return null;
                 }
-                if (paid != null && PaidBufferCatalogue.UsesManagerTeam(paid.Profession))
+                if (PaidBufferCatalogue.RequiresManagerTeam(request))
                     Reply(target, "Queued " + description + " with " + paid.Character +
                         ". Leave your current team and accept my invitation.");
                 var outcome = memory.WaitForBufferPublicCommandOutcome(id, BufferPublicCommandTimeoutMilliseconds);
