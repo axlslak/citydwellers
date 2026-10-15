@@ -123,7 +123,8 @@ namespace CityManager
                         HelpSyntaxLine(target, "help [topic]", "Open the manual or a specific topic.") +
                         HelpSyntaxLine(target, "status", "Open the live Manager status blob.") +
                         HelpSyntaxLine(target, "buffers", "Show froob buffer readiness and queue counts.") +
-                        HelpSyntaxLine(target, "bufflist", "Open Apcmanager's cached buffer buff catalogue.") +
+                        HelpSyntaxLine(target, "buff list", "Open the available buff catalogue; bufflist still works.") +
+                        HelpSyntaxLine(target, "buff mine", "Edit your remembered buff selections.") +
                         HelpSyntaxLine(target, "cast [buff tag...]", "Request one or more Mali buff tags through Apcmanager.") +
                         HelpSyntaxLine(target, "rebuff", "Re-request recognized buffs already active in your NCU.") +
                         HelpSyntaxLine(target, "buffmacro", "Build a macro for recognized buffs currently active in your NCU.") +
@@ -174,6 +175,16 @@ namespace CityManager
                         null);
                     return true;
 
+                case "buff":
+                case "buffs":
+                    title = "Buffs";
+                    body = HelpHeader("Buffs", "Choose buffs and edit the profile Manager remembers for your character. Alias: buffs.") +
+                        HelpSyntaxLine(target, "buff list", "Show every available buff. Alias: bufflist.") +
+                        HelpSyntaxLine(target, "buff mine", "Show your remembered buffs with Remove buttons; delivered privately.") +
+                        HelpSyntaxLine(target, "buff add <tag, name or ID>", "Select and request a buff. Aliases: buff cast, cast. Multiple tags still work.") +
+                        HelpSyntaxLine(target, "buff remove <tag, name or ID>", "Forget a buff and stop learning/automatically refreshing it until you add it again. Aliases: del, rem. Does not cancel a nano already in NCU.");
+                    return true;
+
                 case "bufflist":
                     title = "Buffer Buff Catalogue";
                     body = CommandHelp(
@@ -190,7 +201,7 @@ namespace CityManager
                     body = CommandHelp(
                         target,
                         "cast [buff tag...]",
-                        "Request Mali buff tags through Apcmanager while preserving the existing buffer queue and profession routing.",
+                        "Alias for buff add. Select and request buff tags, an exact buff name or nano ID through Apcmanager while preserving the existing buffer queue and profession routing.",
                         "A ready buffer that can actually see your character claims the request and lets Mali route each requested buff to the appropriate profession. Use bufflist to discover tags.",
                         "Athen Paladins member",
                         "Examples: #cast ag; #cast tsma pmmo. Direct tells to buffers are intentionally retired.");
@@ -519,7 +530,10 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "help [topic]", "Open help."));
             body.Append(HelpSyntaxLine(target, "status", "Open live system status."));
             body.Append(HelpSyntaxLine(target, "cloak", "Check city cloak through Flipper."));
-            body.Append(HelpSyntaxLine(target, "bufflist", "Open the cached buffer buff catalogue."));
+            body.Append(HelpSyntaxLine(target, "buff list", "Open the cached buffer buff catalogue."));
+            body.Append(HelpSyntaxLine(target, "buff mine", "Edit the buffs remembered for your character."));
+            body.Append(HelpSyntaxLine(target, "buff add <tag, name or ID>", "Select and request buffs; cast remains an alias."));
+            body.Append(HelpSyntaxLine(target, "buff remove <tag, name or ID>", "Stop automatic refresh for a selected buff."));
             body.Append(HelpSyntaxLine(target, "cast [buff tag...]", "Request Mali buffs through Apcmanager."));
             body.Append(HelpSyntaxLine(target, "rebuff", "Re-request recognized buffs currently active in your NCU."));
             body.Append(HelpSyntaxLine(target, "buffmacro", "Build an Apcmanager buffpreset macro from your current NCU."));

@@ -464,6 +464,12 @@ namespace MalisBuffBots
         private void ProcessCurrentBuffEntry()
         {
             var observedEntry = Queue.Current.NanoEntry;
+            if (Queue.Current.Requester != DynelManager.LocalPlayer.Identity &&
+                observedEntry.LevelToId.Any(n => ManagerMemory.Current.IsBuffExcluded(Queue.Current.Requester.Instance, n.Id)))
+            {
+                ResetCurrentBuffEntry();
+                return;
+            }
             if (observedEntry.ObserverAssignmentId != null &&
                 !ManagerMemory.Current.OwnsObservedBuffRefresh(Client.CharacterName,
                     Queue.Current.Requester.Instance, observedEntry.LevelToId[0].Id,

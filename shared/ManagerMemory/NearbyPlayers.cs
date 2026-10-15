@@ -25,9 +25,11 @@ namespace CityDwellers.Shared
         // Only first versus returning matters; do not persist every future visit.
         public int Encounters;
         public List<int> NanoIds = new List<int>();
+        public List<int> ExcludedNanoIds = new List<int>();
         internal LearnedBuffProfile Copy() => new LearnedBuffProfile {
             CharacterId = CharacterId, Name = Name, Encounters = Encounters,
-            NanoIds = new List<int>(NanoIds) };
+            NanoIds = new List<int>(NanoIds),
+            ExcludedNanoIds = new List<int>(ExcludedNanoIds) };
     }
 
     [Serializable]
@@ -183,6 +185,8 @@ namespace CityDwellers.Shared
                         player.RestoreMissing = encounters >= 2;
                         var added = player.VisibleNanoIds.Where(id => id > 0 &&
                             !BufferRefreshPolicy.IsRequestOnlyNano(id) &&
+                            (old == null || !old.ExcludedNanoIds.Any(excluded => excluded == id ||
+                                PaidBufferCatalogue.FindEffect(id)?.MatchesEffect(excluded) == true)) &&
                             (old == null || !old.NanoIds.Contains(id))).Distinct().ToArray();
                         if (old != null && old.Encounters == encounters && old.Name == player.Name && added.Length == 0)
                             continue;
@@ -232,7 +236,73 @@ namespace CityDwellers.Shared
                         result.AddRange(profile.NanoIds.Where(id => !player.VisibleNanoIds.Contains(id))
                             .Select(id => new NearbyNanoObservation { Id = id }));
                 }
-            return result.Where(n => !BufferRefreshPolicy.IsRequestOnlyNano(n.Id)).ToArray();
+            return result.Where(n => !BufferRefreshPolicy.IsRequestOnlyNano(n.Id) &&
+                !IsBuffExcluded(characterId, n.Id)).ToArray();
+        }
+
+        public LearnedBuffProfile ReadLearnedBuffProfile(int characterId)
+        {
+            lock (_accountingSync)
+                return Accounting(null).LearnedBuffs.FirstOrDefault(p => p.CharacterId == characterId)?.Copy();
+        }
+
+        public bool IsBuffExcluded(int characterId, int nanoId)
+        {
+            var paid = PaidBufferCatalogue.FindEffect(nanoId);
+            lock (_accountingSync)
+            {
+                var profile = Accounting(null).LearnedBuffs.FirstOrDefault(p => p.CharacterId == characterId);
+                return profile != null && profile.ExcludedNanoIds.Any(id =>
+                    id == nanoId || (paid != null && paid.MatchesEffect(id)));
+            }
+        }
+
+        public void SelectPersonalBuffs(int characterId, string name, int[] selected, int[] related)
+            => ChangePersonalBuffs(characterId, name, selected, related, true);
+
+        public void RemovePersonalBuffs(int characterId, string name, int[] related)
+            => ChangePersonalBuffs(characterId, name, new int[0], related, false);
+
+        private void ChangePersonalBuffs(int characterId, string name, int[] selected, int[] related, bool add)
+        {
+            if (characterId == 0) throw new ArgumentException("Character identity required.");
+            var ids = new HashSet<int>((related ?? new int[0]).Where(id => id > 0));
+            foreach (int id in ids.ToArray())
+            {
+                var paid = PaidBufferCatalogue.FindEffect(id);
+                if (paid == null) continue;
+                ids.Add(paid.Id);
+                foreach (int effect in paid.EffectIds ?? new int[0]) ids.Add(effect);
+            }
+            var wanted = (selected ?? new int[0]).Where(id => id > 0 &&
+                !BufferRefreshPolicy.IsRequestOnlyNano(id)).Distinct().ToArray();
+            foreach (int id in wanted) ids.Add(id);
+            if (ids.Count == 0) return;
+            ManagerAccounting.Transaction(add ? "Select personal buffs" : "Remove personal buffs", () =>
+            {
+                lock (_accountingSync)
+                {
+                    var state = Writing(ManagerAccounting.TransactionId);
+                    var old = state.LearnedBuffs.FirstOrDefault(p => p.CharacterId == characterId);
+                    var next = old?.Copy() ?? new LearnedBuffProfile { CharacterId = characterId, Encounters = 1 };
+                    next.Name = name;
+                    if (add)
+                    {
+                        next.ExcludedNanoIds.RemoveAll(ids.Contains);
+                        // An explicit selection can be restored immediately, even on first visit.
+                        if (wanted.Length != 0) next.Encounters = 2;
+                        next.NanoIds.AddRange(wanted.Where(id => !next.NanoIds.Contains(id)));
+                    }
+                    else
+                    {
+                        next.NanoIds.RemoveAll(ids.Contains);
+                        next.ExcludedNanoIds.AddRange(ids.Where(id => !next.ExcludedNanoIds.Contains(id)));
+                    }
+                    state.LearnedBuffs = new List<LearnedBuffProfile>(state.LearnedBuffs);
+                    if (old != null) state.LearnedBuffs.Remove(old);
+                    state.LearnedBuffs.Add(next);
+                }
+            });
         }
 
         public List<NearbyPlayerObservation> ReadNearbyPlayers()
@@ -268,6 +338,7 @@ namespace CityDwellers.Shared
             var player = ReadNearbyPlayers().FirstOrDefault(p => p.CharacterId == characterId);
             if (player == null || IsObservedBuffer(player)) return false;
             var ncu = PaidBufferCatalogue.FindEffect(275043);
+            if (IsBuffExcluded(characterId, ncu.Id)) return false;
             if (UnobservedServerBuff(characterId, ncu.Id)) return false;
             double age = (DateTime.UtcNow - player.ObservedUtc).TotalSeconds;
             var effects = player.Nanos.Where(n => ncu.MatchesEffect(n.Id)).ToArray();
@@ -282,7 +353,7 @@ namespace CityDwellers.Shared
 
         public bool ObservedBuffNeedsRefresh(int characterId, int nanoId)
         {
-            if (BufferRefreshPolicy.IsRequestOnlyNano(nanoId)) return false;
+            if (BufferRefreshPolicy.IsRequestOnlyNano(nanoId) || IsBuffExcluded(characterId, nanoId)) return false;
             if (UnobservedServerBuff(characterId, nanoId)) return false;
             if (!PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nanoId) &&
                 ObservedNcuNeedsRefresh(characterId)) return false;
@@ -308,6 +379,3 @@ namespace CityDwellers.Shared
         }
     }
 }
-
-
-

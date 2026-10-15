@@ -155,6 +155,19 @@ namespace MalisBuffBots
                 return false;
             }
 
+            // Numeric selections request the exact nano rather than another tier
+            // sharing the same Mali tag. Ordinary tag macros keep their old selection.
+            int[] requestedIds = nanoTags.Select(tag => int.TryParse(tag, out int id) ? id : 0)
+                .Where(id => id > 0).ToArray();
+            entries = entries.ToDictionary(pair => pair.Key, pair => pair.Value.Select(entry =>
+            {
+                if (!requestedIds.Any(entry.ContainsId) || nanoTags.Any(tag => entry.Tags.Contains(tag))) return entry;
+                var exact = Newtonsoft.Json.JsonConvert.DeserializeObject<NanoEntry>(
+                    Newtonsoft.Json.JsonConvert.SerializeObject(entry));
+                exact.LevelToId = exact.LevelToId.Where(n => requestedIds.Contains(n.Id)).ToArray();
+                return exact;
+            }).Where(entry => entry.LevelToId.Length != 0).ToList());
+
             if (PaidPilot)
             {
                 if ((int)DynelManager.LocalPlayer.Profession != PaidProfession)

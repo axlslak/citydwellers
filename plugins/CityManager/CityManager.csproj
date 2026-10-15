@@ -44,6 +44,7 @@
     <Compile Include="SyslogSender.cs" />
     <Compile Include="TraceCollector.cs" />
     <Compile Include="CityManager.Buffers.cs" />
+    <Compile Include="CityManager.BuffCommands.cs" />
     <Compile Include="CityManager.Admins.cs" />
     <Compile Include="CityManager.Alts.cs" />
     <Compile Include="CityManager.Bans.cs" />

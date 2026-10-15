@@ -290,7 +290,8 @@ namespace CityManager
             {
                 if (isCast)
                 {
-                    ServeBufferMacro(senderName, tags, level, target);
+                    var resolved = SelectAndResolveBuffArguments(senderName, tags, level, target);
+                    if (resolved.Length != 0) ServeBufferMacro(senderName, resolved, level, target);
                     return;
                 }
                 var outcome = RunBufferCommand(senderName, command, new string[0], target, null);
@@ -337,9 +338,17 @@ namespace CityManager
                 if (!paid.Any(n => n.Id == nano.Id)) paid.Add(nano);
             }
 
+            var freeNcuIds = new HashSet<int>(memory.BufferBotInfos()
+                .Where(bot => !memory.IsPaidBuffer(bot.Character))
+                .SelectMany(bot => bot.AdvertisedBuffs ?? new BufferAdvertisedBuff[0])
+                .Where(buff => string.Equals(buff.Tag, "ncu", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(buff => buff.NanoIds ?? new int[0]));
+            var freeNcuTags = ordinary.Where(tag => tag == "ncu" ||
+                (int.TryParse(tag, out int id) && freeNcuIds.Contains(id))).ToArray();
+
             // Preserve the learned NCU prerequisite even when a copied macro
             // omitted it. Explicit NCU requests also run before everything else.
-            if (!ordinary.Contains("ncu") && !paid.Any(n => n.Id == 275043) &&
+            if (freeNcuTags.Length == 0 && !paid.Any(n => n.Id == 275043) &&
                 memory.ObservedNcuNeedsRefresh(unchecked((int)target.SenderId)))
             {
                 var ncu = PaidBufferCatalogue.Find("fsc");
@@ -350,12 +359,13 @@ namespace CityManager
             bool fixerFirst = paid.Any(n => n.Id == 275043);
             var ncuNanos = paid.Where(n => fixerFirst && n.Profession == 4).ToArray();
             if (ncuNanos.Length != 0) ServePaidMacroPart(senderName, ncuNanos, target);
-            if (ordinary.Remove("ncu"))
+            ordinary.RemoveAll(freeNcuTags.Contains);
+            if (freeNcuTags.Length != 0)
             {
                 string watch = memory.WatchBufferCast(target.SenderId, "ncu");
                 try
                 {
-                    var result = RunBufferCommand(senderName, "cast", new[] { "ncu" }, target, null);
+                    var result = RunBufferCommand(senderName, "cast", freeNcuTags, target, null);
                     if (result != null && result.Success && !memory.WaitForBufferCast(watch, 125000))
                         Reply(target, "NCU request has not finished yet; continuing with the other buffs I can provide.");
                 }
@@ -463,7 +473,9 @@ namespace CityManager
                     .ToList();
 
                 var body = new StringBuilder();
-                body.Append(CommandLink(target, "buffmacro", "Buffmacro"))
+                body.Append(CommandLink(target, "buff mine", "My buffs"))
+                    .Append(" - edit your remembered buffs\n")
+                    .Append(CommandLink(target, "buffmacro", "Buffmacro"))
                     .Append(" - create a macro of current buffs\n")
                     .Append(CommandLink(target, "rebuff", "Rebuff"))
                     .Append(" - refresh current buffs\n\n");
@@ -490,7 +502,7 @@ namespace CityManager
                     {
                         BufferAdvertisedBuff buff = buffGroup.First().Buff;
                         bool ready = buffGroup.Any(row => IsFreshReadyBuffer(row.Snapshot, now));
-                        body.Append("  ").Append(CommandLink(target, "cast " + buff.Tag, buff.Name));
+                        body.Append("  ").Append(CommandLink(target, "buff add " + buff.Tag, buff.Name));
                         if (string.Equals(buff.Type, "Team", StringComparison.OrdinalIgnoreCase))
                             body.Append(" <font color='#FBFF96'>[Team]</font>");
                         body.Append(" <font color='#F07171'>[")
@@ -513,7 +525,7 @@ namespace CityManager
                         .Append(")\n");
                     foreach (var nano in PaidBufferCatalogue.ForProfession(profession.Key))
                     {
-                        body.Append("  ").Append(CommandLink(target, "cast " + nano.Tags[0], nano.Name));
+                        body.Append("  ").Append(CommandLink(target, "buff add " + nano.Tags[0], nano.Name));
                         if (nano.IsTeam) body.Append(" <font color='#FBFF96'>[Team]</font>");
                         body.Append(" <font color='#F07171'>[").Append(EscapeBlobText(nano.Description))
                             .Append("]</font> <font color='#00BDBD'>[Level: ").Append(nano.Level)
