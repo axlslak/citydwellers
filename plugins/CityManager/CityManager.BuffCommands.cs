@@ -29,6 +29,12 @@ namespace CityManager
                 ProcessBufferBuffListCommand(new[] { "bufflist" }, target);
                 return;
             }
+            if ((action == "redo" || action == "rebuff" || action == "macro") && parts.Length == 2)
+            {
+                string command = action == "macro" ? "buffmacro" : "rebuff";
+                BeginBufferPublicCommand(senderName, command, new[] { command }, target);
+                return;
+            }
             if (action == "mine" && parts.Length == 2)
             {
                 if (!RequirePersonalBuffIdentity(target)) return;
@@ -49,7 +55,7 @@ namespace CityManager
                 QueuePublicWork(privateTarget, () => RemovePersonalBuffSelection(senderName, arguments, privateTarget));
                 return;
             }
-            Reply(target, Usage(target, "buff list | buff mine | buff add <tag, name or ID> | buff remove <tag, name or ID>"));
+            Reply(target, Usage(target, "buff list | buff mine | buff add <tag, name or ID> | buff remove <tag, name or ID> | buff redo | buff macro"));
         }
 
         private bool RequirePersonalBuffIdentity(ReplyTarget target)

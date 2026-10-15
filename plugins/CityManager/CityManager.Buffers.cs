@@ -302,7 +302,7 @@ namespace CityManager
                     Reply(target, found.Length == 0
                         ? "No recognized active buffs were available for a macro."
                         : "<font color='" + ColorCommand + "'>/macro buffpreset /tell " +
-                          Client.CharacterName + " cast " + EscapeBlobText(string.Join(" ", found)) + "</font>");
+                          Client.CharacterName + " buff add " + EscapeBlobText(string.Join(" ", found)) + "</font>");
                 }
             });
         }
@@ -475,9 +475,9 @@ namespace CityManager
                 var body = new StringBuilder();
                 body.Append(CommandLink(target, "buff mine", "My buffs"))
                     .Append(" - edit your remembered buffs\n")
-                    .Append(CommandLink(target, "buffmacro", "Buffmacro"))
+                    .Append(CommandLink(target, "buff macro", "Buff macro"))
                     .Append(" - create a macro of current buffs\n")
-                    .Append(CommandLink(target, "rebuff", "Rebuff"))
+                    .Append(CommandLink(target, "buff redo", "Rebuff"))
                     .Append(" - refresh current buffs\n\n");
 
                 foreach (var profession in rows

@@ -26,6 +26,7 @@ namespace MalisBuffBots
             internal DateTime AttemptedUtc, PreviousExpiryUtc, DeadlineUtc, TeamDeadlineUtc;
             internal DateTime CompletionUtc, FeedbackUtc;
             internal bool MissingBefore;
+            internal bool Counted;
             internal int[] TeamMembers = new int[0];
         }
         private readonly Dictionary<BuffEntry, CastWork> _castWork = new Dictionary<BuffEntry, CastWork>();
@@ -648,6 +649,21 @@ namespace MalisBuffBots
         private void CompleteBuffEntry(BuffEntry entry, LdbFeedback? feedback = null, bool completed = false)
         {
             if (entry == null) return;
+            CastWork completedWork;
+            if (completed && _castWork.TryGetValue(entry, out completedWork) && !completedWork.Counted &&
+                completedWork.AttemptKey != null && completedWork.NanoId > 0 &&
+                DynelManager.LocalPlayer != null && entry.Requester != DynelManager.LocalPlayer.Identity)
+            {
+                completedWork.Counted = true;
+                try
+                {
+                    int caster = (int)DynelManager.LocalPlayer.Profession;
+                    int profession = Main.BuffsJson.Entries.Where(pair => pair.Value.Any(n => n.ContainsId(completedWork.NanoId)))
+                        .Select(pair => (int?)pair.Key).FirstOrDefault() ?? caster;
+                    ManagerMemory.Current.RecordBuffGiven(Main.PaidPilot, profession, caster);
+                }
+                catch (Exception ex) { Logger.Warning("Buff counter update unavailable: " + ex.Message); }
+            }
             ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)entry.Requester.Instance),
                 entry.NanoEntry.Tags.ToArray());
             if (feedback != null)
