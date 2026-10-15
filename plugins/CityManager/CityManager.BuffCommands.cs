@@ -212,7 +212,8 @@ namespace CityManager
             body.Append(CommandLink(target, "buff list", "Available buffs")).Append("\n")
                 .Append("These are the buffs remembered for your character. Remove turns off automatic refresh; it does not cancel your current NCU effect.\n\n");
             var ids = (profile?.NanoIds ?? new List<int>()).Where(id => !BufferRefreshPolicy.IsRequestOnlyNano(id) &&
-                !ManagerMemory.Current.IsBuffExcluded(unchecked((int)target.SenderId), id)).Distinct()
+                !ManagerMemory.Current.IsBuffExcluded(unchecked((int)target.SenderId), id))
+                .Select(id => PaidBufferCatalogue.FindEffect(id)?.Id ?? id).Distinct()
                 .OrderBy(id => PersonalBuffName(id, choices), StringComparer.OrdinalIgnoreCase).ToArray();
             if (ids.Length == 0) body.Append("No buffs selected yet.\n");
             foreach (int id in ids)
