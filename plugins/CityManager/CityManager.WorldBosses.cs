@@ -91,30 +91,40 @@ namespace CityManager
                 var record = records.SingleOrDefault(row => row.Boss == boss);
                 string status;
                 if (record == null)
-                    status = "not observed yet";
+                    status = WorldBossText("not observed yet", ColorMuted);
                 else if (record.Phase == "killed")
                 {
                     var next = record.KilledUtc.AddHours(boss == "Vizaresh" ? 17 : 9);
-                    status = next > now ? "next spawn expected in " + FormatDuration(next - now) : "next spawn due; awaiting announcement";
+                    status = next > now
+                        ? WorldBossText("next spawn expected in ", ColorText) + WorldBossText(FormatDuration(next - now), ColorCommand)
+                        : WorldBossText("next spawn due; awaiting announcement", ColorWarn);
                 }
                 else if (record.VulnerableUtc > now)
-                    status = "vulnerable in " + FormatDuration(record.VulnerableUtc - now);
+                    status = WorldBossText("vulnerable in ", ColorWarn) +
+                        WorldBossText(FormatDuration(record.VulnerableUtc - now), ColorCommand);
                 else
-                    status = "immunity ended " + FormatDuration(now - record.VulnerableUtc) + " ago; kill unobserved";
-                summary.Add(boss + ": " + status);
-                body.Append("<font color='").Append(ColorTitle).Append("'>").Append(boss).Append("</font>\n")
-                    .Append(EscapeBlobText(status)).Append("\n");
+                    status = WorldBossText("immunity ended ", ColorGood) +
+                        WorldBossText(FormatDuration(now - record.VulnerableUtc), ColorCommand) +
+                        WorldBossText(" ago", ColorText) + WorldBossText("; kill unobserved", ColorMuted);
+                string line = WorldBossText(boss, ColorTitle) + ": " + status;
+                summary.Add(line);
+                body.Append(line).Append("\n");
                 string waypoint = boss == "Tarasque" ? "2092 3822 505" : boss == "Vizaresh" ? "299 28 4328" : "1760 2840 595";
-                body.Append("<a href='chatcmd:///waypoint ").Append(waypoint).Append("'>Waypoint</a>\n");
+                body.Append("<a href='chatcmd:///waypoint ").Append(waypoint).Append("'>")
+                    .Append(WorldBossText("Waypoint", ColorCommand)).Append("</a>\n");
                 if (record != null)
-                    body.Append("Last announcement: ").Append(record.ObservedUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture))
-                        .Append("\n").Append(EscapeBlobText(record.Message)).Append("\n");
+                    body.Append(WorldBossText("Last announcement: ", ColorMuted))
+                        .Append(WorldBossText(record.ObservedUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture), ColorCommand))
+                        .Append("\n").Append(WorldBossText(record.Message, ColorMuted)).Append("\n");
                 body.Append("\n");
             }
-            body.Append("Tracks native AO announcements. Saved across restarts. A spawn notice supplies an immunity timer; respawn estimates require an observed kill.\n")
+            body.Append(WorldBossText("Tracks native AO announcements. Saved across restarts. A spawn notice supplies an immunity timer; respawn estimates require an observed kill.", ColorMuted)).Append("\n")
                 .Append(CommandLink(target, "wb", "Refresh"));
             string details = string.Join(" ", BuildBlobLinks(target, "World bosses", "World boss details", body.ToString()));
-            Reply(target, string.Join(" | ", summary) + " " + details);
+            Reply(target, string.Join("\n", summary) + "\n" + details);
         }
+
+        private static string WorldBossText(string text, string color) =>
+            "<font color='" + color + "'>" + EscapeBlobText(text) + "</font>";
     }
 }
