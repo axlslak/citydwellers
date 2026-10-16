@@ -85,6 +85,7 @@ namespace CityBankers
             MovingBagToInventory,
             OpeningBag,
             MovingItemIntoBag,
+            RefreshingPlacement,
             ReturningBag
         }
 
@@ -164,6 +165,8 @@ namespace CityBankers
 
             Trade.TradeOpened += OnTradeOpened;
             Trade.TradeStatusChanged += OnTradeStatusChanged;
+            Client.MessageReceived += ObserveStorageMove;
+            Client.Disconnected += InvalidateStorageMove;
             Client.OnUpdate += Tick;
             StartBankerMemory();
 
@@ -230,6 +233,8 @@ namespace CityBankers
 
             Trade.TradeOpened -= OnTradeOpened;
             Trade.TradeStatusChanged -= OnTradeStatusChanged;
+            Client.MessageReceived -= ObserveStorageMove;
+            Client.Disconnected -= InvalidateStorageMove;
             Client.OnUpdate -= Tick;
             try { CityDwellers.Shared.ManagerMemory.Current.UnregisterBankerSignalWake(Client.CharacterName); }
             catch { }
@@ -268,7 +273,6 @@ namespace CityBankers
                 _receipt != null || _afterReceipt != null ||
                 _activeBatch != null || _workerCommand != null || _storageJob != null ||
                 _reservedDispatch != null || _dispatchPreparation != null ||
-                _storageInquiries.Count != 0 ||
                 _donationActive || _donationCleanup != null ||
                 _stackOperation != null || _reserveOperation != null ||
                 _withdrawal != null || _withdrawalPreparation != null ||
@@ -2264,9 +2268,8 @@ namespace CityBankers
                     batch.Items);
                 TellKavem(
                     "STORAGE FAILURE " + batch.Role + ": " + result.Error +
-                    " Physical custody is retained; automatic recovery requires both transfer receipts and a fresh worker audit.");
+                    " Physical custody is retained; the affected worker is stopped for review.");
             }
-            _storageInquiryIntervals.Remove(batch.BatchId);
         }
 
         private void FailActiveBatch(string error)
@@ -2455,7 +2458,7 @@ namespace CityBankers
 
         private void TickStorageJob()
         {
-            if (_isCentral || _storageJob == null)
+            if (_isCentral || _storageJob == null || _storageJob.Failure != null)
                 return;
             try
             {
@@ -2480,6 +2483,7 @@ namespace CityBankers
                     case StoragePhase.MovingBagToInventory: ProcessStorageBagMoveToInventory(); break;
                     case StoragePhase.OpeningBag: ProcessStorageBagOpen(); break;
                     case StoragePhase.MovingItemIntoBag: ProcessItemMoveIntoBag(); break;
+                    case StoragePhase.RefreshingPlacement: ProcessPlacementRefresh(); break;
                     case StoragePhase.ReturningBag: ProcessStorageBagReturn(); break;
                     default: FailStorageJob("Invalid storage phase " + _storageJob.Phase + "."); break;
                 }
@@ -2616,14 +2620,7 @@ namespace CityBankers
                         "Live bag is full even though persisted state expected free space. Reconcile before continuing.");
                     return;
                 }
-                _storageJob.Phase = StoragePhase.MovingItemIntoBag;
-                SetStorageDeadline(ServicePolicy.ItemMoveTimeoutMs);
-                // Stage 23.
-                TradeTrace.Mark(_storageSpan, "item.move.requested",
-                    aoId: _storageJob.Expected.AoId, ql: _storageJob.Expected.Ql,
-                    occurrence: _storageJob.ActualItemIdentity);
-                TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
-                BagOriginTrace.MoveToContainer(item, container);
+                SendStorageItemMove(item, container);
                 return;
             }
             if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
@@ -2632,66 +2629,79 @@ namespace CityBankers
 
         private void ProcessItemMoveIntoBag()
         {
-            Container container = FindContainerByIdentity(_storageJob.BagLiveIdentity);
-            if (container != null && container.Items != null)
+            var move = _storageJob.Move;
+            if (move == null || move.Invalidated || move.CaptureError != null)
             {
-                var occupiedInnerSlots = new HashSet<int>(
-                    (_storageJob.Bag?.Items ?? new List<StoredItemState>())
-                        .Where(item => item != null)
-                        .Select(item => item.InnerSlot));
-                Item observed = container.Items.FirstOrDefault(item =>
-                    MatchesItem(item, _storageJob.Expected, _storageJob.ActualItemIdentity) &&
-                    !occupiedInnerSlots.Contains(item.Slot.Instance & 0xFFFF));
-                if (observed != null)
-                {
-                    // Stage 24.
-                    TradeTrace.Mark(_storageSpan, "item.move.observed",
-                        detail: "inner=" + (observed.Slot.Instance & 0xFFFF),
-                        aoId: _storageJob.Expected.AoId, ql: _storageJob.Expected.Ql,
-                        occurrence: _storageJob.ActualItemIdentity);
-                    TradeTrace.Count(_storageSpan, TradeTrace.ItemsPlaced);
-                    _storageJob.InnerSlot = observed.Slot.Instance & 0xFFFF;
-                    _storageJob.ObservedStoredItemIdentity = IsUsableIdentity(observed.UniqueIdentity.ToString())
-                        ? observed.UniqueIdentity.ToString()
-                        : null;
-                    _storageJob.BagHandle = container.Handle;
-                    if (string.Equals(_storageJob.Bag.Source, "bank", StringComparison.OrdinalIgnoreCase))
-                    {
-                        Item liveBag = FindInventoryBagByIdentity(_storageJob.BagLiveIdentity);
-                        if (liveBag == null)
-                        {
-                            FailStorageJob(
-                                "Stored item is inside staged bank bag, but the bag is no longer visible in normal inventory for return.");
-                            return;
-                        }
-                        _storageJob.Phase = StoragePhase.ReturningBag;
-                        SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
-                        // Snapshot primitive counts before sending. A cached bank
-                        // record at the expected slot is not proof of this return.
-                        _storageJob.ReturnBankSlots = StorageBagPolicy.AllRecordsFor(
-                            _storageJob.BagLiveIdentity, "bank")
-                            .GroupBy(b => b.Slot.Instance).ToDictionary(g => g.Key, g => g.Count());
-                        var beforeReturn = StorageBagPolicy.AllRecordsFor(_storageJob.BagLiveIdentity, "inventory");
-                        _storageJob.ReturnInventoryCount = beforeReturn.Count;
-                        _storageJob.ReturnSourceSlot = liveBag.Slot.Instance;
-                        _storageJob.ReturnSourceCount = beforeReturn.Count(b => b.Slot.Instance == liveBag.Slot.Instance);
-                        // Stage 27. Sent after EVERY item, before the next item's
-                        // extraction, which is the cycle under investigation.
-                        TradeTrace.Mark(_storageSpan, "bag.return.requested",
-                            detail: "outer=" + _storageJob.Bag.OuterSlotInstance);
-                        TradeTrace.Count(_storageSpan, TradeTrace.BagIntoBank);
-                        TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
-                        BagOriginTrace.MoveToBank(liveBag);
-                        return;
-                    }
-                    CommitStoredItem();
-                    return;
-                }
+                FailStorageJob("Storage move evidence unavailable; " + (move == null ? "no pending move" : StorageMoveDetail()));
+                return;
+            }
+            Container container = FindContainerByIdentity(_storageJob.BagLiveIdentity);
+            Item observed;
+            // A raw contents response can prove placement even if the separate
+            // move acknowledgement was not applied to the SDK cache.
+            if (TryStorageSnapshotPlacement(container, out observed))
+            {
+                CompleteStoragePlacement(container, observed);
+                return;
+            }
+            if (move.Acknowledged)
+            {
+                if (TryAcknowledgedStoragePlacement(container, out observed))
+                    CompleteStoragePlacement(container, observed);
+                else
+                    BeginPlacementRefresh("move acknowledged; SDK placement is missing or conflicts with its source");
+                return;
             }
             if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
-                FailStorageJob("AO did not confirm the item in a newly occupied bag slot before timeout.");
+                BeginPlacementRefresh("no matching native move acknowledgement before deadline");
             else
-                TradeTrace.Wait(_storageSpan, "item-move-into-bag");
+                TradeTrace.Wait(_storageSpan, "item-move-acknowledgement");
+        }
+
+        private void CompleteStoragePlacement(Container container, Item observed)
+        {
+            // Stage 24. Only reached after native acknowledgement/contents proof.
+            Logger.Information("[CityBankers] STORAGE move confirmed inner=" + (observed.Slot.Instance & 65535) + "; " + StorageMoveDetail());
+            TradeTrace.Mark(_storageSpan, "item.move.observed",
+                detail: "inner=" + (observed.Slot.Instance & 0xFFFF) + "; " + StorageMoveDetail(),
+                aoId: _storageJob.Expected.AoId, ql: _storageJob.Expected.Ql,
+                occurrence: _storageJob.ActualItemIdentity);
+            TradeTrace.Count(_storageSpan, TradeTrace.ItemsPlaced);
+            _storageJob.InnerSlot = observed.Slot.Instance & 0xFFFF;
+            _storageJob.ObservedStoredItemIdentity = IsUsableIdentity(observed.UniqueIdentity.ToString())
+                ? observed.UniqueIdentity.ToString()
+                : null;
+            _storageJob.BagHandle = container.Handle;
+            if (string.Equals(_storageJob.Bag.Source, "bank", StringComparison.OrdinalIgnoreCase))
+            {
+                Item liveBag = FindInventoryBagByIdentity(_storageJob.BagLiveIdentity);
+                if (liveBag == null)
+                {
+                    FailStorageJob(
+                        "Stored item is inside staged bank bag, but the bag is no longer visible in normal inventory for return.");
+                    return;
+                }
+                _storageJob.Phase = StoragePhase.ReturningBag;
+                SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
+                // Snapshot primitive counts before sending. A cached bank
+                // record at the expected slot is not proof of this return.
+                _storageJob.ReturnBankSlots = StorageBagPolicy.AllRecordsFor(
+                    _storageJob.BagLiveIdentity, "bank")
+                    .GroupBy(b => b.Slot.Instance).ToDictionary(g => g.Key, g => g.Count());
+                var beforeReturn = StorageBagPolicy.AllRecordsFor(_storageJob.BagLiveIdentity, "inventory");
+                _storageJob.ReturnInventoryCount = beforeReturn.Count;
+                _storageJob.ReturnSourceSlot = liveBag.Slot.Instance;
+                _storageJob.ReturnSourceCount = beforeReturn.Count(b => b.Slot.Instance == liveBag.Slot.Instance);
+                // Stage 27. Sent after EVERY item, before the next item's
+                // extraction, which is the cycle under investigation.
+                TradeTrace.Mark(_storageSpan, "bag.return.requested",
+                    detail: "outer=" + _storageJob.Bag.OuterSlotInstance);
+                TradeTrace.Count(_storageSpan, TradeTrace.BagIntoBank);
+                TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
+                BagOriginTrace.MoveToBank(liveBag);
+                return;
+            }
+            CommitStoredItem();
         }
 
         private void ProcessStorageBagReturn()
@@ -2891,6 +2901,7 @@ namespace CityBankers
             _storageJob.ObservedStoredItemIdentity = null;
             _storageJob.InnerSlot = -1;
             _storageJob.BagHandle = 0;
+            _storageJob.Move = null;
             _storageJob.Phase = StoragePhase.FindBag;
             SetStorageDeadline(ServicePolicy.ItemMoveTimeoutMs);
         }
@@ -2937,9 +2948,11 @@ namespace CityBankers
 
         private void FailStorageJob(string error)
         {
-            if (_storageJob == null)
+            if (_storageJob == null || _storageJob.Failure != null)
                 return;
             StorageJob job = _storageJob;
+            // Retain the exact unfinished item and native evidence. A fault must
+            // not erase the operation before the local hold/relog can report it.
             // A failed span ships immediately: the timeline leading up to a failure
             // is the most useful trace there is, and must not be lost with the job.
             TradeTrace.End(_storageSpan, "failed", error);
@@ -2984,7 +2997,14 @@ namespace CityBankers
             TellKavem(
                 "STORAGE FAILURE on " + Client.CharacterName + ": " + error +
                 " No further items in this batch will be moved until reconciliation.");
-            _storageJob = null;
+            job.Failure = error;
+            // FindBag has issued no local-recovery movement. Preserve its
+            // existing delayed retry instead of retaining a job with no hold.
+            if (job.LocalRecovery && job.Phase == StoragePhase.FindBag)
+            {
+                _storageJob = null;
+                return;
+            }
             if (!job.LocalRecovery) RequestStorageRecovery(job);
             if (job.LocalRecovery && job.Phase != StoragePhase.FindBag)
                 StartLocalCensus("Local storage move requires a fresh physical census: " + error);
@@ -3889,6 +3909,8 @@ namespace CityBankers
             public string ObservedStoredItemIdentity;
             public int InnerSlot;
             public int BagHandle;
+            public StorageMoveEvidence Move;
+            public string Failure;
         }
     }
 }

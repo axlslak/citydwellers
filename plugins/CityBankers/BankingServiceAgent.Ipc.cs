@@ -53,8 +53,6 @@ namespace CityBankers
         private string _preparingBatch;
         private string _preparingContents;
         private readonly Stopwatch _ipcRetry = Stopwatch.StartNew();
-        private readonly Dictionary<string, Task<string>> _storageInquiries = new Dictionary<string, Task<string>>();
-        private readonly Dictionary<string, Stopwatch> _storageInquiryIntervals = new Dictionary<string, Stopwatch>();
         private readonly Dictionary<string, Stopwatch> _workerRetries = new Dictionary<string, Stopwatch>(StringComparer.OrdinalIgnoreCase);
         private readonly Stopwatch _preparingAge = Stopwatch.StartNew();
         private static BankingServiceAgent _ipcOwner;
@@ -196,14 +194,6 @@ namespace CityBankers
                     _proposalError = ex.Message;
                     continue;
                 }
-                if (proposal.Kind == "storage-result")
-                {
-                    // The worker owns this durable record; live communication is IPC.
-                    var result = RuntimeStateStore.ReadStorageResult(_settingsDir, Client.CharacterName);
-                    proposal.Reply.TrySetResult(result != null && result.BatchId == proposal.BatchId
-                        ? JsonConvert.SerializeObject(result) : "pending");
-                    continue;
-                }
                 DispatchCommand command = proposal.Command;
                 Guid commandAttempt;
                 bool ready = proposal.Kind == "prepare" && !_isCentral && StartupCensusGate.IsOpen && Client.InPlay &&
@@ -316,27 +306,14 @@ namespace CityBankers
 
         private StorageBatchResult ReadWorkerStorageReply(DispatchBatchState batch)
         {
-            Task<string> inquiry;
-            if (!_storageInquiries.TryGetValue(batch.BatchId, out inquiry))
-            {
-                Stopwatch interval;
-                if (_storageInquiryIntervals.TryGetValue(batch.BatchId, out interval) && interval.ElapsedMilliseconds < 1000)
-                    return null;
-                _storageInquiries[batch.BatchId] = SendBankerMemory(batch.Character,
-                    new DispatchProposal { Kind = "storage-result", BatchId = batch.BatchId });
-                return null;
-            }
-            if (!inquiry.IsCompleted) return null;
-            _storageInquiries.Remove(batch.BatchId);
-            _storageInquiryIntervals[batch.BatchId] = Stopwatch.StartNew();
-            if (inquiry.IsFaulted) { var observed = inquiry.Exception; return null; }
-            if (inquiry.IsCanceled || inquiry.Result == "pending" || inquiry.Result == "busy") return null;
-            try
-            {
-                var result = JsonConvert.DeserializeObject<StorageBatchResult>(inquiry.Result ?? "null");
-                return result?.BatchId == batch.BatchId ? result : null;
-            }
-            catch (JsonException) { return null; }
+            // The worker has already published this result into Manager RAM.
+            // Reading it must not depend on that worker being online/admitted.
+            var result = RuntimeStateStore.ReadStorageResult(_settingsDir, batch.Character);
+            return result != null && result.BatchId == batch.BatchId &&
+                result.TransactionId == batch.TransactionId &&
+                string.Equals(result.Character, batch.Character, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(result.Role, batch.Role, StringComparison.OrdinalIgnoreCase)
+                ? result : null;
         }
     }
 }
