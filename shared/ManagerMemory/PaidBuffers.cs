@@ -25,14 +25,14 @@ namespace CityDwellers.Shared
     public static class PaidBufferCatalogue
     {
         private static readonly PaidBufferNano[] Nanos = {
-            new PaidBufferNano(273629, 9, 215, 56, "Improved Essence of Behemoth", "+1998 HP, +54 Strength/Stamina", "ibehe", "ibehemo"),
+            new PaidBufferNano(273629, 9, 215, 56, "Improved Essence of Behemoth", "+1998 HP, +54 Strength/Stamina", "ibehe", "ibehemo", "es1"),
             new PaidBufferNano(222856, 10, 0, 56, "Improved Instinctive Control", "+350 Nano Init, +75 Nano Resist, +300 Max Nano", "iic"),
             new PaidBufferNano(235291, 7, 205, 53, "Umbral Wrangler (Premium)", "Team +147-153 weapon/nano skills (perks); recipient effect 250 seconds", "umbral")
                 { EffectIds = new[] { 235064, 235263, 235264, 235265 } },
             new PaidBufferNano(252050, 4, 205, 25, "Lasting Ultimatum", "+466–502 HoT", "lh1", "lu"),
             new PaidBufferNano(275043, 4, 215, 1, "Firewalled Sync Compressor", "Team +500 NCU", "ncu", "fsc")
                 { EffectIds = new[] { 275044, 275135 } },
-            new PaidBufferNano(227680, 3, 210, 55, "Gift of Assurance", "+5000 AC, 4 hours, Shadowlands required", "goa"),
+            new PaidBufferNano(227680, 3, 210, 55, "Gift of Assurance", "+5000 AC, 4 hours, Shadowlands required", "goa", "ga"),
             new PaidBufferNano(220345, 12, 0, 7, "Neuronal Stimulator", "+23 Intelligence/Psychic, 4 hours", "ns"),
             new PaidBufferNano(220331, 12, 15, 6, "Composite Teachings", "+25 nano skills, 4 hours, Shadowlands required", "ct", "compt"),
             new PaidBufferNano(220333, 12, 40, 13, "Composite Mastery", "+50 nano skills, 4 hours, Shadowlands required", "cma", "cmastery", "compmast"),
