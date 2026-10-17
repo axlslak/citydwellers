@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using CityDwellers.Shared;
 using Newtonsoft.Json.Linq;

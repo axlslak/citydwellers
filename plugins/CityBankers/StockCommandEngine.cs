@@ -5,6 +5,7 @@ using System.Text;
 
 using CityBankers.Shared;
 using CityDwellers.Shared;
+using SettingsPaths = CityBankers.Shared.SettingsPaths;
 
 namespace CityBankers
 {
