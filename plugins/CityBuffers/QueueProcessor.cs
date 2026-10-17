@@ -705,13 +705,19 @@ namespace MalisBuffBots
         private void CompleteBuffEntry(BuffEntry entry, LdbFeedback? feedback = null, bool completed = false)
         {
             if (entry == null) return;
+            bool superseded = feedback == LdbFeedback.BetterNanoInNcu;
+            if (superseded && entry.Requester != DynelManager.LocalPlayer.Identity)
+                ManagerMemory.Current.ForgetWeakerLearnedBuff(entry.Requester.Instance,
+                    Work(entry).NanoId, entry.NanoEntry.ObservedNanoId);
             if (completed) RecordNanoRecharge(Work(entry));
             if (Main.PaidPilot)
             {
                 int nanoId = Work(entry).NanoId;
                 if (nanoId == 0) nanoId = entry.NanoEntry.LevelToId[0].Id;
+                // An existing stronger effect satisfies the request without
+                // counting a new cast or returning it to the paid queue.
                 ManagerMemory.Current.ReportPaidBuffFinished(Client.CharacterName,
-                    entry.Requester.Instance, nanoId, completed);
+                    entry.Requester.Instance, nanoId, completed || superseded);
             }
             CastWork completedWork;
             if (completed && _castWork.TryGetValue(entry, out completedWork) && !completedWork.Counted &&

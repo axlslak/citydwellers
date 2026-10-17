@@ -247,6 +247,33 @@ namespace CityDwellers.Shared
                 return Accounting(null).LearnedBuffs.FirstOrDefault(p => p.CharacterId == characterId)?.Copy();
         }
 
+        // Server rejection of a weaker nano retires learned usage, not the
+        // player's ability to select or learn that buff again in the future.
+        public void ForgetWeakerLearnedBuff(int characterId, int nanoId, int observedNanoId)
+        {
+            if (characterId == 0 || nanoId <= 0) return;
+            var ids = new HashSet<int>(new[] { nanoId, observedNanoId }.Where(id => id > 0));
+            var paid = PaidBufferCatalogue.FindEffect(nanoId);
+            if (paid != null)
+            {
+                ids.Add(paid.Id);
+                foreach (int effect in paid.EffectIds ?? new int[0]) ids.Add(effect);
+            }
+            ManagerAccounting.Transaction("Forget weaker learned buff", () =>
+            {
+                lock (_accountingSync)
+                {
+                    var state = Writing(ManagerAccounting.TransactionId);
+                    var old = state.LearnedBuffs.FirstOrDefault(p => p.CharacterId == characterId);
+                    if (old == null || !old.NanoIds.Any(ids.Contains)) return;
+                    var next = old.Copy();
+                    next.NanoIds.RemoveAll(ids.Contains);
+                    state.LearnedBuffs = new List<LearnedBuffProfile>(state.LearnedBuffs);
+                    state.LearnedBuffs[state.LearnedBuffs.IndexOf(old)] = next;
+                }
+            });
+        }
+
         public bool IsBuffExcluded(int characterId, int nanoId)
         {
             var paid = PaidBufferCatalogue.FindEffect(nanoId);
