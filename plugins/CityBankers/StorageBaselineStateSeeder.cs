@@ -279,9 +279,9 @@ namespace CityBankers
                 .ThenBy(w => w.Character, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (state.Workers.Count != 8)
+            if (state.Workers.Count != CityDwellers.Shared.BankerRoles.Storage.Count)
                 throw new InvalidOperationException(
-                    "Validated baseline did not yield exactly eight storage workers.");
+                    "Validated baseline did not yield all configured storage workers.");
 
             return state;
         }
@@ -333,6 +333,7 @@ namespace CityBankers
                 case "spirit": return 5;
                 case "dyna": return 6;
                 case "phatz": return 7;
+                case "types": return 8;
                 default: return 99;
             }
         }

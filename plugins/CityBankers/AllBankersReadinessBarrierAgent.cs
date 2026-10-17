@@ -31,18 +31,7 @@ namespace CityBankers
         private const int PollMilliseconds = 250;
         private const int ReadySettleMilliseconds = 1500;
 
-        private static readonly string[] RequiredRoles =
-        {
-            "central",
-            "artillery",
-            "infantry",
-            "control",
-            "support",
-            "extermination",
-            "spirit",
-            "dyna",
-            "phatz"
-        };
+        private static readonly string[] RequiredRoles = CityDwellers.Shared.BankerRoles.All.ToArray();
 
         private string _settingsDir;
         private bool _enabled;

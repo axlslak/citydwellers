@@ -96,7 +96,7 @@ namespace CityBankers.Shared
 
         public static string ItemLabel(int aoId, int highId, int ql, string name, bool icon = false)
         {
-            string label = Color(name ?? ("AOID " + aoId), NameHex);
+            string label = Color(CityDwellers.Shared.BiomaterialTypes.DisplayName(aoId, name) ?? ("AOID " + aoId), NameHex);
             if (aoId > 0 && highId > 0 && ql > 0)
                 label = "<a href='itemref://" + aoId + "/" + highId + "/" + ql + "'>" + label + "</a>";
             return (icon ? ItemIcon(aoId, highId) : string.Empty) + label +

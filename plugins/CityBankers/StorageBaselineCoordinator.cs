@@ -22,17 +22,7 @@ namespace CityBankers
     /// </summary>
     public class StorageBaselineCoordinator : ClientlessPluginEntry
     {
-        private static readonly string[] StorageRoles =
-        {
-            "artillery",
-            "infantry",
-            "control",
-            "support",
-            "extermination",
-            "spirit",
-            "dyna",
-            "phatz"
-        };
+        private static readonly string[] StorageRoles = CityDwellers.Shared.BankerRoles.Storage.ToArray();
 
         private string _settingsDir;
         private List<WorkerConfig> _workers;

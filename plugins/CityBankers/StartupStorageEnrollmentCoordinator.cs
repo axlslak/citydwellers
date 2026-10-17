@@ -27,17 +27,7 @@ namespace CityBankers
         private const int StableStartupSeconds = 10;
         private const int AuditTimeoutMinutes = 30;
 
-        private static readonly string[] StorageRoles =
-        {
-            "artillery",
-            "infantry",
-            "control",
-            "support",
-            "extermination",
-            "spirit",
-            "dyna",
-            "phatz"
-        };
+        private static readonly string[] StorageRoles = CityDwellers.Shared.BankerRoles.Storage.ToArray();
 
         private string _settingsDir;
         private string _dataDir;

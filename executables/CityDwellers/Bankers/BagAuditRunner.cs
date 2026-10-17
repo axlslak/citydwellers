@@ -23,18 +23,7 @@ internal static class BagAuditRunner
     private const int BagMoveTimeoutMs = 3000;
     private const int MinimumAuditTimeoutMs = 120000;
 
-    private static readonly string[] RequiredRoles =
-    {
-        "central",
-        "artillery",
-        "infantry",
-        "control",
-        "support",
-        "extermination",
-        "spirit",
-        "dyna",
-        "phatz"
-    };
+    private static readonly string[] RequiredRoles = CityDwellers.Shared.BankerRoles.All.ToArray();
 
     public static void Run()
     {
@@ -390,7 +379,7 @@ internal static class BagAuditRunner
             if (!IsFullyConfigured(account))
             {
                 error =
-                    $"CityDwellers.exe bankers-bagaudit requires all nine roles. Role '{roleName}' " +
+                    $"CityDwellers.exe bankers-bagaudit requires all {RequiredRoles.Length} roles. Role '{roleName}' " +
                     "is missing or still uses a placeholder mapping.";
                 return false;
             }

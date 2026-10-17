@@ -67,6 +67,8 @@ namespace CityManager
                 "nanos",
                 "phat",
                 "phatz",
+                "type",
+                "types",
                 "donor",
                 "pickups",
                 "takers",
@@ -567,13 +569,14 @@ namespace CityManager
                 (command == "donor" && parts.Length <= 2) ||
                 command == "pickups" || command == "takers" ||
                 command == "lost" || command == "found" ||
-                ((command == "withdraw" || command == "get") && parts.Length == 2) ||
+                ((command == "withdraw" || command == "get") && (parts.Length == 2 || parts.Length == 3)) ||
                 command == "items" || command == "i" || command == "itemid" ||
                 command == "stock" ||
                 command == "symb" || command == "symbs" ||
                 command == "spirit" || command == "spirits" ||
                 command == "dyna" || command == "nano" || command == "nanos" ||
                 command == "phat" || command == "phatz" ||
+                command == "type" || command == "types" ||
                 (command == "home" &&
                  (parts.Length == 1 || parts.Length == 2)) ||
                 (command == "alts" && HasTellAltsCommandShape(parts)) ||
@@ -682,6 +685,8 @@ namespace CityManager
                  string.Equals(command, "nanos", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "phat", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "phatz", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "type", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(command, "types", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "donor", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "pickups", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(command, "takers", StringComparison.OrdinalIgnoreCase) ||
@@ -821,6 +826,8 @@ namespace CityManager
                 case "nanos":
                 case "phat":
                 case "phatz":
+                case "type":
+                case "types":
                     ProcessBankerStockCommand(senderName, rawCommand, replyTarget, isAdmin);
                     break;
 
@@ -1086,6 +1093,8 @@ namespace CityManager
                 case "nanos":
                 case "phat":
                 case "phatz":
+                case "type":
+                case "types":
                 case "lost":
                 case "found":
                 case "pickups":

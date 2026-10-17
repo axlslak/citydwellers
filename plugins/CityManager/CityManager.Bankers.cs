@@ -41,11 +41,7 @@ namespace CityManager
 
                 var readiness = BankerReadiness.Inspect(_settingsDir);
                 var operationalCharacters = readiness.Ready;
-                foreach (string role in new[]
-                {
-                    "central", "artillery", "infantry", "control", "support", "extermination",
-                    "spirit", "dyna", "phatz"
-                })
+                foreach (string role in BankerRoles.All)
                 {
                     JObject roleConfig = roles?.GetValue(role, StringComparison.OrdinalIgnoreCase) as JObject;
                     string character = roleConfig?.GetValue(
@@ -406,7 +402,7 @@ namespace CityManager
                     CommandPrefix))
             {
                 Reply(target, Usage(target,
-                    "stock | symb [family [slot [targetQl]]] | spirit [slot [targetQl]] | dyna|phatz [search|ql]"));
+                    "stock | symb [family [slot [targetQl]]] | spirit [slot [targetQl]] | dyna|phatz [search|ql] | type [number]"));
                 return;
             }
 
@@ -795,9 +791,9 @@ namespace CityManager
             string[] parts,
             ReplyTarget target)
         {
-            if (parts == null || parts.Length != 2)
+            if (parts == null || (parts.Length != 2 && parts.Length != 3))
             {
-                Reply(target, Usage(target, "get [AO item ID]"));
+                Reply(target, Usage(target, "get <AO item ID> [QL]"));
                 return;
             }
 
@@ -809,12 +805,19 @@ namespace CityManager
                 return;
             }
 
+            int parsedQl = 0;
+            if (parts.Length == 3 && (!int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out parsedQl) || parsedQl <= 0))
+            {
+                Reply(target, "That is not a valid item QL.");
+                return;
+            }
+            int? quality = parts.Length == 3 ? (int?)parsedQl : null;
             if (CruPolicy.IsCru(aoId)) { ProcessCruCommand(senderName, new[] { "cru" }, target); return; }
             QueuePublicWork(target, () =>
             {
                 try
                 {
-                    lock (_withdrawalAdmissionSync) BeginBankerWithdrawal(senderName, aoId, target);
+                    lock (_withdrawalAdmissionSync) BeginBankerWithdrawal(senderName, aoId, target, quality);
                 }
                 catch (Exception ex)
                 {
@@ -824,7 +827,7 @@ namespace CityManager
             });
         }
 
-        private void BeginBankerWithdrawal(string senderName, int aoId, ReplyTarget target)
+        private void BeginBankerWithdrawal(string senderName, int aoId, ReplyTarget target, int? quality = null)
         {
             if (CruPolicy.IsCru(aoId)) { ProcessCruCommand(senderName, new[] { "cru" }, target); return; }
             List<WithdrawalState> reservations = WithdrawalStore.LoadAll(_settingsDir);
@@ -838,6 +841,7 @@ namespace CityManager
             JObject selected = (ledger?["Items"] as JArray ?? new JArray())
                 .OfType<JObject>()
                 .Where(item => ParseDonationInt(item["AoId"]) == aoId &&
+                    (!quality.HasValue || ParseDonationInt(item["Ql"]) == quality.Value) &&
                     !reservedIds.Contains(item["Id"]?.ToString()) && !censusing.Contains(item["Character"]?.ToString()) &&
                     readyCharacters.Contains(item["Character"]?.ToString()))
                 .OrderBy(item => ParseDonationUtc(item["ReceivedUtc"]))
@@ -858,6 +862,7 @@ namespace CityManager
             StockItemState physical = (stock.Items ?? new List<StockItemState>())
                 .FirstOrDefault(item => item != null &&
                     item.AoId == aoId &&
+                    (!quality.HasValue || item.Ql == quality.Value) &&
                     string.Equals(item.TransactionId, transactionId, StringComparison.Ordinal) &&
                     string.Equals(item.Character, character, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(item.BagSource, location, StringComparison.OrdinalIgnoreCase) &&

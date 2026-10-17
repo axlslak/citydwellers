@@ -42,6 +42,7 @@ namespace CityBankers.Shared
             AddRoutes(DynaNanoIds, "dyna");
             // APF42 nano boxes belong with nanos, despite not being Dyna drops.
             AddRoutes(AllProfessionNanoBoxIds, "dyna");
+            AddRoutes(BiomaterialTypes.AoIds, "types");
         }
 
         private static readonly int[] AllProfessionNanoBoxIds = { 275706, 275854 };
@@ -150,9 +151,13 @@ namespace CityBankers.Shared
         private static bool TryGetRuleCore(int aoid, JObject policy, PhatzPolicyState phatz,
             ItemFamilyIndex families, out AcceptanceRule rule)
         {
+            if (BiomaterialTypes.IsRejected(aoid))
+            { rule = null; return false; }
+            BiomaterialTypes.Material material;
+            bool isType = BiomaterialTypes.TryGet(aoid, out material);
             string role;
             bool builtIn = RoutesByAoid.TryGetValue(aoid, out role);
-            int maximum = !builtIn || string.Equals(role, "dyna", StringComparison.OrdinalIgnoreCase) ||
+            int maximum = isType || !builtIn || string.Equals(role, "dyna", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase)
                 ? KeepAllCopies
                 : string.Equals(role, "spirit", StringComparison.OrdinalIgnoreCase)
@@ -162,7 +167,7 @@ namespace CityBankers.Shared
             if (BuiltInMaximumOverrides.TryGetValue(aoid, out builtInOverride))
                 maximum = builtInOverride;
 
-            if (builtIn && policy != null &&
+            if (builtIn && !isType && policy != null &&
                 !string.Equals(role, "dyna", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase))
             {
@@ -192,7 +197,7 @@ namespace CityBankers.Shared
                     return false;
                 }
                 string configuredRole = item.GetValue("Role", StringComparison.OrdinalIgnoreCase)?.ToString();
-                if (!string.IsNullOrWhiteSpace(configuredRole)) role = configuredRole.Trim();
+                if (!isType && !string.IsNullOrWhiteSpace(configuredRole)) role = configuredRole.Trim();
                 maximum = ReadMaximum(
                     item.GetValue("MaxCopies", StringComparison.OrdinalIgnoreCase), maximum);
                 builtIn = !string.IsNullOrWhiteSpace(role);
@@ -217,8 +222,8 @@ namespace CityBankers.Shared
             }
             bool disabled = phatz.DisabledAoIds.Contains(aoid);
             // Explicit non-Phatz routes retain precedence over inherited aliases.
-            bool mayInherit = directDynamic || (itemProperty == null && !builtIn) ||
-                (builtIn && maximum != 0 && string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase));
+            bool mayInherit = !isType && (directDynamic || (itemProperty == null && !builtIn) ||
+                (builtIn && maximum != 0 && string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase)));
             if (!disabled && matching.Count > 0 && mayInherit)
             {
                 role = "phatz";
@@ -237,7 +242,8 @@ namespace CityBankers.Shared
                 throw new InvalidOperationException(
                     "AcceptancePolicy MaxCopies must be -1 (keep all), 0 (reject), or a positive number.");
             rule = new AcceptanceRule { AoId = aoid, Role = role, MaxCopies = maximum,
-                RetentionKey = string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase) ? familyKey : aoid };
+                RetentionKey = isType ? material.Number :
+                    string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase) ? familyKey : aoid };
             return true;
         }
 

@@ -553,7 +553,7 @@ namespace CityBankers
             List<StockItemState> items = stock?.Items ?? new List<StockItemState>();
             string byRole = string.Join(
                 ", ",
-                new[] { "artillery", "infantry", "control", "support", "extermination", "spirit", "dyna", "phatz" }
+                CityDwellers.Shared.BankerRoles.Storage
                     .Select(role => role + "=" + items.Count(i => string.Equals(
                         i.Role, role, StringComparison.OrdinalIgnoreCase))));
             int misplaced = items.Count(i =>
@@ -1367,6 +1367,11 @@ namespace CityBankers
                 {
                     if (item.Quantity < 1 || CruInventory().Any(i => StackableItems.Quantity(i) < 1)) { error = "CRU stack quantity has not arrived yet. Please reopen trade shortly."; return false; }
                     continue;
+                }
+                if (CityDwellers.Shared.BiomaterialTypes.IsRejected(item.AoId, item.Name))
+                {
+                    error = "Only type clumps and numbered types are accepted; pristine, mutated, serum and unidentified clumps are not. Please remove " + item.Name + " from the offer.";
+                    return false;
                 }
                 SymbiantCatalog.ObserveItemPair(_settingsDir, item.AoId, item.HighId);
                 string destination;
@@ -3072,7 +3077,7 @@ namespace CityBankers
                 return;
             }
             StorageState imported = ConvertBaseline(root, runId);
-            if (imported == null || imported.Workers == null || imported.Workers.Count != 5)
+            if (imported == null || imported.Workers == null || imported.Workers.Count != CityDwellers.Shared.BankerRoles.Storage.Count)
                 return;
             RuntimeStateStore.SaveStorageBaseline(_settingsDir, imported, "audit-" + runId);
             _lastImportedBaselineRunId = runId;
@@ -3280,6 +3285,12 @@ namespace CityBankers
                 " - ";
             string itemDescription = BuildItemLink(item) + " (QL " +
                 CityBankersChatPalette.Cyan(item.Ql.ToString()) + ")";
+            if (CityDwellers.Shared.BiomaterialTypes.IsRejected(item.AoId, item.Name))
+            {
+                TellDonationPartner(progress + CityBankersChatPalette.Red("REJECTED") + " " + itemDescription +
+                    " - only type clumps and numbered types; no pristine, mutated, serum or unidentified clumps.");
+                return;
+            }
             if (IsReserveBag(item) && TrustedOperators.IsTrustedAdmin(_donationPartnerName))
             {
                 TellDonationPartner(progress + itemDescription + " will be checked empty and banked as replacement stock.");
@@ -3365,7 +3376,7 @@ namespace CityBankers
             if (item == null)
                 return "<unknown item>";
             return "<a href='itemref://" + item.AoId + "/" + item.HighId + "/" +
-                item.Ql + "'>" + EscapeChatText(item.Name) + "</a>";
+                item.Ql + "'>" + EscapeChatText(CityDwellers.Shared.BiomaterialTypes.DisplayName(item.AoId, item.Name)) + "</a>";
         }
 
         private static string Color(string text, string color)
@@ -3385,6 +3396,13 @@ namespace CityBankers
         {
             if (item == null)
                 return 0;
+            CityDwellers.Shared.BiomaterialTypes.Material material;
+            if (CityDwellers.Shared.BiomaterialTypes.TryGet(item.AoId, out material))
+                return (stock?.Items ?? new List<StockItemState>()).Count(candidate => {
+                    CityDwellers.Shared.BiomaterialTypes.Material stored;
+                    return candidate != null && string.Equals(candidate.Role, "types", StringComparison.OrdinalIgnoreCase) &&
+                        CityDwellers.Shared.BiomaterialTypes.TryGet(candidate.AoId, out stored) && stored.Number == material.Number;
+                });
             SymbiantCatalog.AcceptanceRule rule;
             bool phatz = SymbiantCatalog.TryGetRule(_settingsDir, item.AoId, out rule) &&
                 string.Equals(rule.Role, "phatz", StringComparison.OrdinalIgnoreCase);
@@ -3396,6 +3414,8 @@ namespace CityBankers
 
         private string RetentionCountKey(int aoid)
         {
+            CityDwellers.Shared.BiomaterialTypes.Material material;
+            if (CityDwellers.Shared.BiomaterialTypes.TryGet(aoid, out material)) return "types:" + material.Number;
             SymbiantCatalog.AcceptanceRule rule;
             return SymbiantCatalog.TryGetRule(_settingsDir, aoid, out rule) &&
                 string.Equals(rule.Role, "phatz", StringComparison.OrdinalIgnoreCase)

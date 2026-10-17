@@ -108,7 +108,8 @@ namespace CityDwellers.Host
                         { "extermination", NewBankerPlaceholder("extermination") },
                         { "spirit", NewBankerAccount("kbspirit", "Kbspirit") },
                         { "dyna", NewBankerAccount("kbdyna", "Kbdyna") },
-                        { "phatz", NewBankerAccount("kbphatz", "Kbphatz") }
+                        { "phatz", NewBankerAccount("kbphatz", "Kbphatz") },
+                        { "types", NewBankerAccount("kbtypes", "Kbtypes") }
                     }
                 }
             };

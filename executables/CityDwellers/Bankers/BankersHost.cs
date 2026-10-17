@@ -22,17 +22,7 @@ public class BankerLoader
     private const int ReportAckTimeoutMs = 10000;
     private const int BagCapacity = 21;
 
-    private static readonly string[] StorageRoles =
-    {
-        "artillery",
-        "infantry",
-        "control",
-        "support",
-        "extermination",
-        "spirit",
-        "dyna",
-        "phatz"
-    };
+    private static readonly string[] StorageRoles = CityDwellers.Shared.BankerRoles.Storage.ToArray();
 
     private static BankerConfig _config;
     private static string _baseDir;
@@ -160,7 +150,8 @@ public class BankerLoader
                 { "extermination", NewPlaceholder("extermination") },
                 { "spirit", NewAccount("kbspirit", "Kbspirit") },
                 { "dyna", NewAccount("kbdyna", "Kbdyna") },
-                { "phatz", NewAccount("kbphatz", "Kbphatz") }
+                { "phatz", NewAccount("kbphatz", "Kbphatz") },
+                { "types", NewAccount("kbtypes", "Kbtypes") }
             }
         };
 
@@ -236,6 +227,8 @@ public class BankerLoader
             return 7;
         if (string.Equals(role, "phatz", StringComparison.OrdinalIgnoreCase))
             return 8;
+        if (string.Equals(role, "types", StringComparison.OrdinalIgnoreCase))
+            return 9;
 
         return 100;
     }
@@ -276,18 +269,7 @@ public class BankerLoader
         out string error)
     {
         error = null;
-        string[] requiredRoles =
-        {
-            "central",
-            "artillery",
-            "infantry",
-            "control",
-            "support",
-            "extermination",
-            "spirit",
-            "dyna",
-            "phatz"
-        };
+        var requiredRoles = CityDwellers.Shared.BankerRoles.All;
 
         List<string> missing = requiredRoles
             .Where(role => configured.All(
@@ -301,7 +283,7 @@ public class BankerLoader
             return true;
 
         error =
-            "CityDwellers requires all nine banker roles to be fully " +
+            "CityDwellers requires all " + requiredRoles.Count + " banker roles to be fully " +
             "configured. Missing: " + string.Join(", ", missing) + ".";
         return false;
     }

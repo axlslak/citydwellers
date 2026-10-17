@@ -274,11 +274,11 @@ namespace CityManager
                     title = "Bank Pickup";
                     body = CommandHelp(
                         target,
-                        "get [AO item ID]",
+                        "get <AO item ID> [QL]",
                         "Add an available item to your order: up to ten items per member and four orders across the bank.",
                         "Each addition and arrival refreshes your three-minute pickup clock. Wait for the ready tell, then trade with Kbcentral and confirm normally to collect ready items. Known alts share your order. Central may ask you to retry during an internal transfer. Donations can continue while orders await pickup.",
                         "Athen Paladins member",
-                        "Alias: withdraw. Reserved copies disappear from available stock. Confirm the player trade dialog normally; delivery is recorded only after AO Finished and inventory verification. Uncollected items return to storage.");
+                        "Alias: withdraw. An optional QL selects that exact quality. Reserved copies disappear from available stock. Confirm the player trade dialog normally; delivery is recorded only after AO Finished and inventory verification. Uncollected items return to storage.");
                     return true;
 
                 case "lost":
@@ -318,6 +318,7 @@ namespace CityManager
                         HelpMenuLine(target, "found", "Found", "Current items with no recorded donor.") +
                         HelpMenuLine(target, "stock", "Stock", "Browse available items; reserved copies are hidden.") +
                         HelpMenuLine(target, "phatz", "Phatz", "All available Phatz, counted and linked.") +
+                        HelpMenuLine(target, "types", "Types", "AI and LE numbered biomaterials, including identified raw clumps.") +
                         HelpMenuLine(target, "help get", "Pickup help", "Up to three items per order; three-minute pickup window.") +
                         HelpMenuLine(target, "cru", "CRU", "Collect one CRU from Central.") +
                         HelpMenuLine(target, "donor", "Donors", "Donation totals and history.") +
@@ -325,6 +326,16 @@ namespace CityManager
                         HelpMenuLine(target, "status", "Live status", "Banker readiness, occupancy, storage work, withdrawals, recovery and tell queue.") +
                         "\nTrade with Kbcentral to donate up to 10 accepted items. Item notices identify what will be stored or deleted as excess. Accept when finished editing, then confirm the dialog normally.\n" +
                         "Removing an acceptance entry does not itself delete stored items. Lowering a positive limit leaves existing stock alone; future excess donations are deleted after verified receipt.\n";
+                    return true;
+
+                case "type":
+                case "types":
+                    title = "Kyr'Ozch Types";
+                    body = CommandHelp(target, "type [number]",
+                        "Browse AI and LE numbered biomaterials. Alias: types.",
+                        "Types groups raw clumps and processed material by type number. Type 112, for example, lists its available QLs and forms with pickup links. GET reserves the displayed form and exact QL.",
+                        "Athen Paladins member",
+                        "Trade type clumps or processed numbered types with Kbcentral. Pristine, mutated, serum and unidentified clumps are not accepted.");
                     return true;
 
                 case "stock":
@@ -342,7 +353,7 @@ namespace CityManager
                         target,
                         "stock",
                         "Show the complete CityBankers inventory overview.",
-                        "Search with symb [family [slot [QL]]], spirit [slot [QL]], dyna [name|QL], or phatz [name|QL]. Bare phatz lists every stocked type with copy counts, item icons and GET links. Long windows arrive as separate numbered messages.",
+                        "Search with symb [family [slot [QL]]], spirit [slot [QL]], dyna [profession|name|QL], phatz [name|QL], or type [number]. Bare phatz lists every stocked type with copy counts, item icons and GET links. Long windows arrive as separate numbered messages.",
                         "Athen Paladins member",
                         isAdmin
                             ? "Administrators: phatz add [linked AO item] [-1|positive max], phatz remove [AOID], and phatz list manage accepted Phatz items."
@@ -560,13 +571,15 @@ namespace CityManager
                 "dyna [profession|name|QL]", "Browse dyna nanos by profession (fixer, doc, enf, etc.), or search by nano name or QL. Aliases: nano, nanos."));
             body.Append(HelpSyntaxLine(target,
                 "phatz [name|QL]", "List all Phatz with copy counts and GET links, or filter by name/QL. Alias: phat."));
+            body.Append(HelpSyntaxLine(target,
+                "type [number]", "Browse AI/LE biomaterials by type, QL and raw/processed form. Alias: types. Pickup links select the displayed QL."));
             body.Append(HelpSyntaxLine(
                 target,
                 "donor [top|last|member]",
                 "Browse all-time donor rankings and donation history."));
             body.Append(HelpSyntaxLine(
                 target,
-                "get [AO item ID]",
+                "get <AO item ID> [QL]",
                 "Reserve an item and collect it from Kbcentral within three minutes. Alias: withdraw."));
             body.Append(HelpSyntaxLine(target, "shutdown", "SC+/admins: stop ALL bots; manual start required."));
             body.Append(HelpSyntaxLine(target, "pickups [last|top|member|item <name or AOID>]", "Confirmed pickup totals and history. Alias: takers."));

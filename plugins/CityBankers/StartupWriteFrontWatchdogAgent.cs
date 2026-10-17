@@ -33,17 +33,7 @@ namespace CityBankers
         private const int FirstCentralReportSeconds = 12;
         private const int RepeatCentralReportSeconds = 30;
 
-        private static readonly string[] StorageRoles =
-        {
-            "artillery",
-            "infantry",
-            "control",
-            "support",
-            "extermination",
-            "spirit",
-            "dyna",
-            "phatz"
-        };
+        private static readonly string[] StorageRoles = CityDwellers.Shared.BankerRoles.Storage.ToArray();
 
         private string _settingsDir;
         private Dictionary<string, string> _characters;

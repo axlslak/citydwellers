@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 
 using CityBankers.Shared;
+using CityDwellers.Shared;
 
 namespace CityBankers
 {
@@ -15,6 +16,7 @@ namespace CityBankers
     ///   symb [family [slot [targetQl]]]
     ///   spirit [slot [targetQl]]
     ///   dyna [profession|partial name|ql], phatz [partial name|ql]
+    ///   type [number], types
     /// </summary>
     internal static class StockCommandEngine
     {
@@ -103,17 +105,7 @@ namespace CityBankers
             return result;
         }
 
-        private static readonly string[] FamilyOrder =
-        {
-            "artillery",
-            "infantry",
-            "control",
-            "support",
-            "extermination",
-            "spirit",
-            "dyna",
-            "phatz"
-        };
+        private static readonly string[] FamilyOrder = BankerRoles.Storage.ToArray();
 
         private static readonly string[] SlotOrder =
         {
@@ -156,7 +148,9 @@ namespace CityBankers
                 { "nano", "dyna" },
                 { "nanos", "dyna" },
                 { "phatz", "phatz" },
-                { "phat", "phatz" }
+                { "phat", "phatz" },
+                { "type", "types" },
+                { "types", "types" }
             };
 
         private static readonly Dictionary<string, string> SlotAliases =
@@ -235,7 +229,8 @@ namespace CityBankers
             else if (TryNormalizeFamily(raw[0], out family) &&
                 (string.Equals(family, "spirit", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(family, "dyna", StringComparison.OrdinalIgnoreCase) ||
-                 string.Equals(family, "phatz", StringComparison.OrdinalIgnoreCase)))
+                 string.Equals(family, "phatz", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(family, "types", StringComparison.OrdinalIgnoreCase)))
             {
             }
             else
@@ -246,6 +241,12 @@ namespace CityBankers
             List<StockItemState> items = (stock?.Items ?? new List<StockItemState>())
                 .Where(item => item != null)
                 .ToList();
+
+            if (string.Equals(family, "types", StringComparison.OrdinalIgnoreCase))
+            {
+                response = BuildTypes(items, centralCharacter, commandPrefix, raw.Skip(index).ToArray());
+                return true;
+            }
 
             if (index >= raw.Length)
             {
@@ -332,6 +333,7 @@ namespace CityBankers
                     new { Key = "spirit", Label = "Spirits", Families = new[] { "spirit" } },
                     new { Key = "dyna", Label = "Dyna Nanos", Families = new[] { "dyna" } },
                     new { Key = "phatz", Label = "Phatz", Families = new[] { "phatz" } },
+                    new { Key = "types", Label = "Types", Families = new[] { "types" } },
                     new { Key = (string)null, Label = "Central", Families = new[] { "central" } }
                 }
                 .Select(module => new
@@ -370,6 +372,64 @@ namespace CityBankers
 
             return "CityBankers currently has: " + inline + ". " +
                 Blob("Open stock", body.ToString());
+        }
+
+        private static string BuildTypes(List<StockItemState> items, string manager,
+            string prefix, string[] arguments)
+        {
+            var materials = items.Where(item => string.Equals(item.Role, "types", StringComparison.OrdinalIgnoreCase))
+                .Select(item => {
+                    BiomaterialTypes.Material material;
+                    return new { Item = item, Material = BiomaterialTypes.TryGet(item.AoId, out material) ? material : null };
+                }).Where(row => row.Material != null).ToList();
+            int number = 0;
+            if (arguments.Length > 1 || (arguments.Length == 1 &&
+                !string.Equals(arguments[0], "list", StringComparison.OrdinalIgnoreCase) &&
+                (!int.TryParse(arguments[0], out number) || number <= 0)))
+                return "Use types to browse, or type [number] (for example, type 112).";
+
+            var body = new StringBuilder();
+            if (number == 0)
+            {
+                body.Append(CityBankersChatPalette.White("Kyr'Ozch Types")).Append("<br><br>");
+                foreach (string expansion in new[] { "AI", "LE" })
+                {
+                    body.Append(CityBankersChatPalette.Cyan(expansion == "AI" ? "Alien Invasion" : "Lost Eden"))
+                        .Append("<br>");
+                    var groups = materials.Where(row => row.Material.Expansion == expansion)
+                        .GroupBy(row => row.Material.Number).OrderBy(group => group.Key).ToList();
+                    if (groups.Count == 0) body.Append("No stock.<br>");
+                    foreach (var group in groups)
+                    {
+                        int clumps = group.Count(row => row.Material.IsClump);
+                        body.Append(ChatCommand("Type " + group.Key, manager, prefix + "type " + group.Key))
+                            .Append("  ").Append(CityBankersChatPalette.Green(group.Count().ToString())).Append(" copies")
+                            .Append(" (clumps ").Append(clumps).Append(", processed ").Append(group.Count() - clumps)
+                            .Append(")  QL ").Append(group.Min(row => row.Item.Ql)).Append("-")
+                            .Append(group.Max(row => row.Item.Ql)).Append("<br>");
+                    }
+                    body.Append("<br>");
+                }
+                return "Types: " + materials.Count + " copies in " + materials.Select(row => row.Material.Number).Distinct().Count() +
+                    " stocked types. " + Blob("Types by number", body.ToString());
+            }
+
+            var matches = materials.Where(row => row.Material.Number == number).ToList();
+            if (matches.Count == 0) return "No Type " + number + " materials are currently in stock.";
+            body.Append(CityBankersChatPalette.Cyan("Type " + number + " (" + matches[0].Material.Expansion + ")"))
+                .Append("<br><br>");
+            foreach (StockTemplate template in GroupTemplates(matches.Select(row => row.Item)).OrderBy(t => t.Ql).ThenBy(t => t.AoId))
+            {
+                BiomaterialTypes.Material material;
+                BiomaterialTypes.TryGet(template.AoId, out material);
+                body.Append(CityBankersChatPalette.Cyan("QL " + template.Ql)).Append("  ")
+                    .Append(material.IsClump ? "Clump" : "Processed").Append("  ")
+                    .Append(ItemLink(template)).Append(" x").Append(CityBankersChatPalette.Green(template.Count.ToString()))
+                    .Append("  ").Append(ChatCommand("GET", manager, prefix + "get " + template.AoId + " " + template.Ql))
+                    .Append("<br>");
+            }
+            body.Append("<br>").Append(ChatCommand("All types", manager, prefix + "types"));
+            return "Type " + number + ": " + matches.Count + " copies. " + Blob("Type " + number + " stock", body.ToString());
         }
 
         private static string BuildSymbiantRoot(
@@ -625,7 +685,8 @@ namespace CityBankers
         private static bool IsSlottedFamily(string family)
         {
             return !string.Equals(family, "dyna", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(family, "phatz", StringComparison.OrdinalIgnoreCase);
+                !string.Equals(family, "phatz", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(family, "types", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsSymbiantFamily(string family)
@@ -788,8 +849,13 @@ namespace CityBankers
             var source = (items ?? Enumerable.Empty<StockItemState>()).Where(i => i != null).ToList();
             var families = source.Any(i => string.Equals(i.Role, "phatz", StringComparison.OrdinalIgnoreCase))
                 ? SymbiantCatalog.GetPhatzFamilies(SettingsPaths.GetSettingsDirectory()) : null;
-            return source.Select(i => families != null && string.Equals(i.Role, "phatz", StringComparison.OrdinalIgnoreCase)
-                ? "phatz:" + families.Key(i.AoId) : i.AoId + ":" + i.HighId + ":" + i.Ql).Distinct().Count();
+            return source.Select(i => {
+                BiomaterialTypes.Material material;
+                if (string.Equals(i.Role, "types", StringComparison.OrdinalIgnoreCase) && BiomaterialTypes.TryGet(i.AoId, out material))
+                    return "types:" + material.Number;
+                return families != null && string.Equals(i.Role, "phatz", StringComparison.OrdinalIgnoreCase)
+                    ? "phatz:" + families.Key(i.AoId) : i.AoId + ":" + i.HighId + ":" + i.Ql;
+            }).Distinct().Count();
         }
 
         private static bool TryNormalizeFamily(string token, out string family)
