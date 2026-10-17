@@ -38,17 +38,9 @@ namespace CityManager
                 var section = manager?.GetValue("ChatProxy", StringComparison.OrdinalIgnoreCase) as JObject;
                 var settings = section?.ToObject<ProxyPresenceSettings>();
                 if (settings == null || !settings.Enabled) return;
-                string normalized, error;
                 if (string.IsNullOrWhiteSpace(settings.Host) || settings.Port < 1 || settings.Port > 65535 ||
-                    string.IsNullOrWhiteSpace(settings.Username) || settings.Password == null ||
-                    !TryNormalizeAltName(settings.Character, out normalized, out error) || settings.ReconnectSeconds < 1)
-                    throw new InvalidDataException("Manager.ChatProxy requires Host, Port, Username, Password, Character and a positive ReconnectSeconds.");
-                settings.Character = normalized;
-                // This is a separate tool login, not a second login of Apcmanager.
-                var accounts = manager.GetValue("Accounts", StringComparison.OrdinalIgnoreCase) as JArray;
-                if (accounts != null && accounts.OfType<JObject>().Any(a => string.Equals(
-                    (string)a.GetValue("Character", StringComparison.OrdinalIgnoreCase), settings.Character, StringComparison.OrdinalIgnoreCase)))
-                    throw new InvalidDataException("Manager.ChatProxy.Character must be an idle chat identity distinct from Manager.Accounts.");
+                    settings.ReconnectSeconds < 1)
+                    throw new InvalidDataException("Manager.ChatProxy requires Host, a valid Port and a positive ReconnectSeconds.");
                 string token = Guid.NewGuid().ToString("N");
                 if (!ManagerMemory.Current.AcquirePresenceService(Client.CharacterName, token)) return;
                 _presenceOwnerToken = token;

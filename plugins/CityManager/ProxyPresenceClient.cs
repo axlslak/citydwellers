@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using AOSharp.Clientless.Common;
 using CityDwellers.Shared;
 using Newtonsoft.Json.Linq;
 
@@ -16,7 +13,7 @@ namespace CityManager
     internal sealed class ProxyPresenceSettings
     {
         public bool Enabled;
-        public string Host, Username, Password, Character;
+        public string Host;
         public int Port = 9993;
         public int ReconnectSeconds = 5;
     }
@@ -28,8 +25,8 @@ namespace CityManager
         public PlayerPresenceReport Report;
     }
 
-    // A chat-only tool connection. It never logs a game character in, forwards
-    // tells or modifies Client.Chat. The C proxy chooses every buddy's worker.
+    // A worker-service TCP connection. All AO logins stay inside kworker.
+    // This never forwards tells or modifies Client.Chat.
     internal sealed class ProxyPresenceClient : IDisposable
     {
         private sealed class Session
@@ -42,8 +39,7 @@ namespace CityManager
                 new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
             internal readonly ConcurrentDictionary<uint, string> Names = new ConcurrentDictionary<uint, string>();
             internal long ReceivedTicks = DateTime.UtcNow.Ticks;
-            internal volatile bool Ready, LoggedIn;
-            internal bool Selected;
+            internal volatile bool Ready;
         }
 
         private readonly ProxyPresenceSettings _settings;
@@ -82,18 +78,19 @@ namespace CityManager
                     Task[] pumps = new Task[0];
                     try
                     {
-                        // Deadline for connecting/authenticating, not a delay before work.
+                        // Connection/handshake deadline, not a delay before work.
                         cancel.CancelAfter(TimeSpan.FromSeconds(20));
                         await session.Socket.ConnectAsync(_settings.Host, _settings.Port).ConfigureAwait(false);
                         session.Socket.NoDelay = true;
+                        await Send(session, 100, Body(p => p.Text("capabilities")), cancel.Token).ConfigureAwait(false);
                         pumps = new[] { Receive(session, cancel), WriteRequests(session, cancel.Token), Ping(session, cancel.Token) };
                         var completed = await Task.WhenAny(pumps).ConfigureAwait(false);
                         await completed.ConfigureAwait(false);
                     }
-                    catch (OperationCanceledException) { failure = "Proxy connection or login timed out."; }
+                    catch (OperationCanceledException) { failure = "Proxy connection or handshake timed out."; }
                     catch (Exception ex)
                     {
-                        // Never include packets, credentials or the challenge response.
+                        // Never include raw packets in diagnostics.
                         failure = ex is InvalidDataException ? ex.Message : "Proxy connection failed (" + ex.GetType().Name + ").";
                     }
                     finally
@@ -132,47 +129,23 @@ namespace CityManager
                 var packet = new Packet(body);
                 switch (type)
                 {
-                    case 0: // AO server challenge
-                        if (session.LoggedIn) throw new InvalidDataException("Unexpected proxy login challenge.");
-                        byte[] salt = packet.Bytes();
-                        string key = LoginEncryption.MakeChallengeResponse(new Credentials(_settings.Username, _settings.Password), salt);
-                        await Send(session, 2, Body(p => { p.UInt(0); p.Text(_settings.Username); p.Text(key); }), cancel.Token).ConfigureAwait(false);
-                        break;
-                    case 7: // Account character list: ID array, name array, level array, online array
-                        int count = packet.Short();
-                        var ids = new uint[count];
-                        for (int i = 0; i < count; i++) ids[i] = packet.UInt();
-                        int names = packet.Short();
-                        uint selected = 0;
-                        for (int i = 0; i < names; i++)
-                        {
-                            string name = packet.Text();
-                            if (i < count && string.Equals(name, _settings.Character, StringComparison.OrdinalIgnoreCase)) selected = ids[i];
-                        }
-                        if (selected == 0) throw new InvalidDataException("Configured proxy chat character was not found on its account.");
-                        session.Selected = true;
-                        await Send(session, 3, Body(p => p.UInt(selected)), cancel.Token).ConfigureAwait(false);
-                        break;
+                    case 0:
                     case 5:
-                        // Extra empty LoginOK packets announce workers. They must
-                        // not restart login, clear observations or replay tracking.
-                        if (!session.Selected || session.LoggedIn) break;
-                        session.LoggedIn = true;
-                        await Send(session, 100, Body(p => p.Text("capabilities")), cancel.Token).ConfigureAwait(false);
-                        break;
                     case 6:
-                        throw new InvalidDataException("Proxy AO chat login was refused.");
+                    case 7:
+                        throw new InvalidDataException("Proxy is in Nady leader mode; start kworker with KWORKER_PROXY_MODE=workers.");
                     case 100:
                         string text = packet.Text();
-                        if (!session.LoggedIn || session.Ready || !text.StartsWith("{", StringComparison.Ordinal)) break;
+                        if (session.Ready || !text.StartsWith("{", StringComparison.Ordinal)) break;
                         JObject capabilities = JObject.Parse(text);
                         if ((string)capabilities["name"] != "kworker-nady-proxy" || (string)capabilities["type"] != "capabilities")
                             throw new InvalidDataException("Endpoint did not identify itself as kworker-nady-proxy.");
+                        if ((string)capabilities["connection-mode"] != "workers")
+                            throw new InvalidDataException("Proxy requires worker-only mode: KWORKER_PROXY_MODE=workers.");
                         session.Ready = true;
                         cancel.CancelAfter(Timeout.Infinite);
                         Publish(new ProxyPresenceEvent { Ready = true, Message = "Proxy buddy tracking connected." }, cancel.Token);
                         break;
-                    case 20:
                     case 21:
                         uint id = packet.UInt();
                         string lookedUp = packet.Text();
@@ -181,14 +154,14 @@ namespace CityManager
                             Publish(new ProxyPresenceEvent { MissingName = lookedUp }, cancel.Token);
                         else
                         {
-                            session.Names[id] = lookedUp;
-                            await AddBuddy(session, id, cancel.Token).ConfigureAwait(false);
+                            if (session.Names.TryAdd(id, lookedUp))
+                                await AddBuddy(session, id, cancel.Token).ConfigureAwait(false);
                         }
                         break;
                     case 40:
                         uint buddy = packet.UInt();
                         bool online = packet.UInt() != 0;
-                        string reporter = packet.Remaining == 0 ? "leader" : packet.Text();
+                        string reporter = packet.Remaining == 0 ? "worker" : packet.Text();
                         string tracked;
                         if (session.Ready && session.Names.TryGetValue(buddy, out tracked))
                             Publish(new ProxyPresenceEvent { Report = new PlayerPresenceReport {
@@ -235,7 +208,7 @@ namespace CityManager
                 await Task.Delay(TimeSpan.FromSeconds(60), token).ConfigureAwait(false);
                 if (DateTime.UtcNow.Ticks - Interlocked.Read(ref session.ReceivedTicks) > TimeSpan.FromSeconds(120).Ticks)
                     throw new IOException("Proxy heartbeat was not answered.");
-                if (session.LoggedIn)
+                if (session.Ready)
                     await Send(session, 100, Body(p => p.Text("presence")), token).ConfigureAwait(false);
             }
         }
