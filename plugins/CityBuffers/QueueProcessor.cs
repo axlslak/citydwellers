@@ -734,7 +734,7 @@ namespace MalisBuffBots
                 }
                 catch (Exception ex) { Logger.Warning("Buff counter update unavailable: " + ex.Message); }
             }
-            if (completed) ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)entry.Requester.Instance),
+            if (completed || superseded) ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)entry.Requester.Instance),
                 entry.NanoEntry.Tags.ToArray());
             if (feedback != null)
                 CityBufferBridge.Diagnostic(entry.Requester.Instance, entry.NanoEntry.Name + ": " + FeedbackReason(feedback.Value));
