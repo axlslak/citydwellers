@@ -37,7 +37,7 @@ namespace CityManager
             internal readonly TcpClient Socket = new TcpClient();
             internal readonly SemaphoreSlim WriteLock = new SemaphoreSlim(1);
             internal readonly SemaphoreSlim Work = new SemaphoreSlim(0);
-            internal readonly ConcurrentQueue<PlayerSeenRecord> Outgoing = new ConcurrentQueue<PlayerSeenRecord>();
+            internal readonly ConcurrentQueue<string> Outgoing = new ConcurrentQueue<string>();
             internal readonly ConcurrentDictionary<string, byte> Requested =
                 new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
             internal readonly ConcurrentDictionary<uint, string> Names = new ConcurrentDictionary<uint, string>();
@@ -55,14 +55,14 @@ namespace CityManager
         internal bool TryRead(out ProxyPresenceEvent value) => _events.TryTake(out value);
         internal bool Connecting { get { var session = _session; return session != null && !session.Ready; } }
 
-        internal void Track(PlayerSeenRecord record)
+        internal void Track(string name)
         {
             var session = _session;
             if (session == null) return;
             lock (session)
             {
-                if (!session.Ready || !session.Requested.TryAdd(record.Name, 0)) return;
-                session.Outgoing.Enqueue(record);
+                if (!session.Ready || !session.Requested.TryAdd(name, 0)) return;
+                session.Outgoing.Enqueue(name);
                 session.Work.Release();
             }
         }
@@ -216,16 +216,12 @@ namespace CityManager
             while (true)
             {
                 await session.Work.WaitAsync(token).ConfigureAwait(false);
-                PlayerSeenRecord record;
-                if (!session.Outgoing.TryDequeue(out record)) continue;
-                if (record.CharacterId != 0)
-                {
-                    session.Names[record.CharacterId] = record.Name;
-                    await AddBuddy(session, record.CharacterId, token).ConfigureAwait(false);
-                }
-                else
-                    // AO client lookup has ONLY a name; the server reply adds UID.
-                    await Send(session, 21, Body(p => p.Text(record.Name)), token).ConfigureAwait(false);
+                string name;
+                if (!session.Outgoing.TryDequeue(out name)) continue;
+                // Resolve once per connection, including saved names. A historical
+                // UID must not answer for a name that has since been changed/reused.
+                // AO client lookup has ONLY a name; the server reply adds UID.
+                await Send(session, 21, Body(p => p.Text(name)), token).ConfigureAwait(false);
             }
         }
 

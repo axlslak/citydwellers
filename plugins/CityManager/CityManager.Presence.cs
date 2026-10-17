@@ -138,7 +138,7 @@ namespace CityManager
                 }
                 if (reports.Count != 0) memory.ApplyPresenceReports(_presenceOwnerToken, reports.ToArray());
                 foreach (string name in memory.TakePresenceRequests(_presenceOwnerToken, 128))
-                    _proxyPresence.Track(memory.ReadPlayerPresence(name).Seen);
+                    _proxyPresence.Track(name);
             }
 
             PresenceQuery[] queries;
