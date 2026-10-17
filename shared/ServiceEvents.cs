@@ -44,7 +44,7 @@ namespace CityDwellers.Shared
         {
             var root = JObject.Parse(File.ReadAllText(Path.Combine(settings, "citydwellers.json")));
             // Events are bounded in-memory telemetry for optional external forwarding.
-            var roles = (root["Bankers"]?["Roles"] as JObject)?.Properties().ToDictionary(
+            var roles = BankerRoles.NormalizeAliases(root["Bankers"]?["Roles"] as JObject)?.Properties().ToDictionary(
                 p => (string)p.Value["Character"], p => p.Name, StringComparer.OrdinalIgnoreCase)
                 ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             string role;

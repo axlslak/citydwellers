@@ -48,12 +48,12 @@ namespace CityBankers.Shared
                 throw new InvalidDataException(
                     "'" + path + "' requires a Bankers settings section.");
 
-            if (!includeDisabled)
+            JProperty roles = bankers.Properties().FirstOrDefault(p =>
+                string.Equals(p.Name, "Roles", StringComparison.OrdinalIgnoreCase));
+            if (roles?.Value is JObject configured)
             {
-                JProperty roles = bankers.Properties().FirstOrDefault(p =>
-                    string.Equals(p.Name, "Roles", StringComparison.OrdinalIgnoreCase));
-                if (roles?.Value is JObject configured)
-                    roles.Value = CityDwellers.Shared.BankerRoles.EnabledOnly(configured);
+                configured = CityDwellers.Shared.BankerRoles.NormalizeAliases(configured);
+                roles.Value = includeDisabled ? configured : CityDwellers.Shared.BankerRoles.EnabledOnly(configured);
             }
             return bankers;
         }
