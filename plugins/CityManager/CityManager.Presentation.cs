@@ -141,8 +141,9 @@ namespace CityManager
 
                 case "online":
                     title = "Online";
-                    body = HelpHeader("Online", "Organization presence reported by Bobsan and observed guest-channel speakers.") +
-                        HelpSyntaxLine(target, "online", "Show both lists with counts. Guest observations may miss silent joins or departures.");
+                    body = HelpHeader("Online", "Characters grouped by known main and alts, with profession icons, level and known alien level.") +
+                        HelpSyntaxLine(target, "online", "Show player and character counts. Each character appears once, marked Org, Guest, or both.") +
+                        "Org presence is reported by Bobsan. Guest observations may miss silent departures. Missing character details stay unknown and never hide a character.";
                     return true;
 
                 case "wb":
@@ -594,7 +595,7 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
             body.Append(HelpSyntaxLine(target, "raid status", "View current raid information."));
             body.Append(HelpSyntaxLine(target, "cancel [raid-token]", "Cancel your active raid."));
-            body.Append(HelpSyntaxLine(target, "online", "Show known org presence and observed guests."));
+            body.Append(HelpSyntaxLine(target, "online", "Show org/guest characters grouped by main, with level and profession."));
             body.Append(HelpSyntaxLine(target, "is <character>", "Check the character and known alts through proxy buddy tracking."));
             body.Append(HelpSyntaxLine(target, "changelog", "Show the latest 25 owner-written entries."));
             body.Append(HelpSyntaxLine(target, "thanks", "Remember those that have fallen."));

@@ -1,7 +1,8 @@
--- Schema 10 reference / inspection, not a second schema installer.
+-- Schema 11 reference / inspection, not a second schema installer.
 -- Authoritative fixed relational definitions:
 -- executables/CityDwellers/Storage/BusinessTables.cs
 -- Presence: executables/CityDwellers/Storage/ManagerDatabase.Seen.cs
+-- Character details: executables/CityDwellers/Storage/ManagerDatabase.PlayerProfiles.cs
 -- Normal host startup creates an empty schema or upgrades supported versions.
 -- Personal buff opt-outs live in cd_learned_buff_exclusions; startup upgrades 6 to 7.
 -- Provider catalogues persist across boots; startup upgrades 7 to 8.
@@ -25,6 +26,7 @@ SHOW CREATE TABLE cd_alt_groups;
 SHOW CREATE TABLE cd_alt_observed;
 SHOW CREATE TABLE cd_seen;
 SHOW CREATE TABLE cd_seen_events;
+SHOW CREATE TABLE cd_player_profiles;
 -- Full table/column inventory, including related items and pending operations.
 SELECT table_name, column_name, column_type, is_nullable, column_key
 FROM information_schema.columns

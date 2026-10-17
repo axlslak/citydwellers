@@ -39,6 +39,7 @@
     <Compile Include="..\..\shared\ShutdownControl.cs"><Link>ShutdownControl.cs</Link></Compile>
     <Compile Include="CityManager.Changelog.cs" />
     <Compile Include="CityManager.Online.cs" />
+    <Compile Include="CityManager.OnlineDetails.cs" />
     <Compile Include="CityManager.Presence.cs" />
     <Compile Include="ProxyPresenceClient.cs" />
     <Compile Include="CityManager.Items.cs" />

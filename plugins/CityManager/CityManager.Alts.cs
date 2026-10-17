@@ -715,6 +715,7 @@ namespace CityManager
                 }
             }
 
+            RememberOnlineReplyDetails(message);
             CanonicalizeKnownLists();
 
             if (complete)

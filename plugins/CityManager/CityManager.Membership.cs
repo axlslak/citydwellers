@@ -64,6 +64,10 @@ namespace CityManager
                     _membershipLastSuccessfulFetchUtc.HasValue
                         ? _membershipLastSuccessfulFetchUtc.Value.AddHours(MembershipRefreshHours)
                         : DateTime.MinValue;
+                // Older membership caches discarded player details. Refill them
+                // through the existing background roster fetch, never #online.
+                if (_officialMembers.Count != 0 && !ManagerMemory.Current.HavePlayerProfiles(_officialMembers.ToArray()))
+                    _membershipNextAttemptUtc = DateTime.MinValue;
 
                 Logger.Information(
                     $"Membership initialized: permanent={_permanentMembers.Count}, " +
@@ -556,6 +560,7 @@ namespace CityManager
             int declaredCount = organization.Value<int?>("NUMMEMBERS") ?? 0;
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var ranks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var profiles = new List<PlayerProfile>();
 
             foreach (JToken token in members)
             {
@@ -565,6 +570,7 @@ namespace CityManager
                 if (TryNormalizeMemberName(name, out normalized, out error))
                 {
                     names.Add(normalized);
+                    profiles.Add(OnlineRosterProfile(normalized, token));
 
                     string rank = ParseOfficialMemberRank(token);
                     if (!string.IsNullOrWhiteSpace(rank))
@@ -595,6 +601,7 @@ namespace CityManager
                 }
             }
 
+            foreach (var profile in profiles) profile.UpdatedUtc = sourceUpdatedUtc ?? DateTime.UtcNow;
             return new RemoteOrganizationRoster
             {
                 OrgId = orgId,
@@ -602,7 +609,8 @@ namespace CityManager
                 DeclaredCount = declaredCount,
                 SourceUpdatedUtc = sourceUpdatedUtc,
                 Members = names,
-                MemberRanks = ranks
+                MemberRanks = ranks,
+                Profiles = profiles.ToArray()
             };
         }
 
@@ -658,6 +666,7 @@ namespace CityManager
             DateTime now = DateTime.UtcNow;
             string telemetry;
             List<string> officerCharacters = null;
+            bool accepted = false;
 
             lock (_membershipSync)
             {
@@ -692,6 +701,7 @@ namespace CityManager
                 }
                 else
                 {
+                    accepted = true;
                     _officialMembers.Clear();
                     foreach (string name in roster.Members)
                         _officialMembers.Add(name);
@@ -730,6 +740,7 @@ namespace CityManager
                 }
             }
 
+            if (accepted) ManagerMemory.Current.RememberPlayerProfiles(roster.Profiles);
             Logger.Information(telemetry);
             DevTrace(telemetry);
         }
@@ -1156,6 +1167,7 @@ namespace CityManager
             public DateTime? SourceUpdatedUtc;
             public HashSet<string> Members;
             public Dictionary<string, string> MemberRanks;
+            public PlayerProfile[] Profiles;
         }
     }
 }
