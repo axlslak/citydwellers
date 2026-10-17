@@ -13,7 +13,7 @@ namespace CityDwellers.Host
 {
     // This instance lives only in the host's Manager service. Neither this source
     // nor the connector is included in client plugins.
-    internal sealed class ManagerDatabase : IAccountingPersistence, IDisposable
+    internal sealed partial class ManagerDatabase : IAccountingPersistence, IDisposable
     {
         private readonly MySqlConnection _connection;
         private readonly BusinessTables _tables = new BusinessTables();
@@ -65,8 +65,9 @@ namespace CityDwellers.Host
                     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name <> 'cd_storage_version'", _connection))
                     if (Convert.ToInt32(command.ExecuteScalar()) != 0)
                         throw new InvalidOperationException("Database has tables but no current schema version. Legacy import is no longer supported. Use an empty database or restore a current-schema backup.");
-                RuntimeLog.Write("Initializing empty business database (schema 9).");
+                RuntimeLog.Write("Initializing empty business database (schema 10).");
                 _tables.Create(_connection);
+                CreateSeenTables();
                 state = new AccountingState
                 {
                     Ledger = new ActiveLedgerState(), Stock = new CurrentStockState(),
@@ -75,7 +76,7 @@ namespace CityDwellers.Host
                 };
                 _tables.Commit(_connection, new AccountingState { Reserve = null, Alts = null }, state, transaction =>
                 {
-                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(9)", _connection, transaction)) command.ExecuteNonQuery();
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(10)", _connection, transaction)) command.ExecuteNonQuery();
                 });
             }
             else
@@ -111,7 +112,14 @@ namespace CityDwellers.Host
                     using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(9)", _connection)) command.ExecuteNonQuery();
                     version = 9;
                 }
-                if (version != 9) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 9.");
+                if (version == 9)
+                {
+                    RuntimeLog.Write("Upgrading business schema 9 to 10: adding tracked player seen records.");
+                    CreateSeenTables();
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(10)", _connection)) command.ExecuteNonQuery();
+                    version = 10;
+                }
+                if (version != 10) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 10.");
                 RuntimeLog.Write("Loading relational business rows into Manager RAM.");
                 state = _tables.Load(_connection);
             }
@@ -135,6 +143,7 @@ namespace CityDwellers.Host
             state.Alts = state.Alts ?? new AltState();
             state.Alts.Groups = state.Alts.Groups ?? new List<AltGroupState>();
             ManagerMemory.InitializeAccounting(state, this);
+            ManagerMemory.InitializePlayerSeen(LoadSeen(), this);
         }
 
         private T Configuration<T>(string name) where T : class

@@ -43,6 +43,7 @@ namespace CityManager
                 "changelog",
                 "thanks",
                 "online",
+                "is",
                 "items",
                 "i",
                 "itemid",
@@ -236,6 +237,7 @@ namespace CityManager
                     CityBankers.Shared.SettingsPaths.InitialBankTerminalInstance, "initial");
             InitializeMembership();
             InitializeAlts();
+            InitializePresence();
             PublishBufferAuthoritySnapshot(true);
             InitializeTellQueue();
             LoadState();
@@ -260,6 +262,7 @@ namespace CityManager
                 CityRaidAutomation.Shutdown();
                 OrgRankAuthorizer.Shutdown();
                 ShutdownRaidCoordinator();
+                ShutdownPresence();
                 ShutdownAlts();
                 ShutdownMembership();
                 ShutdownTellQueue();
@@ -562,6 +565,7 @@ namespace CityManager
                   command == "shutdown") && parts.Length == 1) ||
                 (command == "buff" || command == "buffs") ||
                 (command == "wb") ||
+                (command == "is" && parts.Length == 2) ||
                 (command == "cast" && parts.Length >= 2) ||
                 (command == "trace" && parts.Length <= 2) ||
                 ((command == "inventory" || command == "inv") && parts.Length <= 2) ||
@@ -763,6 +767,10 @@ namespace CityManager
 
                 case "online":
                     ProcessOnlineCommand(parts, replyTarget);
+                    break;
+
+                case "is":
+                    ProcessIsCommand(parts, replyTarget);
                     break;
 
                 case "changelog":
@@ -3310,6 +3318,7 @@ namespace CityManager
             TryInviteDeveloper();
             TickMembership();
             TickAlts();
+            TickPresence();
             PublishBufferAuthoritySnapshot();
             TickRaidCoordinator();
 

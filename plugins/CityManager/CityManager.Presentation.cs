@@ -132,6 +132,13 @@ namespace CityManager
                         "A vertical bar means choose one option. Commands and buttons are case-insensitive.</font>";
                     return true;
 
+                case "is":
+                    title = "Player presence";
+                    body = HelpHeader("Player presence", "Live buddy reports through Manager's configured chat proxy, including known alts.") +
+                        HelpSyntaxLine(target, "is <character>", "Track the character and known alts, and report who is online. Missing reports remain unknown.") +
+                        "Tracked names and actual online/offline observations are saved across restarts.";
+                    return true;
+
                 case "online":
                     title = "Online";
                     body = HelpHeader("Online", "Organization presence reported by Bobsan and observed guest-channel speakers.") +
@@ -588,6 +595,7 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "raid status", "View current raid information."));
             body.Append(HelpSyntaxLine(target, "cancel [raid-token]", "Cancel your active raid."));
             body.Append(HelpSyntaxLine(target, "online", "Show known org presence and observed guests."));
+            body.Append(HelpSyntaxLine(target, "is <character>", "Check the character and known alts through proxy buddy tracking."));
             body.Append(HelpSyntaxLine(target, "changelog", "Show the latest 25 owner-written entries."));
             body.Append(HelpSyntaxLine(target, "thanks", "Remember those that have fallen."));
             body.Append(HelpSyntaxLine(target, "items [QL] <name words>", "Search item templates. Alias: i; itemid <AOID> shows attributes."));
