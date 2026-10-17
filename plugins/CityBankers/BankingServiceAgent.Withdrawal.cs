@@ -144,7 +144,8 @@ namespace CityBankers
 
             rows = WithdrawalStore.LoadAll(_settingsDir);
             WithdrawalState active = rows.FirstOrDefault(row =>
-                WithdrawalStore.HasStatus(row, "extracting") || WithdrawalStore.HasStatus(row, "central-received"));
+                (WithdrawalStore.HasStatus(row, "extracting") && IsRoleEnabled(row.SourceRole)) ||
+                WithdrawalStore.HasStatus(row, "central-received"));
             if (active != null)
             {
                 _withdrawal = active;
@@ -179,13 +180,14 @@ namespace CityBankers
             // Existing dispatch drains before another extraction; waiting pickups do not gate it.
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             if ((queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
-                batch != null &&
+                batch != null && IsRoleEnabled(batch.Role) &&
                 !string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(batch.Status, CustodyHoldStatus, StringComparison.OrdinalIgnoreCase)))
                 return false;
             if (!TrustedOperators.IsAllBankersReady() || Inventory.NumFreeSlots < 12)
                 return false; // retain room for a full donation even with waiting orders
             WithdrawalState next = rows.FirstOrDefault(row =>
+                IsRoleEnabled(row.SourceRole) &&
                 ((!CruPolicy.IsCru(row) && WithdrawalStore.HasStatus(row, "requested")) || (!CruPolicy.IsCru(row) && CanRetryWithdrawalExtraction(row))) &&
                 !rows.Any(other => other.Id != row.Id && WithdrawalStore.HasStatus(other, "failed") &&
                     string.Equals(other.SourceCharacter, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)) &&

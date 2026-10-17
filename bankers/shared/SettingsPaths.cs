@@ -1,6 +1,7 @@
 using Directory = System.IO.Directory;
 using System;
 using System.IO;
+using System.Linq;
 
 using Newtonsoft.Json.Linq;
 
@@ -36,7 +37,7 @@ namespace CityBankers.Shared
             return Path.Combine(settingsDirectory, fileName);
         }
 
-        public static JObject ReadBankersSettings(string settingsDirectory)
+        public static JObject ReadBankersSettings(string settingsDirectory, bool includeDisabled = false)
         {
             string path = Path.Combine(settingsDirectory, "citydwellers.json");
             JObject root = JObject.Parse(System.IO.File.ReadAllText(path));
@@ -47,6 +48,13 @@ namespace CityBankers.Shared
                 throw new InvalidDataException(
                     "'" + path + "' requires a Bankers settings section.");
 
+            if (!includeDisabled)
+            {
+                JProperty roles = bankers.Properties().FirstOrDefault(p =>
+                    string.Equals(p.Name, "Roles", StringComparison.OrdinalIgnoreCase));
+                if (roles?.Value is JObject configured)
+                    roles.Value = CityDwellers.Shared.BankerRoles.EnabledOnly(configured);
+            }
             return bankers;
         }
 

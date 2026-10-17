@@ -27,7 +27,7 @@ namespace CityBankers
         private const int StableStartupSeconds = 10;
         private const int AuditTimeoutMinutes = 30;
 
-        private static readonly string[] StorageRoles = CityDwellers.Shared.BankerRoles.Storage.ToArray();
+        private static string[] StorageRoles = CityDwellers.Shared.BankerRoles.Storage.ToArray();
 
         private string _settingsDir;
         private string _dataDir;
@@ -58,6 +58,8 @@ namespace CityBankers
             EnrollmentConfig config = LoadConfig();
             if (config == null || config.Roles == null)
                 return;
+
+            StorageRoles = CityDwellers.Shared.BankerRoles.ActiveNames(JObject.FromObject(config.Roles), true);
 
             _roles = new Dictionary<string, RoleConfig>(StringComparer.OrdinalIgnoreCase);
             foreach (string role in new[] { "central" }.Concat(StorageRoles))

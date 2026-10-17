@@ -47,9 +47,9 @@ public class BankerLoader
         List<RoleMapping> configured = GetConfiguredRoles();
         if (configured.Count == 0)
         {
-            Console.WriteLine(
-                "No banker roles are fully configured in the Bankers section of citydwellers.json.");
-            return 1;
+            Console.WriteLine("All banker roles are disabled; no banker sessions will start.");
+            stopSignal?.WaitOne();
+            return 0;
         }
 
         string roleError;
@@ -71,7 +71,7 @@ public class BankerLoader
     {
         try
         {
-            _config = SettingsPaths.ReadBankersSettings(_settingsDir)
+            _config = SettingsPaths.ReadBankersSettings(_settingsDir, includeDisabled: true)
                 .ToObject<BankerConfig>();
         }
         catch (Exception ex)
@@ -98,8 +98,18 @@ public class BankerLoader
         if (_config.MaxParallelLogins <= 0)
             _config.MaxParallelLogins = 4;
 
+        AccountMapping central;
+        if (CityDwellers.Shared.ManagerMemory.Current.StartupAuditRequested &&
+            _config.Roles.Values.Any(account => account?.Enabled == true) &&
+            (!TryGetRole("central", out central) || central?.Enabled != true))
+        {
+            StopForConfiguration("A startup audit requires Central enabled to coordinate the audited bankers.");
+            return false;
+        }
+
         foreach (KeyValuePair<string, AccountMapping> role in _config.Roles)
         {
+            if (role.Value?.Enabled == false) continue;
             if (!ValidateSelectedAccount(role.Key, role.Value))
                 return false;
         }
@@ -109,6 +119,8 @@ public class BankerLoader
             foreach (SymbiantCatalog.AcceptanceRule rule in SymbiantCatalog.GetRules(_settingsDir))
             {
                 AccountMapping destination;
+                if (TryGetRole(rule.Role, out destination) && destination?.Enabled == false)
+                    continue;
                 if (!TryGetRole(rule.Role, out destination) || !IsFullyConfigured(destination))
                 {
                     StopForConfiguration(
@@ -196,7 +208,7 @@ public class BankerLoader
     private static List<RoleMapping> GetConfiguredRoles()
     {
         return _config.Roles
-            .Where(kvp => IsFullyConfigured(kvp.Value))
+            .Where(kvp => kvp.Value?.Enabled == true && IsFullyConfigured(kvp.Value))
             .Select(kvp => new RoleMapping
             {
                 Role = kvp.Key,
@@ -272,6 +284,8 @@ public class BankerLoader
         var requiredRoles = CityDwellers.Shared.BankerRoles.All;
 
         List<string> missing = requiredRoles
+            .Where(role => !(_config.Roles.FirstOrDefault(pair => string.Equals(
+                pair.Key, role, StringComparison.OrdinalIgnoreCase)).Value?.Enabled == false))
             .Where(role => configured.All(
                 r => !string.Equals(
                     r.Role,
@@ -283,7 +297,7 @@ public class BankerLoader
             return true;
 
         error =
-            "CityDwellers requires all " + requiredRoles.Count + " banker roles to be fully " +
+            "CityDwellers requires every enabled banker role to be fully " +
             "configured. Missing: " + string.Join(", ", missing) + ".";
         return false;
     }
@@ -670,8 +684,10 @@ public class BankerLoader
         };
 
         int passed = 0;
+        var activeStorageRoles = StorageRoles.Where(role => GetConfiguredRoles().Any(mapping =>
+            string.Equals(mapping.Role, role, StringComparison.OrdinalIgnoreCase))).ToArray();
 
-        foreach (string role in StorageRoles)
+        foreach (string role in activeStorageRoles)
         {
             BankerRuntime runtime = runtimes.FirstOrDefault(
                 r => string.Equals(
@@ -720,8 +736,8 @@ public class BankerLoader
         }
 
         messages.Add(
-            $"Overall: {(passed == StorageRoles.Length ? "PASS" : "CHECK")} " +
-            $"{passed}/{StorageRoles.Length} storage bankers have enough bags.");
+            $"Overall: {(passed == activeStorageRoles.Length ? "PASS" : "CHECK")} " +
+            $"{passed}/{activeStorageRoles.Length} enabled storage bankers have enough bags.");
 
         return messages;
     }
@@ -857,6 +873,7 @@ public class BankerLoader
 
     public class AccountMapping
     {
+        public bool Enabled = true;
         public string Username;
         public string Password;
         public string Character;

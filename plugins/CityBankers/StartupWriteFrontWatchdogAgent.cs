@@ -126,7 +126,7 @@ namespace CityBankers
                 return;
 
             var missing = new List<string>();
-            foreach (string role in StorageRoles)
+            foreach (string role in StorageRoles.Where(_characters.ContainsKey))
             {
                 string character;
                 if (!_characters.TryGetValue(role, out character) ||

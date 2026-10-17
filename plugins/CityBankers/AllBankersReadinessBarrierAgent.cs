@@ -31,7 +31,7 @@ namespace CityBankers
         private const int PollMilliseconds = 250;
         private const int ReadySettleMilliseconds = 1500;
 
-        private static readonly string[] RequiredRoles = CityDwellers.Shared.BankerRoles.All.ToArray();
+        private static string[] RequiredRoles = CityDwellers.Shared.BankerRoles.All.ToArray();
 
         private string _settingsDir;
         private bool _enabled;
@@ -157,6 +157,8 @@ namespace CityBankers
                 JObject roles = root.GetValue("Roles", StringComparison.OrdinalIgnoreCase) as JObject;
                 if (roles == null)
                     return false;
+
+                RequiredRoles = CityDwellers.Shared.BankerRoles.ActiveNames(roles);
 
                 foreach (string role in RequiredRoles)
                 {

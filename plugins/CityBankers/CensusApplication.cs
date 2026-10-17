@@ -102,6 +102,10 @@ namespace CityBankers
                     };
                     bundle.Storage.Workers.AddRange((previousStorage?.Workers ?? new List<StorageWorkerState>())
                         .Where(w => !scope.Contains(w.Character)));
+                    // An explicit audit covers enabled participants only. Work
+                    // parked for a disabled role keeps its original custody.
+                    bundle.Queue.Batches.AddRange((bundle.PreviousQueue?.Batches ?? new List<DispatchBatchState>())
+                        .Where(batch => !roles.ContainsKey(batch.Role)));
                 }
                 if (bundle.Format != "citybankers-census-application-v3" || bundle.ReservedWithdrawals == null ||
                     bundle.Generation != generation || bundle.Runs == null || !bundle.Runs.SequenceEqual(runs) ||

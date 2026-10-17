@@ -34,6 +34,7 @@ namespace CityBankers
 
         private string _settingsDir;
         private ServiceConfig _config;
+        private readonly HashSet<string> _disabledRoles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private string _role;
         private string _centralCharacter;
         private bool _isCentral;
@@ -369,7 +370,7 @@ namespace CityBankers
                 if (_isCentral)
                 {
                     foreach (var pending in RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches
-                        .Where(batch => batch.Status == "transferred").ToList())
+                        .Where(batch => batch.Status == "transferred" && IsRoleEnabled(batch.Role)).ToList())
                         PollStorageResult(pending);
                     // Startup census owns the baseline. Never replace it later
                     // with an older manual storage-baseline.json snapshot.
@@ -1394,7 +1395,7 @@ namespace CityBankers
                 if (!TryGetRole(destination, out storageRole) || storageRole == null ||
                     string.IsNullOrWhiteSpace(storageRole.Character))
                 {
-                    error = "Accepted item " + item.Name + " routes to unconfigured role '" +
+                    error = "Accepted item " + item.Name + " routes to a disabled or unavailable banker role '" +
                         destination + "'. The entire trade is being declined safely.";
                     return false;
                 }
@@ -1917,6 +1918,7 @@ namespace CityBankers
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
             DispatchBatchState next = queue.Batches.FirstOrDefault(b =>
+                IsRoleEnabled(b.Role) &&
                 !censusing.Contains(b.Character) &&
                 string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase) &&
                 WorkerRetryDue(b.Character) &&
@@ -1928,7 +1930,8 @@ namespace CityBankers
                         (b.Items ?? new List<TransferItemState>()).Any(candidate => CustodyKey(candidate) == CustodyKey(item))))));
             if (next == null)
             {
-                var waiting = queue.Batches.FirstOrDefault(b => string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase));
+                var waiting = queue.Batches.FirstOrDefault(b => IsRoleEnabled(b.Role) &&
+                    string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase));
                 if (waiting != null)
                     ReportTransferWait(waiting, censusing.Contains(waiting.Character) ? "Worker is in census recovery." :
                         !DynelManager.Players.Any(player => player != null && string.Equals(player.Name, waiting.Character, StringComparison.OrdinalIgnoreCase)) ?
@@ -3077,7 +3080,8 @@ namespace CityBankers
                 return;
             }
             StorageState imported = ConvertBaseline(root, runId);
-            if (imported == null || imported.Workers == null || imported.Workers.Count != CityDwellers.Shared.BankerRoles.Storage.Count)
+            if (imported == null || imported.Workers == null || imported.Workers.Count !=
+                _config.Roles.Keys.Count(role => !string.Equals(role, "central", StringComparison.OrdinalIgnoreCase)))
                 return;
             RuntimeStateStore.SaveStorageBaseline(_settingsDir, imported, "audit-" + runId);
             _lastImportedBaselineRunId = runId;
@@ -3160,8 +3164,17 @@ namespace CityBankers
         {
             try
             {
-                return SettingsPaths.ReadBankersSettings(_settingsDir)
-                    .ToObject<ServiceConfig>();
+                JObject settings = SettingsPaths.ReadBankersSettings(_settingsDir, includeDisabled: true);
+                JProperty roleMap = settings.Properties().FirstOrDefault(p =>
+                    string.Equals(p.Name, "Roles", StringComparison.OrdinalIgnoreCase));
+                if (roleMap?.Value is JObject roles)
+                {
+                    _disabledRoles.Clear();
+                    _disabledRoles.UnionWith(roles.Properties().Where(p => !CityDwellers.Shared.BankerRoles.IsEnabled(p.Value))
+                        .Select(p => p.Name));
+                    roleMap.Value = CityDwellers.Shared.BankerRoles.EnabledOnly(roles);
+                }
+                return settings.ToObject<ServiceConfig>();
             }
             catch (Exception ex)
             {
@@ -3206,8 +3219,10 @@ namespace CityBankers
         private bool HasQueuedDispatchWork()
         {
             var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            return queue?.Batches != null && queue.Batches.Count > 0;
+            return queue?.Batches != null && queue.Batches.Any(b => IsRoleEnabled(b.Role));
         }
+
+        private bool IsRoleEnabled(string role) => !_disabledRoles.Contains(role);
 
         private void AnnounceDonationChanges(List<TransferItemState> offered)
         {
@@ -3307,6 +3322,13 @@ namespace CityBankers
                 TellDonationPartner(
                     progress + CityBankersChatPalette.Red("REJECTED") + " " +
                     itemDescription + " - not accepted.");
+                return;
+            }
+            RoleConfig storageRole;
+            if (!TryGetRole(rule.Role, out storageRole) || string.IsNullOrWhiteSpace(storageRole?.Character))
+            {
+                TellDonationPartner(progress + CityBankersChatPalette.Red("REJECTED") + " " + itemDescription +
+                    " - the destination banker is disabled or unavailable.");
                 return;
             }
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);

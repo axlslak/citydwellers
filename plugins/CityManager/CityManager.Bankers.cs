@@ -24,7 +24,7 @@ namespace CityManager
         {
             try
             {
-                JObject bankers = CityBankers.Shared.SettingsPaths.ReadBankersSettings(_settingsDir);
+                JObject bankers = CityBankers.Shared.SettingsPaths.ReadBankersSettings(_settingsDir, includeDisabled: true);
                 JObject roles = bankers.GetValue("Roles", StringComparison.OrdinalIgnoreCase) as JObject;
                 StorageState storage = RuntimeStateStore.LoadStorageState(_settingsDir);
                 DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
@@ -46,6 +46,12 @@ namespace CityManager
                     JObject roleConfig = roles?.GetValue(role, StringComparison.OrdinalIgnoreCase) as JObject;
                     string character = roleConfig?.GetValue(
                         "Character", StringComparison.OrdinalIgnoreCase)?.ToString();
+                    if (roleConfig != null && !BankerRoles.IsEnabled(roleConfig))
+                    {
+                        lines.Append(StatusLine(true, character ?? role, "DISABLED in configuration"));
+                        diagnostics.Add((character ?? role) + "=disabled");
+                        continue;
+                    }
                     if (string.IsNullOrWhiteSpace(character))
                     {
                         allUsable = false;
@@ -386,6 +392,10 @@ namespace CityManager
         private void RenderBankerStock(string rawCommand, string[] parts, ReplyTarget target, bool phatzCommand)
         {
             CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            var activeRoles = CityBankers.Shared.SettingsPaths.ReadBankersSettings(_settingsDir)["Roles"] as JObject;
+            var activeCharacters = new HashSet<string>((activeRoles?.Properties() ?? Enumerable.Empty<JProperty>())
+                .Select(p => (string)p.Value["Character"]), StringComparer.OrdinalIgnoreCase);
+            stock.Items.RemoveAll(item => item != null && !activeCharacters.Contains(item.Character));
             foreach (WithdrawalState row in WithdrawalStore.LoadAll(_settingsDir))
                 HideReservedWithdrawalCopy(stock, row);
             if (phatzCommand)

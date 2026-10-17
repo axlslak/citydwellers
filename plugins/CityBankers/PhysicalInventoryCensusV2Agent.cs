@@ -231,7 +231,7 @@ namespace CityBankers
                 censuses[pair.Key] = census;
             }
 
-            if (censuses.Count < CityDwellers.Shared.BankerRoles.All.Count)
+            if (censuses.Count < _roles.Count)
                 return;
 
             PhysicalStateSnapshot physical = BuildPhysicalState(baseline, censuses);

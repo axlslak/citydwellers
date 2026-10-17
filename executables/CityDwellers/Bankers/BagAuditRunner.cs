@@ -374,12 +374,13 @@ internal static class BagAuditRunner
         {
             KeyValuePair<string, AuditAccount> match = config.Roles.FirstOrDefault(kvp =>
                 string.Equals(kvp.Key, roleName, StringComparison.OrdinalIgnoreCase));
+            if (match.Value == null) continue; // Disabled roles were filtered from runtime settings.
 
             AuditAccount account = match.Value;
             if (!IsFullyConfigured(account))
             {
                 error =
-                    $"CityDwellers.exe bankers-bagaudit requires all {RequiredRoles.Length} roles. Role '{roleName}' " +
+                    $"CityDwellers.exe bankers-bagaudit requires each enabled role. Role '{roleName}' " +
                     "is missing or still uses a placeholder mapping.";
                 return false;
             }
@@ -401,6 +402,7 @@ internal static class BagAuditRunner
             });
         }
 
+        if (roles.Count == 0) { error = "No banker roles are enabled."; return false; }
         return true;
     }
 

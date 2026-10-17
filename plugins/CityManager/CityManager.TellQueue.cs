@@ -47,7 +47,8 @@ namespace CityManager
                 if (roles != null)
                 {
                     foreach (JProperty role in roles.Properties())
-                        AddTellSender(GetString(role.Value as JObject, "Character"));
+                        if (CityDwellers.Shared.BankerRoles.IsEnabled(role.Value))
+                            AddTellSender(GetString(role.Value as JObject, "Character"));
                 }
 
                 try

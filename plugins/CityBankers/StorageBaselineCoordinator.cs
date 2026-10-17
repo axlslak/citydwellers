@@ -22,7 +22,7 @@ namespace CityBankers
     /// </summary>
     public class StorageBaselineCoordinator : ClientlessPluginEntry
     {
-        private static readonly string[] StorageRoles = CityDwellers.Shared.BankerRoles.Storage.ToArray();
+        private static string[] StorageRoles = CityDwellers.Shared.BankerRoles.Storage.ToArray();
 
         private string _settingsDir;
         private List<WorkerConfig> _workers;
@@ -71,6 +71,7 @@ namespace CityBankers
                 return;
             }
 
+            StorageRoles = CityDwellers.Shared.BankerRoles.ActiveNames(JObject.FromObject(config.Roles), true);
             _workers = new List<WorkerConfig>();
             foreach (string role in StorageRoles)
             {

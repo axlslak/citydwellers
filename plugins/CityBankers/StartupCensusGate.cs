@@ -285,10 +285,10 @@ namespace CityBankers
             if (!SettingsPaths.TryEnsureDirectory(out _settings, out error)) throw new InvalidOperationException(error);
             _roles = SettingsPaths.ReadBankersSettings(_settings)["Roles"] as JObject;
             _characters = _roles?.Properties().Select(p => (string)p.Value["Character"]).ToArray();
-            int expected = CityDwellers.Shared.BankerRoles.All.Count;
-            if (_characters == null || _characters.Length != expected || _characters.Any(string.IsNullOrWhiteSpace) ||
+            int expected = _roles?.Count ?? 0;
+            if (expected == 0 || _characters == null || _characters.Length != expected || _characters.Any(string.IsNullOrWhiteSpace) ||
                 _characters.Distinct(StringComparer.OrdinalIgnoreCase).Count() != expected)
-            { Block("Census requires " + expected + " distinct configured bankers."); return; }
+            { Block("Census requires distinct characters for all enabled bankers."); return; }
             _owner = this;
             _character = Client.CharacterName;
             _memberCharacter = _character;

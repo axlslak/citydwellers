@@ -279,7 +279,8 @@ namespace CityBankers
                 .ThenBy(w => w.Character, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
-            if (state.Workers.Count != CityDwellers.Shared.BankerRoles.Storage.Count)
+            var activeRoles = SettingsPaths.ReadBankersSettings(_settingsDir)["Roles"] as JObject;
+            if (state.Workers.Count != CityDwellers.Shared.BankerRoles.ActiveNames(activeRoles, true).Length)
                 throw new InvalidOperationException(
                     "Validated baseline did not yield all configured storage workers.");
 
