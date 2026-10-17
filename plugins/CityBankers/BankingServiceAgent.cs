@@ -3172,6 +3172,10 @@ namespace CityBankers
                     _disabledRoles.Clear();
                     _disabledRoles.UnionWith(roles.Properties().Where(p => !CityDwellers.Shared.BankerRoles.IsEnabled(p.Value))
                         .Select(p => p.Name));
+                    // Keep unfinished work for absent known roles parked just
+                    // like explicitly disabled roles; other bankers can proceed.
+                    _disabledRoles.UnionWith(CityDwellers.Shared.BankerRoles.All.Where(role =>
+                        roles.GetValue(role, StringComparison.OrdinalIgnoreCase) == null));
                     roleMap.Value = CityDwellers.Shared.BankerRoles.EnabledOnly(roles);
                 }
                 return settings.ToObject<ServiceConfig>();

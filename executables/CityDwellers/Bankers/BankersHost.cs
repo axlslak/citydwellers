@@ -52,13 +52,6 @@ public class BankerLoader
             return 0;
         }
 
-        string roleError;
-        if (!ValidateCapacityReportRoles(configured, out roleError))
-        {
-            StopForConfiguration(roleError);
-            return 1;
-        }
-
         return RunRoles(configured, null, stopSignal, interactive);
     }
 
@@ -119,6 +112,12 @@ public class BankerLoader
             foreach (SymbiantCatalog.AcceptanceRule rule in SymbiantCatalog.GetRules(_settingsDir))
             {
                 AccountMapping destination;
+                // Built-in catalogues may include roles added after the owner's
+                // configuration. Their absence cannot stop the configured roster.
+                // Central already refuses donations without a configured target.
+                if (!TryGetRole(rule.Role, out destination) &&
+                    CityDwellers.Shared.BankerRoles.All.Contains(rule.Role, StringComparer.OrdinalIgnoreCase))
+                    continue;
                 if (TryGetRole(rule.Role, out destination) && destination?.Enabled == false)
                     continue;
                 if (!TryGetRole(rule.Role, out destination) || !IsFullyConfigured(destination))
@@ -274,32 +273,6 @@ public class BankerLoader
         return !string.IsNullOrWhiteSpace(account?.Password)
             ? account.Password
             : _config.Password;
-    }
-
-    private static bool ValidateCapacityReportRoles(
-        List<RoleMapping> configured,
-        out string error)
-    {
-        error = null;
-        var requiredRoles = CityDwellers.Shared.BankerRoles.All;
-
-        List<string> missing = requiredRoles
-            .Where(role => !(_config.Roles.FirstOrDefault(pair => string.Equals(
-                pair.Key, role, StringComparison.OrdinalIgnoreCase)).Value?.Enabled == false))
-            .Where(role => configured.All(
-                r => !string.Equals(
-                    r.Role,
-                    role,
-                    StringComparison.OrdinalIgnoreCase)))
-            .ToList();
-
-        if (missing.Count == 0)
-            return true;
-
-        error =
-            "CityDwellers requires every enabled banker role to be fully " +
-            "configured. Missing: " + string.Join(", ", missing) + ".";
-        return false;
     }
 
     private static bool IsFullyConfigured(AccountMapping account)

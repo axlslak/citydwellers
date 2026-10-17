@@ -46,6 +46,12 @@ namespace CityManager
                     JObject roleConfig = roles?.GetValue(role, StringComparison.OrdinalIgnoreCase) as JObject;
                     string character = roleConfig?.GetValue(
                         "Character", StringComparison.OrdinalIgnoreCase)?.ToString();
+                    if (roleConfig == null)
+                    {
+                        lines.Append(StatusLine(true, role, "Not configured"));
+                        diagnostics.Add(role + "=not-configured");
+                        continue;
+                    }
                     if (roleConfig != null && !BankerRoles.IsEnabled(roleConfig))
                     {
                         lines.Append(StatusLine(true, character ?? role, "DISABLED in configuration"));
