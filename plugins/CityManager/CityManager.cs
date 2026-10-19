@@ -38,6 +38,7 @@ namespace CityManager
         private static readonly HashSet<string> PublicCommands =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
+                "page",
                 "help",
                 "shutdown",
                 "changelog",
@@ -134,54 +135,15 @@ namespace CityManager
             public long Stamp;
             public int Length, ChannelId;
             public uint SenderId;
-            public OrgReplyRetryPlan RetryPlan;
-            public bool IsRetry;
-            public int RetryAttempt;
-            public int BudgetAtSend;
-            public bool GrowthProbe;
+            public ReplyTarget Target;
+            public string PrivateFallback;
+            public OrgChatTest Test;
         }
 
         private int _orgBlobCurrentPageSize = OrgBlobPageSize;
-        private int _orgBlobProvenSafePageSize;
-        private int _orgBlobFailedPageSize;
         private int _orgLastConfirmedBytes;
         private int _orgMaxConfirmedBytes;
         private int _orgLastUnconfirmedBytes;
-        private int _orgLastFrontierFailedBytes;
-        private readonly List<QueuedOrgRetry> _orgRetryQueue = new List<QueuedOrgRetry>();
-        private DateTime _nextOrgRetrySendUtc = DateTime.MinValue;
-
-        private sealed class QueuedOrgRetry
-        {
-            public ReplyTarget Target;
-            public string RawText;
-            public int Attempt;
-            public DateTime DueUtc;
-            public string GroupId;
-            public string ExpectedEchoText;
-            public int ExpectedChannelId;
-            public uint ExpectedSenderId;
-            public int OriginalLength;
-            public int OriginalBudget;
-            public bool OriginalGrowthProbe;
-        }
-
-        private sealed class OrgBlobBudgetState
-        {
-            public int Version;
-            public int DefaultPageSize;
-            public int CurrentPageSize;
-            public int ProvenSafePageSize;
-            public int FailedPageSize;
-            public int LastConfirmedBytes;
-            public int MaxConfirmedBytes;
-            public int LastUnconfirmedBytes;
-            public int LastFrontierFailedBytes;
-            // Version 3 compatibility only. In v3 every missing echo was called
-            // a failure, even when a much larger message had just delivered.
-            public int LastFailedBytes;
-            public DateTime UpdatedUtc;
-        }
 
         private string _orgOutboundDetail = "not tested since startup";
         private DateTime? _lastOrgOutboundAttemptUtc;
@@ -216,7 +178,6 @@ namespace CityManager
 
             _diagnosticLogPath = Path.Combine(_dataDir, "citymanager-diagnostics.log");
             LoadOrgBlobBudgetState();
-            SaveOrgBlobBudgetState();
 
             Logger.Information($"CityManager settings: {_settingsDir}");
             Logger.Information("CityManager persistence: MySQL.");
@@ -564,7 +525,7 @@ namespace CityManager
                   command == "restart" ||
                   command == "shutdown") && parts.Length == 1) ||
                 (command == "buff" || command == "buffs") ||
-                (command == "wb") ||
+                (command == "wb" || command == "page" || OwnerCommands.Contains(command)) ||
                 (command == "is" && parts.Length == 2) ||
                 (command == "cast" && parts.Length >= 2) ||
                 (command == "trace" && parts.Length <= 2) ||
@@ -623,7 +584,8 @@ namespace CityManager
         private bool IsKnownCommand(string command)
         {
             return PublicCommands.Contains(command ?? string.Empty) ||
-                   AdminCommands.Contains(command ?? string.Empty);
+                   AdminCommands.Contains(command ?? string.Empty) ||
+                   OwnerCommands.Contains(command ?? string.Empty);
         }
 
         private void ProcessCommand(string senderName, string rawCommand, ReplyTarget replyTarget)
@@ -638,11 +600,12 @@ namespace CityManager
 
             string command = parts[0].ToLowerInvariant();
             replyTarget.SenderName = senderName; // Preserve one principal across org/tell/guest work.
-            bool isAdmin = IsAdministrator(senderName);
+            bool isOwner = IsOrgChatOwner(senderName);
+            bool isAdmin = isOwner || IsAdministrator(senderName);
             // Public commands, including the owner's load test, obey the same budget.
             // Only authenticated admin controls bypass load limits; an unauthorized
             // sender cannot flood denial replies by spelling an admin command.
-            bool adminControl = isAdmin && (AdminCommands.Contains(command) ||
+            bool adminControl = (isOwner && OwnerCommands.Contains(command)) || isAdmin && (AdminCommands.Contains(command) ||
                 command == "shutdown" || command == "leave" || command == "cancel");
             if (!adminControl && !AdmitPublicCommand(senderName, replyTarget)) return;
             if (rawCommand.Length > 2048)
@@ -751,14 +714,25 @@ namespace CityManager
                 return;
             }
 
-            // Authorize against the original channel above, then render banker
-            // replies for tells. This keeps catalogue pages out of org echo retries
-            // and uses the shared tell queue and tell-sized pagination from the start.
-            if (replyTarget.IsOrg && IsBankerReplyCommand(command))
+            if (OwnerCommands.Contains(command))
+            {
+                ProcessOrgChatControl(senderName, command, parts, replyTarget, isOwner);
+                return;
+            }
+
+            replyTarget.AdminOnly = AdminCommands.Contains(command);
+            // Authorize against the original channel, then render banking and
+            // buffer details privately through the shared tell queue.
+            if (replyTarget.IsOrg && (IsBankerReplyCommand(command) ||
+                command == "buffers" || command == "bufflist" || command == "buff" || command == "buffs"))
                 replyTarget = ReplyTarget.ForTell(replyTarget.SenderId, senderName);
 
             switch (command)
             {
+                case "page":
+                    ProcessReplyPage(parts, replyTarget, isAdmin);
+                    break;
+
                 case "items":
                 case "i":
                 case "itemid":
@@ -1865,19 +1839,20 @@ namespace CityManager
             }
         }
 
-        // Each text:// page is a separate transport message, including queued tells.
         private void Reply(ReplyTarget target, IEnumerable<string> messages)
         {
-            foreach (string message in messages)
-                Reply(target, message);
+            var replies = messages.Where(message => !string.IsNullOrWhiteSpace(message)).ToList();
+            if (target.IsOrg && replies.Count > 1)
+            {
+                Reply(target, BuildBlobLinks(target, "City Dwellers", "Open reply",
+                    string.Join("\n", replies)).Single());
+                return;
+            }
+            foreach (string message in replies) Reply(target, message);
         }
 
         private void Reply(ReplyTarget target, string text)
         {
-            OrgReplyRetryPlan orgRetryPlan =
-                target != null && target.IsOrg
-                    ? CaptureOrgReplyRetryPlan(target, text)
-                    : null;
             text = CityBankers.Shared.CityBankersChatPalette.StyleMarkup(text);
             try
             {
@@ -1889,21 +1864,15 @@ namespace CityManager
 
                 if (target.IsOrg)
                 {
-                    if (TrySendOrgMessage(target, text, orgRetryPlan, false, 0))
-                        return;
-
-                    string warning =
-                        "<font color='#F79410'>Organization output is degraded.</font> " +
-                        "This reply was delivered privately. " + text;
-                    Logger.Warning(
-                        "Unable to send command reply in the originating org channel; " +
-                        "falling back to the command issuer's tell.");
-                    DevTrace(
-                        "ORG SEND FALLBACK -> tell sender=" + target.SenderId +
-                        " channel=" + (target.ChannelName ?? "unknown") + ".");
-
-                    if (target.SenderId != 0)
-                        QueueTell(target, warning);
+                    string fallback = PrivateOrgReply(text);
+                    // Count the final, styled transport bytes, including summaries.
+                    // A long row or caller-added prefix must not exceed the limit.
+                    if (Encoding.UTF8.GetByteCount(text ?? string.Empty) > CurrentOrgBlobPageSize())
+                        text = PrivateOrgReply(text, true);
+                    if (!string.IsNullOrEmpty(text) &&
+                        Encoding.UTF8.GetByteCount(text) <= CurrentOrgBlobPageSize() &&
+                        TrySendOrgMessage(target, text, fallback)) return;
+                    if (target.SenderId != 0) QueueTell(target, fallback);
                     return;
                 }
 
@@ -1929,9 +1898,8 @@ namespace CityManager
         private bool TrySendOrgMessage(
             ReplyTarget target,
             string text,
-            OrgReplyRetryPlan retryPlan,
-            bool isRetry,
-            int retryAttempt)
+            string privateFallback,
+            OrgChatTest test = null)
         {
             object channelId = target != null ? target.ChannelId : null;
             string channelName = target != null ? target.ChannelName : null;
@@ -1993,9 +1961,9 @@ namespace CityManager
                         "Client.SendOrgMessage",
                         text,
                         clanStat,
-                        retryPlan,
-                        isRetry,
-                        retryAttempt);
+                        target,
+                        privateFallback,
+                        test);
                     Client.SendOrgMessage(text, false);
                     SetOrgOutboundHealth(false, "Client.SendOrgMessage (" + detail + ")");
                     Logger.Information(
@@ -2023,9 +1991,9 @@ namespace CityManager
                     channelId,
                     text,
                     out directDetail,
-                    retryPlan,
-                    isRetry,
-                    retryAttempt))
+                    target,
+                    privateFallback,
+                    test))
             {
                 // Both routes send on the game connection. Delivery remains
                 // unverified until the corresponding chat echo arrives.
@@ -2046,647 +2014,6 @@ namespace CityManager
             Logger.Warning("Organization reply unavailable: " + detail);
             DevTrace("ORG SEND DEGRADED: " + detail);
             return false;
-        }
-
-        private PendingOrgEcho NoteOrgEchoPending(
-            string route,
-            string text,
-            int channelId,
-            OrgReplyRetryPlan retryPlan,
-            bool isRetry,
-            int retryAttempt)
-        {
-            int length = Encoding.UTF8.GetByteCount(text ?? string.Empty);
-            int budget = CurrentOrgBlobPageSize();
-            var pending = new PendingOrgEcho
-            {
-                Text = text ?? string.Empty,
-                Route = route,
-                Stamp = Stopwatch.GetTimestamp(),
-                Length = length,
-                ChannelId = channelId,
-                SenderId = Client.Chat == null ? 0 : Client.Chat.CharId,
-                RetryPlan = retryPlan,
-                IsRetry = isRetry,
-                RetryAttempt = retryAttempt,
-                BudgetAtSend = budget,
-                GrowthProbe = retryPlan != null &&
-                    retryPlan.IsBlob &&
-                    length >= Math.Max(
-                        OrgBlobMinPageSize,
-                        budget - OrgBlobProbeEvidenceMargin)
-            };
-            lock (_orgOutputSync) _pendingOrgEchoes.Add(pending);
-            return pending;
-        }
-
-        private void ForgetOrgEcho(PendingOrgEcho pending)
-        {
-            if (pending == null) return;
-            lock (_orgOutputSync) _pendingOrgEchoes.Remove(pending);
-        }
-
-        // Match exactly one pending attempt by sender, channel and complete text.
-        // Shared markup prefixes cannot identify a page. Unmatched/decorated text
-        // is not delivery evidence.
-        private void ObserveOrgEcho(GroupMsg observed)
-        {
-            PendingOrgEcho confirmed = null;
-            List<PendingOrgEcho> expired;
-            string lateRetryGroup = null;
-            int lateRetryLength = 0;
-            int lateRetryBudget = 0;
-            bool lateRetryGrowthProbe = false;
-            int lateRetryCancelled = 0;
-            lock (_orgOutputSync)
-            {
-                if (observed != null)
-                {
-                    confirmed = _pendingOrgEchoes.FirstOrDefault(p => p.SenderId != 0 &&
-                        p.SenderId == observed.SenderId && p.ChannelId == observed.ChannelId &&
-                        string.Equals(p.Text, observed.Message, StringComparison.Ordinal));
-                    if (confirmed != null)
-                    {
-                        _pendingOrgEchoes.Remove(confirmed);
-                    }
-                    else
-                    {
-                        QueuedOrgRetry late = _orgRetryQueue.FirstOrDefault(q =>
-                            q.ExpectedSenderId != 0 &&
-                            q.ExpectedSenderId == observed.SenderId &&
-                            q.ExpectedChannelId == observed.ChannelId &&
-                            string.Equals(q.ExpectedEchoText, observed.Message, StringComparison.Ordinal));
-                        if (late != null)
-                        {
-                            lateRetryGroup = late.GroupId;
-                            lateRetryLength = late.OriginalLength;
-                            lateRetryBudget = late.OriginalBudget;
-                            lateRetryGrowthProbe = late.OriginalGrowthProbe;
-                            lateRetryCancelled = _orgRetryQueue.RemoveAll(q =>
-                                string.Equals(q.GroupId, lateRetryGroup, StringComparison.Ordinal));
-                        }
-                    }
-                }
-                long now = Stopwatch.GetTimestamp();
-                expired = _pendingOrgEchoes.Where(p => now - p.Stamp > Stopwatch.Frequency * 15).ToList();
-                foreach (var pending in expired) _pendingOrgEchoes.Remove(pending);
-            }
-            if (lateRetryCancelled > 0)
-            {
-                RecordLateOrgConfirmation(
-                    lateRetryLength,
-                    lateRetryBudget,
-                    lateRetryGrowthProbe);
-                SetOrgOutboundHealth(false, "late exact echo arrived during org retry grace");
-                Logger.Information(
-                    "ORG RETRY CANCELLED: late exact echo arrived before resend; " +
-                    "cancelled=" + lateRetryCancelled +
-                    "; bytes=" + lateRetryLength + ".");
-                DevTrace(
-                    "ORG RETRY CANCELLED late echo bytes=" + lateRetryLength +
-                    " cancelled=" + lateRetryCancelled);
-            }
-
-            foreach (var pending in expired)
-            {
-                if (IsOrgSizeFailureCandidate(pending))
-                {
-                    SetOrgOutboundHealth(
-                        true,
-                        "frontier org size probe has no observed echo within 15s via " +
-                        pending.Route);
-                    Logger.Warning(
-                        "ORG SIZE PROBE UNCONFIRMED: no echo observed within 15s via " +
-                        pending.Route + "; bytes=" + pending.Length +
-                        "; budget=" + pending.BudgetAtSend + ".");
-                    DevTrace(
-                        "ORG SIZE PROBE MISSING via " + pending.Route +
-                        " bytes=" + pending.Length +
-                        " budget=" + pending.BudgetAtSend);
-                    RecordOrgBlobDelivery(pending, false);
-                    QueueOrgRetry(pending);
-                }
-                else
-                {
-                    RecordOrgEchoUncertainty(pending);
-                    Logger.Warning(
-                        "ORG ECHO UNCONFIRMED: bytes=" + pending.Length +
-                        "; budget=" + pending.BudgetAtSend +
-                        "; below/uninside unproven size frontier; " +
-                        "no blob backoff and no retry.");
-                    DevTrace(
-                        "ORG ECHO UNCERTAIN bytes=" + pending.Length +
-                        " budget=" + pending.BudgetAtSend +
-                        " no-size-action");
-                }
-            }
-            if (confirmed != null)
-            {
-                SetOrgOutboundHealth(false, "delivery confirmed by observed echo via " + confirmed.Route);
-                Logger.Information("ORG DELIVERY CONFIRMED via " + confirmed.Route +
-                    "; bytes=" + confirmed.Length + ".");
-                DevTrace("ORG ECHO CONFIRMED via " + confirmed.Route + " bytes=" + confirmed.Length);
-                RecordOrgBlobDelivery(confirmed, true);
-            }
-        }
-
-        private bool TrySendDirectGroupMessage(
-            object channelId,
-            string text,
-            out string detail,
-            OrgReplyRetryPlan retryPlan,
-            bool isRetry,
-            int retryAttempt)
-        {
-            detail = "no observed channel id";
-            if (channelId == null)
-                return false;
-
-            PendingOrgEcho pending = null;
-            try
-            {
-                int observedChannelId = Convert.ToInt32(
-                    channelId,
-                    CultureInfo.InvariantCulture);
-                if (observedChannelId <= 0)
-                {
-                    detail = "observed channel id is invalid";
-                    return false;
-                }
-
-                pending = NoteOrgEchoPending(
-                    "raw game-connection GroupMsgMessage",
-                    text,
-                    observedChannelId,
-                    retryPlan,
-                    isRetry,
-                    retryAttempt);
-                Client.Send(
-                    new GroupMsgMessage
-                    {
-                        MessageType = GroupMessageType.Org,
-                        ChannelId = observedChannelId,
-                        Text = text
-                    });
-
-                detail =
-                    "Client.Send(GroupMsgMessage Org, channel " +
-                    observedChannelId + ")";
-                return true;
-            }
-            catch (Exception ex)
-            {
-                ForgetOrgEcho(pending);
-                detail = "raw org-channel send failed: " + ex.Message;
-                return false;
-            }
-        }
-
-        private int CurrentOrgBlobPageSize()
-        {
-            lock (_orgOutputSync)
-                return _orgBlobCurrentPageSize;
-        }
-
-        private void LoadOrgBlobBudgetState()
-        {
-            lock (_orgOutputSync)
-            {
-                _orgBlobCurrentPageSize = OrgBlobPageSize;
-                _orgBlobProvenSafePageSize = 0;
-                _orgBlobFailedPageSize = 0;
-                _orgLastConfirmedBytes = 0;
-                _orgMaxConfirmedBytes = 0;
-                _orgLastUnconfirmedBytes = 0;
-                _orgLastFrontierFailedBytes = 0;
-            }
-
-            try
-            {
-                if (string.IsNullOrWhiteSpace(_settingsDir) ||
-                    ManagerMemory.Current.ReadOrgOutputBudget() == null)
-                    return;
-
-                OrgBlobBudgetState saved = JsonConvert.DeserializeObject<OrgBlobBudgetState>(
-                    ManagerMemory.Current.ReadOrgOutputBudget());
-                if (saved == null ||
-                    saved.DefaultPageSize != OrgBlobPageSize ||
-                    saved.CurrentPageSize < OrgBlobMinPageSize ||
-                    saved.CurrentPageSize > OrgBlobMaxPageSize)
-                    return;
-
-                if (saved.Version == 3)
-                {
-                    // V3 treated every missed self-echo as a size failure. Preserve
-                    // only its current exploratory budget and positive evidence;
-                    // old negative evidence is downgraded to "unconfirmed".
-                    lock (_orgOutputSync)
-                    {
-                        _orgBlobCurrentPageSize = saved.CurrentPageSize;
-                        _orgLastConfirmedBytes = Math.Max(0, saved.LastConfirmedBytes);
-                        _orgMaxConfirmedBytes = Math.Max(0, saved.LastConfirmedBytes);
-                        _orgLastUnconfirmedBytes = Math.Max(0, saved.LastFailedBytes);
-                    }
-                    Logger.Information(
-                        "ORG BLOB BUDGET migrated v3 -> v4: current=" +
-                        saved.CurrentPageSize + "; default=" + OrgBlobPageSize +
-                        "; previous missing-echo evidence is untrusted.");
-                    return;
-                }
-
-                if (saved.Version != 4)
-                    return;
-
-                lock (_orgOutputSync)
-                {
-                    _orgBlobCurrentPageSize = saved.CurrentPageSize;
-                    _orgBlobProvenSafePageSize =
-                        ValidOrgBudgetOrZero(saved.ProvenSafePageSize);
-                    _orgBlobFailedPageSize =
-                        ValidOrgBudgetOrZero(saved.FailedPageSize);
-                    if (_orgBlobFailedPageSize > 0 &&
-                        _orgBlobProvenSafePageSize > 0 &&
-                        _orgBlobFailedPageSize <= _orgBlobProvenSafePageSize)
-                    {
-                        _orgBlobFailedPageSize = 0;
-                    }
-                    _orgLastConfirmedBytes = Math.Max(0, saved.LastConfirmedBytes);
-                    _orgMaxConfirmedBytes = Math.Max(
-                        _orgLastConfirmedBytes,
-                        Math.Max(0, saved.MaxConfirmedBytes));
-                    _orgLastUnconfirmedBytes = Math.Max(0, saved.LastUnconfirmedBytes);
-                    _orgLastFrontierFailedBytes =
-                        Math.Max(0, saved.LastFrontierFailedBytes);
-                }
-
-                Logger.Information(
-                    "ORG BLOB BUDGET restored: current=" + saved.CurrentPageSize +
-                    "; default=" + OrgBlobPageSize +
-                    "; provenSafe=" + _orgBlobProvenSafePageSize +
-                    "; failed=" + _orgBlobFailedPageSize +
-                    "; maxConfirmed=" + _orgMaxConfirmedBytes + "B.");
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning("Org blob budget state could not be restored: " + ex.Message);
-            }
-        }
-
-        private int ValidOrgBudgetOrZero(int value)
-        {
-            return value >= OrgBlobMinPageSize && value <= OrgBlobMaxPageSize
-                ? value
-                : 0;
-        }
-
-        private void SaveOrgBlobBudgetState()
-        {
-            try
-            {
-                if (string.IsNullOrWhiteSpace(_settingsDir))
-                    return;
-
-                OrgBlobBudgetState snapshot;
-                lock (_orgOutputSync)
-                {
-                    snapshot = new OrgBlobBudgetState
-                    {
-                        Version = 4,
-                        DefaultPageSize = OrgBlobPageSize,
-                        CurrentPageSize = _orgBlobCurrentPageSize,
-                        ProvenSafePageSize = _orgBlobProvenSafePageSize,
-                        FailedPageSize = _orgBlobFailedPageSize,
-                        LastConfirmedBytes = _orgLastConfirmedBytes,
-                        MaxConfirmedBytes = _orgMaxConfirmedBytes,
-                        LastUnconfirmedBytes = _orgLastUnconfirmedBytes,
-                        LastFrontierFailedBytes = _orgLastFrontierFailedBytes,
-                        UpdatedUtc = DateTime.UtcNow
-                    };
-                }
-
-                ManagerMemory.Current.SetOrgOutputBudget(JsonConvert.SerializeObject(snapshot));
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning("Org blob budget state could not be saved: " + ex.Message);
-            }
-        }
-
-        private int RoundOrgProbeAmount(int value)
-        {
-            int quantum = OrgBlobProbeQuantum;
-            return ((Math.Max(0, value) + (quantum / 2)) / quantum) * quantum;
-        }
-
-        private int RoundOrgProbeBudget(int value)
-        {
-            return Math.Max(
-                OrgBlobMinPageSize,
-                Math.Min(OrgBlobMaxPageSize, RoundOrgProbeAmount(value)));
-        }
-
-        private int OrgExplorationStep(int budget)
-        {
-            int raw = Math.Max(OrgBlobMinProbeStep, Math.Max(1, budget) / 10);
-            return Math.Max(
-                OrgBlobMinProbeStep,
-                RoundOrgProbeAmount(raw));
-        }
-
-        private int NextOrgProbeBudgetLocked(int safeBudget)
-        {
-            int basis = Math.Max(safeBudget, _orgBlobCurrentPageSize);
-            if (_orgBlobFailedPageSize > safeBudget && safeBudget > 0)
-            {
-                int gap = _orgBlobFailedPageSize - safeBudget;
-                if (gap <= OrgBlobProbeQuantum)
-                    return safeBudget;
-
-                int candidate = RoundOrgProbeBudget(safeBudget + (gap / 2));
-                candidate = Math.Max(safeBudget + OrgBlobProbeQuantum, candidate);
-                candidate = Math.Min(
-                    _orgBlobFailedPageSize - OrgBlobProbeQuantum,
-                    candidate);
-                return candidate > safeBudget
-                    ? candidate
-                    : safeBudget;
-            }
-
-            return Math.Min(
-                OrgBlobMaxPageSize,
-                basis + OrgExplorationStep(basis));
-        }
-
-        private bool IsOrgSizeFailureCandidate(PendingOrgEcho pending)
-        {
-            if (pending == null || !pending.GrowthProbe)
-                return false;
-
-            lock (_orgOutputSync)
-            {
-                // Positive echo evidence dominates absence-of-echo evidence.
-                // If a larger physical message already echoed successfully,
-                // this smaller miss cannot honestly be blamed on blob size.
-                if (_orgMaxConfirmedBytes > 0 &&
-                    pending.Length <= _orgMaxConfirmedBytes)
-                    return false;
-
-                return _orgBlobProvenSafePageSize <= 0 ||
-                       pending.BudgetAtSend > _orgBlobProvenSafePageSize;
-            }
-        }
-
-        private void RecordOrgEchoUncertainty(PendingOrgEcho pending)
-        {
-            if (pending == null || pending.Length <= 0)
-                return;
-
-            lock (_orgOutputSync)
-                _orgLastUnconfirmedBytes = pending.Length;
-            SaveOrgBlobBudgetState();
-        }
-
-        private void RecordOrgBlobDelivery(PendingOrgEcho pending, bool delivered)
-        {
-            if (pending == null || pending.Length <= 0)
-                return;
-
-            int before;
-            int after;
-            int safe;
-            int failed;
-            lock (_orgOutputSync)
-            {
-                before = _orgBlobCurrentPageSize;
-                if (delivered)
-                {
-                    _orgLastConfirmedBytes = pending.Length;
-                    _orgMaxConfirmedBytes = Math.Max(
-                        _orgMaxConfirmedBytes,
-                        pending.Length);
-
-                    if (pending.GrowthProbe)
-                    {
-                        _orgBlobProvenSafePageSize = Math.Max(
-                            _orgBlobProvenSafePageSize,
-                            pending.BudgetAtSend);
-                        if (_orgBlobFailedPageSize > 0 &&
-                            _orgBlobFailedPageSize <= _orgBlobProvenSafePageSize)
-                        {
-                            _orgBlobFailedPageSize = 0;
-                        }
-
-                        // Retried pages establish a safe bound but do not immediately
-                        // launch another larger experiment. A normal large reply does.
-                        if (!pending.IsRetry &&
-                            _orgBlobCurrentPageSize == pending.BudgetAtSend)
-                        {
-                            _orgBlobCurrentPageSize =
-                                NextOrgProbeBudgetLocked(_orgBlobProvenSafePageSize);
-                        }
-                    }
-                }
-                else
-                {
-                    _orgLastUnconfirmedBytes = pending.Length;
-                    _orgLastFrontierFailedBytes = pending.Length;
-                    if (_orgBlobFailedPageSize <= 0 ||
-                        pending.BudgetAtSend < _orgBlobFailedPageSize)
-                    {
-                        _orgBlobFailedPageSize = pending.BudgetAtSend;
-                    }
-
-                    if (_orgBlobProvenSafePageSize > 0 &&
-                        _orgBlobFailedPageSize > _orgBlobProvenSafePageSize)
-                    {
-                        _orgBlobCurrentPageSize =
-                            NextOrgProbeBudgetLocked(_orgBlobProvenSafePageSize);
-                    }
-                    else
-                    {
-                        _orgBlobCurrentPageSize = Math.Max(
-                            OrgBlobMinPageSize,
-                            pending.BudgetAtSend -
-                                OrgExplorationStep(pending.BudgetAtSend));
-                    }
-                }
-
-                safe = _orgBlobProvenSafePageSize;
-                failed = _orgBlobFailedPageSize;
-                after = _orgBlobCurrentPageSize;
-            }
-
-            if (before != after)
-            {
-                Logger.Information(
-                    "ORG BLOB PROBE " +
-                    (delivered ? "ADVANCE" : "BACKOFF") +
-                    ": " + before + " -> " + after +
-                    " (default " + OrgBlobPageSize +
-                    "; provenSafe=" + safe +
-                    "; failed=" + failed +
-                    "); evidence=" + pending.Length + "B" +
-                    (pending.IsRetry ? "; retry=" + pending.RetryAttempt : string.Empty) + ".");
-            }
-
-            SaveOrgBlobBudgetState();
-        }
-
-        private void RecordLateOrgConfirmation(
-            int length,
-            int budget,
-            bool growthProbe)
-        {
-            if (length <= 0)
-                return;
-
-            lock (_orgOutputSync)
-            {
-                _orgLastConfirmedBytes = length;
-                _orgMaxConfirmedBytes = Math.Max(_orgMaxConfirmedBytes, length);
-                if (growthProbe)
-                {
-                    _orgBlobProvenSafePageSize = Math.Max(
-                        _orgBlobProvenSafePageSize,
-                        budget);
-                    if (_orgBlobFailedPageSize > 0 &&
-                        _orgBlobFailedPageSize <= _orgBlobProvenSafePageSize)
-                    {
-                        _orgBlobFailedPageSize = 0;
-                    }
-                    // A late echo proves the backed-off budget was not actually
-                    // too large. Restore that proven point, but do not leap again.
-                    _orgBlobCurrentPageSize = Math.Max(
-                        _orgBlobCurrentPageSize,
-                        _orgBlobProvenSafePageSize);
-                }
-            }
-
-            SaveOrgBlobBudgetState();
-        }
-
-        private void QueueOrgRetry(PendingOrgEcho pending)
-        {
-            if (pending == null || pending.RetryPlan == null)
-                return;
-
-            List<string> retryMessages;
-            try
-            {
-                retryMessages = RebuildOrgReplyRetry(pending.RetryPlan);
-            }
-            catch (Exception ex)
-            {
-                // A single AO markup row cannot be split safely. Never turn that
-                // presentation limitation into a dropped reply: keep retrying the
-                // already-rendered logical page while later replies use the newly
-                // reduced budget.
-                Logger.Warning(
-                    "ORG RETRY could not rebuild smaller; retrying original page: " +
-                    ex.Message);
-                retryMessages = new List<string>
-                {
-                    pending.RetryPlan.RawText ?? string.Empty
-                };
-            }
-
-            if (retryMessages == null || retryMessages.Count == 0)
-                return;
-
-            DateTime now = DateTime.UtcNow;
-            int queueCount;
-            DateTime firstDue;
-            string retryGroup = Guid.NewGuid().ToString("N");
-            lock (_orgOutputSync)
-            {
-                DateTime due = now.AddSeconds(3);
-                if (_nextOrgRetrySendUtc > due)
-                    due = _nextOrgRetrySendUtc;
-                if (_orgRetryQueue.Count > 0)
-                {
-                    DateTime tail = _orgRetryQueue[_orgRetryQueue.Count - 1].DueUtc.AddSeconds(3);
-                    if (tail > due)
-                        due = tail;
-                }
-
-                firstDue = due;
-                foreach (string raw in retryMessages)
-                {
-                    _orgRetryQueue.Add(new QueuedOrgRetry
-                    {
-                        Target = pending.RetryPlan.Target,
-                        RawText = raw ?? string.Empty,
-                        Attempt = pending.RetryAttempt + 1,
-                        DueUtc = due,
-                        GroupId = retryGroup,
-                        ExpectedEchoText = pending.Text,
-                        ExpectedChannelId = pending.ChannelId,
-                        ExpectedSenderId = pending.SenderId,
-                        OriginalLength = pending.Length,
-                        OriginalBudget = pending.BudgetAtSend,
-                        OriginalGrowthProbe = pending.GrowthProbe
-                    });
-                    due = due.AddSeconds(3);
-                }
-
-                queueCount = _orgRetryQueue.Count;
-            }
-
-            Logger.Warning(
-                "ORG RETRY queued: attempt=" + (pending.RetryAttempt + 1) +
-                "; pages=" + retryMessages.Count +
-                "; first retry in " +
-                Math.Max(0, (int)Math.Ceiling((firstDue - now).TotalSeconds)) +
-                "s; queue=" + queueCount +
-                "; current blob budget=" + CurrentOrgBlobPageSize() +
-                " (default " + OrgBlobPageSize + ").");
-        }
-
-        private void TickOrgRetryQueue()
-        {
-            QueuedOrgRetry retry = null;
-            DateTime now = DateTime.UtcNow;
-            lock (_orgOutputSync)
-            {
-                if (_orgRetryQueue.Count == 0 ||
-                    now < _nextOrgRetrySendUtc ||
-                    now < _orgRetryQueue[0].DueUtc)
-                    return;
-
-                retry = _orgRetryQueue[0];
-                _orgRetryQueue.RemoveAt(0);
-                _nextOrgRetrySendUtc = now.AddSeconds(3);
-            }
-
-            OrgReplyRetryPlan plan = CaptureOrgReplyRetryPlan(retry.Target, retry.RawText);
-            string styled = CityBankers.Shared.CityBankersChatPalette.StyleMarkup(retry.RawText);
-            Logger.Information(
-                "ORG RETRY send: attempt=" + retry.Attempt +
-                "; bytes=" + Encoding.UTF8.GetByteCount(styled) +
-                "; current blob budget=" + CurrentOrgBlobPageSize() +
-                " (default " + OrgBlobPageSize + ").");
-
-            if (TrySendOrgMessage(retry.Target, styled, plan, true, retry.Attempt))
-                return;
-
-            lock (_orgOutputSync)
-            {
-                DateTime due = DateTime.UtcNow.AddSeconds(3);
-                if (_nextOrgRetrySendUtc > due)
-                    due = _nextOrgRetrySendUtc;
-                if (_orgRetryQueue.Count > 0)
-                {
-                    DateTime tail = _orgRetryQueue[_orgRetryQueue.Count - 1].DueUtc.AddSeconds(3);
-                    if (tail > due)
-                        due = tail;
-                }
-
-                retry.DueUtc = due;
-                _orgRetryQueue.Add(retry);
-            }
-
-            Logger.Warning(
-                "ORG RETRY send path unavailable; retry remains queued for another attempt.");
         }
 
         private void SetOrgOutboundHealth(bool degraded, string detail)
@@ -2715,25 +2042,11 @@ namespace CityManager
                       " ago"
                     : ", no send attempted since startup";
 
-                string safe = _orgBlobProvenSafePageSize > 0
-                    ? _orgBlobProvenSafePageSize.ToString(CultureInfo.InvariantCulture)
-                    : "unproven";
-                string failed = _orgBlobFailedPageSize > 0
-                    ? _orgBlobFailedPageSize.ToString(CultureInfo.InvariantCulture)
-                    : "none";
-                string confirmed = _orgMaxConfirmedBytes > 0
-                    ? _orgMaxConfirmedBytes + "B max"
-                    : "none";
-                string unconfirmed = _orgLastUnconfirmedBytes > 0
-                    ? _orgLastUnconfirmedBytes + "B"
-                    : "none";
                 string adaptive =
-                    ", blob " + _orgBlobCurrentPageSize + " (" + OrgBlobPageSize + " default)" +
-                    ", proven safe budget " + safe +
-                    ", failed probe budget " + failed +
-                    ", confirmed " + confirmed +
-                    ", last unconfirmed " + unconfirmed +
-                    ", retries queued " + _orgRetryQueue.Count;
+                    ", configured org limit " + _orgBlobCurrentPageSize + "B" +
+                    ", largest observed echo " + _orgMaxConfirmedBytes + "B" +
+                    ", last unconfirmed " + _orgLastUnconfirmedBytes + "B" +
+                    ", automatic tests/retries disabled";
 
                 return (_orgOutboundDegraded ? "degraded" : "ready") +
                        " - " + _orgOutboundDetail + adaptive + observed + attempted;
@@ -3313,7 +2626,7 @@ namespace CityManager
             TickPaidFixerTeam();
             TickNearbyObserver();
             ObserveOrgEcho(null);
-            TickOrgRetryQueue();
+            TickOrgChatTest();
             TickTellQueue();
             TryInviteDeveloper();
             TickMembership();
@@ -3535,6 +2848,7 @@ namespace CityManager
             public string SenderName;
             public object ChannelId;
             public string ChannelName;
+            public bool AdminOnly;
 
             public bool IsOrg => Kind == ReplyKind.Org;
             public bool IsGuest => Kind == ReplyKind.Guest;

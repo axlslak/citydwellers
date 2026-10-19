@@ -51,7 +51,7 @@ namespace CityDwellers.Shared
         private readonly HashSet<string> _readyBuddies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // These are existing IPC message payloads, held only for this host's
         // lifetime. They are never files, database documents or history records.
-        private string _raidCoordinator, _orgOutputBudget;
+        private string _raidCoordinator;
         private readonly Dictionary<string, string> _bankerReports = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         public void BeginFlipper(string id, string action)
         { lock (_serviceSync) _flipperOperation = new FlipperOperation { Id = id, Action = action }; }
@@ -242,8 +242,6 @@ namespace CityDwellers.Shared
         public bool BuddyReady(string character) { lock (_serviceSync) return _readyBuddies.Contains(character); }
         public string ReadRaidCoordinator() { lock (_serviceSync) return _raidCoordinator; }
         public void SetRaidCoordinator(string value) { lock (_serviceSync) _raidCoordinator = value; }
-        public string ReadOrgOutputBudget() { lock (_serviceSync) return _orgOutputBudget; }
-        public void SetOrgOutputBudget(string value) { lock (_serviceSync) _orgOutputBudget = value; }
         public bool RequestBankerReport(string character, string request)
         {
             lock (_serviceSync)
