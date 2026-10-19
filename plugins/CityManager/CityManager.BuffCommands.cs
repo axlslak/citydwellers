@@ -44,8 +44,17 @@ namespace CityManager
             foreach (var nano in PaidBufferCatalogue.ForProfession(provider.Profession)
                 .Where(n => memory.PaidBufferOffers(provider.Character, n.Id)))
             {
-                if (rows.Any(r => string.Equals(r.Provider.Character, provider.Character, StringComparison.OrdinalIgnoreCase) &&
-                    (r.Buff.NanoIds ?? new int[0]).Contains(nano.Id))) continue;
+                var existing = rows.FirstOrDefault(r => string.Equals(r.Provider.Character, provider.Character, StringComparison.OrdinalIgnoreCase) &&
+                    (r.Buff.NanoIds ?? new int[0]).Contains(nano.Id));
+                if (existing != null)
+                {
+                    // Catalogues saved before schema 12 have no effect-ID rows.
+                    // Preserve their uploaded capabilities while filling known
+                    // cast/effect relationships; no new audit is required.
+                    existing.Buff.EffectIds = (existing.Buff.EffectIds ?? new int[0])
+                        .Concat(nano.EffectIds ?? new int[0]).Distinct().ToArray();
+                    continue;
+                }
                 rows.Add(new ServiceBuffRow { Provider = new BufferBotInfo { Character = provider.Character,
                     Profession = provider.Profession }, Available = !provider.Blocked,
                     Buff = new BufferAdvertisedBuff { Profession = provider.Profession, Name = nano.Name,
@@ -130,13 +139,17 @@ namespace CityManager
             var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (int effect in player.VisibleNanoIds.Where(id => !BufferRefreshPolicy.IsRequestOnlyNano(id)))
             {
-                var choice = choices.FirstOrDefault(c => c.Ids.Contains(effect) && c.Casts.Length != 0);
+                int canonicalCast = PaidBufferCatalogue.FindEffect(effect)?.Id ?? effect;
+                var choice = choices.FirstOrDefault(c => c.Casts.Length != 0 &&
+                    (c.Ids.Contains(effect) || c.Casts.Any(n => n.Key == canonicalCast)));
                 if (choice == null) continue;
-                int cast = choice.Casts.Any(n => n.Key == effect) ? effect : PaidBufferCatalogue.FindEffect(effect)?.Id ?? 0;
+                int cast = choice.Casts.Any(n => n.Key == effect) ? effect : canonicalCast;
                 if (cast == 0 || !choice.Casts.Any(n => n.Key == cast)) continue;
                 ids.Add(cast);
                 tags.Add(choice.Tags.FirstOrDefault() ?? cast.ToString());
             }
+            DevTrace("BUFFER " + command + " requester=" + senderName + " matched=" + ids.Count +
+                " ncuCast=" + (ids.Contains(275043) ? "275043" : "none") + ".");
             if (ids.Count == 0)
                 Reply(target, "No supported active buffs were visible.");
             else if (command == "buffmacro")
