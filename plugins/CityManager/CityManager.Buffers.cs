@@ -15,6 +15,7 @@ namespace CityManager
     {
         private const int BufferControlTimeoutMilliseconds = 30000;
         private const int BufferPublicCommandTimeoutMilliseconds = 120000;
+        private const int PaidTeamInviteMaximumAttempts = 3;
         private static readonly TimeSpan BufferAuthorityPublishInterval =
             TimeSpan.FromSeconds(1);
         private DateTime _nextBufferAuthorityPublishUtc = DateTime.MinValue;
@@ -24,6 +25,8 @@ namespace CityManager
         private bool _paidTeamOwnsTeam, _paidTeamStarted, _paidTeamClosing;
         private int _paidTeamInviteId;
         private DateTime _paidTeamInviteUntil;
+        private DateTime _nextPaidTeamInviteAttempt;
+        private int _paidTeamInviteAttempts;
         private DateTime _nextPaidTeamCleanup;
         private int _paidTeamCleanupCount = -1;
         private bool _paidTeamBatchReady;
@@ -122,6 +125,8 @@ namespace CityManager
                     _paidTeamOwnsTeam = _paidTeamStarted = _paidTeamClosing = false;
                     _paidTeamInviteId = 0;
                     _paidTeamInviteUntil = DateTime.MinValue;
+                    _nextPaidTeamInviteAttempt = DateTime.MinValue;
+                    _paidTeamInviteAttempts = 0;
                     _paidTeamBatchReady = false;
                     _paidTeamBatchSinceUtc = DateTime.MinValue;
                     _paidTeamCustomers = new int[0];
@@ -145,16 +150,31 @@ namespace CityManager
                     DevTrace("PAID TEAM team membership confirmed: " + _paidTeamInviteId + ".");
                     _paidTeamInviteId = 0;
                     _paidTeamInviteUntil = DateTime.MinValue;
+                    _nextPaidTeamInviteAttempt = DateTime.MinValue;
+                    _paidTeamInviteAttempts = 0;
                 }
                 if (!_paidTeamBatchReady)
                 {
                     if (_paidTeamInviteId != 0)
                     {
-                        if (now < _paidTeamInviteUntil) return;
+                        if (now < _paidTeamInviteUntil)
+                        {
+                            // Seeing the avatar does not prove its client has
+                            // finished zoning or displayed the first invitation.
+                            // Retry the pending request without resetting its
+                            // deadline, touching the team or delaying acceptance.
+                            var requester = DynelManager.Players.FirstOrDefault(p =>
+                                p.Identity.Instance == _paidTeamInviteId);
+                            if (requester != null && now >= _nextPaidTeamInviteAttempt &&
+                                _paidTeamInviteAttempts < PaidTeamInviteMaximumAttempts)
+                                SendPaidTeamInvitation(requester.Identity, now, "requester " + requester.Name);
+                            return;
+                        }
                         _paidTeamSkipped.Add(_paidTeamInviteId);
                         memory.DeferPaidBuff(_paidTeamCharacter, _paidTeamInviteId,
                             PaidBufferCatalogue.ForProfession(provider.Profession).First(n => n.IsTeam).Id);
-                        DevTrace("PAID TEAM invitation expired for " + _paidTeamInviteId + "; gathering other requesters.");
+                        DevTrace("PAID TEAM invitation expired for " + _paidTeamInviteId +
+                            " after " + _paidTeamInviteAttempts + " attempts; gathering other requesters.");
                         _paidTeamInviteId = 0;
                     }
                     // Aim for four customers, reserving Manager's and the buffer's
@@ -230,9 +250,21 @@ namespace CityManager
         {
             _paidTeamOwnsTeam = true;
             _paidTeamInviteId = identity.Instance;
-            _paidTeamInviteUntil = now.AddSeconds(15);
+            // A normal client needs time to finish zoning and answer the prompt.
+            // Membership still advances the batch immediately; this is a limit,
+            // not a sleep before admitting the paid buffer.
+            _paidTeamInviteUntil = now.AddSeconds(30);
+            _paidTeamInviteAttempts = 0;
+            SendPaidTeamInvitation(identity, now, description);
+        }
+
+        private void SendPaidTeamInvitation(Identity identity, DateTime now, string description)
+        {
             Team.Invite(identity);
-            DevTrace("PAID TEAM Manager invited " + description + ".");
+            _paidTeamInviteAttempts++;
+            _nextPaidTeamInviteAttempt = now.AddSeconds(5);
+            DevTrace("PAID TEAM Manager " + (_paidTeamInviteAttempts == 1 ? "invited " : "reinvited ") +
+                description + " (attempt " + _paidTeamInviteAttempts + "/" + PaidTeamInviteMaximumAttempts + ").");
         }
 
         private void PublishBufferAuthoritySnapshot(bool force = false)
