@@ -171,8 +171,12 @@ namespace CityManager
                             return;
                         }
                         _paidTeamSkipped.Add(_paidTeamInviteId);
-                        memory.DeferPaidBuff(_paidTeamCharacter, _paidTeamInviteId,
-                            PaidBufferCatalogue.ForProfession(provider.Profession).First(n => n.IsTeam).Id);
+                        foreach (var request in requests.Where(r => r.SenderId == unchecked((uint)_paidTeamInviteId)))
+                        foreach (var nano in request.ObservedNanoId > 0
+                            ? new[] { PaidBufferCatalogue.FindEffect(request.ObservedNanoId) }
+                            : (request.Arguments ?? new string[0]).Select(PaidBufferCatalogue.Find).ToArray())
+                            if (nano != null && nano.IsTeam)
+                                memory.DeferPaidBuff(_paidTeamCharacter, _paidTeamInviteId, nano.Id);
                         DevTrace("PAID TEAM invitation expired for " + _paidTeamInviteId +
                             " after " + _paidTeamInviteAttempts + " attempts; gathering other requesters.");
                         _paidTeamInviteId = 0;
@@ -243,7 +247,7 @@ namespace CityManager
                     memory.ReportPaidBuffFinished(provider.Character, id, provider.TeamCastNano, false);
                 else allSettled = false;
             }
-            return allSettled;
+            return allSettled && !memory.HasPaidTeamWork(provider.Character, _paidTeamCustomers);
         }
 
         private void InvitePaidTeamMember(Identity identity, DateTime now, string description)
@@ -423,6 +427,7 @@ namespace CityManager
                     if (resolved.Length != 0) ServeBufferMacro(senderName, resolved, level, target);
                     return;
                 }
+                if (TryServeObservedBuffCommand(senderName, command, target)) return;
                 var outcome = RunBufferCommand(senderName, command, new string[0], target, null);
                 if (outcome == null || !outcome.Success) return;
                 if (string.Equals(command, "buffmacro", StringComparison.OrdinalIgnoreCase))
@@ -444,7 +449,17 @@ namespace CityManager
             foreach (string tag in tags)
             {
                 var nano = PaidBufferCatalogue.Find(tag);
-                bool configured = nano != null && memory.ReadPaidBuffers().Any(p => p.Profession == nano.Profession);
+                bool configured = nano != null && memory.ReadPaidBuffers().Any(p =>
+                    memory.PaidBufferOffers(p.Character, nano.Id));
+                // Shared composites/ordinary buffs keep their resident providers;
+                // merely discovering the same nano on a visiting character must
+                // not turn that buff into an unnecessary account login.
+                bool resident = memory.BufferBotInfos().Where(b => !memory.IsPaidBuffer(b.Character))
+                    .SelectMany(b => b.AdvertisedBuffs ?? new BufferAdvertisedBuff[0])
+                    .Any(b => (b.Tags ?? new string[0]).Concat(new[] { b.Tag }).Contains(tag, StringComparer.OrdinalIgnoreCase) ||
+                        (int.TryParse(tag, out int requested) && (b.NanoIds ?? new int[0]).Contains(requested)));
+                if (resident && (nano == null || !PaidBufferCatalogue.IsSeed(nano.Id)))
+                { ordinary.Add(tag); continue; }
                 // Shared Mali tags retain their free alternative when the paid role
                 // is disabled, or this recipient needs the lower-level NCU line.
                 if (nano == null || ((tag == "ncu" || tag == "iic") &&
@@ -455,8 +470,7 @@ namespace CityManager
                 }
                 if (!configured)
                 {
-                    Reply(target, "Can't cast " + nano.Name + " (" + tag + "): no enabled paid " +
-                        PaidBufferCatalogue.ProfessionName(nano.Profession) + " is configured.");
+                    Reply(target, "Can't cast " + nano.Name + " (" + tag + "): no enabled buffer offers it.");
                     continue;
                 }
                 if (level.HasValue && level.Value < nano.Level)
@@ -500,16 +514,16 @@ namespace CityManager
             try
             {
                 // MP composites replace each other; Neuronal Stimulator is separate.
-                var composite = paid.Where(n => n.Profession == 12 && n.Id != 220345)
+                var composite = paid.Where(n => PaidBufferCatalogue.IsNanoSkillComposite(n.Id))
                     .OrderByDescending(n => n.Level).FirstOrDefault();
-                foreach (var nano in paid.Where(n => n.Profession != 12 || n.Id == 220345 || n == composite))
+                foreach (var nano in paid.Where(n => !PaidBufferCatalogue.IsNanoSkillComposite(n.Id) || n == composite))
                 {
-                    var provider = memory.ReadPaidBuffers().Where(p => p.Profession == nano.Profession &&
+                    var provider = memory.ReadPaidBuffers().Where(p => memory.PaidBufferOffers(p.Character, nano.Id) &&
                         !p.Blocked && DateTime.UtcNow >= p.RetryAfterUtc)
                         .OrderByDescending(p => p.Running).FirstOrDefault();
                     if (provider == null)
                     {
-                        Reply(target, "Can't cast " + nano.Name + ": its paid provider is unavailable.");
+                        Reply(target, "Can't cast " + nano.Name + ": its provider is unavailable.");
                         continue;
                     }
                     if (memory.BeginBufferPublicCommand(new BufferPublicCommandRequest {
@@ -583,28 +597,12 @@ namespace CityManager
 
             QueuePublicWork(target, () =>
             {
-                List<BufferBotInfo> snapshots = ManagerMemory.Current.BufferBotInfos()
-                    .Where(snapshot => snapshot != null &&
-                        !ManagerMemory.Current.IsPaidBuffer(snapshot.Character) &&
-                        snapshot.AdvertisedBuffs != null &&
-                        snapshot.AdvertisedBuffs.Length != 0)
-                    .ToList();
-
-                PaidBufferSession[] paidProviders = ManagerMemory.Current.ReadPaidBuffers()
-                    .Where(p => PaidBufferCatalogue.ForProfession(p.Profession).Length != 0).ToArray();
-                if (snapshots.Count == 0 && paidProviders.Length == 0)
+                var rows = ServiceBuffRows();
+                if (rows.Count == 0)
                 {
-                    ReplyBufferCatalogue(target,
-                        new[] { "No buffer capability catalogue has been observed yet." });
+                    ReplyBufferCatalogue(target, new[] { "No buffer capability catalogue has been observed yet." });
                     return;
                 }
-
-                DateTime now = DateTime.UtcNow;
-                var rows = snapshots
-                    .SelectMany(snapshot => snapshot.AdvertisedBuffs
-                        .Where(buff => buff != null)
-                        .Select(buff => new { Snapshot = snapshot, Buff = buff }))
-                    .ToList();
 
                 var body = new StringBuilder();
                 body.Append(CommandLink(target, "buff mine", "My buffs"))
@@ -635,35 +633,17 @@ namespace CityManager
                             StringComparer.OrdinalIgnoreCase))
                     {
                         BufferAdvertisedBuff buff = buffGroup.First().Buff;
-                        bool ready = buffGroup.Any(row => IsFreshReadyBuffer(row.Snapshot, now));
+                        bool ready = buffGroup.Any(row => row.Available);
                         body.Append("  ").Append(CommandLink(target, "buff add " + buff.Tag, buff.Name));
                         if (string.Equals(buff.Type, "Team", StringComparison.OrdinalIgnoreCase))
                             body.Append(" <font color='#FBFF96'>[Team]</font>");
                         body.Append(" <font color='#F07171'>[")
                             .Append(EscapeBlobText(buff.Description)).Append("]</font>")
                             .Append(" <font color='#00BDBD'>[NCU: ").Append(buff.Ncu).Append("]</font>");
+                        int level = (buff.Nanos ?? new BufferNanoMetadata[0]).Select(n => n.Level).DefaultIfEmpty(0).Max();
+                        if (level > 0) body.Append(" <font color='#00BDBD'>[Level: ").Append(level).Append("+]</font>");
                         if (!ready) body.Append(" <font color='").Append(ColorMuted).Append("'>[Offline]</font>");
                         body.Append("\n");
-                    }
-                    body.Append("\n");
-                }
-
-                foreach (var profession in paidProviders.Where(p => p.Profession != 0)
-                    .GroupBy(p => p.Profession).OrderBy(p => p.Key))
-                {
-                    body.Append("<img src=tdb://id:GFX_GUI_FRIENDLIST_SPLITTER>\n")
-                        .Append("<img src=tdb://id:GFX_GUI_ICON_PROFESSION_").Append(profession.Key).Append("> ")
-                        .Append("<b>").Append(PaidBufferCatalogue.ProfessionName(profession.Key))
-                        .Append(" — on demand</b> (")
-                        .Append(EscapeBlobText(string.Join(", ", profession.Select(p => p.Character))))
-                        .Append(")\n");
-                    foreach (var nano in PaidBufferCatalogue.ForProfession(profession.Key))
-                    {
-                        body.Append("  ").Append(CommandLink(target, "buff add " + nano.Tags[0], nano.Name));
-                        if (nano.IsTeam) body.Append(" <font color='#FBFF96'>[Team]</font>");
-                        body.Append(" <font color='#F07171'>[").Append(EscapeBlobText(nano.Description))
-                            .Append("]</font> <font color='#00BDBD'>[Level: ").Append(nano.Level)
-                            .Append("+] [NCU: ").Append(nano.Ncu).Append("]</font>\n");
                     }
                     body.Append("\n");
                 }
@@ -719,7 +699,7 @@ namespace CityManager
                     var bufferStates = ManagerMemory.Current.BufferBotInfos();
                     PaidBufferSession[] paidProviders = ManagerMemory.Current.ReadPaidBuffers();
                     foreach (var paid in paidProviders)
-                        Reply(target, paid.Character + ": on-demand paid " + PaidBufferCatalogue.ProfessionName(paid.Profession) + ", " +
+                        Reply(target, paid.Character + ": " + PaidBufferCatalogue.ProfessionName(paid.Profession) + ", " +
                             (paid.Blocked ? "blocked after cleanup failure; check host log" :
                              DateTime.UtcNow < paid.RetryAfterUtc ? "failure cooldown" :
                              paid.Draining && paid.Running ? "finishing queue and logging out" :

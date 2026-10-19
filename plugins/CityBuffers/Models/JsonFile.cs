@@ -19,10 +19,15 @@ namespace MalisBuffBots
         protected readonly T _data;
         protected string Raw;
 
-        public JsonFile(string jsonPath)
+        public JsonFile(string jsonPath, T missingDefault = default(T))
         {
             try
             {
+                if (!System.IO.File.Exists(jsonPath) && !ReferenceEquals(missingDefault, null))
+                {
+                    _data = missingDefault;
+                    return;
+                }
                 Raw = System.IO.File.ReadAllText(jsonPath);
                 _data = JsonConvert.DeserializeObject<T>(Raw);
                 if (ReferenceEquals(_data, null)) throw new InvalidOperationException("JSON contains null.");

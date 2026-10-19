@@ -221,7 +221,7 @@ namespace CityManager
                 string key = player.CharacterId + ":" + nano.Id;
                 visibleKeys.Add(key);
                 if (_waitingForObservedNcu.Contains(player.CharacterId) &&
-                    PaidBufferCatalogue.FindEffect(nano.Id) == null)
+                    !PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nano.Id))
                 {
                     // Learned usage remains intact and is reconsidered as soon as NCU lands.
                     _paidRefreshProviders.Remove(key);
@@ -229,7 +229,7 @@ namespace CityManager
                     continue;
                 }
                 if (!ManagerMemory.Current.ObservedBuffNeedsRefresh(player.CharacterId, nano.Id,
-                    PaidBufferCatalogue.FindEffect(nano.Id) == null))
+                    !PaidBufferCatalogue.FindEffect(275043).MatchesEffect(nano.Id)))
                 {
                     if (nano.FullSeconds > 0 && nano.RemainingSeconds >= nano.FullSeconds / 2 &&
                         _refreshAwaiting.Remove(key))
@@ -259,7 +259,7 @@ namespace CityManager
                         memory.ObservedPaidRefreshPending("observed:" + key, assignedPaid)) continue;
                     _paidRefreshProviders.Remove(key);
                     var paid = paidProviders.FirstOrDefault(p =>
-                        PaidBufferCatalogue.ForProfession(p.Profession).Any(n => n.MatchesEffect(nano.Id)));
+                        memory.PaidBufferOffers(p.Character, nano.Id));
                     if (paid == null) continue;
                     providerName = paid.Character;
                     int castId = PaidBufferCatalogue.FindEffect(nano.Id).Id;

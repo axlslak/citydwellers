@@ -2691,6 +2691,25 @@
             "Tags": [
                 "pds"
             ]
+        },
+        {
+            "Name": "Composite Heavy Artillery",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 269482
+                }
+            ],
+            "Type": 0,
+            "Description": "+100 Assault Rifle, Rifle, Grenade, Heavy Weapons, SMG and Ranged Energy; 4 hours",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "cha",
+                "compha",
+                "heavyartillery"
+            ]
         }
     ],
     "Trader": [
@@ -3214,4 +3233,3 @@
         }
     ]
 }
-

@@ -4,13 +4,15 @@ using System.Linq;
 
 namespace CityDwellers.Shared
 {
+    [Serializable]
     public sealed class PaidBufferNano
     {
         public readonly int Id, Profession, Level, Ncu;
         public readonly string Name, Description;
         public readonly string[] Tags;
         public int[] EffectIds { get; internal set; }
-        public bool IsTeam => Id == 275043 || Id == 235291;
+        internal bool Team;
+        public bool IsTeam => Team || Id == 275043 || Id == 235291;
         public bool MatchesEffect(int id) => Id == id || (EffectIds != null && EffectIds.Contains(id));
         internal PaidBufferNano(int id, int profession, int level, int ncu,
             string name, string description, params string[] tags)
@@ -25,6 +27,7 @@ namespace CityDwellers.Shared
     public static class PaidBufferCatalogue
     {
         private static readonly PaidBufferNano[] Nanos = {
+            new PaidBufferNano(269482, 1, 0, 58, "Composite Heavy Artillery", "+100 Assault Rifle, Rifle, Grenade, Heavy Weapons, SMG and Ranged Energy; 4 hours", "cha", "compha", "heavyartillery"),
             new PaidBufferNano(273629, 9, 215, 56, "Improved Essence of Behemoth", "+1998 HP, +54 Strength/Stamina", "ibehe", "ibehemo", "es1"),
             new PaidBufferNano(222856, 10, 0, 56, "Improved Instinctive Control", "+350 Nano Init, +75 Nano Resist, +300 Max Nano", "iic"),
             new PaidBufferNano(235291, 7, 205, 53, "Umbral Wrangler (Premium)", "Team +147-153 weapon/nano skills (perks); recipient effect 250 seconds", "umbral")
@@ -42,7 +45,9 @@ namespace CityDwellers.Shared
             new PaidBufferNano(220341, 12, 205, 54, "Composite Mochams (4 hours)", "+140 nano skills, Shadowlands required", "cm4h", "cm4", "compmoch4"),
             new PaidBufferNano(220343, 12, 209, 55, "Composite Mochams (8 hours)", "+140 nano skills, Shadowlands required", "cm8h", "cm8", "compmoch8")
         };
-        public static bool UsesManagerTeam(int profession) => profession == 4 || profession == 7;
+        public static bool UsesManagerTeam(int profession) => profession == 4 || profession == 7 ||
+            ForProfession(profession).Any(n => n.IsTeam);
+        public static bool IsNanoSkillComposite(int id) => new[] { 220331, 220333, 220335, 220337, 220339, 220341, 220343 }.Contains(id);
 
         // Team ownership belongs to the requested nano, not the caster's profession.
         // In particular, Lasting Ultimatum is a direct target HoT.
@@ -55,6 +60,8 @@ namespace CityDwellers.Shared
 
         public static int ProfessionId(string name)
         {
+            if (string.Equals(name, "Soldier", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(name, "Sol", StringComparison.OrdinalIgnoreCase)) return 1;
             if (string.Equals(name, "Enforcer", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(name, "Enf", StringComparison.OrdinalIgnoreCase)) return 9;
             if (string.Equals(name, "Doctor", StringComparison.OrdinalIgnoreCase) ||
@@ -80,19 +87,23 @@ namespace CityDwellers.Shared
             if (string.Equals(character, "Zdrahonia", StringComparison.OrdinalIgnoreCase)) return 12;
             return 0;
         }
-        public static string ProfessionName(int profession) => profession == 12 ? "MP" :
+        public static string ProfessionName(int profession) => profession == 1 ? "Soldier" : profession == 12 ? "MP" :
             profession == 4 ? "Fixer" : profession == 3 ? "Engineer" :
             profession == 9 ? "Enforcer" : profession == 10 ? "Doctor" : profession == 7 ? "Trader" : "Unconfigured";
         public static PaidBufferNano Find(string tag)
         {
             int id;
             bool numeric = int.TryParse(tag, out id);
-            return Nanos.FirstOrDefault(n => (numeric && n.Id == id) ||
-                n.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase));
+            return Nanos.FirstOrDefault(n => (numeric && n.MatchesEffect(id)) ||
+                n.Tags.Contains(tag, StringComparer.OrdinalIgnoreCase)) ?? ManagerMemory.Current.FindAuditedServiceNano(tag);
         }
-        public static PaidBufferNano FindEffect(int id) => Nanos.FirstOrDefault(n => n.MatchesEffect(id));
+        public static PaidBufferNano FindEffect(int id) => Nanos.FirstOrDefault(n => n.MatchesEffect(id)) ??
+            ManagerMemory.Current.FindAuditedServiceEffect(id);
+        internal static PaidBufferNano[] SeedForProfession(int profession) => Nanos.Where(n => n.Profession == profession).ToArray();
+        public static bool IsSeed(int id) => Nanos.Any(n => n.Id == id);
         public static PaidBufferNano[] ForProfession(int profession) =>
-            Nanos.Where(n => n.Profession == profession).ToArray();
+            Nanos.Where(n => n.Profession == profession).Concat(ManagerMemory.Current.AuditedServiceNanos(profession))
+                .GroupBy(n => n.Id).Select(g => g.First()).ToArray();
     }
 
     [Serializable]
@@ -171,6 +182,7 @@ namespace CityDwellers.Shared
                 if (_paidBuffers.Values.Any(p => p.Running))
                     throw new InvalidOperationException("Previous paid buffer session has not unloaded.");
                 _paidBuffers.Clear();
+                _auditedServiceNanos = new Dictionary<string, PaidBufferNano[]>(StringComparer.OrdinalIgnoreCase);
                 foreach (var provider in providers)
                     _paidBuffers.Add(provider.Character, new PaidBufferSession {
                         Character = provider.Character, Profession = provider.Profession });
@@ -280,14 +292,15 @@ namespace CityDwellers.Shared
                     PaidRequestAdmittedLocked(r))) return false;
                 if (PaidBufferCatalogue.UsesManagerTeam(_paidBuffer.Profession))
                 {
-                    if (DateTime.UtcNow < _nextPaidFixerLoginUtc) return false;
+                    bool loginLimited = _paidBuffer.Profession == 4 || _paidBuffer.Profession == 7;
+                    if (loginLimited && DateTime.UtcNow < _nextPaidFixerLoginUtc) return false;
                     // Prefer gathering the pending team batch before spending a login.
                     // Direct-only work needs neither a team nor four customers.
                     var teamRequests = _bufferPublicCommands.Values.Where(r =>
                         string.Equals(r.TargetCharacter, character, StringComparison.OrdinalIgnoreCase) &&
                         PaidBufferCatalogue.RequiresManagerTeam(r) && PaidRequestReadyLocked(r)).ToArray();
                     if (teamRequests.Length != 0 && !teamRequests.Any(PaidRequestAdmittedLocked)) return false;
-                    _nextPaidFixerLoginUtc = DateTime.UtcNow.AddSeconds(30);
+                    if (loginLimited) _nextPaidFixerLoginUtc = DateTime.UtcNow.AddSeconds(30);
                 }
                 _paidBuffer.Running = true;
                 _paidBuffer.Ready = _paidBuffer.Draining = _paidBuffer.Parked = false;

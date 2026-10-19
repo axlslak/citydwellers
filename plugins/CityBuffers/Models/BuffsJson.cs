@@ -19,7 +19,7 @@ namespace MalisBuffBots
     {
         public readonly Dictionary<Profession, List<NanoEntry>> Entries;
 
-        public BuffsJson(string jsonPath) : base(jsonPath)
+        public BuffsJson(string jsonPath) : base(jsonPath, new Dictionary<Profession, List<NanoEntry>>())
         {
             Entries = _data;
         }

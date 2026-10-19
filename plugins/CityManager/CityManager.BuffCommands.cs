@@ -21,6 +21,42 @@ namespace CityManager
             public bool Paid;
         }
 
+        private sealed class ServiceBuffRow
+        {
+            public BufferBotInfo Provider;
+            public BufferAdvertisedBuff Buff;
+            public bool Available;
+        }
+
+        private List<ServiceBuffRow> ServiceBuffRows()
+        {
+            var memory = ManagerMemory.Current;
+            var now = DateTime.UtcNow;
+            var paid = memory.ReadPaidBuffers();
+            var rows = memory.BufferBotInfos().SelectMany(provider =>
+                (provider.AdvertisedBuffs ?? new BufferAdvertisedBuff[0]).Select(buff => new ServiceBuffRow {
+                    Provider = provider, Buff = buff,
+                    Available = paid.Any(p => string.Equals(p.Character, provider.Character, StringComparison.OrdinalIgnoreCase) && !p.Blocked) ||
+                        IsFreshReadyBuffer(provider, now) })).ToList();
+            // Profiles bootstrap an as-yet unaudited on-demand character. Once an
+            // audit exists, its uploaded capability list decides what is offered.
+            foreach (var provider in paid)
+            foreach (var nano in PaidBufferCatalogue.ForProfession(provider.Profession)
+                .Where(n => memory.PaidBufferOffers(provider.Character, n.Id)))
+            {
+                if (rows.Any(r => string.Equals(r.Provider.Character, provider.Character, StringComparison.OrdinalIgnoreCase) &&
+                    (r.Buff.NanoIds ?? new int[0]).Contains(nano.Id))) continue;
+                rows.Add(new ServiceBuffRow { Provider = new BufferBotInfo { Character = provider.Character,
+                    Profession = provider.Profession }, Available = !provider.Blocked,
+                    Buff = new BufferAdvertisedBuff { Profession = provider.Profession, Name = nano.Name,
+                        Description = nano.Description, Tag = nano.Tags[0], Tags = nano.Tags,
+                        Type = nano.IsTeam ? "Team" : "Single", Ncu = nano.Ncu,
+                        NanoIds = new[] { nano.Id }, EffectIds = nano.EffectIds ?? new int[0],
+                        Nanos = new[] { new BufferNanoMetadata { Id = nano.Id, Level = nano.Level, Ncu = nano.Ncu } } } });
+            }
+            return rows;
+        }
+
         private void ProcessBuffCommand(string senderName, string[] parts, ReplyTarget target)
         {
             string action = parts.Length == 1 ? "list" : parts[1].ToLowerInvariant();
@@ -68,48 +104,48 @@ namespace CityManager
         private List<PersonalBuffChoice> PersonalBuffChoices()
         {
             var memory = ManagerMemory.Current;
-            var advertised = memory.BufferBotInfos().Where(b => !memory.IsPaidBuffer(b.Character))
-                .SelectMany(b => b.AdvertisedBuffs ?? new BufferAdvertisedBuff[0]).ToArray();
-            var available = new HashSet<int>(advertised.SelectMany(b => b.NanoIds ?? new int[0]));
             var result = new List<PersonalBuffChoice>();
-            // Immutable deployed catalogue supplies Mali aliases and nano families.
-            // Live memory decides which of those the configured providers offer.
-            try
+            foreach (var row in ServiceBuffRows())
             {
-                string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Buffers", "JSON", "BuffsDb.json");
-                var root = JObject.Parse(System.IO.File.ReadAllText(path));
-                foreach (var property in root.Properties())
-                foreach (var entry in (JArray)property.Value)
-                {
-                    var levels = (entry["LevelToId"] ?? new JArray()).Select(n =>
-                        new KeyValuePair<int, int>((int)n["Id"], (int?)n["Level"] ?? 0)).ToArray();
-                    var ids = levels.Select(n => n.Key).Concat((entry["RemoveNanoIdUponCast"] ?? new JArray())
-                        .Select(n => (int)n)).Where(id => id > 0).Distinct().ToArray();
-                    result.Add(new PersonalBuffChoice {
-                        Name = (string)entry["Name"] ?? "Unknown buff",
-                        Tags = (entry["Tags"] ?? new JArray()).Select(t => (string)t).ToArray(),
-                        Ids = ids, Casts = levels.Where(n => available.Contains(n.Key)).ToArray() });
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning("Buff command aliases unavailable; using memory catalogue: " + ex.Message);
-            }
-            foreach (var buff in advertised)
-                if (!result.Any(c => string.Equals(c.Name, buff.Name, StringComparison.OrdinalIgnoreCase)))
-                    result.Add(new PersonalBuffChoice { Name = buff.Name, Tags = new[] { buff.Tag },
-                        Ids = buff.NanoIds ?? new int[0], Casts = (buff.NanoIds ?? new int[0])
-                            .Select(id => new KeyValuePair<int, int>(id, 0)).ToArray() });
-            foreach (var provider in memory.ReadPaidBuffers().Select(p => p.Profession).Distinct())
-            foreach (var nano in PaidBufferCatalogue.ForProfession(provider))
-            {
-                // Replace the deployed definition with the paid profile's exact cast/effect IDs.
-                result.RemoveAll(c => c.Ids.Contains(nano.Id));
-                result.Add(new PersonalBuffChoice { Name = nano.Name, Tags = nano.Tags,
-                    Ids = new[] { nano.Id }.Concat(nano.EffectIds ?? new int[0]).Distinct().ToArray(),
-                    Casts = new[] { new KeyValuePair<int, int>(nano.Id, nano.Level) }, Paid = true });
+                var buff = row.Buff;
+                result.Add(new PersonalBuffChoice { Name = buff.Name,
+                    Tags = (buff.Tags ?? new string[0]).Concat(new[] { buff.Tag }).Where(t => !string.IsNullOrWhiteSpace(t))
+                        .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                    Ids = (buff.NanoIds ?? new int[0]).Concat(buff.EffectIds ?? new int[0]).Distinct().ToArray(),
+                    Casts = (buff.NanoIds ?? new int[0]).Select(id => new KeyValuePair<int, int>(id,
+                        (buff.Nanos ?? new BufferNanoMetadata[0]).FirstOrDefault(n => n.Id == id)?.Level ?? 0))
+                        .OrderByDescending(n => n.Value).ToArray(), Paid = memory.IsPaidBuffer(row.Provider.Character) });
             }
             return result;
+        }
+
+        private bool TryServeObservedBuffCommand(string senderName, string command, ReplyTarget target)
+        {
+            if (command != "rebuff" && command != "buffmacro") return false;
+            var player = ManagerMemory.Current.ReadNearbyPlayers()
+                .FirstOrDefault(p => p.CharacterId == unchecked((int)target.SenderId));
+            if (player == null) return false; // Retain the existing nearby-caster read fallback.
+            var choices = PersonalBuffChoices();
+            var ids = new HashSet<int>();
+            var tags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (int effect in player.VisibleNanoIds.Where(id => !BufferRefreshPolicy.IsRequestOnlyNano(id)))
+            {
+                var choice = choices.FirstOrDefault(c => c.Ids.Contains(effect) && c.Casts.Length != 0);
+                if (choice == null) continue;
+                int cast = choice.Casts.Any(n => n.Key == effect) ? effect : PaidBufferCatalogue.FindEffect(effect)?.Id ?? 0;
+                if (cast == 0 || !choice.Casts.Any(n => n.Key == cast)) continue;
+                ids.Add(cast);
+                tags.Add(choice.Tags.FirstOrDefault() ?? cast.ToString());
+            }
+            if (ids.Count == 0)
+                Reply(target, "No supported active buffs were visible.");
+            else if (command == "buffmacro")
+                Reply(target, "<font color='" + ColorCommand + "'>/macro buffpreset /tell " +
+                    Client.CharacterName + " buff add " + EscapeBlobText(string.Join(" ", tags.OrderBy(t => t))) + "</font>");
+            else
+                ServeBufferMacro(senderName, ids.Select(id => id.ToString()).ToArray(),
+                    player.Level > 0 ? (int?)player.Level : null, target);
+            return true;
         }
 
         private static bool MatchesBuffChoice(PersonalBuffChoice choice, string query)
@@ -145,12 +181,17 @@ namespace CityManager
                 }
                 int numeric;
                 bool exact = int.TryParse(query, out numeric);
-                if (exact && !choice.Paid && !choice.Casts.Any(n => n.Key == numeric))
+                int exactCast = exact ? numeric : 0;
+                if (exact && !choice.Casts.Any(n => n.Key == exactCast))
                 {
-                    Reply(target, "Can't cast nano " + numeric + ": no configured buffer advertises that version.");
-                    continue;
+                    exactCast = PaidBufferCatalogue.FindEffect(numeric)?.Id ?? 0;
+                    if (!choice.Casts.Any(n => n.Key == exactCast))
+                    {
+                        Reply(target, "Can't cast nano " + numeric + ": no configured buffer advertises that version.");
+                        continue;
+                    }
                 }
-                var cast = choice.Casts.FirstOrDefault(n => (!exact || n.Key == numeric || choice.Paid) &&
+                var cast = choice.Casts.FirstOrDefault(n => (!exact || n.Key == exactCast) &&
                     (!level.HasValue || n.Value <= level.Value));
                 if (cast.Key != 0)
                 {

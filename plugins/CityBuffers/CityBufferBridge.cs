@@ -100,6 +100,7 @@ namespace MalisBuffBots
             if (CatalogueSpellList != null) return true;
             int[] known = Main.UploadedSpellList();
             if (known.Length == 0) return false;
+            NanoCatalogue.Discover(known);
             var advertised = BufferBotCache.BuildAdvertisedBuffs(known);
             ManagerMemory.Current.SaveBufferCatalogue(Client.CharacterName,
                 (int)DynelManager.LocalPlayer.Profession, Main.PaidPilot, known, advertised);
@@ -126,27 +127,24 @@ namespace MalisBuffBots
                 " advertised=" + (advertised?.Length ?? 0) +
                 " tags=[" + tags + "].");
 
-            if (!Main.PaidPilot)
+            var definitions = Main.BuffsJson.Entries.Values.SelectMany(entries => entries)
+                .Where(entry => entry != null && entry.LevelToId != null).ToArray();
+            foreach (int id in (spellList ?? new int[0]).Distinct().OrderBy(id => id))
             {
-                var definitions = Main.BuffsJson.Entries.Values.SelectMany(entries => entries)
-                    .Where(entry => entry != null && entry.LevelToId != null).ToArray();
-                foreach (int id in (spellList ?? new int[0]).Distinct().OrderBy(id => id))
+                var matched = definitions.Where(entry => entry.ContainsId(id)).ToArray();
+                var offered = (advertised ?? new BufferAdvertisedBuff[0])
+                    .Where(entry => (entry.NanoIds ?? new int[0]).Contains(id)).ToArray();
+                string name = "unknown";
+                try
                 {
-                    var matched = definitions.Where(entry => entry.ContainsId(id)).ToArray();
-                    var offered = (advertised ?? new BufferAdvertisedBuff[0])
-                        .Where(entry => (entry.NanoIds ?? new int[0]).Contains(id)).ToArray();
-                    string name = "unknown";
-                    try
-                    {
-                        NanoItem nano;
-                        if (ItemData.Find(id, out nano)) name = nano.Name;
-                    }
-                    catch { /* An unavailable name must not interrupt catalogue publication. */ }
-                    Logger.Information("BUFFER catalogue nano=" + id + " name='" + name +
-                        "' status=" + (offered.Length > 0 ? "advertised" :
-                            matched.Length > 0 ? "defined-not-advertised" : "no-definition") +
-                        " tags=[" + string.Join(",", offered.Select(entry => entry.Tag)) + "].");
+                    NanoItem nano;
+                    if (ItemData.Find(id, out nano)) name = nano.Name;
                 }
+                catch { /* An unavailable name must not interrupt catalogue publication. */ }
+                Logger.Information("BUFFER catalogue nano=" + id + " name='" + name +
+                    "' status=" + (offered.Length > 0 ? "advertised" :
+                        matched.Length > 0 ? "defined-not-advertised" : "no-definition") +
+                    " tags=[" + string.Join(",", offered.Select(entry => entry.Tag)) + "].");
             }
         }
 

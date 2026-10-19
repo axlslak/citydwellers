@@ -5,6 +5,16 @@ using System.Linq;
 namespace CityDwellers.Shared
 {
     [Serializable]
+    public sealed class BufferNanoMetadata
+    {
+        public int Id, Profession, Level, Ncu, DurationSeconds, NanoLine, StackingOrder;
+        public int NanoCost, Range, AttackMilliseconds, RechargeMilliseconds;
+        public string Name, Description;
+        public bool CanBuffOthers;
+        public BufferNanoMetadata Copy() => (BufferNanoMetadata)MemberwiseClone();
+    }
+
+    [Serializable]
     public sealed class BufferAdvertisedBuff
     {
         public int Profession;
@@ -15,11 +25,17 @@ namespace CityDwellers.Shared
         public string Type;
         public int Ncu;
         public int[] NanoIds = new int[0];
+        public string[] Tags = new string[0];
+        public int[] EffectIds = new int[0];
+        public BufferNanoMetadata[] Nanos = new BufferNanoMetadata[0];
 
         internal BufferAdvertisedBuff Copy()
         {
             var copy = (BufferAdvertisedBuff)MemberwiseClone();
             copy.NanoIds = (NanoIds ?? new int[0]).ToArray();
+            copy.Tags = (Tags ?? new string[0]).ToArray();
+            copy.EffectIds = (EffectIds ?? new int[0]).ToArray();
+            copy.Nanos = (Nanos ?? new BufferNanoMetadata[0]).Select(n => n.Copy()).ToArray();
             return copy;
         }
     }

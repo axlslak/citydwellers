@@ -122,7 +122,7 @@ namespace CityManager
                         "Use commands naturally in a tell, or prefix them with # in organization and guest chat.") +
                         HelpSyntaxLine(target, "help [topic]", "Open the manual or a specific topic.") +
                         HelpSyntaxLine(target, "status", "Open the live Manager status blob.") +
-                        HelpSyntaxLine(target, "buffers", "Show froob buffer readiness and queue counts.") +
+                        HelpSyntaxLine(target, "buffers", "Show buffer readiness and queue counts.") +
                         HelpSyntaxLine(target, "buff list", "Open the available buff catalogue; bufflist still works.") +
                         HelpSyntaxLine(target, "buff mine", "Edit your remembered buff selections.") +
                         HelpSyntaxLine(target, "buff add [buff tag...]", "Select and request buffs; cast remains an alias.") +

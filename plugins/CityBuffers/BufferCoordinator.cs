@@ -374,6 +374,13 @@ namespace MalisBuffBots
                         Type = entry.Type.ToString(),
                         NanoIds = entry.LevelToId.Where(level => known.Contains(level.Id))
                             .Select(level => level.Id).Distinct().ToArray(),
+                        Tags = entry.Tags ?? new string[0],
+                        EffectIds = (entry.RemoveNanoIdUponCast ?? new int[0]).Where(id => id > 0)
+                            .Concat(entry.LevelToId.Where(level => known.Contains(level.Id)).SelectMany(level =>
+                                PaidBufferCatalogue.FindEffect(level.Id)?.EffectIds ?? new int[0])).Distinct().ToArray(),
+                        Nanos = entry.LevelToId.Where(level => known.Contains(level.Id))
+                            .GroupBy(level => level.Id).Select(group => group.First())
+                            .Select(level => NanoCatalogue.Describe(level.Id, level.Level)).ToArray(),
                         Ncu = AdvertisedNcu(entry)
                     }))
                 .OrderBy(entry => entry.Profession)

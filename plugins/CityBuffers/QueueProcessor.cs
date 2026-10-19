@@ -60,7 +60,8 @@ namespace MalisBuffBots
             PaidQueueAtCapacity = false;
             PaidAcceptedNanoIds = new int[0];
             int[] known = Main.EffectiveSpellList();
-            var allowed = PaidBufferCatalogue.ForProfession(Main.PaidProfession).Select(n => n.Id).ToArray();
+            var allowed = PaidBufferCatalogue.ForProfession(Main.PaidProfession)
+                .Where(n => ManagerMemory.Current.PaidBufferOffers(Client.CharacterName, n.Id)).Select(n => n.Id).ToArray();
             int? recipientLevel = null;
             try { recipientLevel = requester.Level; } catch { }
             var accepted = new List<NanoEntry>();
@@ -76,7 +77,7 @@ namespace MalisBuffBots
                     notices.Add("Can't cast " + entry.Name + ": requires recipient level " + entry.LevelToId.Min(n => n.Level) + "+.");
                 else accepted.Add(entry);
             }
-            var composites = accepted.Where(e => !e.ContainsId(220345)).ToArray();
+            var composites = accepted.Where(e => e.LevelToId.Any(n => PaidBufferCatalogue.IsNanoSkillComposite(n.Id))).ToArray();
             if (Main.PaidProfession == 12 && composites.Length > 1)
             {
                 // These composites replace each other. Deliver the best eligible
@@ -84,7 +85,7 @@ namespace MalisBuffBots
                 var best = composites.OrderByDescending(e => e.LevelToId.Where(n => known.Contains(n.Id) &&
                     (!recipientLevel.HasValue || n.Level <= recipientLevel.Value)).Select(n => n.Level).DefaultIfEmpty(0).Max()).First();
                 notices.Add("Using " + best.Name + " for the requested MP composites; they replace each other.");
-                accepted = accepted.Where(e => e.ContainsId(220345) || ReferenceEquals(e, best)).ToList();
+                accepted = accepted.Where(e => !e.LevelToId.Any(n => PaidBufferCatalogue.IsNanoSkillComposite(n.Id)) || ReferenceEquals(e, best)).ToList();
             }
             var queued = new List<string>();
             var requested = accepted.Select(entry => new BuffEntry {

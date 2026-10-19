@@ -13,7 +13,7 @@ namespace MalisBuffBots
     {
         public static BufferCoordinator Coordination;       // Same-process ManagerMemory coordination
         public static SettingsJson SettingsJson;            // Behavior defaults plus citydwellers.json Buffers.Behavior overrides
-        public static BuffsJson BuffsJson;                  // All bot nanos (configurable in JSON/BuffsDb.json)
+        public static BuffsJson BuffsJson;                  // Audited capabilities plus compatibility aliases
         internal static string[] PreparationBuffs = new string[0]; // This character's Buffers entry
         public static QueueProcessor QueueProcessor;        // Queue processing logic
         public static RebuffProcessor RebuffProcessor;      // Rebuff processing logic
@@ -51,6 +51,7 @@ namespace MalisBuffBots
                 CityBufferBridge.Start();
                 Coordination = new BufferCoordinator();
                 BuffsJson = new BuffsJson(Path.BUFF_JSON);
+                NanoCatalogue.RestoreDefinitions();
                 UserRank = new UserRank();
                 QueueProcessor = new QueueProcessor();
 
@@ -96,12 +97,6 @@ namespace MalisBuffBots
         {
             var known = new HashSet<int>(
                 DynelManager.LocalPlayer?.SpellList ?? new int[0]);
-
-            if (PaidPilot)
-            {
-                var allowed = PaidBufferCatalogue.ForProfession(PaidProfession).Select(n => n.Id);
-                return known.Where(id => allowed.Contains(id)).ToArray();
-            }
 
             foreach (int id in ConfiguredKnownNanoOverrides())
                 known.Add(id);
@@ -188,7 +183,8 @@ namespace MalisBuffBots
                     message = "The paid buffer's profession does not match its configured Profession. Check Buffers.Paid.";
                     return false;
                 }
-                var offered = PaidBufferCatalogue.ForProfession(PaidProfession).Select(n => n.Id).ToArray();
+                var offered = PaidBufferCatalogue.ForProfession(PaidProfession)
+                    .Where(n => ManagerMemory.Current.PaidBufferOffers(Client.CharacterName, n.Id)).Select(n => n.Id).ToArray();
                 // Mali's ncu tag covers both the froob NCU line and paid FSC.
                 // A paid worker admits only the nanos in its own advertised profile.
                 return QueueProcessor.RequestPaidBuffs(entries.SelectMany(p => p.Value)
@@ -198,11 +194,12 @@ namespace MalisBuffBots
             // Paid-only definitions share some Mali tags with free alternatives.
             // Manager has already routed paid work; a free worker must not also
             // retain an impossible paid cast for the same tag.
+            var freeKnown = new HashSet<int>(Coordination.BotCache.Entries.Values.SelectMany(b => b.SpellData ?? new int[0]));
             entries = entries.ToDictionary(pair => pair.Key, pair => pair.Value
-                .Where(e => !e.LevelToId.All(n => PaidBufferCatalogue.FindEffect(n.Id) != null)).ToList());
+                .Where(e => e.LevelToId.Any(n => freeKnown.Contains(n.Id))).ToList());
             entries = entries.Where(pair => pair.Value.Count != 0).ToDictionary(pair => pair.Key, pair => pair.Value);
             if (entries.Count == 0)
-            { message = "No free buffer offers " + string.Join(", ", nanoTags) + "."; return false; }
+            { message = "No available buffer offers " + string.Join(", ", nanoTags) + "."; return false; }
             if (!QueueProcessor.RequestBuffs(entries, requester))
             { message = "The buffer readiness queue is full; please retry shortly."; return false; }
             message = unknownMessage;
