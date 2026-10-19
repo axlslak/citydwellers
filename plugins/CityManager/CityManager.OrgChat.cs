@@ -8,9 +8,11 @@ using System.Text;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Chat;
 using AOSharp.Clientless.Logging;
+using AOSharp.Common.GameData;
 using CityDwellers.Shared;
 using Newtonsoft.Json;
 using SmokeLounge.AOtomation.Messaging.GameData;
+using SmokeLounge.AOtomation.Messaging.Messages;
 using SmokeLounge.AOtomation.Messaging.Messages.ChatMessages;
 using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 
