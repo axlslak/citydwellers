@@ -58,7 +58,7 @@ namespace CityBankers
             if (_returnOffer != null && (_receipt?.Kind == "recovery-return-send" || _receipt?.Kind == "recovery-return-receive"))
                 return new DispatchCommand { BatchId = _returnOffer.Id, AttemptId = _returnOffer.Id,
                     TransactionId = _returnOffer.TransactionId, Role = "recovery-return",
-                    SourceCharacter = _returnOffer.Source, DestinationCharacter = _centralCharacter,
+                    SourceCharacter = _returnOffer.Source, DestinationCharacter = ReturnDestination(_returnOffer),
                     Items = new List<TransferItemState> { _returnOffer.Item } };
             if (_withdrawal != null && _receipt?.Kind == "withdrawal-transfer")
                 return WithdrawalCommand(_withdrawal);

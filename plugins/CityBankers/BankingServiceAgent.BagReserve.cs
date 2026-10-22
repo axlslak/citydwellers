@@ -36,7 +36,9 @@ namespace CityBankers
         private static bool IsReserveBag(TransferItemState item) => item != null &&
             (item.AoId == StorageBagPolicy.SmallBackpackId || item.HighId == StorageBagPolicy.SmallBackpackId);
         private static bool IsReserveBatch(IEnumerable<TransferItemState> items) =>
-            items != null && items.Count() == 1 && items.All(IsReserveBag);
+            items != null && items.Any() && items.Count() <= ServicePolicy.MaxInternalTradeItems &&
+            items.All(i => IsReserveBag(i) && i.Quantity == 1) &&
+            items.Select(i => i.UniqueIdentity).Distinct().Count() == items.Count();
         private static int ReserveTarget(BagReserve state, string character)
         {
             int target;
@@ -73,12 +75,12 @@ namespace CityBankers
 
         private bool ReserveWorkerReady(DispatchCommand command)
         {
-            if (!IsReserveBatch(command.Items) || ReserveBankFreeSlots < 1 ||
+            if (!IsReserveBatch(command.Items) || ReserveBankFreeSlots < command.Items.Count ||
                 StorageBagPolicy.DuplicatedIdentities().Count != 0 ||
-                StorageBagPolicy.DistinctBags().Count >= ReserveTarget(ReadReserve(), Client.CharacterName)) return false;
-            var item = command.Items[0];
-            return ReadReserve().Bags.Any(b => !b.Delivered && !b.Quarantined && b.Identity == item.UniqueIdentity &&
-                b.Transaction == command.TransactionId && string.Equals(b.Destination, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+                StorageBagPolicy.DistinctBags().Count + command.Items.Count > ReserveTarget(ReadReserve(), Client.CharacterName)) return false;
+            return command.Items.All(item => ReadReserve().Bags.Any(b => !b.Delivered && !b.Quarantined &&
+                b.Identity == item.UniqueIdentity && b.EmptyProofBatch == command.BatchId &&
+                b.Transaction == command.TransactionId && string.Equals(b.Destination, Client.CharacterName, StringComparison.OrdinalIgnoreCase)));
         }
 
         // Bags are storage equipment. Supply existing surplus first, then
@@ -98,6 +100,10 @@ namespace CityBankers
             string error;
             if (!StorageBagPolicy.TryValidatePhysicalLayout(out error))
             { StartupCensusGate.Block(error); return true; }
+            var preparing = state.Bags.FirstOrDefault(b => !b.Delivered && !b.Quarantined && b.Destination != null &&
+                b.EmptyProofBatch != b.Batch && !queue.Batches.Any(q => q.BatchId == b.Batch) &&
+                records.Any(r => r.Identity.ToString() == b.Identity));
+            if (preparing != null) { BeginReserveOperation(preparing.Identity, "dispatch"); return true; }
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
             var target = storage.Workers.Where(w => w.Role != "central" &&
                     _config.Roles.Any(p => CityDwellers.Shared.BankerRoles.Canonical(p.Key) == w.Role &&
@@ -138,11 +144,22 @@ namespace CityBankers
             if (surplusPending && (candidate == null || candidate.Physical.Location == "bank")) return false;
             if (candidate != null && target != null && !reserveQueued && Inventory.NumFreeSlots >= 2)
             {
-                candidate.Reserve.Destination = target.Worker.Character;
-                candidate.Reserve.Role = target.Worker.Role;
-                candidate.Reserve.Batch = "bag-reserve-" + Guid.NewGuid().ToString("N");
+                int desired = Math.Min(target.Missing, Math.Min(ServicePolicy.MaxInternalTradeItems, Inventory.NumFreeSlots - 1));
+                int available = state.Bags.Count(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
+                    records.Any(r => r.Identity.ToString() == b.Identity) &&
+                    !queue.Batches.Any(q => q.Items.Any(i => i.UniqueIdentity == b.Identity)));
+                if (!surplusPending && available < desired && StartBagShop(state, storage, ready)) return true;
+                string batch = "bag-reserve-" + Guid.NewGuid().ToString("N");
+                string transaction = "bag-supply-" + Guid.NewGuid().ToString("N");
+                int count = Math.Min(target.Missing, Math.Min(ServicePolicy.MaxInternalTradeItems, Inventory.NumFreeSlots - 1));
+                var group = state.Bags.Where(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
+                    records.Any(r => r.Identity.ToString() == b.Identity) &&
+                    !queue.Batches.Any(q => q.Items.Any(i => i.UniqueIdentity == b.Identity))).Take(count).ToList();
+                foreach (var bag in group)
+                { bag.Destination = target.Worker.Character; bag.Role = target.Worker.Role;
+                    bag.Batch = batch; bag.Transaction = transaction; bag.EmptyProofBatch = null; }
                 SaveReserve(state);
-                BeginReserveOperation(candidate.Reserve.Identity, "dispatch");
+                BeginReserveOperation(group[0].Identity, "dispatch");
                 return true;
             }
             var loose = state.Bags.FirstOrDefault(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
@@ -174,7 +191,18 @@ namespace CityBankers
                 if (command != null && ReadReserve().Bags.Any(b => b.Identity == item.UniqueIdentity &&
                     b.EmptyProofBatch == command.BatchId && b.Transaction == command.TransactionId &&
                     !b.Quarantined && !b.Delivered && string.Equals(b.Destination, Client.CharacterName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+                    if (!storage.Workers.Any(w => w.Bags.Any(b => b.LastUniqueIdentity == item.UniqueIdentity)))
+                    {
+                        var physical = StorageBagPolicy.AllRecordsFor(item.UniqueIdentity, "inventory").Single();
+                        RuntimeStorageStateTransactions.UpdateReserveBag(_settingsDir, Client.CharacterName, item.UniqueIdentity,
+                            new StorageBagState { Source = "inventory", OuterSlotType = "Inventory",
+                                OuterSlotInstance = physical.Slot.Instance & 65535, LastUniqueIdentity = item.UniqueIdentity,
+                                Capacity = CityDwellers.Shared.BankerRoles.SmallBackpackCapacity });
+                    }
                     _reserveEmptyArrivals.Add(item.UniqueIdentity);
+                }
             }
         }
 
@@ -182,13 +210,17 @@ namespace CityBankers
         {
             if (!IsReserveBatch(items)) return;
             var reserve = ReadReserve();
-            var bag = reserve.Bags.Single(b => b.Identity == items[0].UniqueIdentity);
-            if (string.IsNullOrEmpty(bag.EmptyProofBatch) || bag.Quarantined || bag.Delivered || bag.Transaction != transaction ||
-                !string.Equals(bag.Destination, _activeBatch.Character, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException("Reserve dispatch has no matching empty source proof.");
+            foreach (var item in items)
+            {
+                var bag = reserve.Bags.Single(b => b.Identity == item.UniqueIdentity);
+                if (string.IsNullOrEmpty(bag.EmptyProofBatch) || bag.Quarantined || bag.Delivered || bag.Transaction != transaction ||
+                    !string.Equals(bag.Destination, _activeBatch.Character, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Reserve dispatch has no matching empty source proof.");
             // A cancelled trade may obtain a new batch id. The existing physical
             // source check and paired cancellation keep the same bag in custody.
-            bag.EmptyProofBatch = batch; SaveReserve(reserve);
+                bag.Batch = bag.EmptyProofBatch = batch;
+            }
+            SaveReserve(reserve);
         }
 
         private void InvalidateReserveEvidence()
@@ -197,7 +229,10 @@ namespace CityBankers
             // the old connection and cannot be used as restart evidence.
             _reserveResumeChecked = false;
             _bankLayoutResumed = _emptyWorkerChecked = false;
+            _bankSetupComplete = false;
+            _bankSetupStage = null;
             _bankLayout = null; _layoutBankReturn = null;
+            _layoutCancelRequest = null;
             _layoutReconnectBefore = null; _layoutActionAge.Reset();
             _reserveOperation = null;
             _reserveBefore = null;
@@ -258,75 +293,60 @@ namespace CityBankers
             if (batches.Count != 1) throw new InvalidOperationException("More than one replacement bag owns this worker's receipt.");
             var batch = batches[0];
             if (ReadWorkerStorageReply(batch) != null) return;
-            var expected = batch.Items[0];
-            // One actor executes one movement at a time. A different retained
-            // movement finishes in TickReserveOperation before this queued
-            // delivery can acquire the storage job; it is not a conflicting receipt.
-            if (_reserveOperation != null && _reserveOperation.Identity != expected.UniqueIdentity) return;
-            var reserve = ReadReserve().Bags.SingleOrDefault(b => b.Identity == expected.UniqueIdentity &&
-                b.Batch == batch.BatchId && b.EmptyProofBatch == batch.BatchId && b.Transaction == batch.TransactionId &&
-                string.Equals(b.Destination, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
-                string.Equals(b.Role, _role, StringComparison.OrdinalIgnoreCase) && !b.Quarantined);
-            if (reserve == null || expected.Quantity != 1)
-                throw new InvalidOperationException("Transferred replacement bag lacks its assigned empty source proof: " + batch.BatchId);
-            string layoutError;
-            if (!StorageBagPolicy.TryValidatePhysicalLayout(out layoutError)) throw new InvalidOperationException(layoutError);
-            var physical = StorageBagPolicy.AllBagRecords().Where(r => r.Identity.ToString() == expected.UniqueIdentity).ToList();
-            if (physical.Count != 1 || physical[0].Bag.Id != expected.AoId ||
-                physical[0].Bag.HighId != expected.HighId || physical[0].Bag.Ql != expected.Ql)
-                throw new InvalidOperationException("Transferred replacement bag is not uniquely present on its receiver: " + expected.UniqueIdentity);
             var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
-            if (storage?.Workers == null || storage.Workers.Any(w =>
-                !string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
-                w.Bags.Any(b => b.LastUniqueIdentity == expected.UniqueIdentity)))
-                throw new InvalidOperationException("Replacement bag has conflicting recorded ownership: " + expected.UniqueIdentity);
-            if (_reserveOperation != null && _reserveOperation.Purpose != "bank")
-                throw new InvalidOperationException("Replacement receipt has an incompatible reserve movement purpose.");
-
-            var known = storage.Workers.Where(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase))
-                .SelectMany(w => w.Bags).SingleOrDefault(b => b.LastUniqueIdentity == expected.UniqueIdentity);
-            if (known != null && (known.Source != physical[0].Location ||
-                known.OuterSlotInstance != (physical[0].Bag.Slot.Instance & 65535)))
-                throw new InvalidOperationException("Registered replacement bag and fresh outer address disagree: " + expected.UniqueIdentity);
-            _storageJob = new StorageJob
+            var own = storage.Workers.Single(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+            var reserve = ReadReserve();
+            int index = 0;
+            foreach (var item in batch.Items)
             {
+                if (!reserve.Bags.Any(b => b.Identity == item.UniqueIdentity && b.Batch == batch.BatchId &&
+                    b.EmptyProofBatch == batch.BatchId && b.Transaction == batch.TransactionId && !b.Quarantined &&
+                    string.Equals(b.Destination, Client.CharacterName, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException("Replacement receipt lacks its exact empty source proof: " + item.UniqueIdentity);
+                var physical = StorageBagPolicy.AllBagRecords().Where(r => r.Identity.ToString() == item.UniqueIdentity).ToList();
+                if (physical.Count != 1 || physical[0].Bag.Id != item.AoId ||
+                    physical[0].Bag.HighId != item.HighId || physical[0].Bag.Ql != item.Ql)
+                    throw new InvalidOperationException("Replacement is not uniquely present: " + item.UniqueIdentity);
+                var known = own.Bags.SingleOrDefault(b => b.LastUniqueIdentity == item.UniqueIdentity);
+                if (known?.Source != "bank" || physical[0].Location != "bank" ||
+                    known.OuterSlotInstance != physical[0].OuterSlot) break;
+                index++;
+            }
+            if (_reserveOperation != null && index < batch.Items.Count &&
+                _reserveOperation.Identity != batch.Items[index].UniqueIdentity) return;
+            _storageJob = new StorageJob {
                 Command = new DispatchCommand { BatchId = batch.BatchId, AttemptId = batch.AttemptId,
                     TransactionId = batch.TransactionId, Role = batch.Role, SourceCharacter = _centralCharacter,
                     DestinationCharacter = Client.CharacterName, CreatedUtc = batch.CreatedUtc, Items = batch.Items },
-                Phase = StoragePhase.FindBag, PhaseStartedUtc = DateTime.UtcNow,
-                DeadlineUtc = DateTime.UtcNow.AddMilliseconds(ServicePolicy.ItemMoveTimeoutMs)
+                Index = index, StoredCount = index, Phase = StoragePhase.FindBag,
+                PhaseStartedUtc = DateTime.UtcNow, DeadlineUtc = DateTime.UtcNow.AddMilliseconds(ServicePolicy.ItemMoveTimeoutMs)
             };
-            BankerActivityGovernor.Wake();
-            if (known != null && known.Source == "inventory" && ReserveBankFreeSlots > 0)
+            if (index == batch.Items.Count) { CompleteStorageJob(); return; }
+            string identity = batch.Items[index].UniqueIdentity;
+            var record = StorageBagPolicy.AllBagRecords().Single(b => b.Identity.ToString() == identity);
+            var registered = own.Bags.SingleOrDefault(b => b.LastUniqueIdentity == identity);
+            if (registered != null && record.Location == "inventory")
             {
                 _reserveOperation = null;
-                _bankLayout = new ReserveOperation { Character = Client.CharacterName, Identity = expected.UniqueIdentity,
-                    Purpose = "layout-bank", Phase = "banking", SourceSlot = physical[0].Bag.Slot.Instance, StartedUtc = DateTime.UtcNow };
-                BeginLayoutBankReturn(physical[0].Bag);
-            }
-            else if (known != null)
-            {
-                // Registration committed before the old actor stopped. Preserve
-                // its contents; restore only the missing completion receipt.
-                CityDwellers.Shared.ManagerAccounting.Transaction("Resume registered replacement receipt", () =>
-                {
-                    if (_reserveOperation != null) { _reserveOperation.Phase = "completed"; SaveReserveOperation(); }
-                    _storageJob.StoredCount = _storageJob.Index = 1;
-                    CompleteStorageJob();
-                });
-                _reserveOperation = null;
+                _bankLayout = new ReserveOperation { Character = Client.CharacterName, Identity = identity,
+                    Purpose = "layout-bank", Phase = "banking", SourceSlot = record.Bag.Slot.Instance, StartedUtc = DateTime.UtcNow };
+                BeginLayoutBankReturn(record.Bag);
             }
             else if (_reserveOperation == null)
-            {
-                // Sender's attempt-bound empty proof plus this exact container
-                // identity on the receiver restores the interrupted handoff.
-                _reserveEmptyArrivals.Add(expected.UniqueIdentity);
-                BeginReserveOperation(expected.UniqueIdentity, "bank");
-            }
-            else
-            { _reserveOperation.SenderVerifiedEmpty = true; SaveReserveOperation(); }
-            Logger.Information("[CityBankers] EMPTY BAG RESERVE resumed receiver acknowledgement for " + batch.BatchId +
-                "; identity=" + expected.UniqueIdentity + "; alreadyRegistered=" + (known != null) + ".");
+            { _reserveEmptyArrivals.Add(identity); BeginReserveOperation(identity, "bank"); }
+            else { _reserveOperation.SenderVerifiedEmpty = true; SaveReserveOperation(); }
+            BankerActivityGovernor.Wake();
+            Logger.Information("[CityBankers] EMPTY BAG RESERVE resumed " + batch.BatchId +
+                "; banked=" + index + "/" + batch.Items.Count + "; next=" + identity);
+        }
+
+        private void AdvanceReserveStorage(string identity)
+        {
+            var job = _storageJob;
+            if (job == null || !IsReserveBatch(job.Command?.Items) || job.Index >= job.Command.Items.Count ||
+                job.Command.Items[job.Index].UniqueIdentity != identity) return;
+            job.Index++; job.StoredCount++;
+            if (job.Index == job.Command.Items.Count) CompleteStorageJob();
         }
 
         private bool CompleteRecordedReservePlacement(ReserveOperation pending, StorageBagPolicy.BagRecord physical)
@@ -348,9 +368,7 @@ namespace CityBankers
                 pending.Phase = "completed";
                 CityDwellers.Shared.ManagerMemory.Current.ChangeReserveOperation(
                     CityDwellers.Shared.ManagerAccounting.TransactionId, pending);
-                if (!_isCentral && _storageJob != null && IsReserveBatch(_storageJob.Command.Items) &&
-                    _storageJob.Command.Items[0].UniqueIdentity == pending.Identity)
-                { _storageJob.StoredCount = 1; _storageJob.Index = 1; CompleteStorageJob(); }
+                AdvanceReserveStorage(pending.Identity);
                 return true;
             });
         }
@@ -359,11 +377,25 @@ namespace CityBankers
         {
             long after;
             if (!_reserveArrivalAfter.TryGetValue(identity, out after)) after = SharedBagRecovery.ContainerObservationSequence;
+            if (RuntimeStateStore.LoadStorageState(_settingsDir).Workers.Any(w =>
+                string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
+                w.Bags.Any(b => b.LastUniqueIdentity == identity && b.Items?.Count == 0)))
+                after = 0; // Outer moves do not invalidate an actual current-login contents view.
             _reserveArrivalAfter.Remove(identity);
             _reserveBefore = null;
             _reserveOperation = new ReserveOperation { Identity = identity, Purpose = purpose, Phase = "start", StartedUtc = DateTime.UtcNow,
-                ObservationAfter = after, SenderVerifiedEmpty = _reserveEmptyArrivals.Remove(identity) };
+                ObservationAfter = after, SenderVerifiedEmpty = _reserveEmptyArrivals.Remove(identity) ||
+                    (purpose == "bank" && HasReceivedReserveProof(identity)) };
             SaveReserveOperation();
+        }
+        private bool HasReceivedReserveProof(string identity)
+        {
+            var command = _storageJob?.Command;
+            if (command == null || !IsReserveBatch(command.Items) || !command.Items.Any(i => i.UniqueIdentity == identity)) return false;
+            return ReadReserve().Bags.Any(b => b.Identity == identity && b.Batch == command.BatchId &&
+                b.EmptyProofBatch == command.BatchId && b.Transaction == command.TransactionId && !b.Quarantined &&
+                string.Equals(b.Destination, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(b.Role, _role, StringComparison.OrdinalIgnoreCase));
         }
         private void SaveReserveOperation()
         {
@@ -385,9 +417,7 @@ namespace CityBankers
                         OuterSlotInstance = record.Bag.Slot.Instance & 65535, LastUniqueIdentity = op.Identity,
                         LastHandle = handle, Capacity = 21, Items = new List<StoredItemState>() });
                 op.Phase = "completed"; SaveReserveOperation();
-                if (!_isCentral && _storageJob != null && IsReserveBatch(_storageJob.Command.Items) &&
-                    _storageJob.Command.Items[0].UniqueIdentity == op.Identity)
-                { _storageJob.StoredCount = 1; _storageJob.Index = 1; CompleteStorageJob(); }
+                AdvanceReserveStorage(op.Identity);
             });
             _reserveOperation = null;
             Logger.Information("[CityBankers] EMPTY BAG RESERVE registered " + op.Identity + " on " +
@@ -402,6 +432,9 @@ namespace CityBankers
             string error;
             if (!StorageBagPolicy.TryValidatePhysicalLayout(out error)) throw new InvalidOperationException(error);
             var records = StorageBagPolicy.AllBagRecords().Where(r => r.Identity.ToString() == op.Identity).ToList();
+            if (op.Purpose == "bank" && records.Count == 1 && records[0].Location == "bank" &&
+                (op.Phase == "banking" || op.SenderVerifiedEmpty))
+            { RegisterReservePlacement(op, records[0], "bank", 0); return true; }
             if (op.Phase != "read-backoff" && (DateTime.UtcNow - op.StartedUtc).TotalSeconds > 20)
             {
                 if (op.Phase == "opening" && records.Count == 1 && records[0].Location == "inventory" &&
@@ -506,16 +539,19 @@ namespace CityBankers
                     var state = ReadReserve(); var bag = state.Bags.Single(b => b.Identity == op.Identity);
                     bag.EmptyProofBatch = bag.Batch; SaveReserve(state); // empty source proof precedes queue/trade
                     var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-                    if (!queue.Batches.Any(b => b.BatchId == bag.Batch))
+                    var group = state.Bags.Where(b => b.Batch == bag.Batch && !b.Delivered && !b.Quarantined).ToList();
+                    if (group.All(b => b.EmptyProofBatch == bag.Batch) && !queue.Batches.Any(b => b.BatchId == bag.Batch))
                     {
+                        var staged = group.Select(b => StorageBagPolicy.AllRecordsFor(b.Identity, "inventory").Single()).ToList();
                         queue.Batches.Add(new DispatchBatchState { BatchId = bag.Batch, TransactionId = bag.Transaction,
                             Character = bag.Destination, Role = bag.Role, Status = "queued", CreatedUtc = DateTime.UtcNow,
-                            UpdatedUtc = DateTime.UtcNow, Items = SnapshotTradeItems(new[] { record.Bag }) });
+                            UpdatedUtc = DateTime.UtcNow, Items = SnapshotTradeItems(staged) });
                         RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
                     }
                     RuntimeStorageStateTransactions.UpdateReserveBag(_settingsDir, Client.CharacterName, op.Identity, null);
                     op.Phase = "completed"; SaveReserveOperation(); _reserveOperation = null;
-                    Logger.Information("[CityBankers] EMPTY BAG RESERVE queued " + op.Identity + " -> " + bag.Destination);
+                    Logger.Information("[CityBankers] EMPTY BAG RESERVE prepared " + op.Identity + " -> " + bag.Destination +
+                        "; batch " + group.Count + " bags; " + group.Count(b => b.EmptyProofBatch == bag.Batch) + " verified.");
                     return true;
                 }
                 if (ReserveBankFreeSlots < 1) return true;

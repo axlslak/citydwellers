@@ -15,24 +15,24 @@ namespace CityBankers
         private string _looseRecoverySignature;
         private readonly Dictionary<string, Stopwatch> _localRecoveryAttempts = new Dictionary<string, Stopwatch>();
 
-        private void TickLocalStorageRecovery()
+        private void TickLocalStorageRecovery(bool startup = false)
         {
-            if (_isCentral || _extraction != null || !Inventory.Bank.IsOpen || Trade.IsTrading || _storageJob != null ||
+            if ((_isCentral && !startup) || _extraction != null || !Inventory.Bank.IsOpen || Trade.IsTrading || _storageJob != null ||
                 _workerCommand != null || _reservedDispatch != null || _receipt != null || _withdrawal != null || _returnOffer != null ||
-                _looseRecoveryPoll.ElapsedMilliseconds < 1000) return;
+                (!startup && _looseRecoveryPoll.ElapsedMilliseconds < 1000)) return;
             _looseRecoveryPoll.Restart();
             if (CensusReservedHere()) return;
             var inventory = Inventory.Items.Where(item => item != null && item.Slot.Type == IdentityType.Inventory)
                 .OrderBy(item => item.Slot.Instance).ToList();
             string signature = string.Join(";", inventory.Select(item =>
                 item.Slot.Instance + "/" + item.Id + "/" + item.HighId + "/" + item.Ql));
-            if (signature != _looseRecoverySignature)
+            if (!startup && signature != _looseRecoverySignature)
             {
                 _looseRecoverySignature = signature;
                 _looseRecoveryStable.Restart();
                 return;
             }
-            if (_looseRecoveryStable.ElapsedMilliseconds < 500) return;
+            if (!startup && _looseRecoveryStable.ElapsedMilliseconds < 500) return;
             var ledger = CityDwellers.Shared.BankerState.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
             if (ledger == null) return;
             var withdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();
@@ -43,7 +43,7 @@ namespace CityBankers
                 SymbiantCatalog.AcceptanceRule rule;
                 if (!rules.TryGetValue(item.Id, out rule) && !rules.TryGetValue(item.HighId, out rule)) continue;
                 string destination = rule.Role;
-                if (!string.Equals(destination, _role, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!startup && !string.Equals(destination, _role, StringComparison.OrdinalIgnoreCase)) continue;
                 var candidates = ledger.Items.Where(entry => entry.AoId == item.Id &&
                     (!entry.HighId.HasValue || entry.HighId == item.HighId) &&
                     (!entry.Ql.HasValue || entry.Ql == item.Ql) &&
@@ -57,7 +57,9 @@ namespace CityBankers
                 if (entries.Count != 1) continue; // census/accounting owns importing unknown occurrences
                 var entryToStore = entries[0];
                 Stopwatch attempt;
-                if (_localRecoveryAttempts.TryGetValue(entryToStore.Id, out attempt) && attempt.ElapsedMilliseconds < 30000) continue;
+                if (!startup && _localRecoveryAttempts.TryGetValue(entryToStore.Id, out attempt) && attempt.ElapsedMilliseconds < 30000) continue;
+                if (_isCentral && RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b =>
+                    b.Items.Any(i => CustodyKey(i) == CustodyKey(SnapshotTradeItems(new[] { item })[0])))) continue;
                 if (string.IsNullOrWhiteSpace(entryToStore.TransactionId) || withdrawals.Any(w =>
                     w.ActiveLedgerId == entryToStore.Id || (w.Item != null && w.Item.AoId == item.Id &&
                     w.Item.HighId == item.HighId && w.Item.Ql == item.Ql))) continue;

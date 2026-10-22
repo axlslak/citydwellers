@@ -61,6 +61,7 @@ namespace CityBankers
             public string LedgerId;
             public string TransactionId;
             public string Source;
+            public string Destination;
             public int SourceSlot;
             public TransferItemState Item;
             public DateTime StartedUtc;

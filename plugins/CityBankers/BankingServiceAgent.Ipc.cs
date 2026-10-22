@@ -227,7 +227,7 @@ namespace CityBankers
                         string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                         string.Equals(w.Role, _role, StringComparison.OrdinalIgnoreCase));
                     ready = IsReserveBatch(command.Items) ? ReserveWorkerReady(command) :
-                        worker?.Bags != null && worker.Bags.Where(b => b.Source == "bank").Sum(b => b == null ? 0 :
+                        _bankSetupComplete && worker?.Bags != null && worker.Bags.Where(b => b.Source == "bank").Sum(b => b == null ? 0 :
                         Math.Max(0, b.Capacity - (b.Items?.Count ?? b.Capacity))) >= command.Items.Count;
                 }
                 string spaceReason = null;

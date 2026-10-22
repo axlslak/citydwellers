@@ -275,7 +275,7 @@ namespace CityBankers
 
         private bool HasLiveBankingWork()
         {
-            return Trade.IsTrading ||
+            return !_bankSetupComplete || Trade.IsTrading ||
                 _queuedProposals > 0 ||
                 _receipt != null || _afterReceipt != null ||
                 _activeBatch != null || _workerCommand != null || _storageJob != null ||
@@ -379,6 +379,7 @@ namespace CityBankers
                 if (TickReserveOperation()) return;
                 if (TickRecoveryExtraction()) return;
                 if (TickReturnTransfer()) return;
+                if (TickInitialBankSetup()) return;
                 if (TickBankLayout()) return;
                 if (_isCentral)
                 {
@@ -984,6 +985,9 @@ namespace CityBankers
                         _dispatchTradeAge.Restart();
                         return;
                     }
+
+                    if (!_bankSetupComplete)
+                    { DeclineIncomingTrade(targetName, "Bank storage setup is in progress. Please try again when it has finished."); return; }
 
                     if (HasUnresolvedDispatchWork())
                     {
@@ -1941,6 +1945,7 @@ namespace CityBankers
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
             DispatchBatchState next = queue.Batches.OrderBy(b => IsReserveBatch(b.Items) ? 0 : 1).FirstOrDefault(b =>
+                (_bankSetupComplete || IsReserveBatch(b.Items)) &&
                 IsDispatchDestinationEnabled(b) &&
                 !censusing.Contains(b.Character) &&
                 string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase) &&
@@ -2489,7 +2494,7 @@ namespace CityBankers
 
         private void TickStorageJob()
         {
-            if (_isCentral || _storageJob == null || _storageJob.Failure != null)
+            if ((_isCentral && _storageJob?.LocalRecovery != true) || _storageJob == null || _storageJob.Failure != null)
                 return;
             try
             {
@@ -2498,9 +2503,9 @@ namespace CityBankers
                     FailStorageJob("Storage command is empty.");
                     return;
                 }
-                if (IsReserveBatch(_storageJob.Command.Items) && _storageJob.Index == 0)
+                if (IsReserveBatch(_storageJob.Command.Items) && _storageJob.Index < _storageJob.Command.Items.Count)
                 {
-                    BeginReserveOperation(_storageJob.Command.Items[0].UniqueIdentity, "bank");
+                    BeginReserveOperation(_storageJob.Command.Items[_storageJob.Index].UniqueIdentity, "bank");
                     return;
                 }
                 if (_storageJob.Index >= _storageJob.Command.Items.Count)

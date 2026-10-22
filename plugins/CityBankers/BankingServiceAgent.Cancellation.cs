@@ -364,7 +364,7 @@ namespace CityBankers
         {
             if (IsReserveBatch(source.PreparedItems))
                 return source.PreparedItems.All(i => FindInventoryItems(i).Count == 1) &&
-                    ReadReserve().Bags.Any(b => b.Identity == source.PreparedItems[0].UniqueIdentity && !b.Delivered && !b.Quarantined);
+                    source.PreparedItems.All(i => ReadReserve().Bags.Any(b => b.Identity == i.UniqueIdentity && !b.Delivered && !b.Quarantined));
             if (source.LedgerIds == null || source.LedgerIds.Count != source.PreparedItems.Count ||
                 source.LedgerIds.Any(string.IsNullOrWhiteSpace) || source.LedgerIds.Distinct().Count() != source.LedgerIds.Count)
                 return false;

@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 using AOSharp.Clientless;
 using AOSharp.Clientless.Logging;
 using AOSharp.Common.GameData;
@@ -12,6 +13,48 @@ namespace CityBankers
     public partial class BankingServiceAgent
     {
         private const int StorageBankBagTarget = BankerRoles.BankBagTarget;
+        private bool _bankSetupComplete;
+        private string _bankSetupStage;
+
+        private void BankSetupStage(string stage)
+        {
+            if (_bankSetupStage == stage) return;
+            _bankSetupStage = stage;
+            Logger.Information("[CityBankers] BANK SETUP " + Client.CharacterName + ": " + stage);
+        }
+
+        private bool TickInitialBankSetup()
+        {
+            if (_bankSetupComplete) return false;
+            if (_bankLayout != null) return TickBankLayout();
+            if (_storageJob != null) { TickStorageJob(); return true; }
+            if (_bankSetupStage == null) BankSetupStage("placing stored items and working bags in bank before ordinary work");
+            TickLocalStorageRecovery(startup: true);
+            if (_storageJob != null) { TickStorageJob(); return true; }
+            if (TickBankLayout()) return true;
+            var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+            var worker = storage.Workers.Single(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+            if (_isCentral)
+            {
+                BankSetupStage("supplying bank bags; existing reserves first, purchases only for remaining shortage");
+                foreach (var pending in RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Where(b =>
+                    b.Status == "transferred" && IsReserveBatch(b.Items) && IsDispatchDestinationEnabled(b)).ToList())
+                    PollStorageResult(pending);
+                if (TickBagReserve()) return true;
+                TickDispatch(); // During setup this selects reserve deliveries only.
+                if (_activeBatch != null || _reserveOperation != null ||
+                    !AllConfiguredBanksSupplied(storage, BankerReadiness.GetReadyCharacters(_settingsDir))) return true;
+            }
+            if (worker.Bags.Count(b => b.Source == "bank") < StorageBankBagTarget ||
+                StorageBagPolicy.AllBagRecords().Any(r => r.Location == "inventory"))
+            {
+                BankSetupStage("waiting for bank-bag supply; ordinary work remains paused");
+                return true;
+            }
+            _bankSetupComplete = true;
+            BankSetupStage("complete: 102 storage bags in bank; no storage bags in inventory");
+            return false;
+        }
         private sealed class WorkingBagReturn
         {
             public string Identity;
@@ -21,6 +64,7 @@ namespace CityBankers
         private bool _bankLayoutResumed, _emptyWorkerChecked;
         private string _layoutHold;
         private string _layoutReconnectBefore;
+        private Task<string> _layoutCancelRequest;
         private readonly Stopwatch _layoutActionAge = new Stopwatch();
 
         private void SendLayoutAction(string phase, Item source, Action send)
@@ -87,6 +131,7 @@ namespace CityBankers
             SaveBankLayout();
             _bankLayout = null; _layoutBankReturn = null; _layoutHold = null;
             _layoutReconnectBefore = null; _layoutActionAge.Reset();
+            _layoutCancelRequest = null;
         }
 
         private void ResumeBankLayout()
@@ -161,9 +206,11 @@ namespace CityBankers
                 // reserve dispatch actor, including empty bank bags that can make
                 // room for an occupied inventory bag.
                 if (_isCentral) return false;
-                var empty = candidates.FirstOrDefault(r => r.State.Items.Count == 0)?.Record ??
-                    StorageBagPolicy.AllBagRecords().Where(r => r.Location == "bank").FirstOrDefault(r =>
-                        worker.Bags.Any(b => b.LastUniqueIdentity == r.Identity.ToString() && b.Items?.Count == 0));
+                var bankEmpty = StorageBagPolicy.AllBagRecords().Where(r => r.Location == "bank").FirstOrDefault(r =>
+                    worker.Bags.Any(b => b.LastUniqueIdentity == r.Identity.ToString() && b.Items?.Count == 0));
+                // If occupied inventory bags need bank slots, release an EMPTY
+                // bank shell first. Never leave occupied bags for ordinary work.
+                var empty = filled != null ? bankEmpty : candidates.FirstOrDefault(r => r.State.Items.Count == 0)?.Record ?? bankEmpty;
                 if (empty == null)
                 {
                     const string reason = "Bank is full and has no verified empty bag to exchange; occupied bags retained.";
@@ -187,9 +234,7 @@ namespace CityBankers
                     ManagerAccounting.Transaction("Commit bank-only layout", () => {
                         RuntimeStorageStateTransactions.RecordBankReturn(_settingsDir, Client.CharacterName, op.Identity, slot);
                         FinishBankLayout();
-                        if (_storageJob != null && IsReserveBatch(_storageJob.Command.Items) &&
-                            _storageJob.Command.Items[0].UniqueIdentity == op.Identity)
-                        { _storageJob.StoredCount = _storageJob.Index = 1; CompleteStorageJob(); }
+                        AdvanceReserveStorage(op.Identity);
                     });
                     return true;
                 }
@@ -206,12 +251,32 @@ namespace CityBankers
                 var offer = ManagerMemory.Current.ReadReturn(ManagerAccounting.TransactionId, op.Phase);
                 if (offer == null) throw new InvalidOperationException("Surplus bag return intent is missing.");
                 if (offer.CompletedUtc.HasValue) { FinishBankLayout(); return true; }
+                if (_returnOffer == null && !offer.SenderReceiptVerified && !offer.ReceiverReceiptVerified &&
+                    ((string.Equals(ReturnDestination(offer), _centralCharacter, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(LayoutDestination(Client.CharacterName), _centralCharacter, StringComparison.OrdinalIgnoreCase)) ||
+                        TwinBankFull()) &&
+                    records.Count == 1 && records[0].Location == "inventory" &&
+                    ManagerMemory.Current.ReadCancellationReceipt(ManagerAccounting.TransactionId, offer.Id, "recovery-return-send") == null &&
+                    ManagerMemory.Current.ReadCancellationReceipt(ManagerAccounting.TransactionId, offer.Id, "recovery-return-receive") == null)
+                {
+                    // Retire only an unsent reservation, either for an old
+                    // Central route or a twin that has already reached capacity.
+                    // Physical or receipt-bound transfers keep their destination.
+                    if (_layoutCancelRequest == null)
+                        _layoutCancelRequest = SendReturnMessage(ReturnDestination(offer), "return-cancel", offer);
+                    else if (_layoutCancelRequest.IsCompleted)
+                    {
+                        string response = _layoutCancelRequest.Result; _layoutCancelRequest = null;
+                        if (response == "cancelled:" + offer.Id) FinishBankLayout();
+                    }
+                    return true;
+                }
                 if (_returnOffer == null && ((records.Count == 1 && records[0].Location == "inventory") ||
                     (records.Count == 0 && offer.SenderReceiptVerified)))
                 {
                     _returnOffer = offer;
                     _returnLocalVerified = offer.SenderReceiptVerified;
-                    _returnRequest = _returnLocalVerified ? null : SendReturnMessage(_centralCharacter, "return-prepare", offer);
+                    _returnRequest = _returnLocalVerified ? null : SendReturnMessage(ReturnDestination(offer), "return-prepare", offer);
                     _returnPhase.Restart();
                 }
                 return true;
@@ -244,20 +309,45 @@ namespace CityBankers
             var source = RuntimeStateStore.LoadStorageState(_settingsDir).Workers.Single(w =>
                 string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase)).Bags.Single(b => b.LastUniqueIdentity == op.Identity);
             if (source.Items?.Count != 0) throw new InvalidOperationException("Surplus return cannot remove occupied storage.");
+            if (source.Source == "bank" && ReserveBankFreeSlots > 0 &&
+                RuntimeStateStore.LoadStorageState(_settingsDir).Workers.Single(w => string.Equals(w.Character,
+                    Client.CharacterName, StringComparison.OrdinalIgnoreCase)).Bags.Any(b => b.Source == "inventory" &&
+                    b.Items?.Count > 0 && StorageBagPolicy.AllRecordsFor(b.LastUniqueIdentity, "inventory").Count == 1))
+            {
+                // The empty shell has freed a bank slot. Record its temporary
+                // inventory address, then let job 1 bank the occupied bag NOW;
+                // no peer trade is needed before the contents are back in bank.
+                ManagerAccounting.Transaction("Free bank slot for occupied working bag", () => {
+                    RuntimeStorageStateTransactions.UpdateReserveBag(_settingsDir, Client.CharacterName, op.Identity,
+                        new StorageBagState { Source = "inventory", OuterSlotType = "Inventory",
+                            OuterSlotInstance = record.OuterSlot, LastUniqueIdentity = op.Identity,
+                            LastHandle = handle, Capacity = BankerRoles.SmallBackpackCapacity });
+                    FinishBankLayout();
+                });
+                return true;
+            }
+            if (TwinBankFull() || AllConfiguredBanksSupplied(RuntimeStateStore.LoadStorageState(_settingsDir), BankerReadiness.GetReadyCharacters(_settingsDir)))
+            {
+                string identity = op.Identity;
+                FinishBankLayout();
+                _reserveEmptyArrivals.Add(identity); // actual current-login empty proof above
+                BeginReserveOperation(identity, "discard");
+                return true;
+            }
             var returnedOffer = new ReturnOffer { Id = Guid.NewGuid().ToString("N"), TransactionId = "bag-layout-" + Guid.NewGuid().ToString("N"),
-                Source = Client.CharacterName, SourceSlot = record.Bag.Slot.Instance,
+                Source = Client.CharacterName, Destination = LayoutDestination(Client.CharacterName), SourceSlot = record.Bag.Slot.Instance,
                 Item = SnapshotTradeItems(new[] { record.Bag })[0], StartedUtc = DateTime.UtcNow };
             ManagerAccounting.Transaction("Prepare verified empty surplus return", () => {
                 // Address the transient empty shell so Central can validate its
                 // owner. No donor or item ledger entry is created for a backpack.
                 RuntimeStorageStateTransactions.UpdateReserveBag(_settingsDir, Client.CharacterName, op.Identity,
                     new StorageBagState { Source = "inventory", OuterSlotType = "Inventory", OuterSlotInstance = record.OuterSlot,
-                        LastUniqueIdentity = op.Identity, LastHandle = handle });
+                        LastUniqueIdentity = op.Identity, LastHandle = handle, Capacity = BankerRoles.SmallBackpackCapacity });
                 SaveReturn(returnedOffer, "intent");
                 op.Phase = returnedOffer.Id; SaveBankLayout();
             });
             _returnOffer = returnedOffer;
-            _returnRequest = SendReturnMessage(_centralCharacter, "return-prepare", returnedOffer);
+            _returnRequest = SendReturnMessage(ReturnDestination(returnedOffer), "return-prepare", returnedOffer);
             _returnPhase.Restart();
             return true;
         }
@@ -299,13 +389,37 @@ namespace CityBankers
         private static bool IsLayoutReturn(ReturnOffer offer) => offer != null && offer.LedgerId == null &&
             offer.TransactionId?.StartsWith("bag-layout-", StringComparison.Ordinal) == true && IsReserveBag(offer.Item);
 
+        private string LayoutDestination(string source)
+        {
+            var member = _config.Roles.FirstOrDefault(p => string.Equals(p.Value.Character, source, StringComparison.OrdinalIgnoreCase));
+            if (member.Value == null) return null;
+            string category = BankerRoles.Canonical(member.Key);
+            var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+            var twins = _config.Roles.Where(p => BankerRoles.Canonical(p.Key) == category &&
+                !string.Equals(p.Value.Character, source, StringComparison.OrdinalIgnoreCase)).Select(p => p.Value.Character).ToList();
+            if (twins.Count == 0) return _centralCharacter;
+            return twins.OrderBy(c => storage.Workers.FirstOrDefault(w => string.Equals(w.Character, c,
+                StringComparison.OrdinalIgnoreCase))?.Bags.Count(b => b.Source == "bank") ?? 0).First();
+        }
+
+        private bool TwinBankFull()
+        {
+            string twin = LayoutDestination(Client.CharacterName);
+            return twin != null && !string.Equals(twin, _centralCharacter, StringComparison.OrdinalIgnoreCase) &&
+                RuntimeStateStore.LoadStorageState(_settingsDir).Workers.Any(w =>
+                    string.Equals(w.Character, twin, StringComparison.OrdinalIgnoreCase) &&
+                    w.Bags.Count(b => b.Source == "bank") >= StorageBankBagTarget);
+        }
+
         private bool ValidLayoutReturn(ReturnOffer offer)
         {
             var op = ManagerMemory.Current.ReadReserveOperation(ManagerAccounting.TransactionId, offer.Source);
             var bag = RuntimeStateStore.LoadStorageState(_settingsDir)?.Workers?.SingleOrDefault(w =>
                 string.Equals(w.Character, offer.Source, StringComparison.OrdinalIgnoreCase))?.Bags?.SingleOrDefault(b =>
                     b.LastUniqueIdentity == offer.Item.UniqueIdentity);
-            return op?.Purpose == "layout-return" && op.Phase == offer.Id && op.Identity == offer.Item.UniqueIdentity &&
+            bool destination = string.Equals(ReturnDestination(offer), Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
+                (_isCentral || string.Equals(LayoutDestination(offer.Source), Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+            return destination && op?.Purpose == "layout-return" && op.Phase == offer.Id && op.Identity == offer.Item.UniqueIdentity &&
                 bag?.Items?.Count == 0 && bag.Source == "inventory" && bag.OuterSlotInstance == (offer.SourceSlot & 65535);
         }
 
