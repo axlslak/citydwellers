@@ -36,8 +36,8 @@ namespace CityBankers
                 if (censuses.Count == 0 || censuses.Select(c => c.Character)
                     .Distinct(StringComparer.OrdinalIgnoreCase).Count() != censuses.Count ||
                     !censuses.Any(c => string.Equals(c.Role, "central", StringComparison.OrdinalIgnoreCase)) ||
-                    censuses.Any(c => !roles.TryGetValue(c.Role, out var character) ||
-                        !string.Equals(character, c.Character, StringComparison.OrdinalIgnoreCase)))
+                    censuses.Any(c => !roles.Any(member => CityDwellers.Shared.BankerRoles.Canonical(member.Key) == c.Role &&
+                        string.Equals(member.Value, c.Character, StringComparison.OrdinalIgnoreCase))))
                     throw new InvalidOperationException("Reconciliation requires Central and distinct configured census participants.");
                 var runs = censuses.Select(c => c.Character.ToLowerInvariant() + "/" + c.RunId)
                     .OrderBy(value => value, StringComparer.Ordinal).ToList();
@@ -105,7 +105,7 @@ namespace CityBankers
                     // An explicit audit covers enabled participants only. Work
                     // parked for a disabled role keeps its original custody.
                     bundle.Queue.Batches.AddRange((bundle.PreviousQueue?.Batches ?? new List<DispatchBatchState>())
-                        .Where(batch => !roles.ContainsKey(batch.Role)));
+                        .Where(batch => !roles.Values.Contains(batch.Character, StringComparer.OrdinalIgnoreCase)));
                 }
                 if (bundle.Format != "citybankers-census-application-v3" || bundle.ReservedWithdrawals == null ||
                     bundle.Generation != generation || bundle.Runs == null || !bundle.Runs.SequenceEqual(runs) ||
@@ -160,9 +160,13 @@ namespace CityBankers
                     (w.Item != null && w.Item.AoId == entry.AoId &&
                     (!entry.HighId.HasValue || w.Item.HighId == entry.HighId) &&
                     (!entry.Ql.HasValue || w.Item.Ql == entry.Ql)))) continue;
-                string destination;
-                if (string.Equals(entry.Family, "central", StringComparison.OrdinalIgnoreCase) ||
-                    !roles.TryGetValue(entry.Family, out destination)) continue;
+                if (string.Equals(entry.Family, "central", StringComparison.OrdinalIgnoreCase)) continue;
+                string destination = roles.Where(member => CityDwellers.Shared.BankerRoles.Canonical(member.Key) == entry.Family)
+                    .Select(member => member.Value).OrderBy(character => plan.Items.Count(e =>
+                        string.Equals(e.Character, character, StringComparison.OrdinalIgnoreCase)) + queue.Batches.Where(b =>
+                        string.Equals(b.Character, character, StringComparison.OrdinalIgnoreCase)).Sum(b => b.Items.Count))
+                    .ThenBy(character => character, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+                if (destination == null) continue;
                 var observed = observations.Single(o => string.Equals(o.Character, central, StringComparison.OrdinalIgnoreCase) &&
                     o.Location == "inventory" && !o.Bag.HasValue && o.Slot == entry.Slot);
                 queue.Batches.Add(new DispatchBatchState

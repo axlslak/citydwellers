@@ -105,7 +105,7 @@ namespace CityBankers
         }
 
         private void PrepareReceipt(string kind, string transaction, string batch,
-            List<TransferItemState> expected, int direction)
+            List<TransferItemState> expected, int direction, string evidenceId = null)
         {
             if (_receipt != null)
                 throw new InvalidOperationException("Unresolved custody evidence prevents another trade.");
@@ -119,7 +119,7 @@ namespace CityBankers
             _receiptLiveBeforeItems = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory).ToList();
             _reserveReceiptObservationAfter = SharedBagRecovery.ContainerObservationSequence;
             if (kind == "dispatch-send") BindReserveProofToAttempt(expected, batch, transaction);
-            _receipt = new ReceiptEvidence { Id = Guid.NewGuid().ToString("N"), Kind = kind, TransactionId = transaction,
+            _receipt = new ReceiptEvidence { Id = evidenceId ?? Guid.NewGuid().ToString("N"), Kind = kind, TransactionId = transaction,
                 BatchId = batch, Character = Client.CharacterName, Before = PhysicalInventory(), BeforeSlots = PhysicalSlots(),
                 Expected = expected == null ? null : new List<TransferItemState>(expected), Direction = direction,
                 PreparedItems = expected == null ? null : new List<TransferItemState>(expected),

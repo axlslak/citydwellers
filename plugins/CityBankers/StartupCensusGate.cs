@@ -295,12 +295,12 @@ namespace CityBankers
             _owner = this;
             _character = Client.CharacterName;
             _memberCharacter = _character;
-            _role = _roles.Properties().Single(p => string.Equals((string)p.Value["Character"],
-                _character, StringComparison.OrdinalIgnoreCase)).Name;
+            _role = CityDwellers.Shared.BankerRoles.Canonical(_roles.Properties().Single(p => string.Equals((string)p.Value["Character"],
+                _character, StringComparison.OrdinalIgnoreCase)).Name);
             _directory = CensusDirectory(_settings);
             _traceData = RuntimeStateStore.GetDataDirectory(_settings);
             Manager.ConfigureBankers(_roles.Properties().ToDictionary(p => (string)p.Value["Character"],
-                p => p.Name, StringComparer.OrdinalIgnoreCase));
+                p => CityDwellers.Shared.BankerRoles.Canonical(p.Name), StringComparer.OrdinalIgnoreCase));
             _connection = Guid.NewGuid().ToString("N");
             _presenceAge.Reset();
             Client.OnUpdate += Tick;

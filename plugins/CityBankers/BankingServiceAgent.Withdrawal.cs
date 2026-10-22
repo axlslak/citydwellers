@@ -41,6 +41,7 @@ namespace CityBankers
         private StorageBagState _withdrawalBag;
         private string _withdrawalBagIdentity;
         private bool _withdrawalBankBag;
+        private WorkingBagReturn _withdrawalBagReturn;
         private bool _withdrawalTradeOpened;
         private bool _withdrawalItemOffered;
         private bool _withdrawalAccepted;
@@ -144,7 +145,7 @@ namespace CityBankers
 
             rows = WithdrawalStore.LoadAll(_settingsDir);
             WithdrawalState active = rows.FirstOrDefault(row =>
-                (WithdrawalStore.HasStatus(row, "extracting") && IsRoleEnabled(row.SourceRole)) ||
+                (WithdrawalStore.HasStatus(row, "extracting") && (IsRoleEnabled(row.SourceRole) && IsCharacterEnabled(row.SourceCharacter))) ||
                 WithdrawalStore.HasStatus(row, "central-received"));
             if (active != null)
             {
@@ -180,14 +181,14 @@ namespace CityBankers
             // Existing dispatch drains before another extraction; waiting pickups do not gate it.
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             if ((queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
-                batch != null && IsRoleEnabled(batch.Role) &&
+                batch != null && IsDispatchDestinationEnabled(batch) &&
                 !string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
                 !string.Equals(batch.Status, CustodyHoldStatus, StringComparison.OrdinalIgnoreCase)))
                 return false;
             if (!TrustedOperators.IsAllBankersReady() || Inventory.NumFreeSlots < 12)
                 return false; // retain room for a full donation even with waiting orders
             WithdrawalState next = rows.FirstOrDefault(row =>
-                IsRoleEnabled(row.SourceRole) &&
+                (IsRoleEnabled(row.SourceRole) && IsCharacterEnabled(row.SourceCharacter)) &&
                 ((!CruPolicy.IsCru(row) && WithdrawalStore.HasStatus(row, "requested")) || (!CruPolicy.IsCru(row) && CanRetryWithdrawalExtraction(row))) &&
                 !rows.Any(other => other.Id != row.Id && WithdrawalStore.HasStatus(other, "failed") &&
                     string.Equals(other.SourceCharacter, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)) &&
@@ -534,7 +535,7 @@ namespace CityBankers
                     (_withdrawal?.Id ?? "?") + ": uniquely recognized " +
                     (loose.Name ?? "reserved item") + " in " + Client.CharacterName +
                     " normal inventory; the old audited source slot will not be replayed.");
-                if (string.Equals(_withdrawal.SourceBag, "bank", StringComparison.OrdinalIgnoreCase))
+                if (_withdrawal.SourceBag == "bank" || _withdrawal.SourceBag == "inventory")
                 {
                     StorageState recoveryState = RuntimeStateStore.LoadStorageState(_settingsDir);
                     StorageWorkerState recoveryWorker = (recoveryState?.Workers ?? new List<StorageWorkerState>())
@@ -542,7 +543,7 @@ namespace CityBankers
                             value.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
                     StorageBagState recoveryBag = (recoveryWorker?.Bags ?? new List<StorageBagState>())
                         .FirstOrDefault(value => value != null &&
-                            string.Equals(value.Source, "bank", StringComparison.OrdinalIgnoreCase) &&
+                            string.Equals(value.Source, _withdrawal.SourceBag, StringComparison.OrdinalIgnoreCase) &&
                             value.OuterSlotInstance == _withdrawal.SourceBagOuterSlot);
                     Item staged = (Inventory.Items ?? new List<Item>()).FirstOrDefault(item =>
                         item != null && StorageBagPolicy.IsStorageBag(item) &&
@@ -553,7 +554,7 @@ namespace CityBankers
                         _withdrawalBag = recoveryBag;
                         _withdrawalBagIdentity = staged.UniqueIdentity.ToString();
                         _withdrawalBankBag = true;
-                        BagOriginTrace.MoveToBank(staged);
+                        _withdrawalBagReturn = BeginWorkingBagReturn(staged);
                         _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitBagReturn;
                         SetWithdrawalDeadline();
                         return;
@@ -688,37 +689,31 @@ namespace CityBankers
                 }
                 return;
             }
-            Logger.Information(
-                "[CityBankers] WITHDRAWAL ITEM OBSERVED " + (_withdrawal?.Id ?? "?") +
-                ": exact reserved item is now in " + Client.CharacterName +
-                " normal inventory; continuing extraction.");
-            ReportTransferProgress("WITHDRAWAL EXTRACTED", _withdrawal.Id,
-                "source=" + Client.CharacterName + "; reserved item observed in normal inventory; preparing return to " + _centralCharacter,
-                new[] { _withdrawal.Item });
-            if (!string.Equals(
-                    _withdrawal.ExtractedItemIdentity,
-                    extracted.UniqueIdentity.ToString(),
-                    StringComparison.Ordinal))
-            {
-                _withdrawal.ExtractedItemIdentity = extracted.UniqueIdentity.ToString();
-                WithdrawalStore.Save(_settingsDir, _withdrawal);
-            }
-            if (_withdrawalBankBag)
-            {
-                Item bag = FindInventoryBagByIdentity(_withdrawalBagIdentity);
-                if (bag == null) return;
-                BagOriginTrace.MoveToBank(bag);
-                _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitBagReturn;
-            }
-            else
-                _withdrawalWorkerPhase = WithdrawalWorkerPhase.OpenTrade;
+            // The item is in ordinary inventory. Return its bag before any
+            // accounting, peer readiness request, or trade is allowed to wait.
+            Item workingBag = FindInventoryBagByIdentity(_withdrawalBagIdentity);
+            if (workingBag == null) return;
+            _withdrawalBagReturn = BeginWorkingBagReturn(workingBag);
+            _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitBagReturn;
             SetWithdrawalDeadline();
+            _withdrawal.ExtractedItemIdentity = extracted.UniqueIdentity.ToString();
+            WithdrawalStore.Save(_settingsDir, _withdrawal);
+            Logger.Information("[CityBankers] WITHDRAWAL ITEM OBSERVED " + _withdrawal.Id +
+                "; working bag returning to bank before peer preparation.");
         }
 
         private void WithdrawalWaitBagReturn()
         {
-            Item bag = FindBankBagByIdentity(_withdrawalBagIdentity);
-            if (bag == null) return;
+            Item bag;
+            if (!ObserveWorkingBagReturn(_withdrawalBagReturn, out bag)) return;
+            RuntimeStorageStateTransactions.RecordBankReturn(_settingsDir, Client.CharacterName,
+                _withdrawalBagIdentity, bag.Slot.Instance);
+            // Relocation also updates other reservations in this bag. Reload the
+            // revision rather than overwriting those changes with our old copy.
+            _withdrawal = WithdrawalStore.LoadAll(_settingsDir).Single(w => w.Id == _withdrawal.Id);
+            _withdrawalBag.Source = "bank";
+            _withdrawalBag.OuterSlotInstance = bag.Slot.Instance & 65535;
+            _withdrawalBagReturn = null;
             _withdrawalWorkerPhase = WithdrawalWorkerPhase.OpenTrade;
             SetWithdrawalDeadline();
         }

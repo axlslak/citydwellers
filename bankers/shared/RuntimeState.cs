@@ -488,8 +488,8 @@ namespace CityBankers.Shared
                 return null;
 
             return worker.Bags
-                .Where(b => b != null &&
-                    (b.Items == null ? 0 : b.Items.Count) < b.Capacity)
+                .Where(b => b != null && b.Source == "bank" &&
+                    b.Items != null && b.Items.Count < b.Capacity)
                 .OrderBy(b =>
                     string.Equals(b.Source, "bank", StringComparison.OrdinalIgnoreCase)
                         ? 0

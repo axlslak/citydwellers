@@ -135,7 +135,7 @@ namespace CityBankers
                 grant.CentralRun == grant.WorkerRun || string.IsNullOrWhiteSpace(grant.Batch.BatchId) ||
                 string.IsNullOrWhiteSpace(grant.Batch.TransactionId) || grant.Batch.Items == null ||
                 grant.Batch.Items.Count == 0 || grant.Batch.Items.Any(i => i == null) ||
-                !_config.Roles.Any(p => p.Key != "central" && p.Key == grant.Batch.Role &&
+                !_config.Roles.Any(p => p.Key != "central" && CityDwellers.Shared.BankerRoles.Canonical(p.Key) == grant.Batch.Role &&
                     string.Equals(p.Value?.Character, grant.Batch.Character, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidOperationException("Invalid paired dispatch census grant.");
             if (grant.CentralEvidence != null && grant.CentralEvidence.Kind != "dispatch-send")

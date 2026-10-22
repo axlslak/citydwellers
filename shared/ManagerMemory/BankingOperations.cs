@@ -32,6 +32,7 @@ namespace CityBankers
         public string BagIdentity;
         public int SourceSlot;
         public int? FinalBagSlot;
+        public string FinalBagSource;
         public int InventorySlot;
         public TransferItemState Item;
         public DateTime RecordedUtc;
@@ -55,6 +56,7 @@ namespace CityBankers
     public sealed class ReturnOffer
         {
             public string Id;
+        public bool SenderReceiptVerified, ReceiverReceiptVerified;
             public string Phase;
             public string LedgerId;
             public string TransactionId;

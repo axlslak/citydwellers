@@ -253,7 +253,7 @@ namespace CityBankers
                         "Role",
                         StringComparison.OrdinalIgnoreCase)?.ToString();
                     if (!string.Equals(character, pair.Value, StringComparison.OrdinalIgnoreCase) ||
-                        !string.Equals(role, pair.Key, StringComparison.OrdinalIgnoreCase))
+                        !string.Equals(role, CityDwellers.Shared.BankerRoles.Canonical(pair.Key), StringComparison.OrdinalIgnoreCase))
                     {
                         return false;
                     }
@@ -315,7 +315,7 @@ namespace CityBankers
                         "Role",
                         StringComparison.OrdinalIgnoreCase)?.ToString();
                     if (!string.Equals(character, pair.Value, StringComparison.OrdinalIgnoreCase) ||
-                        !string.Equals(role, pair.Key, StringComparison.OrdinalIgnoreCase))
+                        !string.Equals(role, CityDwellers.Shared.BankerRoles.Canonical(pair.Key), StringComparison.OrdinalIgnoreCase))
                     {
                         return false;
                     }

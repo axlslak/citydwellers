@@ -222,7 +222,7 @@ namespace CityBankers
                 {
                     return new EnrollmentTarget
                     {
-                        Role = role,
+                        Role = CityDwellers.Shared.BankerRoles.Canonical(role),
                         Character = config.Character,
                         Reason = structurallyMissing
                             ? "operational worker map is missing or empty"

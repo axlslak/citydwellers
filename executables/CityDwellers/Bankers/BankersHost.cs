@@ -187,10 +187,10 @@ public class BankerLoader
     {
         account = null;
 
-        foreach (KeyValuePair<string, AccountMapping> item in _config.Roles)
+        foreach (KeyValuePair<string, AccountMapping> item in _config.Roles.OrderByDescending(p => p.Value?.Enabled == true))
         {
             if (!string.Equals(
-                    item.Key,
+                    CityDwellers.Shared.BankerRoles.Canonical(item.Key),
                     requestedRole,
                     StringComparison.OrdinalIgnoreCase))
             {
@@ -210,7 +210,7 @@ public class BankerLoader
             .Where(kvp => kvp.Value?.Enabled == true && IsFullyConfigured(kvp.Value))
             .Select(kvp => new RoleMapping
             {
-                Role = kvp.Key,
+                Role = CityDwellers.Shared.BankerRoles.Canonical(kvp.Key),
                 Account = kvp.Value
             })
             .OrderBy(r => RoleOrder(r.Role))
@@ -295,7 +295,7 @@ public class BankerLoader
         Console.WriteLine(message);
         Console.WriteLine("Roles in the Bankers section of citydwellers.json:");
 
-        foreach (KeyValuePair<string, AccountMapping> item in _config.Roles)
+        foreach (KeyValuePair<string, AccountMapping> item in _config.Roles.OrderByDescending(p => p.Value?.Enabled == true))
         {
             Console.WriteLine(
                 $"  {item.Key} -> " +
@@ -653,7 +653,7 @@ public class BankerLoader
         var messages = new List<string>
         {
             "CityBankers capacity report: configured copies per accepted AOID; " +
-            "bags counted only in bank + normal inventory (no worn/social bags)."
+            "capacity counted from bank bags across each category's configured characters."
         };
 
         int passed = 0;
@@ -662,11 +662,7 @@ public class BankerLoader
 
         foreach (string role in activeStorageRoles)
         {
-            BankerRuntime runtime = runtimes.FirstOrDefault(
-                r => string.Equals(
-                    r.Role,
-                    role,
-                    StringComparison.OrdinalIgnoreCase));
+            var members = runtimes.Where(r => string.Equals(r.Role, role, StringComparison.OrdinalIgnoreCase)).ToList();
 
             List<SymbiantCatalog.AcceptanceRule> rules = SymbiantCatalog
                 .GetRetentionRules(_settingsDir)
@@ -677,23 +673,24 @@ public class BankerLoader
                 .Sum(rule => rule.MaxCopies);
             int requiredBags = (requiredSlots + BagCapacity - 1) / BagCapacity;
 
-            if (runtime == null || !runtime.Started || runtime.Result == null)
+            if (members.Count == 0 || members.Any(r => !r.Started || r.Result == null))
             {
                 messages.Add(
                     $"{role}: NO RESULT; policy needs {(unbounded ? "unbounded" : requiredSlots.ToString())} item slots.");
                 continue;
             }
 
-            DiagnosticResult result = runtime.Result;
-            if (!result.BankOpened || result.TotalBagCount < 0)
+            if (members.Any(r => !r.Result.BankOpened || r.Result.TotalBagCount < 0))
             {
                 messages.Add(
-                    $"{role}: bank not verified; inventory bags={result.InventoryBagCount}; " +
+                    $"{role}: bank not verified for every category member; " +
                         $"policy={(unbounded ? "unbounded" : requiredSlots.ToString())} slots.");
                 continue;
             }
 
-            int actualBags = result.TotalBagCount;
+            int bankBags = members.Sum(r => r.Result.BankBagCount);
+            int inventoryBags = members.Sum(r => r.Result.InventoryBagCount);
+            int actualBags = bankBags;
             int capacity = actualBags * BagCapacity;
             int bagDelta = actualBags - requiredBags;
             bool enough = !unbounded && bagDelta >= 0;
@@ -702,15 +699,15 @@ public class BankerLoader
                 passed++;
 
             messages.Add(
-                $"{role}: bags={actualBags} (bank {result.BankBagCount} + inv " +
-                $"{result.InventoryBagCount}), need={requiredBags}; capacity={capacity}/" +
+                $"{role}: {members.Count} banker(s), bank bags={bankBags}, transient inventory bags={inventoryBags}; " +
+                $"need={requiredBags}; capacity={capacity}/" +
                 $"{(unbounded ? "unbounded" : requiredSlots.ToString())} -> {(unbounded ? "MONITOR" : enough ? "OK" : "SHORT")} " +
                 $"({(bagDelta >= 0 ? "+" : string.Empty)}{bagDelta} bags).");
         }
 
         messages.Add(
             $"Overall: {(passed == activeStorageRoles.Length ? "PASS" : "CHECK")} " +
-            $"{passed}/{activeStorageRoles.Length} enabled storage bankers have enough bags.");
+            $"{passed}/{activeStorageRoles.Length} enabled storage categories have enough bank bags.");
 
         return messages;
     }

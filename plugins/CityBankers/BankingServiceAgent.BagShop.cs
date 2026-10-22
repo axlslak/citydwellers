@@ -52,7 +52,7 @@ namespace CityBankers
         {
             if (!_isCentral || _bagShop != null || DateTime.UtcNow < _bagShopRetryAfter || !CanStartLocalCensus() ||
                 Inventory.NumFreeSlots < 2 || ReserveBankFreeSlots < 1) return false;
-            if (RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b => b.Status == "queued" || b.Status == "transferred")) return false;
+            if (RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b => IsReserveBatch(b.Items))) return false;
             if (!BagShopSupplyNeeded(reserve, storage, ready)) return false;
             int cash;
             if (!DynelManager.LocalPlayer.TryGetStat(Stat.Cash, out cash) || cash <= 0)
@@ -81,9 +81,16 @@ namespace CityBankers
 
         private bool BagShopSupplyNeeded(BagReserve reserve, StorageState storage, HashSet<string> ready)
         {
-            int missing = storage.Workers.Where(w => w.Role != "central" && w.Role != "spirit" && ready.Contains(w.Character) && IsRoleEnabled(w.Role))
-                .Sum(w => Math.Max(0, ReserveTarget(reserve, w.Character) - w.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count()));
-            return missing > reserve.Bags.Count(b => !b.Delivered && !b.Quarantined);
+            var configured = _config.Roles.Values.Select(a => a.Character).ToArray();
+            // A bag in an old worker's inventory is still supply, not a reason
+            // to buy its replacement before the surplus transfer can run.
+            if (configured.Any(c => !ready.Contains(c) || !storage.Workers.Any(w => string.Equals(w.Character, c, StringComparison.OrdinalIgnoreCase))))
+                return false;
+            int existing = storage.Workers.Where(w => configured.Contains(w.Character, StringComparer.OrdinalIgnoreCase))
+                .Sum(w => w.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count());
+            var registered = new HashSet<string>(storage.Workers.SelectMany(w => w.Bags).Select(b => b.LastUniqueIdentity));
+            int incoming = reserve.Bags.Count(b => !b.Delivered && !b.Quarantined && !registered.Contains(b.Identity));
+            return existing + incoming < configured.Length * StorageBankBagTarget;
         }
 
         private VendingMachine FindBagDealer() => DynelManager.VendingMachines

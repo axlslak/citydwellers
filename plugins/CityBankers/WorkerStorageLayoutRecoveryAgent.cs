@@ -1100,7 +1100,7 @@ namespace CityBankers
                         Client.CharacterName,
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    return pair.Key;
+                    return CityDwellers.Shared.BankerRoles.Canonical(pair.Key);
                 }
             }
             return null;
@@ -1110,7 +1110,7 @@ namespace CityBankers
         {
             foreach (KeyValuePair<string, RecoveryRole> pair in _config.Roles)
             {
-                if (string.Equals(pair.Key, role, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(CityDwellers.Shared.BankerRoles.Canonical(pair.Key), role, StringComparison.OrdinalIgnoreCase))
                 {
                     value = pair.Value;
                     return true;

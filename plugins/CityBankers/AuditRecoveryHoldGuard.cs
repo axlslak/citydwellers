@@ -191,7 +191,7 @@ namespace CityBankers
                         Client.CharacterName,
                         StringComparison.OrdinalIgnoreCase))
                     {
-                        return pair.Key;
+                        return CityDwellers.Shared.BankerRoles.Canonical(pair.Key);
                     }
                 }
             }

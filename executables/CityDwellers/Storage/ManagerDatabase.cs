@@ -65,7 +65,7 @@ namespace CityDwellers.Host
                     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name <> 'cd_storage_version'", _connection))
                     if (Convert.ToInt32(command.ExecuteScalar()) != 0)
                         throw new InvalidOperationException("Database has tables but no current schema version. Legacy import is no longer supported. Use an empty database or restore a current-schema backup.");
-                RuntimeLog.Write("Initializing empty business database (schema 13).");
+                RuntimeLog.Write("Initializing empty business database (schema 14).");
                 _tables.Create(_connection);
                 CreateSeenTables();
                 CreatePlayerProfileTable();
@@ -77,7 +77,7 @@ namespace CityDwellers.Host
                 };
                 _tables.Commit(_connection, new AccountingState { Reserve = null, Alts = null }, state, transaction =>
                 {
-                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(13)", _connection, transaction)) command.ExecuteNonQuery();
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(14)", _connection, transaction)) command.ExecuteNonQuery();
                 });
             }
             else
@@ -141,7 +141,27 @@ namespace CityDwellers.Host
                     using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(13)", _connection)) command.ExecuteNonQuery();
                     version = 13;
                 }
-                if (version != 13) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 13.");
+                if (version == 13)
+                {
+                    RuntimeLog.Write("Upgrading business schema 13 to 14: retaining bag return destinations and paired surplus receipts.");
+                    // MySQL and MariaDB both support information_schema. Check
+                    // each column so interrupted DDL can resume safely.
+                    foreach (var column in new[] {
+                        new[] { "cd_pending_extractions", "final_bag_source", "LONGTEXT" },
+                        new[] { "cd_pending_returns", "sender_receipt_verified", "TINYINT" },
+                        new[] { "cd_pending_returns", "receiver_receipt_verified", "TINYINT" } })
+                    {
+                        using (var check = new MySqlCommand("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table AND column_name=@column", _connection))
+                        {
+                            check.Parameters.AddWithValue("@table", column[0]); check.Parameters.AddWithValue("@column", column[1]);
+                            if (Convert.ToInt32(check.ExecuteScalar()) == 0)
+                                using (var alter = new MySqlCommand("ALTER TABLE `" + column[0] + "` ADD COLUMN `" + column[1] + "` " + column[2] + " NULL", _connection)) alter.ExecuteNonQuery();
+                        }
+                    }
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(14)", _connection)) command.ExecuteNonQuery();
+                    version = 14;
+                }
+                if (version != 14) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 14.");
                 RuntimeLog.Write("Loading relational business rows into Manager RAM.");
                 state = _tables.Load(_connection);
             }

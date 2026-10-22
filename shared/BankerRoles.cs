@@ -19,19 +19,54 @@ namespace CityDwellers.Shared
         public static bool IsEnabled(JToken role) =>
             (role as JObject)?.GetValue("Enabled", StringComparison.OrdinalIgnoreCase)?.Value<bool?>() != false;
 
-        // Accept the original configuration spelling without changing the file
-        // or creating a second banker. An explicit canonical entry takes priority.
+        // Configuration member keys identify accounts; persisted Role continues
+        // to identify the shared item category and its retention policy.
+        public static string Canonical(string member) => member?.Split('#')[0].ToLowerInvariant();
+
+        // A single account remains valid. Accounts lets a category grow without
+        // inventing another category, stock command, or set of copy limits.
         public static JObject NormalizeAliases(JObject roles)
         {
             if (roles == null) return null;
-            JProperty alias = roles.Properties().FirstOrDefault(p =>
-                string.Equals(p.Name, "typesetter", StringComparison.OrdinalIgnoreCase));
-            if (alias == null) return roles;
             var result = (JObject)roles.DeepClone();
-            if (result.GetValue("types", StringComparison.OrdinalIgnoreCase) == null)
-                result["types"] = alias.Value.DeepClone();
-            result.Property(alias.Name).Remove();
-            return result;
+            JProperty alias = result.Properties().FirstOrDefault(p =>
+                string.Equals(p.Name, "typesetter", StringComparison.OrdinalIgnoreCase));
+            if (alias != null)
+            {
+                if (result.GetValue("types", StringComparison.OrdinalIgnoreCase) == null)
+                    result["types"] = alias.Value.DeepClone();
+                alias.Remove();
+            }
+            var expanded = new JObject();
+            foreach (var property in result.Properties())
+            {
+                string category = Canonical(property.Name);
+                if (!All.Contains(category, StringComparer.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Unknown banker role: " + property.Name);
+                var group = property.Value as JObject;
+                var accounts = group?.GetValue("Accounts", StringComparison.OrdinalIgnoreCase) as JArray;
+                if (accounts == null) { expanded.Add(property.Name, property.Value.DeepClone()); continue; }
+                if (category == "central" && accounts.Count != 1)
+                    throw new InvalidOperationException("Bankers requires exactly one Central account.");
+                foreach (var token in accounts)
+                {
+                    var account = token as JObject;
+                    string character = (string)account?.GetValue("Character", StringComparison.OrdinalIgnoreCase);
+                    if (account == null || string.IsNullOrWhiteSpace(character))
+                        throw new InvalidOperationException("Bankers.Roles." + category + ".Accounts requires a Character for each member.");
+                    account = (JObject)account.DeepClone();
+                    if (!IsEnabled(group)) account["Enabled"] = false;
+                    if (account.GetValue("Password", StringComparison.OrdinalIgnoreCase) == null &&
+                        group.GetValue("Password", StringComparison.OrdinalIgnoreCase) != null)
+                        account["Password"] = group.GetValue("Password", StringComparison.OrdinalIgnoreCase).DeepClone();
+                    string key = expanded.GetValue(category, StringComparison.OrdinalIgnoreCase) == null
+                        ? category : category + "#" + character.Trim().ToLowerInvariant();
+                    if (expanded.GetValue(key, StringComparison.OrdinalIgnoreCase) != null)
+                        throw new InvalidOperationException("Duplicate banker account: " + character);
+                    expanded.Add(key, account);
+                }
+            }
+            return expanded;
         }
 
         public static JObject EnabledOnly(JObject roles) => roles == null ? null :
@@ -41,8 +76,9 @@ namespace CityDwellers.Shared
         public static string[] ActiveNames(JObject roles, bool storageOnly = false)
         {
             roles = NormalizeAliases(roles);
-            return (storageOnly ? Storage : All).Where(name =>
-                roles?.GetValue(name, StringComparison.OrdinalIgnoreCase) is JObject role && IsEnabled(role)).ToArray();
+            return roles?.Properties().Where(p => (storageOnly ? Storage : All)
+                .Contains(Canonical(p.Name), StringComparer.OrdinalIgnoreCase) && p.Value is JObject && IsEnabled(p.Value))
+                .Select(p => p.Name).ToArray() ?? new string[0];
         }
     }
 }

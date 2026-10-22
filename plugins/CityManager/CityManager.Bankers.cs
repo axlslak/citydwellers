@@ -41,9 +41,13 @@ namespace CityManager
 
                 var readiness = BankerReadiness.Inspect(_settingsDir);
                 var operationalCharacters = readiness.Ready;
-                foreach (string role in BankerRoles.All)
+                foreach (string member in BankerRoles.All.SelectMany(role => {
+                    var members = roles?.Properties().Where(p => BankerRoles.Canonical(p.Name) == role).Select(p => p.Name).ToArray();
+                    return members != null && members.Length != 0 ? members : new[] { role };
+                }))
                 {
-                    JObject roleConfig = roles?.GetValue(role, StringComparison.OrdinalIgnoreCase) as JObject;
+                    string role = BankerRoles.Canonical(member);
+                    JObject roleConfig = roles?.GetValue(member, StringComparison.OrdinalIgnoreCase) as JObject;
                     string character = roleConfig?.GetValue(
                         "Character", StringComparison.OrdinalIgnoreCase)?.ToString();
                     if (roleConfig == null)
@@ -76,8 +80,7 @@ namespace CityManager
 
                     List<DispatchBatchState> roleBatches = (queue?.Batches ?? new List<DispatchBatchState>())
                         .Where(batch => batch != null &&
-                            (string.Equals(batch.Character, character, StringComparison.OrdinalIgnoreCase) ||
-                             string.Equals(batch.Role, role, StringComparison.OrdinalIgnoreCase)))
+                            string.Equals(batch.Character, character, StringComparison.OrdinalIgnoreCase))
                         .ToList();
                     int failed = roleBatches.Count(batch => string.Equals(
                         batch.Status, "failed", StringComparison.OrdinalIgnoreCase));
@@ -136,9 +139,15 @@ namespace CityManager
                         workText += "; reserved items " + localOrders.Count;
                     if (unboundedPolicy)
                         workText += "; retention unbounded - monitor free space";
-                    else if (policySlots > capacity && capacity > 0)
-                        workText += "; policy ceiling " + policySlots + " exceeds capacity by " +
-                            (policySlots - capacity);
+                    else
+                    {
+                        int pooledCapacity = storage?.Workers?.Where(w => string.Equals(w.Role, role, StringComparison.OrdinalIgnoreCase) &&
+                            roles.Properties().Any(p => BankerRoles.IsEnabled(p.Value) &&
+                                string.Equals((string)p.Value["Character"], w.Character, StringComparison.OrdinalIgnoreCase)))
+                            .Sum(w => w.Bags?.Where(b => b.Source == "bank").Sum(b => b.Capacity) ?? 0) ?? 0;
+                        if (policySlots > pooledCapacity && pooledCapacity > 0)
+                            workText += "; category policy ceiling " + policySlots + " exceeds pooled capacity by " + (policySlots - pooledCapacity);
+                    }
 
                     lines.Append(StatusLine(usable, character + " (" + role + ")",
                         state + workText));

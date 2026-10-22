@@ -370,12 +370,10 @@ internal static class BagAuditRunner
             return false;
         }
 
-        foreach (string roleName in RequiredRoles)
+        foreach (var match in config.Roles)
         {
-            KeyValuePair<string, AuditAccount> match = config.Roles.FirstOrDefault(kvp =>
-                string.Equals(kvp.Key, roleName, StringComparison.OrdinalIgnoreCase));
-            if (match.Value == null) continue; // Disabled roles were filtered from runtime settings.
-
+            string roleName = CityDwellers.Shared.BankerRoles.Canonical(match.Key);
+            if (match.Value == null) continue;
             AuditAccount account = match.Value;
             if (!IsFullyConfigured(account))
             {

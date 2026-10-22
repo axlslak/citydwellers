@@ -15,6 +15,46 @@ namespace CityBankers.Shared
         private const string RuntimeStateMutexName = "CityBankers.RuntimeState.v1";
         private const string IdentityNoneText = "(None:0000)";
 
+        // Only called after the addressed bag has left inventory and exactly
+        // one bank occurrence has arrived. Move addresses, never item claims.
+        public static void RecordBankReturn(string settingsDir, string character, string identity, int bankSlot)
+        {
+            WithRuntimeStateMutex(delegate
+            {
+                var state = RuntimeStateStore.LoadStorageState(settingsDir);
+                var worker = state?.Workers?.SingleOrDefault(w => string.Equals(w.Character, character, StringComparison.OrdinalIgnoreCase));
+                var bag = worker?.Bags?.SingleOrDefault(b => b.LastUniqueIdentity == identity);
+                if (bag == null) throw new InvalidOperationException("Returned bag has no unique storage owner: " + identity);
+                bankSlot &= 65535;
+                if (worker.Bags.Any(b => b != bag && b.Source == "bank" && (b.OuterSlotInstance & 65535) == bankSlot))
+                    throw new InvalidOperationException("Returned bag conflicts with another bank address.");
+                string source = bag.Source;
+                int previous = bag.OuterSlotInstance & 65535;
+                if (source == "bank" && previous == bankSlot) return;
+                var ledger = CityDwellers.Shared.ManagerMemory.Current.ReadLedger(CityDwellers.Shared.ManagerAccounting.TransactionId);
+                foreach (var entry in ledger.Items.Where(e => string.Equals(e.Character, character, StringComparison.OrdinalIgnoreCase) &&
+                    e.Location == source && e.Bag.HasValue && (e.Bag.Value & 65535) == previous))
+                { entry.Location = "bank"; entry.Bag = bankSlot; }
+                CityDwellers.Shared.ManagerMemory.Current.ChangeLedger(CityDwellers.Shared.ManagerAccounting.TransactionId, ledger);
+                RelocateWithdrawalReferences(settingsDir, character, source, previous, bankSlot);
+                bag.Source = "bank"; bag.OuterSlotType = "BankByRef"; bag.OuterSlotInstance = bankSlot;
+                state.UpdatedUtc = DateTime.UtcNow;
+                CityDwellers.Shared.ManagerMemory.Current.ChangeStorage(CityDwellers.Shared.ManagerAccounting.TransactionId, state);
+                RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));
+            });
+        }
+
+        public static void RelocateWithdrawalReferences(string settingsDir, string character, string source, int oldSlot, int bankSlot)
+        {
+            foreach (var withdrawal in WithdrawalStore.LoadAll(settingsDir).Where(w => WithdrawalStore.IsActive(w) &&
+                string.Equals(w.SourceCharacter, character, StringComparison.OrdinalIgnoreCase) && w.SourceBag == source &&
+                (w.SourceBagOuterSlot & 65535) == (oldSlot & 65535)))
+            {
+                withdrawal.SourceBag = "bank"; withdrawal.SourceBagOuterSlot = bankSlot & 65535;
+                WithdrawalStore.Save(settingsDir, withdrawal);
+            }
+        }
+
         // Outer empty containers are equipment for storage, never donor stock.
         public static void UpdateReserveBag(string settingsDir, string character, string identity, StorageBagState replacement)
         {
@@ -53,7 +93,7 @@ namespace CityBankers.Shared
 
         public static void CommitVerifiedExtraction(string settingsDir, string character, string source,
             int outerSlot, string bagIdentity, int finalOuterSlot, int removedSlot,
-            IEnumerable<LiveBagItemSnapshot> before, IEnumerable<LiveBagItemSnapshot> after)
+            IEnumerable<LiveBagItemSnapshot> before, IEnumerable<LiveBagItemSnapshot> after, string finalSource = null)
         {
             WithRuntimeStateMutex(delegate
             {
@@ -73,9 +113,12 @@ namespace CityBankers.Shared
                 if (!bag.Items.Select(i => (i.InnerSlot & 65535) + "/" + i.AoId + "/" + i.HighId + "/" + i.Ql)
                     .OrderBy(k => k).SequenceEqual(expectedAfter))
                     throw new InvalidOperationException("Extraction would remove more than its verified occurrence.");
-                if (worker.Bags.Any(other => other != bag && other.Source == source && (other.OuterSlotInstance & 65535) == finalOuterSlot))
+                finalSource = finalSource ?? source;
+                if (worker.Bags.Any(other => other != bag && other.Source == finalSource && (other.OuterSlotInstance & 65535) == finalOuterSlot))
                     throw new InvalidOperationException("Returned extraction bag conflicts with another persisted bag slot.");
                 bag.OuterSlotInstance = finalOuterSlot;
+                bag.Source = finalSource;
+                if (finalSource == "bank") bag.OuterSlotType = "BankByRef";
                 state.UpdatedUtc = DateTime.UtcNow;
                 CityDwellers.Shared.ManagerMemory.Current.ChangeStorage(CityDwellers.Shared.ManagerAccounting.TransactionId, state);
                 RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settingsDir, state));

@@ -85,7 +85,7 @@ namespace CityBankers
                     return;
                 }
 
-                worker.Role = role;
+                worker.Role = CityDwellers.Shared.BankerRoles.Canonical(role);
                 _workers.Add(worker);
             }
 

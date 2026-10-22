@@ -37,10 +37,6 @@ namespace CityBankers
             (item.AoId == StorageBagPolicy.SmallBackpackId || item.HighId == StorageBagPolicy.SmallBackpackId);
         private static bool IsReserveBatch(IEnumerable<TransferItemState> items) =>
             items != null && items.Count() == 1 && items.All(IsReserveBag);
-        private int RetentionBagCapacity(string role) => (SymbiantCatalog.GetRetentionRules(_settingsDir)
-            .Where(r => string.Equals(r.Role, role, StringComparison.OrdinalIgnoreCase) && r.MaxCopies > 0)
-            .Sum(r => r.MaxCopies) + 20) / 21;
-
         private static int ReserveTarget(BagReserve state, string character)
         {
             int target;
@@ -50,23 +46,10 @@ namespace CityBankers
         private void CaptureReserveTargets(BagReserve state, StorageState storage, HashSet<string> ready)
         {
             bool changed = false;
-            foreach (var worker in storage.Workers.Where(w => !string.Equals(w.Role, "central", StringComparison.OrdinalIgnoreCase) &&
-                ready.Contains(w.Character)))
+            foreach (var worker in storage.Workers.Where(w => ready.Contains(w.Character)))
             {
-                int actual = worker.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count();
-                int target;
-                if (!state.TryGetTarget(worker.Character, out target))
-                {
-                    // Bootstrap the just-completed repair without filling the gap
-                    // between historical stock and theoretical retention capacity.
-                    int deleted = CityDwellers.Shared.ManagerMemory.Current.ReadBagHistory(
-                        CityDwellers.Shared.ManagerAccounting.TransactionId, worker.Character)
-                        .Where(row => row.EmptyShellsDisappeared && row.Phase == "complete").Select(row => row.Bag).Distinct().Count();
-                    target = Math.Max(actual, Math.Min(RetentionBagCapacity(worker.Role), actual + deleted));
-                    state.SetTarget(worker.Character, target); changed = true;
-                }
-                else if (actual > target)
-                { state.SetTarget(worker.Character, actual); changed = true; }
+                if (ReserveTarget(state, worker.Character) == StorageBankBagTarget) continue;
+                state.SetTarget(worker.Character, StorageBankBagTarget); changed = true;
             }
             if (changed) SaveReserve(state);
         }
@@ -90,7 +73,7 @@ namespace CityBankers
 
         private bool ReserveWorkerReady(DispatchCommand command)
         {
-            if (string.Equals(_role, "spirit", StringComparison.OrdinalIgnoreCase) || !IsReserveBatch(command.Items) ||
+            if (!IsReserveBatch(command.Items) || ReserveBankFreeSlots < 1 ||
                 StorageBagPolicy.DuplicatedIdentities().Count != 0 ||
                 StorageBagPolicy.DistinctBags().Count >= ReserveTarget(ReadReserve(), Client.CharacterName)) return false;
             var item = command.Items[0];
@@ -98,81 +81,87 @@ namespace CityBankers
                 b.Transaction == command.TransactionId && string.Equals(b.Destination, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
         }
 
-        // Called only while this actor is otherwise idle. Never steal an existing
-        // Central storage bag: membership is limited to Kavem's accepted offers.
+        // Bags are storage equipment. Supply existing surplus first, then
+        // Central's empty bank reserve, and only then buy another shell.
         private bool TickBagReserve()
         {
             if (!_isCentral || !CanStartLocalCensus() || CensusReservedHere() ||
-                _reservePoll.ElapsedMilliseconds < 1500) return false;
+                _reservePoll.ElapsedMilliseconds < 500) return false;
             _reservePoll.Restart();
             var state = ReadReserve();
             var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
             if (storage?.Workers == null) return false;
             var ready = BankerReadiness.GetReadyCharacters(_settingsDir);
             CaptureReserveTargets(state, storage, ready);
-            if (state.Bags.Count == 0) return StartBagShop(state, storage, ready);
             var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var records = StorageBagPolicy.AllBagRecords();
             string error;
             if (!StorageBagPolicy.TryValidatePhysicalLayout(out error))
             { StartupCensusGate.Block(error); return true; }
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
-            foreach (var bag in state.Bags.Where(b => !b.Delivered && !b.Quarantined))
-            {
-                // A queued/retrying transfer owns its bag until receipt/census
-                // settles it. Never bank its offer or create a second assignment.
-                if (queue.Batches.Any(b => (b.Items ?? new List<TransferItemState>()).Any(i => i.UniqueIdentity == bag.Identity))) continue;
-                var holders = storage.Workers.Where(w => w.Bags.Any(b => b.LastUniqueIdentity == bag.Identity)).ToList();
-                if (bag.Destination != null && holders.Count == 1 &&
-                    string.Equals(holders[0].Character, bag.Destination, StringComparison.OrdinalIgnoreCase))
-                {
-                    bag.Delivered = true; SaveReserve(state);
-                    Logger.Information("[CityBankers] EMPTY BAG RESERVE replacement registered on " + bag.Destination + "; " + bag.Identity);
-                    continue;
-                }
-                var own = records.SingleOrDefault(r => r.Identity.ToString() == bag.Identity);
-                if (own == null) continue; // cancelled donation or unresolved custody: no invented stock
-                if (bag.Destination != null)
-                {
-                    // Only a complete census can retire a lost dispatch queue.
-                    // Re-evaluate need from that census before recreating an offer.
-                    bag.Destination = null; bag.Role = null; bag.Batch = null; SaveReserve(state);
-                }
-                if (own.Location == "inventory")
-                {
-                    var known = storage.Workers.Where(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase))
-                        .SelectMany(w => w.Bags).SingleOrDefault(b => b.LastUniqueIdentity == bag.Identity);
-                    if (known?.Items?.Count > 0)
-                    {
-                        bag.Quarantined = true; SaveReserve(state);
-                        TellKavem("Reserve bag " + bag.Identity + " contains items and is excluded from replacement stock.");
-                        continue;
-                    }
-                    if (ReserveBankFreeSlots < 1) continue;
-                    BeginReserveOperation(bag.Identity, "bank"); return true;
-                }
-            }
-            if (queue.Batches.Any(b => IsReserveBatch(b.Items))) return false; // one replacement at a time
-            var candidate = state.Bags.FirstOrDefault(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
-                records.Count(r => r.Identity.ToString() == b.Identity && r.Location == "bank") == 1 &&
-                storage.Workers.Where(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase))
-                    .SelectMany(w => w.Bags).Any(s => s.LastUniqueIdentity == b.Identity && s.Source == "bank" && s.Items?.Count == 0));
-            if (candidate == null || Inventory.NumFreeSlots < 2) return StartBagShop(state, storage, ready);
-            var target = storage.Workers.Where(w => !string.Equals(w.Role, "central", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(w.Role, "spirit", StringComparison.OrdinalIgnoreCase) &&
-                    _config.Roles.Any(p => p.Key == w.Role && string.Equals(p.Value.Character, w.Character, StringComparison.OrdinalIgnoreCase)) &&
-                    ready.Contains(w.Character) &&
-                    !censusing.Contains(w.Character) && !queue.Batches.Any(b => string.Equals(b.Character, w.Character, StringComparison.OrdinalIgnoreCase)) &&
+            var target = storage.Workers.Where(w => w.Role != "central" &&
+                    _config.Roles.Any(p => CityDwellers.Shared.BankerRoles.Canonical(p.Key) == w.Role &&
+                        string.Equals(p.Value.Character, w.Character, StringComparison.OrdinalIgnoreCase)) &&
+                    ready.Contains(w.Character) && !censusing.Contains(w.Character) && !w.Bags.Any(b => b.Source == "inventory") &&
+                    !queue.Batches.Any(b => IsReserveBatch(b.Items) && string.Equals(b.Character, w.Character, StringComparison.OrdinalIgnoreCase)) &&
                     DynelManager.Players.Any(p => p != null && string.Equals(p.Name, w.Character, StringComparison.OrdinalIgnoreCase)))
-                .Select(w => new { Worker = w, Missing = ReserveTarget(state, w.Character) - w.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count() })
-                .Where(w => w.Missing > 0).OrderBy(w => w.Missing).ThenBy(w => w.Worker.Character).FirstOrDefault();
-            if (target == null) return false;
-            candidate.Destination = target.Worker.Character; candidate.Role = target.Worker.Role;
-            candidate.Batch = "bag-reserve-" + Guid.NewGuid().ToString("N");
-            SaveReserve(state); // reservation precedes extraction
-            BeginReserveOperation(candidate.Identity, "dispatch");
-            return true;
+                .Select(w => new { Worker = w, Missing = StorageBankBagTarget - w.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count() })
+                .Where(w => w.Missing > 0).OrderByDescending(w => w.Missing).ThenBy(w => w.Worker.Character).FirstOrDefault();
+            var central = storage.Workers.Single(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+            // An idle, persisted empty Central bag can join the reserve without
+            // reading every bag again. Dispatch still obtains fresh empty proof.
+            foreach (var bag in central.Bags.Where(b => b.Items?.Count == 0))
+            {
+                if (state.Bags.Any(b => b.Identity == bag.LastUniqueIdentity && !b.Delivered) ||
+                    queue.Batches.Any(b => b.Items.Any(i => i.UniqueIdentity == bag.LastUniqueIdentity))) continue;
+                state.Bags.RemoveAll(b => b.Identity == bag.LastUniqueIdentity);
+                state.Bags.Add(new ReserveBag { Identity = bag.LastUniqueIdentity, Transaction = "bag-layout-" + Guid.NewGuid().ToString("N") });
+            }
+            SaveReserve(state);
+            foreach (var supplied in state.Bags.Where(b => !b.Delivered && !b.Quarantined && b.Destination != null))
+            {
+                if (queue.Batches.Any(b => b.Items.Any(i => i.UniqueIdentity == supplied.Identity))) continue;
+                if (storage.Workers.Any(w => string.Equals(w.Character, supplied.Destination, StringComparison.OrdinalIgnoreCase) &&
+                    w.Bags.Any(b => b.LastUniqueIdentity == supplied.Identity && b.Source == "bank")))
+                    supplied.Delivered = true;
+            }
+            SaveReserve(state);
+            bool reserveQueued = queue.Batches.Any(b => IsReserveBatch(b.Items));
+            var candidate = state.Bags.Where(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
+                    !queue.Batches.Any(batch => batch.Items.Any(i => i.UniqueIdentity == b.Identity)))
+                .Select(b => new { Reserve = b, Physical = records.SingleOrDefault(r => r.Identity.ToString() == b.Identity) })
+                .Where(b => b.Physical != null).OrderBy(b => b.Physical.Location == "inventory" ? 0 : 1).FirstOrDefault();
+            bool surplusPending = storage.Workers.Any(w => w.Role != "central" && ready.Contains(w.Character) &&
+                w.Bags.Count > StorageBankBagTarget && w.Bags.Any(b => b.Source == "inventory"));
+            // Give returning surplus priority over Central's bank reserve and
+            // purchases. Returned inventory bags can still go straight onward.
+            if (surplusPending && (candidate == null || candidate.Physical.Location == "bank")) return false;
+            if (candidate != null && target != null && !reserveQueued && Inventory.NumFreeSlots >= 2)
+            {
+                candidate.Reserve.Destination = target.Worker.Character;
+                candidate.Reserve.Role = target.Worker.Role;
+                candidate.Reserve.Batch = "bag-reserve-" + Guid.NewGuid().ToString("N");
+                SaveReserve(state);
+                BeginReserveOperation(candidate.Reserve.Identity, "dispatch");
+                return true;
+            }
+            var loose = state.Bags.FirstOrDefault(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
+                records.Any(r => r.Identity.ToString() == b.Identity && r.Location == "inventory"));
+            if (loose != null && ReserveBankFreeSlots > 0)
+            { BeginReserveOperation(loose.Identity, "bank"); return true; }
+            if (candidate != null && candidate.Physical.Location == "bank" && target == null && !reserveQueued &&
+                ReserveBankFreeSlots == 0 && records.Any(r => r.Location == "inventory" && central.Bags.Any(b =>
+                    b.LastUniqueIdentity == r.Identity.ToString() && b.Items?.Count > 0)) && AllConfiguredBanksSupplied(storage, ready))
+            { BeginReserveOperation(candidate.Reserve.Identity, "discard"); return true; }
+            if (loose != null && target == null && !reserveQueued && AllConfiguredBanksSupplied(storage, ready))
+            { BeginReserveOperation(loose.Identity, "discard"); return true; }
+            if (reserveQueued || records.Any(r => r.Location == "inventory")) return false;
+            return StartBagShop(state, storage, ready);
         }
+
+        private bool AllConfiguredBanksSupplied(StorageState storage, HashSet<string> ready) => _config.Roles.Values.All(account =>
+            ready.Contains(account.Character) && storage.Workers.Any(w => string.Equals(w.Character, account.Character, StringComparison.OrdinalIgnoreCase) &&
+                w.Bags.Count(b => b.Source == "bank") >= StorageBankBagTarget));
 
         private void RememberReserveArrival(IEnumerable<TransferItemState> items, DispatchCommand command = null)
         {
@@ -207,6 +196,8 @@ namespace CityBankers
             // Intent is durable; sequence numbers and native handles belong to
             // the old connection and cannot be used as restart evidence.
             _reserveResumeChecked = false;
+            _bankLayoutResumed = _emptyWorkerChecked = false;
+            _bankLayout = null; _layoutBankReturn = null;
             _reserveOperation = null;
             _reserveBefore = null;
             _reserveArrivalAfter.Clear(); _reserveEmptyArrivals.Clear();
@@ -214,7 +205,7 @@ namespace CityBankers
 
         private void ResumeReserveWork()
         {
-            if (!StartupCensusGate.IsOpen || !Inventory.Bank.IsOpen || Trade.IsTrading || CensusReservedHere() ||
+            if (_bankLayout != null || !StartupCensusGate.IsOpen || !Inventory.Bank.IsOpen || Trade.IsTrading || CensusReservedHere() ||
                 _receipt != null || _afterReceipt != null || _workerCommand != null || _reservedDispatch != null ||
                 _activeBatch != null || _stackOperation != null || _returnOffer != null || _extraction != null ||
                 _withdrawal != null || _donationActive || _donationCleanup != null || _storageRecovery != null ||
@@ -229,7 +220,7 @@ namespace CityBankers
                     string error;
                     if (!StorageBagPolicy.TryValidatePhysicalLayout(out error)) throw new InvalidOperationException(error);
                     var records = StorageBagPolicy.AllBagRecords().Where(r => r.Identity.ToString() == pending.Identity).ToList();
-                    if (records.Count != 1 || (pending.Purpose != "bank" && pending.Purpose != "dispatch") ||
+                    if (records.Count != 1 || (pending.Purpose != "bank" && pending.Purpose != "dispatch" && pending.Purpose != "discard") ||
                         !new[] { "start", "opening", "verified-empty", "read-backoff", "extracting", "banking", "refresh-banking" }
                             .Contains(pending.Phase))
                         throw new InvalidOperationException("Interrupted reserve operation lacks one current bag address: " + pending.Identity);
@@ -305,7 +296,15 @@ namespace CityBankers
                 DeadlineUtc = DateTime.UtcNow.AddMilliseconds(ServicePolicy.ItemMoveTimeoutMs)
             };
             BankerActivityGovernor.Wake();
-            if (known != null)
+            if (known != null && known.Source == "inventory" && ReserveBankFreeSlots > 0)
+            {
+                _reserveOperation = null;
+                _bankLayout = new ReserveOperation { Character = Client.CharacterName, Identity = expected.UniqueIdentity,
+                    Purpose = "layout-bank", Phase = "banking", SourceSlot = physical[0].Bag.Slot.Instance, StartedUtc = DateTime.UtcNow };
+                SaveBankLayout();
+                _layoutBankReturn = BeginWorkingBagReturn(physical[0].Bag);
+            }
+            else if (known != null)
             {
                 // Registration committed before the old actor stopped. Preserve
                 // its contents; restore only the missing completion receipt.
@@ -497,6 +496,11 @@ namespace CityBankers
                     StartupCensusGate.Block("Reserve bag contains items; retain contents and reconcile before further operations.");
                     return true;
                 }
+                if (op.Purpose == "discard")
+                {
+                    BeginSurplusBagDisposal(record.Bag);
+                    return true;
+                }
                 if (op.Purpose == "dispatch")
                 {
                     var state = ReadReserve(); var bag = state.Bags.Single(b => b.Identity == op.Identity);
@@ -512,13 +516,6 @@ namespace CityBankers
                     RuntimeStorageStateTransactions.UpdateReserveBag(_settingsDir, Client.CharacterName, op.Identity, null);
                     op.Phase = "completed"; SaveReserveOperation(); _reserveOperation = null;
                     Logger.Information("[CityBankers] EMPTY BAG RESERVE queued " + op.Identity + " -> " + bag.Destination);
-                    return true;
-                }
-                // Replacement delivery is complete in normal inventory. Workers
-                // never need an extra bank move; only Central banks reserve stock.
-                if (!_isCentral)
-                {
-                    RegisterReservePlacement(op, record, "inventory", incoming ? observedHandle : (container?.Handle ?? 0));
                     return true;
                 }
                 if (ReserveBankFreeSlots < 1) return true;

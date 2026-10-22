@@ -281,7 +281,7 @@ namespace CityBankers
                 _activeBatch != null || _workerCommand != null || _storageJob != null ||
                 _reservedDispatch != null || _dispatchPreparation != null ||
                 _donationActive || _donationCleanup != null ||
-                _stackOperation != null || _reserveOperation != null || _bagShop != null ||
+                _stackOperation != null || _reserveOperation != null || _bagShop != null || _bankLayout != null ||
                 _withdrawal != null || _withdrawalPreparation != null ||
                 _returnOffer != null || _returnRequest != null ||
                 _extraction != null || _extractionCommit != null ||
@@ -331,6 +331,8 @@ namespace CityBankers
 
             try
             {
+                ResumeBankLayout();
+                ResumeSurplusBagDisposal();
                 ResumeBagShopWork();
                 TickBankerIpc();
                 if (_bagShop == null) ResumeReserveWork();
@@ -351,7 +353,7 @@ namespace CityBankers
                         RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(batch =>
                             string.Equals(batch.Status, "queued", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(batch.Status, "transferred", StringComparison.OrdinalIgnoreCase));
-                    if (pendingDispatch || BagShopSupplyPending() || CityDwellers.Shared.ManagerMemory.Current.BagReplacementPending(
+                    if (pendingDispatch || BankLayoutPending() || BagShopSupplyPending() || CityDwellers.Shared.ManagerMemory.Current.BagReplacementPending(
                             CityDwellers.Shared.ManagerAccounting.TransactionId) || WithdrawalStore.LoadAll(_settingsDir).Any(row =>
                         WithdrawalStore.IsActive(row) &&
                         (_isCentral ||
@@ -377,10 +379,11 @@ namespace CityBankers
                 if (TickReserveOperation()) return;
                 if (TickRecoveryExtraction()) return;
                 if (TickReturnTransfer()) return;
+                if (TickBankLayout()) return;
                 if (_isCentral)
                 {
                     foreach (var pending in RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches
-                        .Where(batch => batch.Status == "transferred" && IsRoleEnabled(batch.Role)).ToList())
+                        .Where(batch => batch.Status == "transferred" && IsDispatchDestinationEnabled(batch)).ToList())
                         PollStorageResult(pending);
                     // Startup census owns the baseline. Never replace it later
                     // with an older manual storage-baseline.json snapshot.
@@ -960,6 +963,8 @@ namespace CityBankers
                     "TRADE OPEN target=" + (targetName ?? target.ToString()) + ".");
 
                 if (TryReturnTradeOpened(target, targetName)) return;
+                if (_bankLayout != null || _storageJob != null)
+                { DeclineIncomingTrade(targetName, "This banker is returning its working bag to bank. Please reopen shortly."); return; }
                 if (TryHandleWithdrawalTradeOpened(target, targetName))
                     return;
                 if (WithdrawalStore.LoadAll(_settingsDir).Any(WithdrawalStore.OwnsCentralTrade))
@@ -1859,6 +1864,10 @@ namespace CityBankers
                 for (int offset = 0; offset < routedItems.Count;
                     offset += ServicePolicy.MaxInternalTradeItems)
                 {
+                    // Publish each reservation before selecting the next member
+                    // of the same category. Copy limits remain category-wide.
+                    RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                    TryGetRole(group.Key, out destination);
                     DateTime createdUtc = DateTime.UtcNow;
                     queue.Batches.Add(new DispatchBatchState
                     {
@@ -1931,8 +1940,8 @@ namespace CityBankers
                 return;
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
-            DispatchBatchState next = queue.Batches.FirstOrDefault(b =>
-                IsRoleEnabled(b.Role) &&
+            DispatchBatchState next = queue.Batches.OrderBy(b => IsReserveBatch(b.Items) ? 0 : 1).FirstOrDefault(b =>
+                IsDispatchDestinationEnabled(b) &&
                 !censusing.Contains(b.Character) &&
                 string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase) &&
                 WorkerRetryDue(b.Character) &&
@@ -1944,7 +1953,7 @@ namespace CityBankers
                         (b.Items ?? new List<TransferItemState>()).Any(candidate => CustodyKey(candidate) == CustodyKey(item))))));
             if (next == null)
             {
-                var waiting = queue.Batches.FirstOrDefault(b => IsRoleEnabled(b.Role) &&
+                var waiting = queue.Batches.FirstOrDefault(b => IsDispatchDestinationEnabled(b) &&
                     string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase));
                 if (waiting != null)
                     ReportTransferWait(waiting, censusing.Contains(waiting.Character) ? "Worker is in census recovery." :
@@ -2550,7 +2559,6 @@ namespace CityBankers
                 : null;
             _storageJob.Bag = bag;
             _storageJob.BagLiveIdentity = null;
-            _storageJob.ReturnBankSlots = null;
             _storageJob.InnerSlot = -1;
             // Stage 18. Emitted once per ITEM, not once per bag, because that is what
             // the current design does: it reselects and re-extracts the destination
@@ -2694,78 +2702,37 @@ namespace CityBankers
                 ? observed.UniqueIdentity.ToString()
                 : null;
             _storageJob.BagHandle = container.Handle;
-            if (string.Equals(_storageJob.Bag.Source, "bank", StringComparison.OrdinalIgnoreCase))
+            Item liveBag = FindInventoryBagByIdentity(_storageJob.BagLiveIdentity);
+            if (liveBag == null)
             {
-                Item liveBag = FindInventoryBagByIdentity(_storageJob.BagLiveIdentity);
-                if (liveBag == null)
-                {
-                    FailStorageJob(
-                        "Stored item is inside staged bank bag, but the bag is no longer visible in normal inventory for return.");
-                    return;
-                }
-                _storageJob.Phase = StoragePhase.ReturningBag;
-                SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
-                // Snapshot primitive counts before sending. A cached bank
-                // record at the expected slot is not proof of this return.
-                _storageJob.ReturnBankSlots = StorageBagPolicy.AllRecordsFor(
-                    _storageJob.BagLiveIdentity, "bank")
-                    .GroupBy(b => b.Slot.Instance).ToDictionary(g => g.Key, g => g.Count());
-                var beforeReturn = StorageBagPolicy.AllRecordsFor(_storageJob.BagLiveIdentity, "inventory");
-                _storageJob.ReturnInventoryCount = beforeReturn.Count;
-                _storageJob.ReturnSourceSlot = liveBag.Slot.Instance;
-                _storageJob.ReturnSourceCount = beforeReturn.Count(b => b.Slot.Instance == liveBag.Slot.Instance);
-                // Stage 27. Sent after EVERY item, before the next item's
-                // extraction, which is the cycle under investigation.
-                TradeTrace.Mark(_storageSpan, "bag.return.requested",
-                    detail: "outer=" + _storageJob.Bag.OuterSlotInstance);
-                TradeTrace.Count(_storageSpan, TradeTrace.BagIntoBank);
-                TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
-                BagOriginTrace.MoveToBank(liveBag);
+                FailStorageJob("Stored item is confirmed, but its working bag is unavailable for immediate bank return.");
                 return;
             }
-            CommitStoredItem();
+            _storageJob.Phase = StoragePhase.ReturningBag;
+            SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
+            _storageJob.BankReturn = BeginWorkingBagReturn(liveBag);
+            TradeTrace.Mark(_storageSpan, "bag.return.requested", detail: "identity=" + _storageJob.BagLiveIdentity);
+            TradeTrace.Count(_storageSpan, TradeTrace.BagIntoBank);
+            TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
         }
 
         private void ProcessStorageBagReturn()
         {
-            // Require exactly one new destination occurrence and the departure
-            // of the addressed inventory occurrence. Existing ghosts cannot
-            // satisfy either side of this operation's evidence.
-            var bankRecords = StorageBagPolicy.AllRecordsFor(_storageJob.BagLiveIdentity, "bank");
-            var inventoryRecords = StorageBagPolicy.AllRecordsFor(_storageJob.BagLiveIdentity, "inventory");
-            var before = _storageJob.ReturnBankSlots;
-            if (before == null)
+            Item returned;
+            if (ObserveWorkingBagReturn(_storageJob.BankReturn, out returned))
             {
-                FailStorageJob("Bank return has no pre-move evidence; stopping for reconciliation.");
-                return;
-            }
-            var after = bankRecords.GroupBy(b => b.Slot.Instance).ToDictionary(g => g.Key, g => g.Count());
-            var arrivals = after.Where(p => p.Value == (before.ContainsKey(p.Key) ? before[p.Key] : 0) + 1).ToList();
-            bool unchangedOthers = before.Keys.Concat(after.Keys).Distinct().All(slot =>
-                arrivals.Any(a => a.Key == slot) ||
-                (before.ContainsKey(slot) ? before[slot] : 0) == (after.ContainsKey(slot) ? after[slot] : 0));
-            if (arrivals.Count == 1 && unchangedOthers &&
-                inventoryRecords.Count == _storageJob.ReturnInventoryCount - 1 &&
-                inventoryRecords.Count(b => b.Slot.Instance == _storageJob.ReturnSourceSlot) == _storageJob.ReturnSourceCount - 1)
-            {
-                if (arrivals[0].Key == _storageJob.Bag.OuterSlotInstance)
-                {
-                    // Stage 28.
-                    TradeTrace.Mark(_storageSpan, "bag.return.observed",
-                        detail: "outer=" + arrivals[0].Key);
-                    CommitStoredItem();
-                    return;
-                }
-                FailStorageJob(
-                    "Bank bag returned to unexpected outer slot " + arrivals[0].Key +
-                    " instead of " + _storageJob.Bag.OuterSlotInstance +
-                    "; stopping for reconciliation.");
+                RuntimeStorageStateTransactions.RecordBankReturn(_settingsDir, Client.CharacterName,
+                    _storageJob.BagLiveIdentity, returned.Slot.Instance);
+                _storageJob.Bag.Source = "bank";
+                _storageJob.Bag.OuterSlotType = "BankByRef";
+                _storageJob.Bag.OuterSlotInstance = returned.Slot.Instance & 65535;
+                TradeTrace.Mark(_storageSpan, "bag.return.observed", detail: "outer=" + _storageJob.Bag.OuterSlotInstance);
+                CommitStoredItem();
                 return;
             }
             if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
-                FailStorageJob("Staged bank bag did not return to bank before timeout.");
-            else
-                TradeTrace.Wait(_storageSpan, "bag-return");
+                FailStorageJob("Working bag has not completed its verified bank return.");
+            else TradeTrace.Wait(_storageSpan, "bag-return");
         }
 
         private void CommitStoredItem()
@@ -2918,7 +2885,6 @@ namespace CityBankers
             _storageJob.Expected = null;
             _storageJob.Bag = null;
             _storageJob.BagLiveIdentity = null;
-            _storageJob.ReturnBankSlots = null;
             _storageJob.ActualItemIdentity = null;
             _storageJob.ObservedStoredItemIdentity = null;
             _storageJob.InnerSlot = -1;
@@ -3184,12 +3150,9 @@ namespace CityBankers
                 if (roleMap?.Value is JObject roles)
                 {
                     _disabledRoles.Clear();
-                    _disabledRoles.UnionWith(roles.Properties().Where(p => !CityDwellers.Shared.BankerRoles.IsEnabled(p.Value))
-                        .Select(p => p.Name));
-                    // Keep unfinished work for absent known roles parked just
-                    // like explicitly disabled roles; other bankers can proceed.
                     _disabledRoles.UnionWith(CityDwellers.Shared.BankerRoles.All.Where(role =>
-                        roles.GetValue(role, StringComparison.OrdinalIgnoreCase) == null));
+                        !roles.Properties().Any(p => CityDwellers.Shared.BankerRoles.Canonical(p.Name) == role &&
+                            CityDwellers.Shared.BankerRoles.IsEnabled(p.Value))));
                     roleMap.Value = CityDwellers.Shared.BankerRoles.EnabledOnly(roles);
                 }
                 return settings.ToObject<ServiceConfig>();
@@ -3209,23 +3172,27 @@ namespace CityBankers
                         pair.Value.Character,
                         Client.CharacterName,
                         StringComparison.OrdinalIgnoreCase))
-                    return pair.Key;
+                    return CityDwellers.Shared.BankerRoles.Canonical(pair.Key);
             }
             return null;
         }
 
         private bool TryGetRole(string role, out RoleConfig value)
         {
-            foreach (KeyValuePair<string, RoleConfig> pair in _config.Roles)
-            {
-                if (string.Equals(pair.Key, role, StringComparison.OrdinalIgnoreCase))
-                {
-                    value = pair.Value;
-                    return true;
-                }
-            }
-            value = null;
-            return false;
+            var ready = BankerReadiness.GetReadyCharacters(_settingsDir);
+            var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+            var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+            value = _config.Roles.Where(pair => string.Equals(CityDwellers.Shared.BankerRoles.Canonical(pair.Key),
+                    role, StringComparison.OrdinalIgnoreCase) && pair.Value != null)
+                .Select(pair => pair.Value)
+                .OrderByDescending(account => ready.Contains(account.Character))
+                .ThenByDescending(account => (storage?.Workers?.FirstOrDefault(w =>
+                    string.Equals(w.Character, account.Character, StringComparison.OrdinalIgnoreCase))?.Bags?
+                    .Where(b => b.Source == "bank").Sum(b => Math.Max(0, b.Capacity - (b.Items?.Count ?? 0))) ?? 0) -
+                    (queue?.Batches?.Where(b => string.Equals(b.Character, account.Character, StringComparison.OrdinalIgnoreCase))
+                        .Sum(b => b.Items?.Count ?? 0) ?? 0))
+                .ThenBy(account => account.Character, StringComparer.OrdinalIgnoreCase).FirstOrDefault();
+            return value != null;
         }
 
         private bool HasUnresolvedDispatchWork()
@@ -3237,10 +3204,14 @@ namespace CityBankers
         private bool HasQueuedDispatchWork()
         {
             var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            return queue?.Batches != null && queue.Batches.Any(b => IsRoleEnabled(b.Role));
+            return queue?.Batches != null && queue.Batches.Any(b => IsDispatchDestinationEnabled(b));
         }
 
         private bool IsRoleEnabled(string role) => !_disabledRoles.Contains(role);
+        private bool IsCharacterEnabled(string character) => _config.Roles.Values.Any(account =>
+            string.Equals(account.Character, character, StringComparison.OrdinalIgnoreCase));
+        private bool IsDispatchDestinationEnabled(DispatchBatchState batch) =>
+            batch != null && IsRoleEnabled(batch.Role) && IsCharacterEnabled(batch.Character);
 
         private void AnnounceDonationChanges(List<TransferItemState> offered)
         {
@@ -3961,10 +3932,7 @@ namespace CityBankers
             public TransferItemState Expected;
             public StorageBagState Bag;
             public string BagLiveIdentity;
-            public Dictionary<int, int> ReturnBankSlots;
-            public int ReturnInventoryCount;
-            public int ReturnSourceSlot;
-            public int ReturnSourceCount;
+            public WorkingBagReturn BankReturn;
             public string ActualItemIdentity;
             public string ObservedStoredItemIdentity;
             public int InnerSlot;

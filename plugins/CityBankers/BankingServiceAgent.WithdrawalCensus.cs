@@ -336,7 +336,7 @@ namespace CityBankers
         private void ApplyWithdrawalCensus(string directory, WithdrawalCensusGrant grant, List<BagAuditResult> censuses)
         {
             if (censuses.Count != grant.Runs.Count || censuses.Any(c => !grant.Runs.ContainsKey(c.Character) ||
-                grant.Runs[c.Character] != c.RunId || !_config.Roles.Any(p => p.Key == c.Role &&
+                grant.Runs[c.Character] != c.RunId || !_config.Roles.Any(p => CityDwellers.Shared.BankerRoles.Canonical(p.Key) == c.Role &&
                     string.Equals(p.Value?.Character, c.Character, StringComparison.OrdinalIgnoreCase))))
                 throw new InvalidOperationException("Withdrawal audit scope changed.");
             var scope = new HashSet<string>(grant.Runs.Keys, StringComparer.OrdinalIgnoreCase);

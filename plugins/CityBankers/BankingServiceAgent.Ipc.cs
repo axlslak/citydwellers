@@ -66,7 +66,7 @@ namespace CityBankers
         internal static DispatchCommand CurrentInboundDispatch =>
             _ipcOwner?._workerCommand ?? _ipcOwner?._reservedDispatch;
         internal static bool CentralTransferBusy => _ipcOwner != null &&
-            (_ipcOwner._afterReceipt != null || _ipcOwner._reserveOperation != null || _ipcOwner._stackOperation != null || _ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null || _ipcOwner._extraction != null ||
+            (_ipcOwner._afterReceipt != null || _ipcOwner._bankLayout != null || _ipcOwner._reserveOperation != null || _ipcOwner._stackOperation != null || _ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null || _ipcOwner._extraction != null ||
              (_ipcOwner._receipt != null && !_ipcOwner._donationActive));
 
         internal static bool OwnsDonationTrade(Identity partner) => _ipcOwner != null &&
@@ -198,7 +198,8 @@ namespace CityBankers
                 DispatchCommand command = proposal.Command;
                 Guid commandAttempt;
                 bool ready = proposal.Kind == "prepare" && !_isCentral && StartupCensusGate.IsOpen && Client.InPlay &&
-                    !CensusReservedHere() &&
+                    !CensusReservedHere() && _bankLayout == null && _reserveOperation == null &&
+                    !StorageBagPolicy.AllBagRecords().Any(r => r.Location == "inventory") &&
                     Inventory.Bank.IsOpen && !Trade.IsTrading && _storageJob == null && _storageRecovery == null &&
                     _workerCommand == null && _receipt == null && _withdrawal == null && _returnOffer == null && _extraction == null &&
                     command != null && command.Items != null && command.Items.Count > 0 &&
@@ -226,7 +227,7 @@ namespace CityBankers
                         string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                         string.Equals(w.Role, _role, StringComparison.OrdinalIgnoreCase));
                     ready = IsReserveBatch(command.Items) ? ReserveWorkerReady(command) :
-                        worker?.Bags != null && worker.Bags.Sum(b => b == null ? 0 :
+                        worker?.Bags != null && worker.Bags.Where(b => b.Source == "bank").Sum(b => b == null ? 0 :
                         Math.Max(0, b.Capacity - (b.Items?.Count ?? b.Capacity))) >= command.Items.Count;
                 }
                 string spaceReason = null;

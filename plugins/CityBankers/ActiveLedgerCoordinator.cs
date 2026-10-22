@@ -401,10 +401,14 @@ namespace CityBankers
                             HighId = s.Item.HighId, Ql = s.Item.Ql, Name = s.Item.Name, UniqueIdentity = s.Item.UniqueIdentity };
                     RuntimeStorageStateTransactions.CommitVerifiedExtraction(settingsDir, proof.Character, proof.Source,
                         proof.Bag.Value, proof.BagIdentity, proof.FinalBagSlot.Value, proof.SourceSlot,
-                        proof.BeforeSource.Select(snapshot), proof.AfterSource.Select(snapshot));
+                        proof.BeforeSource.Select(snapshot), proof.AfterSource.Select(snapshot), proof.FinalBagSource);
                     foreach (var other in ledger.Items.Where(e => e.Id != proof.LedgerId &&
                         string.Equals(e.Character, proof.Character, StringComparison.OrdinalIgnoreCase) &&
-                        e.Location == proof.Source && e.Bag == proof.Bag)) other.Bag = proof.FinalBagSlot;
+                        e.Location == proof.Source && e.Bag == proof.Bag))
+                    { other.Location = proof.FinalBagSource ?? proof.Source; other.Bag = proof.FinalBagSlot; }
+                    if (proof.FinalBagSource == "bank")
+                        RuntimeStorageStateTransactions.RelocateWithdrawalReferences(settingsDir, proof.Character,
+                            proof.Source, proof.Bag.Value, proof.FinalBagSlot.Value);
                 }
                 entry.Location = "inventory";
                 entry.Bag = null;

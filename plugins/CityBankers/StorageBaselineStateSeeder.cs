@@ -201,7 +201,7 @@ namespace CityBankers
 
                 var worker = new StorageWorkerState
                 {
-                    Role = role,
+                    Role = CityDwellers.Shared.BankerRoles.Canonical(role),
                     Character = character,
                     ObservedUtc = observedUtc,
                     Bags = new List<StorageBagState>()

@@ -20,6 +20,7 @@ namespace CityBankers
     {
         private enum ExtractionPhase { Locate, BagInventory, BagOpen, ItemInventory, BagReturn, Commit }
         private ExtractionProof _extraction;
+        private WorkingBagReturn _extractionBagReturn;
         private ExtractionPhase _extractionPhase;
         private Task<string> _extractionCommit;
         private readonly Stopwatch _extractionAge = Stopwatch.StartNew();
@@ -212,34 +213,24 @@ namespace CityBankers
                 }
                 _extraction.InventorySlot = arrived[0].Slot;
                 if (!ValidExtraction(_extraction)) return true;
-                string signature = string.Join(";", _extraction.AfterInventory.Select(ExtractionKey)) + "|" +
-                    string.Join(";", _extraction.AfterSource.Select(ExtractionKey));
-                if (_extractionSignature != signature) { _extractionSignature = signature; _extractionStable.Restart(); return true; }
-                if (_extractionStable.ElapsedMilliseconds < 500) return true;
-                SaveExtraction("item-observed");
-                if (_extraction.Bag.HasValue && _extraction.Source == "bank")
+                if (_extraction.Bag.HasValue)
                 {
                     var bag = FindInventoryBagByIdentity(_extraction.BagIdentity);
                     if (bag == null) return true;
-                    BagOriginTrace.MoveToBank(bag);
+                    _extractionBagReturn = BeginWorkingBagReturn(bag);
                     ExtractionStep(ExtractionPhase.BagReturn);
                 }
-                else
-                {
-                    _extraction.FinalBagSlot = _extraction.Bag;
-                    ExtractionStep(ExtractionPhase.Commit);
-                }
+                else ExtractionStep(ExtractionPhase.Commit);
+                SaveExtraction("item-observed");
                 return true;
             }
             if (_extractionPhase == ExtractionPhase.BagReturn)
             {
-                var bag = FindBankBagByIdentity(_extraction.BagIdentity);
-                if (bag != null && FindInventoryBagByIdentity(_extraction.BagIdentity) == null)
+                Item bag;
+                if (ObserveWorkingBagReturn(_extractionBagReturn, out bag))
                 {
-                    string signature = "bank:" + bag.Slot.Instance;
-                    if (_extractionSignature != signature) { _extractionSignature = signature; _extractionStable.Restart(); return true; }
-                    if (_extractionStable.ElapsedMilliseconds < 500) return true;
                     _extraction.FinalBagSlot = bag.Slot.Instance & 65535;
+                    _extraction.FinalBagSource = "bank";
                     SaveExtraction("bag-returned");
                     ExtractionStep(ExtractionPhase.Commit);
                 }
@@ -298,7 +289,7 @@ namespace CityBankers
         {
             Guid id;
             if (!Guid.TryParseExact(proof.Id, "N", out id) || !ValidExtraction(proof) ||
-                !_config.Roles.Any(p => string.Equals(p.Key, proof.Role, StringComparison.OrdinalIgnoreCase) &&
+                !_config.Roles.Any(p => string.Equals(CityDwellers.Shared.BankerRoles.Canonical(p.Key), proof.Role, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(p.Value?.Character, proof.Character, StringComparison.OrdinalIgnoreCase)))
                 throw new InvalidOperationException("Incomplete extraction proof or unknown source.");
             var previous = CityDwellers.Shared.ManagerMemory.Current.ReadExtraction(
