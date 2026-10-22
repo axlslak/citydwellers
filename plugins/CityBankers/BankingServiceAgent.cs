@@ -168,6 +168,7 @@ namespace CityBankers
             Trade.TradeStatusChanged += OnTradeStatusChanged;
             Client.MessageReceived += ObserveStorageMove;
             Client.Disconnected += InvalidateStorageMove;
+            Client.Disconnected += InvalidateReserveEvidence;
             Client.OnUpdate += Tick;
             StartBankerMemory();
 
@@ -236,6 +237,7 @@ namespace CityBankers
             Trade.TradeStatusChanged -= OnTradeStatusChanged;
             Client.MessageReceived -= ObserveStorageMove;
             Client.Disconnected -= InvalidateStorageMove;
+            Client.Disconnected -= InvalidateReserveEvidence;
             Client.OnUpdate -= Tick;
             try { CityDwellers.Shared.ManagerMemory.Current.UnregisterBankerSignalWake(Client.CharacterName); }
             catch { }
@@ -326,6 +328,7 @@ namespace CityBankers
             try
             {
                 TickBankerIpc();
+                ResumeReserveWork();
                 if (_operationalHeartbeatAge.ElapsedMilliseconds >= 2000)
                 {
                     StartupCensusGate.PublishOperational();

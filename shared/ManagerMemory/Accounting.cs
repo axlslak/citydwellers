@@ -319,6 +319,9 @@ namespace CityDwellers.Shared
         { lock (_accountingSync) return Accounting(transaction).Reserve.Copy(); }
         public void ChangeReserve(string transaction, BagReserve value)
         { lock (_accountingSync) Writing(transaction).Reserve = value.Copy(); }
+        public ReserveOperation ReadReserveOperation(string transaction, string character)
+        { lock (_accountingSync) return Accounting(transaction).ReserveOperations.SingleOrDefault(row =>
+            string.Equals(row.Character, character, StringComparison.OrdinalIgnoreCase))?.Copy(); }
         public void ChangeReserveOperation(string transaction, ReserveOperation value)
         {
             lock (_accountingSync)
