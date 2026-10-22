@@ -13,7 +13,7 @@ namespace CityDwellers.Shared
                 using (var writer = new StreamWriter(Console.OpenStandardError(), new UTF8Encoding(false), 1024, true))
                 {
                     writer.WriteLine("FATAL: " + message);
-                    if (error != null) writer.WriteLine("Failure type: " + error.GetType().FullName);
+                    if (error != null) writer.WriteLine(error.ToString());
                     writer.Flush();
                 }
             }

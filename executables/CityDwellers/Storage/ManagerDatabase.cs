@@ -179,9 +179,13 @@ namespace CityDwellers.Host
             if (_disposed) throw new ObjectDisposedException(nameof(ManagerDatabase));
             // Manager serializes business commits. No heartbeat, SQL reader loop,
             // advisory lock, second connection or automatic transaction replay.
+            // Reject an invalid proposed state before entering the persistence
+            // failure boundary. The caller can hold its affected operation; no
+            // SQL command or physical action has been authorized by this commit.
+            var plan = _tables.Prepare(previous, next);
             try
             {
-                _tables.Commit(_connection, previous, next);
+                _tables.Commit(_connection, plan);
                 if (!ReferenceEquals(previous.BankTerminal, next.BankTerminal))
                     DiskFiles.WriteAllText(Path.Combine(_root, "config", "citybankers-bank-terminal.json"), JsonConvert.SerializeObject(next.BankTerminal, Formatting.Indented));
                 if (!ReferenceEquals(previous.PhatzPolicy, next.PhatzPolicy))

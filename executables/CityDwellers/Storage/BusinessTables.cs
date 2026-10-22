@@ -50,6 +50,12 @@ namespace CityDwellers.Host
             internal int Position;
             internal object[] Values;
         }
+        internal sealed class WritePlan
+        {
+            internal Dictionary<string, Dictionary<string, Row>> After;
+            internal Tuple<Table, Row>[] Changed;
+            internal Tuple<Table, string>[] Removed;
+        }
         private readonly List<Table> _roots = new List<Table>();
         private Dictionary<string, Dictionary<string, Row>> _committedRows;
         internal BusinessTables()
@@ -230,6 +236,8 @@ namespace CityDwellers.Host
                 if (string.IsNullOrEmpty(local)) throw new InvalidOperationException("Missing identity in " + table.Name);
                 string id = (parentId == null || parentId == "0") ? local : parentId + "/" + local;
                 if (id.Length > 640) throw new InvalidOperationException("Business identity exceeds 640 characters in " + table.Name);
+                if (output[table.Name].ContainsKey(id))
+                    throw new InvalidOperationException("Duplicate business row in " + table.Name + "; identity=" + id + ". No SQL write was attempted.");
                 output[table.Name].Add(id, new Row { Id = id, Parent = parentId, Position = table.Identity == null ? ordinal : 0,
                     Values = Scalar(table.Type) ? new[] { Value(entry) } : table.Columns.Select(f => Value(f.GetValue(entry))).ToArray() });
                 foreach (var child in table.Children) Flatten(child, entry, id, output);
@@ -280,7 +288,7 @@ namespace CityDwellers.Host
                 }
             foreach (var child in table.Children) Load(child, connection, entries, loaded);
         }
-        internal void Commit(MySqlConnection connection, AccountingState previous, AccountingState next, Action<MySqlTransaction> beforeCommit = null)
+        internal WritePlan Prepare(AccountingState previous, AccountingState next)
         {
             var before = _committedRows ?? Flatten(previous);
             var after = Flatten(next);
@@ -289,6 +297,15 @@ namespace CityDwellers.Host
                 .Select(row => Tuple.Create(table, row))).ToArray();
             var removed = Tables().Reverse().SelectMany(table => before[table.Name].Keys.Except(after[table.Name].Keys)
                 .Select(id => Tuple.Create(table, id))).ToArray();
+            return new WritePlan { After = after, Changed = changed, Removed = removed };
+        }
+        internal void Commit(MySqlConnection connection, AccountingState previous, AccountingState next, Action<MySqlTransaction> beforeCommit = null)
+            => Commit(connection, Prepare(previous, next), beforeCommit);
+
+        internal void Commit(MySqlConnection connection, WritePlan plan, Action<MySqlTransaction> beforeCommit = null)
+        {
+            var changed = plan.Changed;
+            var removed = plan.Removed;
             if (changed.Length == 0 && removed.Length == 0 && beforeCommit == null) return;
             // Reconnect only when a real write is needed, before starting a
             // transaction. Never replay an indeterminate commit.
@@ -336,7 +353,7 @@ namespace CityDwellers.Host
                 }
                 beforeCommit?.Invoke(transaction);
                 transaction.Commit();
-                _committedRows = after;
+                _committedRows = plan.After;
             }
         }
         private static bool Same(Row a, Row b) => a.Parent == b.Parent && a.Position == b.Position && a.Values.SequenceEqual(b.Values);

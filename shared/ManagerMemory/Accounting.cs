@@ -327,7 +327,8 @@ namespace CityDwellers.Shared
             lock (_accountingSync)
             {
                 var state = Writing(transaction);
-                state.ReserveOperations = state.ReserveOperations.Where(row => row.Character != value.Character).ToList();
+                state.ReserveOperations = state.ReserveOperations.Where(row =>
+                    !string.Equals(row.Character, value.Character, StringComparison.OrdinalIgnoreCase)).ToList();
                 if (value.Phase != "completed") state.ReserveOperations.Add(value.Copy());
             }
         }
