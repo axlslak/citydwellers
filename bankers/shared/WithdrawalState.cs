@@ -464,7 +464,7 @@ namespace CityBankers.Shared
 
         public static bool IsTerminal(WithdrawalState state)
         {
-            return state == null || HasStatus(state, "completed") || HasStatus(state, "expired") || HasStatus(state, "reconciled");
+            return state == null || state.IsTerminal();
         }
 
         public static bool IsActive(WithdrawalState state) { return state != null && !IsTerminal(state); }

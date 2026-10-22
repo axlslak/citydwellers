@@ -299,6 +299,10 @@ namespace CityBankers.Shared
         public string RecoveryCensusId;
         public string Error;
         public TransferItemState Item;
+        public bool IsTerminal() =>
+            string.Equals(Status, "completed", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Status, "expired", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Status, "reconciled", StringComparison.OrdinalIgnoreCase);
         internal WithdrawalState Copy()
         {
             var copy = (WithdrawalState)MemberwiseClone();

@@ -46,13 +46,30 @@ namespace CityBankers.Shared
 
         public static void RelocateWithdrawalReferences(string settingsDir, string character, string source, int oldSlot, int bankSlot)
         {
-            foreach (var withdrawal in WithdrawalStore.LoadAll(settingsDir).Where(w => WithdrawalStore.IsActive(w) &&
-                string.Equals(w.SourceCharacter, character, StringComparison.OrdinalIgnoreCase) && w.SourceBag == source &&
-                (w.SourceBagOuterSlot & 65535) == (oldSlot & 65535)))
+            WithRuntimeStateMutex(delegate
             {
-                withdrawal.SourceBag = "bank"; withdrawal.SourceBagOuterSlot = bankSlot & 65535;
-                WithdrawalStore.Save(settingsDir, withdrawal);
-            }
+                if (source == "bank" && (oldSlot & 65535) == (bankSlot & 65535)) return;
+                // This file is linked into the host as well as plugins. Use the
+                // shared typed state, not the plugin-only WithdrawalStore.
+                var manager = CityDwellers.Shared.ManagerMemory.Current;
+                string transaction = CityDwellers.Shared.ManagerAccounting.TransactionId;
+                var queue = manager.ReadWithdrawals(transaction);
+                if (queue?.Withdrawals == null) return;
+                if (queue.Withdrawals.Any(w => w == null || string.IsNullOrWhiteSpace(w.Id)) ||
+                    queue.Withdrawals.GroupBy(w => w.Id, StringComparer.Ordinal).Any(group => group.Count() != 1))
+                    throw new InvalidOperationException("Cannot relocate references in an invalid withdrawal queue.");
+                bool changed = false;
+                foreach (var withdrawal in queue.Withdrawals.Where(w => !w.IsTerminal() &&
+                    string.Equals(w.SourceCharacter, character, StringComparison.OrdinalIgnoreCase) && w.SourceBag == source &&
+                    (w.SourceBagOuterSlot & 65535) == (oldSlot & 65535)))
+                {
+                    withdrawal.SourceBag = "bank"; withdrawal.SourceBagOuterSlot = bankSlot & 65535;
+                    withdrawal.Revision++;
+                    withdrawal.UpdatedUtc = DateTime.UtcNow;
+                    changed = true;
+                }
+                if (changed) manager.ChangeWithdrawals(transaction, queue);
+            });
         }
 
         // Outer empty containers are equipment for storage, never donor stock.
