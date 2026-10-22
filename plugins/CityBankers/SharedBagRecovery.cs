@@ -159,7 +159,7 @@ namespace CityBankers
                 s.Character != Client.CharacterName || s.Transfers == null || s.Destinations == null ||
                 s.FullTargets == null || s.TargetBaselines == null || s.Baseline == null ||
                 s.Original == null || s.ReadFailures == null || string.IsNullOrEmpty(s.Run) ||
-                (s.Phase != "confirm" && s.Phase != "evacuate") ||
+                (s.Phase != "confirm" && s.Phase != "evacuate" && s.Phase != "remove-empty") ||
                 (s.Pending != null && (s.Pending.Source == null ||
                     !new[] { "transfer", "stage", "stage-target", "restore-social", "park", "return-target", "delete" }.Contains(s.Pending.Kind) ||
                     (s.Pending.Kind == "transfer" && s.Pending.Transfer?.Item == null)))))
@@ -252,6 +252,21 @@ namespace CityBankers
                     statusAge.Restart();
                 }
                 if (s.Pending != null) { Resolve(s); return true; }
+                if (s.Phase != "remove-empty" && ContentsSecured(s))
+                {
+                    // Each receipt required an exact source decrement and target
+                    // increment. The final receipt therefore proved the source
+                    // empty. Preserve that fact across removal/reconnects: deleting
+                    // one outer reference must not send the remaining empty bank
+                    // reference back through the inventory-staging prerequisite.
+                    // This also resumes schema13 repairs already fully evacuated.
+                    s.Phase = "remove-empty";
+                    s.LastUnappliedAddress = s.FirstReadRefreshEpoch = null;
+                    s.UnappliedAttempts = 0; s.RetryAfterUtc = default(DateTime);
+                    s.ReadFailures.RemoveAll(f => f.Bag == s.Bag);
+                    Event(s, "All original contents secured; removing the empty damaged bag at its remaining addresses.");
+                    Save(s); return true;
+                }
                 if (DateTime.UtcNow < s.RetryAfterUtc) return true;
                 var aliases = Aliases(s.Bag);
                 if (aliases.Count == 0 && !s.EmptyShellsDisappeared)
@@ -264,13 +279,13 @@ namespace CityBankers
                 // removes reliance on the SDK's inferred Bank.NextAvailableSlot.
                 var inBank = aliases.Where(a => a.Type == (int)IdentityType.BankByRef)
                     .OrderBy(a => a.Key == s.LastUnappliedAddress ? 1 : 0).FirstOrDefault();
-                if (inBank != null && !aliases.Any(a => Normal(a) && a.Key != s.LastUnappliedAddress))
+                if (s.Phase != "remove-empty" && inBank != null && !aliases.Any(Normal))
                 {
                     if (!Headroom(s)) return true;
                     IssueOuter(s, "stage", inBank, 0); return true;
                 }
                 var social = aliases.FirstOrDefault(a => a.Type == (int)IdentityType.SocialPage);
-                if (social != null && !aliases.Any(Normal))
+                if (s.Phase != "remove-empty" && social != null && !aliases.Any(Normal))
                 {
                     if (!Headroom(s)) return true;
                     IssueOuter(s, "restore-social", social, 0); return true;
@@ -289,19 +304,27 @@ namespace CityBankers
                     Event(s, "Recorded one fresh shared-container contents budget; aliases are outer references, not independent inventories.");
                     Save(s); return true;
                 }
-                foreach (var alias in aliases.OrderBy(a => Normal(a) ? 0 : 1))
+                if (s.Phase != "remove-empty")
                 {
+                    // All references have one identity and one contents budget.
+                    // While evacuating, use the accessible inventory reference;
+                    // a failed refresh does not make its bank alias another bag.
+                    var alias = aliases.First(Normal);
                     View source = Open(s, alias);
                     if (source == null) return true;
-                    if (source.Items.Count == 0) continue;
-                    if (s.Phase != "evacuate")
-                    { s.Phase = "evacuate"; Save(s); return true; }
+                    if (source.Items.Count == 0)
+                        throw new InvalidOperationException("Source is empty but its original contents are not fully secured.");
                     Evacuate(s, alias, source); return true;
                 }
-                if (!Equal(s.Baseline, s.Transfers.Select(t => t.Item)))
-                    throw new InvalidOperationException("Source is empty but the initial contents are not fully accounted for in destinations.");
-                // The shared identity has an incoming empty snapshot newer than the
-                // last mutation. Native cached contents alone are insufficient.
+                if (!ContentsSecured(s))
+                    throw new InvalidOperationException("Empty-bag removal lacks verified evacuation receipts.");
+                View unexpected;
+                if (views.TryGetValue(s.Bag, out unexpected) && unexpected.Sequence > observationBoundary &&
+                    unexpected.Items.Count != 0)
+                    throw new InvalidOperationException("New contents appeared in the evacuated bag; retaining every reference.");
+                // Recheck destinations before each empty-reference removal. The
+                // source's empty proof is the durable exact-delta receipt (or its
+                // original empty snapshot), not another Use on a deleted shell.
                 foreach (int id in s.TargetBaselines.Select(t => t.Bag))
                 {
                     var target = Aliases(id).SingleOrDefault();
@@ -360,6 +383,14 @@ namespace CityBankers
                 return fresh;
             }
             if (DateTime.UtcNow < s.RetryAfterUtc) return null;
+            if (views.ContainsKey(address.Bag))
+            {
+                // This connection already supplied this container. Repeating Use
+                // after a move does not promise another contents packet. Refresh
+                // now and verify the retained intent from the new snapshots.
+                Reconnect("Fresh contents required after a mutation of container " + address.Bag);
+                return null;
+            }
             if (requestedOpen == address.Key)
             {
                 if (openAge.ElapsedMilliseconds < 15000) return null;
@@ -398,10 +429,22 @@ namespace CityBankers
         private static bool Exact(IEnumerable<Content> a, IEnumerable<Content> b) =>
             a.Select(i => i.Slot + "/" + i.Key + "/" + i.Quantity).OrderBy(k => k)
                 .SequenceEqual(b.Select(i => i.Slot + "/" + i.Key + "/" + i.Quantity).OrderBy(k => k));
+        private static bool ContentsSecured(State s) => s.BaselineRecorded &&
+            s.Baseline.Count == s.Transfers.Count &&
+            s.Transfers.All(t => t.Item != null && t.SourceBag == s.Bag &&
+                t.VerifiedUtc != default(DateTime) && t.TargetSlot >= 0 && !string.IsNullOrEmpty(t.AnchorId) &&
+                s.TargetBaselines.Any(target => target.Bag == t.TargetBag)) &&
+            s.Transfers.Select(t => t.AnchorId).Distinct().Count() == s.Transfers.Count &&
+            s.Transfers.Select(t => t.TargetBag + "/" + t.TargetSlot).Distinct().Count() == s.Transfers.Count &&
+            Equal(s.Baseline, s.Transfers.Select(t => t.Item));
         private static bool TargetConserved(State s, int id, List<Content> observed)
         {
-            return Equal(s.TargetBaselines.Single(t => t.Bag == id).Items.Concat(
-                s.Transfers.Where(t => t.TargetBag == id).Select(t => t.Item)), observed);
+            return Exact(s.TargetBaselines.Single(t => t.Bag == id).Items.Concat(
+                s.Transfers.Where(t => t.TargetBag == id).Select(t => new Content
+                {
+                    Slot = t.TargetSlot, Low = t.Item.Low, High = t.Item.High,
+                    Ql = t.Item.Ql, Identity = t.Item.Identity, Quantity = t.Item.Quantity
+                })), observed);
         }
         private static bool Delta(List<Content> before, List<Content> after, Content item, int sign)
         {
@@ -474,8 +517,8 @@ namespace CityBankers
             Item item = Live(source);
             if (kind == "delete")
             {
-                if (Aliases(s.Bag).Any(a => !opened.ContainsKey(a.Key) || opened[a.Key].Items.Count != 0))
-                    throw new InvalidOperationException("Every reference needs a post-mutation empty snapshot before deleting the damaged bag.");
+                if (source.Bag != s.Bag || s.Phase != "remove-empty" || !ContentsSecured(s))
+                    throw new InvalidOperationException("Only the verified-empty damaged bag may be removed.");
             }
             s.Pending = new Pending { Id = Guid.NewGuid().ToString("N"), Kind = kind,
                 Epoch = epoch, Source = source, TargetBag = target, Before = Outer() };
