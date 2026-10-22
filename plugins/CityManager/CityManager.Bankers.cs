@@ -36,6 +36,7 @@ namespace CityManager
                 bool allUsable = true;
                 var lines = new StringBuilder();
                 var diagnostics = new List<string>();
+                var reportedPools = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 IReadOnlyCollection<SymbiantCatalog.AcceptanceRule> acceptanceRules =
                     SymbiantCatalog.GetRetentionRules(_settingsDir);
 
@@ -139,19 +140,12 @@ namespace CityManager
                         workText += "; reserved items " + localOrders.Count;
                     if (unboundedPolicy)
                         workText += "; retention unbounded - monitor free space";
-                    else
-                    {
-                        int pooledCapacity = storage?.Workers?.Where(w => string.Equals(w.Role, role, StringComparison.OrdinalIgnoreCase) &&
-                            roles.Properties().Any(p => BankerRoles.IsEnabled(p.Value) &&
-                                string.Equals((string)p.Value["Character"], w.Character, StringComparison.OrdinalIgnoreCase)))
-                            .Sum(w => w.Bags?.Where(b => b.Source == "bank").Sum(b => b.Capacity) ?? 0) ?? 0;
-                        if (policySlots > pooledCapacity && pooledCapacity > 0)
-                            workText += "; category policy ceiling " + policySlots + " exceeds pooled capacity by " + (policySlots - pooledCapacity);
-                    }
 
                     lines.Append(StatusLine(usable, character + " (" + role + ")",
                         state + workText));
-                    lines.Append(BuildInventoryStatusLine(displayUsed, displayCapacity));
+                    lines.Append(BuildInventoryStatusLine(displayUsed, displayCapacity, worker?.Bags != null));
+                    if (!unboundedPolicy && policySlots > 0 && reportedPools.Add(role))
+                        lines.Append(BuildCategoryPoolStatusLine(role, roles, storage, policySlots));
                     diagnostics.Add(character + "=" + state.ToLowerInvariant() +
                         (displayCapacity > 0
                             ? " " + displayUsed + "/" + displayCapacity
@@ -336,10 +330,37 @@ namespace CityManager
                 observed.HasValue && DateTime.UtcNow - observed.Value.ToUniversalTime() < TimeSpan.FromSeconds(15);
         }
 
-        private string BuildInventoryStatusLine(int used, int capacity)
+        private string BuildCategoryPoolStatusLine(string role, JObject roles, StorageState storage, int policySlots)
+        {
+            var accounts = new HashSet<string>(roles.Properties().Where(p =>
+                BankerRoles.Canonical(p.Name) == role && BankerRoles.IsEnabled(p.Value))
+                .Select(p => (p.Value as JObject)?.GetValue("Character", StringComparison.OrdinalIgnoreCase)?.ToString())
+                .Where(c => !string.IsNullOrWhiteSpace(c)),
+                StringComparer.OrdinalIgnoreCase);
+            var workers = (storage?.Workers ?? new List<StorageWorkerState>()).Where(w =>
+                w != null && accounts.Contains(w.Character)).ToList();
+            var bankBags = workers.SelectMany(w => w.Bags ?? new List<StorageBagState>())
+                .Where(b => b != null && b.Source == "bank").ToList();
+            int used = workers.Sum(w => w.Bags?.Sum(b => b?.Items?.Count ?? 0) ?? 0);
+            int capacity = bankBags.Sum(b => Math.Max(0, b.Capacity));
+            int targetBags = accounts.Count * BankerRoles.BankBagTarget;
+            int targetCapacity = targetBags * BankerRoles.SmallBackpackCapacity;
+            string warning = policySlots > targetCapacity
+                ? "; exceeds planned pool capacity by " + (policySlots - targetCapacity) : string.Empty;
+            return "    <font color='" + ColorMuted + "'>Shared " + role + " pool:</font> " + used +
+                " items; " + capacity + "/" + targetCapacity + " bank slots provisioned (" + bankBags.Count +
+                "/" + targetBags + " bags); policy ceiling " + policySlots +
+                (warning.Length == 0 ? string.Empty : "<font color='" + ColorWarn + "'>" + warning + "</font>") + "\n";
+        }
+
+        private string BuildInventoryStatusLine(int used, int capacity, bool knownWorker)
         {
             if (capacity <= 0)
+            {
+                if (knownWorker && used == 0)
+                    return "    <font color='" + ColorMuted + "'>Empty; no storage bags provisioned yet</font>\n";
                 return "    <font color='" + ColorMuted + "'>Inventory census unavailable</font>\n";
+            }
             double percent = Math.Min(100.0, Math.Max(0.0, used * 100.0 / capacity));
             string color = percent >= 90.0 ? ColorBad : percent >= 75.0 ? ColorWarn : ColorGood;
             return "    <font color='" + ColorMuted + "'>Inventory:</font> " +

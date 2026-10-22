@@ -11,7 +11,7 @@ namespace CityBankers
 {
     public partial class BankingServiceAgent
     {
-        private const int StorageBankBagTarget = 102;
+        private const int StorageBankBagTarget = BankerRoles.BankBagTarget;
         private sealed class WorkingBagReturn
         {
             public string Identity;

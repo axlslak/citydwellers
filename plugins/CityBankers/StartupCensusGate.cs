@@ -996,14 +996,14 @@ namespace CityBankers
             if (_capacityLoggedRun == _auditRun || !Inventory.Bank.IsOpen) return;
             if (!string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
             {
-                var rules = SymbiantCatalog.GetRetentionRules(_settings).Where(r =>
-                    string.Equals(r.Role, _role, StringComparison.OrdinalIgnoreCase)).ToList();
-                // Count bags, not records: a bag listed twice is still one bag.
-                int available = StorageBagPolicy.DistinctBags().Count;
-                int required = (rules.Where(r => r.MaxCopies > 0).Sum(r => r.MaxCopies) + 20) / 21;
+                // Each account supplies bank space to one shared category pool;
+                // no account needs its own complete copy of the retention policy.
+                int available = StorageBagPolicy.AllBagRecords().Where(r => r.Location == "bank")
+                    .Select(r => r.Identity).Distinct().Count();
+                int required = CityDwellers.Shared.BankerRoles.BankBagTarget;
                 if (available < required)
                     Logger.Warning("[CityBankers] SMALL BACKPACK SHORTAGE " + _character +
-                        ": have=" + available + "; need=" + required + "; missing=" + (required - available) +
+                        ": bank bags=" + available + "; target=" + required + "; missing=" + (required - available) +
                         ". Supply Small Backpacks (99228). Equipped and other bag types cannot be used for storage.");
             }
             _capacityLoggedRun = _auditRun;

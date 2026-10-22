@@ -7,6 +7,11 @@ namespace CityDwellers.Shared
 {
     public static class BankerRoles
     {
+        // Physical storage per account. Retention limits belong to the category
+        // and do not multiply when another account joins its pool.
+        public const int BankBagTarget = 102;
+        public const int SmallBackpackCapacity = 21;
+
         public static readonly IReadOnlyList<string> Storage = Array.AsReadOnly(new[] {
             "artillery", "infantry", "control", "support", "extermination",
             "spirit", "dyna", "phatz", "types"
