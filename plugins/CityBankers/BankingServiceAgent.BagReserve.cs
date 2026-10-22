@@ -148,7 +148,12 @@ namespace CityBankers
                 int available = state.Bags.Count(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
                     records.Any(r => r.Identity.ToString() == b.Identity) &&
                     !queue.Batches.Any(q => q.Items.Any(i => i.UniqueIdentity == b.Identity)));
-                if (!surplusPending && available < desired && StartBagShop(state, storage, ready)) return true;
+                bool purchasedOnly = state.Bags.Where(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
+                    records.Any(r => r.Identity.ToString() == b.Identity)).All(b =>
+                        b.Transaction?.StartsWith("reserve-shop-", StringComparison.Ordinal) == true);
+                // Exhaust existing backups first. Only freshly purchased stock
+                // is accumulated into a new full trade batch.
+                if (!surplusPending && purchasedOnly && available < desired && StartBagShop(state, storage, ready)) return true;
                 string batch = "bag-reserve-" + Guid.NewGuid().ToString("N");
                 string transaction = "bag-supply-" + Guid.NewGuid().ToString("N");
                 int count = Math.Min(target.Missing, Math.Min(ServicePolicy.MaxInternalTradeItems, Inventory.NumFreeSlots - 1));
