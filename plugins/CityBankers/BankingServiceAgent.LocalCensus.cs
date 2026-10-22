@@ -63,6 +63,16 @@ namespace CityBankers
         internal static bool ReconcileIdleReconnect() => _ipcOwner != null &&
             _ipcOwner.StartLocalCensus("Idle reconnect inventory differs from the last settled snapshot; reconcile only this banker.");
 
+        internal static bool CanQuiesceForBagRecovery(string settings, string character, bool central)
+        {
+            if (Trade.IsTrading || (_ipcOwner != null && !CanResumeIdleConnection())) return false;
+            // Do not reinterpret an interrupted peer transfer as stored stock.
+            return !RuntimeStateStore.LoadDispatchQueue(settings).Batches.Any(b =>
+                (central || string.Equals(b.Character, character, StringComparison.OrdinalIgnoreCase)) &&
+                b.Status != "queued" && b.Status != "stored" && b.Status != "completed" && b.Status != "cancelled" &&
+                !(b.Status == "failed" && b.TransferNeverStarted));
+        }
+
         // Called only by Central's census coordinator on its update thread.
         // Reserve before granting an excluded worker permission to scan: a local
         // census cannot resolve an outstanding transfer involving another peer.

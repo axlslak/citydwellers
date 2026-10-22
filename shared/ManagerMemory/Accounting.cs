@@ -33,6 +33,7 @@ namespace CityDwellers.Shared
         public BagReserve Reserve = new BagReserve();
         public List<ReserveOperation> ReserveOperations = new List<ReserveOperation>();
         public List<BagHistoryRecord> BagHistory = new List<BagHistoryRecord>();
+        public List<BagRecoveryState> BagRecoveries = new List<BagRecoveryState>();
         public List<CancellationPair> Cancellations = new List<CancellationPair>();
         public BankTerminalState BankTerminal = new BankTerminalState();
         public CloakState Cloak;
@@ -53,6 +54,7 @@ namespace CityDwellers.Shared
             !ReferenceEquals(CloakEvents, other.CloakEvents) || !ReferenceEquals(PhatzPolicy, other.PhatzPolicy) ||
             !ReferenceEquals(ItemPairs, other.ItemPairs) || !ReferenceEquals(Reserve, other.Reserve) ||
             !ReferenceEquals(ReserveOperations, other.ReserveOperations) || !ReferenceEquals(BagHistory, other.BagHistory) ||
+            !ReferenceEquals(BagRecoveries, other.BagRecoveries) ||
             !ReferenceEquals(BankTerminal, other.BankTerminal) || !ReferenceEquals(Alts, other.Alts) ||
             !ReferenceEquals(LearnedBuffs, other.LearnedBuffs) ||
             !ReferenceEquals(BufferCatalogues, other.BufferCatalogues) ||
@@ -328,6 +330,38 @@ namespace CityDwellers.Shared
         }
         public BagHistoryRecord[] ReadBagHistory(string transaction, string character)
         { lock (_accountingSync) return Accounting(transaction).BagHistory.Where(row => string.Equals(row.Character, character, StringComparison.OrdinalIgnoreCase)).Select(row => row.Copy()).ToArray(); }
+        public BagRecoveryState ReadBagRecovery(string transaction, string character)
+        { lock (_accountingSync) return Accounting(transaction).BagRecoveries.SingleOrDefault(row => string.Equals(row.Character, character, StringComparison.OrdinalIgnoreCase))?.Copy(); }
+        public void ChangeBagRecovery(string transaction, BagRecoveryState value)
+        {
+            lock (_accountingSync)
+            {
+                var state = Writing(transaction);
+                state.BagRecoveries = state.BagRecoveries.Where(row => !string.Equals(row.Character, value.Character, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (value.Phase != "complete") state.BagRecoveries.Add(value.Copy());
+            }
+        }
+        public void ChangeBagHistory(string transaction, BagHistoryRecord value)
+        {
+            lock (_accountingSync)
+            {
+                var state = Writing(transaction);
+                state.BagHistory = state.BagHistory.Where(row => row.Run != value.Run).ToList();
+                state.BagHistory.Add(value.Copy());
+            }
+        }
+        public bool BagReplacementPending(string transaction)
+        {
+            lock (_accountingSync)
+            {
+                var state = Accounting(transaction);
+                if (!state.Reserve.Bags.Any(b => !b.Delivered && !b.Quarantined)) return false;
+                return state.Reserve.Targets.Any(target => state.Storage?.Workers?.Any(worker =>
+                    string.Equals(worker.Character, target.Character, StringComparison.OrdinalIgnoreCase) &&
+                    worker.Role != "central" && worker.Role != "spirit" &&
+                    worker.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count() < target.Count) == true);
+            }
+        }
         public void ReconcileBagHistory(string transaction, string character)
         {
             lock (_accountingSync)

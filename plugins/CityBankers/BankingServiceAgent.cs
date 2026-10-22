@@ -342,7 +342,8 @@ namespace CityBankers
                         RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(batch =>
                             string.Equals(batch.Status, "queued", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(batch.Status, "transferred", StringComparison.OrdinalIgnoreCase));
-                    if (pendingDispatch || WithdrawalStore.LoadAll(_settingsDir).Any(row =>
+                    if (pendingDispatch || CityDwellers.Shared.ManagerMemory.Current.BagReplacementPending(
+                            CityDwellers.Shared.ManagerAccounting.TransactionId) || WithdrawalStore.LoadAll(_settingsDir).Any(row =>
                         WithdrawalStore.IsActive(row) &&
                         (_isCentral ||
                          string.Equals(row.SourceCharacter, Client.CharacterName,

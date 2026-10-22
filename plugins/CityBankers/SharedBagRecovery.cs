@@ -1,5 +1,9 @@
 using File = CityDwellers.Shared.DiskFiles;
-using Directory = System.IO.Directory;
+using Address = CityBankers.BagRecoveryAddress;
+using Content = CityBankers.BagHistoryItem;
+using Transfer = CityBankers.BagHistoryTransfer;
+using Pending = CityBankers.BagRecoveryIntent;
+using State = CityBankers.BagRecoveryState;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -15,67 +19,18 @@ using SmokeLounge.AOtomation.Messaging.Messages.N3Messages;
 
 namespace CityBankers
 {
-    // Only StartupCensusGate may drive this actor, after quiescing operational
-    // actors and before issuing a census. The journal is written BEFORE an AO
+    // Only StartupCensusGate may drive this actor, after quiescing this banker.
+    // No census is launched. The journal is written BEFORE an AO
     // mutation. Restart observes the outstanding action; it never blindly replays it.
     internal static class SharedBagRecovery
     {
-        internal sealed class Address
-        {
-            public int Type, Slot, Bag;
-            public string Key => Type + "/" + Slot + "/" + Bag;
-        }
-        internal sealed class Content
-        {
-            public int Slot, Low, High, Ql, Quantity;
-            public string Identity;
-            public string Key => Low + "/" + High + "/" + Ql + "/" + Identity;
-        }
         private sealed class View
         {
             public long Sequence;
             public int Handle;
             public List<Content> Items;
         }
-        internal sealed class Transfer
-        {
-            public string Id, AnchorId, OriginalLocation, AnchorTransaction;
-            public DateTime AnchorReceivedUtc;
-            public int? OriginalBag, OriginalSlot;
-            public int SourceBag, TargetBag, TargetSlot;
-            public Content Item;
-            public DateTime VerifiedUtc;
-        }
-        internal sealed class Pending
-        {
-            public string Id, Kind, Epoch;
-            public Address Source;
-            public int TargetBag;
-            public List<Address> Before;
-            public List<Content> SourceBefore, TargetBefore;
-            public Transfer Transfer;
-        }
-        internal sealed class State
-        {
-            public string Format = "citybankers-shared-bag-recovery-v1";
-            public string Run, Character, Phase, Epoch;
-            public string FirstReadRefreshEpoch;
-            public int Bag, Experiment;
-            public List<Address> Original;
-            public List<int> Destinations = new List<int>();
-            public List<int> FullTargets = new List<int>();
-            public List<Transfer> Transfers = new List<Transfer>();
-            public List<Transfer> Disposals = new List<Transfer>();
-            public List<Content> Baseline;
-            public Dictionary<int, List<Content>> TargetBaselines = new Dictionary<int, List<Content>>();
-            public List<string> Events = new List<string>();
-            public Dictionary<int, int> ReadFailures = new Dictionary<int, int>();
-            public Pending Pending;
-            public DateTime UpdatedUtc, RetryAfterUtc, ReconciledUtc;
-            public int UnappliedAttempts;
-            public bool EmptyShellsDisappeared;
-        }
-        private static string settings, path, history, epoch, bankEpoch, lastError, requestedOpen;
+        private static string settings, path, epoch, bankEpoch, lastError, requestedOpen;
         private static string pendingId, reconnectRequested;
         private static bool installed, retained;
         internal static bool PlannedReconnect { get; private set; }
@@ -110,9 +65,8 @@ namespace CityBankers
             string root = Path.Combine(RuntimeStateStore.GetDataDirectory(settings), "bag-recovery",
                 Client.CharacterName.ToLowerInvariant());
             path = Path.Combine(root, "active.json");
-            history = Path.Combine(root, "history");
             // Unreadable persistence is a hold, never a fresh recovery plan.
-            retained = CityDwellers.Shared.ManagerMemory.Current.ReadBagHistory(
+            retained = ReadState() != null || CityDwellers.Shared.ManagerMemory.Current.ReadBagHistory(
                 CityDwellers.Shared.ManagerAccounting.TransactionId, Client.CharacterName).Any(row => row.Phase != "complete");
             epoch = bankEpoch = requestedOpen = reconnectRequested = pendingId = lastError = null;
             inventory.Clear(); bank.Clear(); views.Clear(); opened.Clear();
@@ -132,7 +86,7 @@ namespace CityBankers
             {
                 if (!installed) return false;
                 if (retained) return true;
-                return Inventory.Items.Concat(Inventory.Bank.Items).Where(i => i != null &&
+                return (Inventory.Items ?? new List<Item>()).Concat(Inventory.Bank.Items ?? new List<Item>()).Where(i => i != null &&
                     i.Id == StorageBagPolicy.SmallBackpackId && i.UniqueIdentity.Type == IdentityType.Container)
                     .GroupBy(i => i.UniqueIdentity).Any(g => g.Count() > 1);
             }
@@ -197,25 +151,33 @@ namespace CityBankers
         }
         private static State Load()
         {
-            var s = CensusApplication.ReadExisting<State>(path);
-            if (s != null && (s.Format != "citybankers-shared-bag-recovery-v1" ||
+            var s = ReadState();
+            if (s == null && File.Exists(path) &&
+                (string)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(path))["Phase"] != "complete")
+                throw new InvalidOperationException("An unfinished older on-disk repair is present; preserving it for administrator review.");
+            if (s != null && (s.Format != "citybankers-shared-bag-recovery-v2" ||
                 s.Character != Client.CharacterName || s.Transfers == null || s.Destinations == null ||
-                s.Events == null || s.FullTargets == null || s.Disposals == null || s.TargetBaselines == null ||
+                s.FullTargets == null || s.TargetBaselines == null || s.Baseline == null ||
                 s.Original == null || s.ReadFailures == null || string.IsNullOrEmpty(s.Run) ||
-                (s.Phase != "confirm" && s.Phase != "evacuate" && s.Phase != "complete")))
+                (s.Phase != "confirm" && s.Phase != "evacuate") ||
+                (s.Pending != null && (s.Pending.Source == null ||
+                    !new[] { "transfer", "stage", "stage-target", "restore-social", "park", "return-target", "delete" }.Contains(s.Pending.Kind) ||
+                    (s.Pending.Kind == "transfer" && s.Pending.Transfer?.Item == null)))))
                 throw new InvalidOperationException("Invalid shared-bag recovery journal.");
             return s;
         }
+        private static State ReadState() => CityDwellers.Shared.ManagerMemory.Current.ReadBagRecovery(
+            CityDwellers.Shared.ManagerAccounting.TransactionId, Client.CharacterName);
         private static void Save(State s)
         {
             s.UpdatedUtc = DateTime.UtcNow;
-            RuntimeStateStore.WriteJsonAtomic(path, s);
-            retained = true;
+            CityDwellers.Shared.ManagerAccounting.Transaction("Bag repair intent", () =>
+                CityDwellers.Shared.ManagerMemory.Current.ChangeBagRecovery(
+                    CityDwellers.Shared.ManagerAccounting.TransactionId, s));
+            retained = s.Phase != "complete";
         }
         private static void Event(State s, string text)
         {
-            if (s.Events.Count >= 256) s.Events.RemoveAt(0);
-            s.Events.Add(DateTime.UtcNow.ToString("O") + " " + text);
             Logger.Warning("[CityBankers] BAG RECOVERY " + Client.CharacterName + ": " + text);
         }
         private static void Warn(string text)
@@ -243,7 +205,7 @@ namespace CityBankers
                 .Select(i => (int)i.Slot.Type + "/" + i.Slot.Instance + "/" + i.UniqueIdentity.Instance).OrderBy(k => k);
             return Outer().Select(a => a.Key).OrderBy(k => k).SequenceEqual(native);
         }
-        // True means this banker remains held. Called only with census ownership.
+        // True means this banker remains held under its own recovery reservation.
         internal static bool Tick()
         {
             if (!RequiresHold) return false;
@@ -275,17 +237,11 @@ namespace CityBankers
                     Event(s, "First contents refresh reconnected with consistent outer snapshots; retry fresh contents now.");
                     Save(s);
                 }
-                if (s.Phase == "complete")
-                {
-                    RuntimeStateStore.WriteJsonAtomic(Path.Combine(history, s.Run + ".json"), s);
-                    File.Delete(path); retained = false; return true;
-                }
                 if (Outer().GroupBy(a => a.Type + "/" + a.Slot).Any(g => g.Count() > 1))
                     throw new InvalidOperationException("Server snapshot repeats an outer slot; no unique action address.");
                 if (s.Phase == "confirm")
                 {
                     if (!SnapshotLayoutMatches()) { Reconnect("Resume confirmation requires consistent outer snapshots."); return true; }
-                    if (Aliases(s.Bag).Count <= 1) { Finish(s, "Repeated reference cleared on reconnect."); return true; }
                     s.Phase = "evacuate"; Save(s); return true;
                 }
                 if (statusAge.ElapsedMilliseconds >= 30000)
@@ -306,29 +262,34 @@ namespace CityBankers
 
                 // Stage one reference at a time. Reconnect after every outer move
                 // removes reliance on the SDK's inferred Bank.NextAvailableSlot.
-                var inBank = aliases.FirstOrDefault(a => a.Type == (int)IdentityType.BankByRef);
-                if (inBank != null)
+                var inBank = aliases.Where(a => a.Type == (int)IdentityType.BankByRef)
+                    .OrderBy(a => a.Key == s.LastUnappliedAddress ? 1 : 0).FirstOrDefault();
+                if (inBank != null && !aliases.Any(a => Normal(a) && a.Key != s.LastUnappliedAddress))
                 {
                     if (!Headroom(s)) return true;
                     IssueOuter(s, "stage", inBank, 0); return true;
                 }
                 var social = aliases.FirstOrDefault(a => a.Type == (int)IdentityType.SocialPage);
-                if (social != null)
+                if (social != null && !aliases.Any(Normal))
                 {
                     if (!Headroom(s)) return true;
                     IssueOuter(s, "restore-social", social, 0); return true;
                 }
-                if (s.Baseline == null)
+                if (!s.BaselineRecorded)
                 {
                     if (aliases.Count == 0) throw new InvalidOperationException("Missing source baseline.");
                     // InventoryUpdate identifies the shared container, not the
                     // outer icon used. A second icon does not promise another reply.
-                    var initial = Open(s, aliases[0]); if (initial == null) return true;
+                    var initial = Open(s, aliases.First(Normal)); if (initial == null) return true;
+                    ValidateStoredContents(s.Bag, initial.Items);
+                    foreach (var item in initial.Items)
+                        FindAnchor(s, new Transfer { Item = item });
                     s.Baseline = initial.Items;
+                    s.BaselineRecorded = true;
                     Event(s, "Recorded one fresh shared-container contents budget; aliases are outer references, not independent inventories.");
                     Save(s); return true;
                 }
-                foreach (var alias in aliases)
+                foreach (var alias in aliases.OrderBy(a => Normal(a) ? 0 : 1))
                 {
                     View source = Open(s, alias);
                     if (source == null) return true;
@@ -341,12 +302,12 @@ namespace CityBankers
                     throw new InvalidOperationException("Source is empty but the initial contents are not fully accounted for in destinations.");
                 // The shared identity has an incoming empty snapshot newer than the
                 // last mutation. Native cached contents alone are insufficient.
-                foreach (int id in s.TargetBaselines.Keys)
+                foreach (int id in s.TargetBaselines.Select(t => t.Bag))
                 {
                     var target = Aliases(id).SingleOrDefault();
                     if (target == null) throw new InvalidOperationException("Evacuated stock destination disappeared.");
-                    // Bank destinations were verified before their journaled return;
-                    // they will be independently read again by the following census.
+                    // A bank destination was verified before its journaled return;
+                    // its outer location was then confirmed on a fresh connection.
                     if (!Normal(target)) continue;
                     var view = Open(s, target); if (view == null) return true;
                     if (!TargetConserved(s, id, view.Items))
@@ -360,21 +321,11 @@ namespace CityBankers
                     if (Normal(target)) { IssueOuter(s, "return-target", target, 0); return true; }
                     s.Destinations.RemoveAt(0); Save(s); return true;
                 }
-                if (aliases.Count <= 1) { Finish(s, "Empty-shell recovery completed; evacuated quantities conserved; normal census will verify final stock."); return true; }
-                if (s.Experiment == 0)
-                {
-                    if (Inventory.Bank.NumFreeSlots <= 0) { s.Experiment = 1; Save(s); return true; }
-                    IssueOuter(s, "bank-test", aliases[0], 0); return true;
-                }
-                if (s.Experiment == 1)
-                {
-                    bool occupied = Inventory.Items.Any(i => i != null && i.Slot.Instance == (int)EquipSlot.Social_Back);
-                    if (occupied) { s.Experiment = 2; Save(s); return true; }
-                    IssueOuter(s, "social-test", aliases[0], 0); return true;
-                }
-                // Owner-authorized last resort. Only empty shells are deleted.
-                // Items are NEVER classified as dupes by template/QL equality.
-                IssueOuter(s, "delete", aliases[0], 0); return true;
+                if (aliases.Count == 0)
+                { Finish(s, "Damaged bag removed; evacuated items conserved and their accounting locations updated."); return true; }
+                // The owner requested removal, not experiments with the empty bag.
+                IssueOuter(s, "delete", aliases.OrderBy(a => a.Key == s.LastUnappliedAddress ? 1 : 0)
+                    .ThenBy(a => Normal(a) ? 0 : 1).First(), 0); return true;
             }
             catch (Exception ex)
             {
@@ -387,10 +338,10 @@ namespace CityBankers
         {
             if (inventoryCount < 30) return true;
             var clean = inventory.Where(Normal).FirstOrDefault(a => a.Bag != s.Bag && Aliases(a.Bag).Count == 1);
-            if (clean == null || Inventory.Bank.NumFreeSlots <= 0)
+            if (clean == null || Math.Min(Inventory.Bank.NumFreeSlots, 102 - Inventory.Bank.Items.Count) <= 0)
                 throw new InvalidOperationException("No safe inventory staging capacity; retaining stock and retrying.");
             // Ordinary healthy outer-bag move, with full reconnect verification.
-            // The following census records its new location and preserves anchors.
+            // Completion rebinds its outer location without scanning its contents.
             IssueOuter(s, "park", clean, 0); return false;
         }
         private static View Open(State s, Address address)
@@ -405,15 +356,17 @@ namespace CityBankers
                         "; records=" + fresh.Items.Count + "; incoming sequence=" + fresh.Sequence);
                 opened[address.Key] = fresh;
                 if (requestedOpen == address.Key) requestedOpen = null;
-                if (s.ReadFailures.Remove(address.Bag)) { s.FirstReadRefreshEpoch = null; Save(s); }
+                if (s.ReadFailures.RemoveAll(f => f.Bag == address.Bag) != 0) { s.FirstReadRefreshEpoch = null; Save(s); }
                 return fresh;
             }
             if (DateTime.UtcNow < s.RetryAfterUtc) return null;
             if (requestedOpen == address.Key)
             {
                 if (openAge.ElapsedMilliseconds < 15000) return null;
-                int failures; s.ReadFailures.TryGetValue(address.Bag, out failures);
-                failures = Math.Min(6, failures + 1); s.ReadFailures[address.Bag] = failures;
+                s.LastUnappliedAddress = address.Key;
+                var failed = s.ReadFailures.SingleOrDefault(f => f.Bag == address.Bag);
+                if (failed == null) { failed = new BagRecoveryReadFailure { Bag = address.Bag }; s.ReadFailures.Add(failed); }
+                int failures = failed.Count = Math.Min(6, failed.Count + 1);
                 s.FirstReadRefreshEpoch = failures == 1 ? epoch : null;
                 s.RetryAfterUtc = DateTime.UtcNow.AddSeconds(Math.Min(960, 15 * (1 << failures)));
                 Event(s, "No fresh shared-container snapshot for " + address.Key +
@@ -447,7 +400,8 @@ namespace CityBankers
                 .SequenceEqual(b.Select(i => i.Slot + "/" + i.Key + "/" + i.Quantity).OrderBy(k => k));
         private static bool TargetConserved(State s, int id, List<Content> observed)
         {
-            return Equal(s.TargetBaselines[id].Concat(s.Transfers.Where(t => t.TargetBag == id).Select(t => t.Item)), observed);
+            return Equal(s.TargetBaselines.Single(t => t.Bag == id).Items.Concat(
+                s.Transfers.Where(t => t.TargetBag == id).Select(t => t.Item)), observed);
         }
         private static bool Delta(List<Content> before, List<Content> after, Content item, int sign)
         {
@@ -464,7 +418,7 @@ namespace CityBankers
             int secured = s.Transfers.Where(t => t.Item.Key == item.Key).Sum(t => t.Item.Quantity);
             if (secured + item.Quantity > budget)
             {
-                DisposeExcess(s, source, content, item, budget, secured); return;
+                throw new InvalidOperationException("Source exceeds its recorded contents budget; retaining every item for administrator review.");
             }
             var target = Outer().GroupBy(a => a.Bag).Where(g => g.Count() == 1 && g.Key != s.Bag &&
                 !s.FullTargets.Contains(g.Key)).Select(g => g.Single())
@@ -502,58 +456,26 @@ namespace CityBankers
             var receipt = new Transfer { Id = Guid.NewGuid().ToString("N"), SourceBag = s.Bag,
                 TargetBag = target.Bag, TargetSlot = -1, Item = item };
             FindAnchor(s, receipt);
-            if (!s.TargetBaselines.ContainsKey(target.Bag)) s.TargetBaselines[target.Bag] = destination.Items;
+            if (!s.TargetBaselines.Any(t => t.Bag == target.Bag))
+            {
+                ValidateStoredContents(target.Bag, destination.Items);
+                s.TargetBaselines.Add(new BagRecoveryTarget { Bag = target.Bag, Items = destination.Items });
+            }
+            else if (!TargetConserved(s, target.Bag, destination.Items))
+                throw new InvalidOperationException("Evacuation destination no longer matches its verified receipts; retaining both bags.");
             s.Pending = new Pending { Id = receipt.Id, Kind = "transfer", Epoch = epoch,
                 Source = source, TargetBag = target.Bag, SourceBefore = content.Items,
                 TargetBefore = destination.Items, Transfer = receipt };
             Save(s); InvalidateViews();
             BagOriginTrace.MoveToContainer(moving, liveTarget);
         }
-        private static void DisposeExcess(State s, Address source, View content, Content item, int budget, int secured)
-        {
-            // Extra means the SAME initially observed shared-container record
-            // reappeared after its entire one-container budget was safely secured.
-            // Neither template equality nor an old ledger count authorizes deletion.
-            if (budget <= 0 || secured != budget || !s.Baseline.Any(i =>
-                i.Slot == item.Slot && i.Key == item.Key && i.Quantity == item.Quantity) ||
-                s.Disposals.Count >= Math.Max(1, s.Original.Count) * Math.Max(1, s.Baseline.Count))
-                throw new InvalidOperationException("Unexpected excess is not proven against the recovery baseline; retaining it.");
-            var receipt = s.Transfers.FirstOrDefault(t => t.Item.Key == item.Key && t.TargetSlot >= 0);
-            if (receipt == null) throw new InvalidOperationException("No independently located original backs excess disposal.");
-            foreach (int id in s.Transfers.Where(t => t.Item.Key == item.Key).Select(t => t.TargetBag).Distinct())
-            {
-                var address = Aliases(id).SingleOrDefault();
-                if (address == null) throw new InvalidOperationException("Secured original destination disappeared.");
-                if (!Normal(address))
-                {
-                    if (!Headroom(s)) return;
-                    if (!s.Destinations.Contains(id)) s.Destinations.Add(id);
-                    IssueOuter(s, "stage-target", address, 0); return;
-                }
-                var fresh = Open(s, address); if (fresh == null) return;
-                if (!TargetConserved(s, id, fresh.Items))
-                    throw new InvalidOperationException("Secured originals changed; excess disposal prohibited.");
-            }
-            var target = Aliases(receipt.TargetBag).Single();
-            var targetView = Open(s, target); if (targetView == null) return;
-            var live = Inventory.Containers.SingleOrDefault(c => c.Identity.Instance == source.Bag);
-            var extra = live?.Items.SingleOrDefault(i => (i.Slot.Instance & 65535) == item.Slot &&
-                i.Id == item.Low && i.HighId == item.High && i.Ql == item.Ql);
-            if (extra == null || live.Handle != content.Handle)
-            { InvalidateViews(); throw new InvalidOperationException("Excess source handle changed."); }
-            s.Pending = new Pending { Id = Guid.NewGuid().ToString("N"), Kind = "dispose", Epoch = epoch,
-                Source = source, TargetBag = receipt.TargetBag, SourceBefore = content.Items,
-                TargetBefore = targetView.Items, Transfer = new Transfer { SourceBag = s.Bag,
-                    TargetBag = receipt.TargetBag, TargetSlot = receipt.TargetSlot, Item = item } };
-            Save(s); InvalidateViews(); extra.Delete();
-        }
         private static void IssueOuter(State s, string kind, Address source, int target)
         {
             Item item = Live(source);
-            if (kind == "delete" || kind == "bank-test" || kind == "social-test")
+            if (kind == "delete")
             {
                 if (Aliases(s.Bag).Any(a => !opened.ContainsKey(a.Key) || opened[a.Key].Items.Count != 0))
-                    throw new InvalidOperationException("The shared identity needs a post-mutation empty snapshot before an experiment.");
+                    throw new InvalidOperationException("Every reference needs a post-mutation empty snapshot before deleting the damaged bag.");
             }
             s.Pending = new Pending { Id = Guid.NewGuid().ToString("N"), Kind = kind,
                 Epoch = epoch, Source = source, TargetBag = target, Before = Outer() };
@@ -562,8 +484,7 @@ namespace CityBankers
             switch (kind)
             {
                 case "stage": case "stage-target": case "restore-social": BagOriginTrace.MoveToInventory(item); break;
-                case "park": case "return-target": case "bank-test": BagOriginTrace.MoveToBank(item); break;
-                case "social-test": item.Equip(EquipSlot.Social_Back); break;
+                case "park": case "return-target": BagOriginTrace.MoveToBank(item); break;
                 case "delete": item.Delete(); break;
                 default: throw new InvalidOperationException("Unknown recovery action.");
             }
@@ -572,26 +493,30 @@ namespace CityBankers
         {
             Pending p = s.Pending;
             if (pendingId != p.Id) { pendingId = p.Id; pendingAge.Restart(); }
-            if (p.Kind == "transfer" || p.Kind == "dispose")
+            if (p.Kind == "transfer")
             {
                 // Reopen BOTH ends; local OnContainerAction's slot inference is
                 // not completion evidence. Reconnect automatically on uncertainty.
-                var source = Aliases(p.Source.Bag).SingleOrDefault(address => address.Key == p.Source.Key);
+                // Contents belong to the container identity. A reconnect can
+                // retire one outer reference without changing that identity.
+                var source = Aliases(p.Source.Bag).Where(Normal)
+                    .OrderBy(address => address.Key == p.Source.Key ? 0 : 1).FirstOrDefault();
                 var target = Aliases(p.TargetBag).SingleOrDefault();
                 if (source == null || target == null || !Normal(target))
                     throw new InvalidOperationException("Pending transfer endpoints are not observable in inventory.");
                 View sourceView = Open(s, source); if (sourceView == null) return;
                 View targetView = Open(s, target); if (targetView == null) return;
                 if (Delta(p.SourceBefore, sourceView.Items, p.Transfer.Item, -1) &&
-                    (p.Kind == "dispose" ? Exact(p.TargetBefore, targetView.Items) : Delta(p.TargetBefore, targetView.Items, p.Transfer.Item, 1)))
+                    Delta(p.TargetBefore, targetView.Items, p.Transfer.Item, 1))
                 {
                     var arrivals = targetView.Items.Where(i => i.Key == p.Transfer.Item.Key &&
                         !p.TargetBefore.Any(old => old.Slot == i.Slot)).ToList();
-                    if (arrivals.Count == 1) p.Transfer.TargetSlot = arrivals[0].Slot;
+                    if (arrivals.Count != 1)
+                        throw new InvalidOperationException("Evacuation destination slot is not uniquely observed; retaining the pending intent.");
+                    p.Transfer.TargetSlot = arrivals[0].Slot;
                     p.Transfer.VerifiedUtc = DateTime.UtcNow;
-                    if (p.Kind == "dispose") s.Disposals.Add(p.Transfer); else s.Transfers.Add(p.Transfer);
-                    Event(s, p.Kind == "dispose" ? "Removed proven excess; secured original destination unchanged." :
-                        "Evacuated one observed record with exact source/destination quantity deltas.");
+                    s.Transfers.Add(p.Transfer);
+                    Event(s, "Evacuated one observed record with exact source/destination quantity deltas.");
                     s.Pending = null; s.UnappliedAttempts = 0; s.RetryAfterUtc = default(DateTime);
                     Save(s); InvalidateViews(false); return;
                 }
@@ -637,16 +562,15 @@ namespace CityBankers
                 if (!same && p.Kind == "return-target") s.Destinations.Remove(p.Source.Bag);
                 if (same) retryAge.Restart();
             }
-            else if (p.Kind == "bank-test") s.Experiment = 1;
-            else if (p.Kind == "social-test") s.Experiment = 2;
             else if (p.Kind == "delete" && same)
             {
                 // A confirmed empty shell survived. Retire only this intent and
                 // re-observe emptiness before any subsequent deletion attempt.
                 retryAge.Restart();
             }
-            if (same) Backoff(s); else { s.UnappliedAttempts = 0; s.RetryAfterUtc = default(DateTime); }
-            if ((p.Kind == "delete" || p.Kind == "bank-test" || p.Kind == "social-test") && remaining.Count == 0)
+            if (same) { s.LastUnappliedAddress = p.Source.Key; Backoff(s); }
+            else { s.LastUnappliedAddress = null; s.UnappliedAttempts = 0; s.RetryAfterUtc = default(DateTime); }
+            if (p.Kind == "delete" && remaining.Count == 0)
                 s.EmptyShellsDisappeared = true;
             Event(s, p.Kind + " observed after reconnect: before=" +
                 string.Join(",", beforeSource.Select(a => a.Key)) + "; after=" +
@@ -661,7 +585,12 @@ namespace CityBankers
         }
         private static void Finish(State s, string reason)
         {
-            Event(s, reason); s.Phase = "complete"; Save(s);
+            if (!s.BaselineRecorded || !s.EmptyShellsDisappeared || Aliases(s.Bag).Count != 0 ||
+                !Equal(s.Baseline, s.Transfers.Select(t => t.Item)))
+                throw new InvalidOperationException("Repair completion lacks conserved contents or confirmed removal of the damaged bag.");
+            CommitRepair(s);
+            retained = false;
+            Event(s, reason);
         }
         private static void FindAnchor(State s, Transfer transfer)
         {
@@ -676,12 +605,128 @@ namespace CityBankers
                 i.Ql == transfer.Item.Ql && i.Slot == transfer.Item.Slot &&
                 bags.Any(b => i.Location == b.Source && i.Bag == (b.OuterSlotInstance & 65535)) &&
                 !s.Transfers.Any(t => t.AnchorId == i.Id)).ToList();
-            // Preserve an anchor only when its ownership is unambiguous. Retain all
-            // original ledger records for the ordinary census history otherwise.
-            if (candidates.Count != 1) return;
+            if (candidates.Count != 1)
+                throw new InvalidOperationException("Evacuation requires one existing ledger owner for each item; no item was moved for this intent.");
             var anchor = candidates[0]; transfer.AnchorId = anchor.Id;
             transfer.AnchorTransaction = anchor.TransactionId; transfer.AnchorReceivedUtc = anchor.ReceivedUtc;
             transfer.OriginalLocation = anchor.Location; transfer.OriginalBag = anchor.Bag; transfer.OriginalSlot = anchor.Slot;
+        }
+
+        private static StorageWorkerState StoredWorker(StorageState storage) => storage?.Workers?.SingleOrDefault(w =>
+            string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase)) ??
+            throw new InvalidOperationException("Repair storage owner is unavailable.");
+
+        private static void ValidateStoredContents(int bag, List<Content> contents)
+        {
+            var worker = StoredWorker(RuntimeStateStore.LoadStorageState(settings));
+            string identity = new Identity(IdentityType.Container, bag).ToString();
+            var stored = worker.Bags.SingleOrDefault(b => b.LastUniqueIdentity == identity);
+            if (stored?.Items == null || stored.Items.Count != contents.Count ||
+                contents.Select(i => i.Slot).Distinct().Count() != contents.Count ||
+                contents.Any(i => i.Quantity != 1 || !stored.Items.Any(old =>
+                    old.InnerSlot == i.Slot && old.AoId == i.Low && old.HighId == i.High && old.Ql == i.Ql)))
+                throw new InvalidOperationException("Fresh repair contents differ from recorded stock; retaining the banker and all items.");
+            var anchors = CityDwellers.Shared.ManagerMemory.Current.ReadLedger(
+                CityDwellers.Shared.ManagerAccounting.TransactionId).Items.Where(i =>
+                    string.Equals(i.Character, worker.Character, StringComparison.OrdinalIgnoreCase) &&
+                    i.Location == stored.Source && i.Bag == (stored.OuterSlotInstance & 65535)).ToList();
+            if (anchors.Count != contents.Count || contents.Any(i => anchors.Count(a =>
+                a.Slot == i.Slot && a.AoId == i.Low && a.HighId == i.High && a.Ql == i.Ql) != 1))
+                throw new InvalidOperationException("Repair contents and ledger ownership disagree; retaining every item.");
+        }
+
+        private static void CommitRepair(State s)
+        {
+            if (!SnapshotLayoutMatches())
+                throw new InvalidOperationException("Repair final outer layout is not confirmed.");
+            CityDwellers.Shared.ManagerAccounting.Transaction("Complete affected banker bag repair", () =>
+            {
+                var manager = CityDwellers.Shared.ManagerMemory.Current;
+                string transaction = CityDwellers.Shared.ManagerAccounting.TransactionId;
+                var storage = RuntimeStateStore.LoadStorageState(settings);
+                var worker = StoredWorker(storage);
+                var ledger = manager.ReadLedger(transaction);
+                string damaged = new Identity(IdentityType.Container, s.Bag).ToString();
+                var source = worker.Bags.SingleOrDefault(b => b.LastUniqueIdentity == damaged);
+                if (source == null || source.Items.Count != s.Transfers.Count ||
+                    s.Transfers.Select(t => t.AnchorId).Distinct().Count() != s.Transfers.Count ||
+                    s.Transfers.Any(t => t.AnchorId == null || t.TargetSlot < 0))
+                    throw new InvalidOperationException("Repair cannot map every stored item to one verified destination.");
+                var outer = Outer().GroupBy(a => new Identity(IdentityType.Container, a.Bag).ToString())
+                    .ToDictionary(g => g.Key, g => g.ToList());
+                var expectedIds = worker.Bags.Where(b => b.LastUniqueIdentity != damaged).Select(b => b.LastUniqueIdentity).ToList();
+                if (expectedIds.Distinct().Count() != expectedIds.Count ||
+                    !expectedIds.OrderBy(i => i).SequenceEqual(outer.Keys.OrderBy(i => i)))
+                    throw new InvalidOperationException("Unrelated storage bags changed during repair.");
+                int originalCount = worker.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count();
+                var original = worker.Bags.ToList();
+                var unchangedAnchors = ledger.Items.Where(i => i.Character == s.Character &&
+                    !s.Transfers.Any(t => t.AnchorId == i.Id)).Select(i => new { Item = i,
+                        Bag = original.SingleOrDefault(b => b != source && i.Location == b.Source &&
+                            i.Bag == (b.OuterSlotInstance & 65535)) }).Where(p => p.Bag != null).ToList();
+                foreach (var t in s.Transfers)
+                {
+                    var item = source.Items.SingleOrDefault(i => i.InnerSlot == t.Item.Slot &&
+                        i.AoId == t.Item.Low && i.HighId == t.Item.High && i.Ql == t.Item.Ql);
+                    var anchor = ledger.Items.SingleOrDefault(i => i.Id == t.AnchorId && i.Character == s.Character &&
+                        i.TransactionId == t.AnchorTransaction && i.ReceivedUtc == t.AnchorReceivedUtc &&
+                        i.Location == t.OriginalLocation && i.Bag == t.OriginalBag && i.Slot == t.OriginalSlot);
+                    var target = worker.Bags.SingleOrDefault(b => b.LastUniqueIdentity ==
+                        new Identity(IdentityType.Container, t.TargetBag).ToString());
+                    if (item == null || anchor == null || target == null || target.Items.Any(i => i.InnerSlot == t.TargetSlot))
+                        throw new InvalidOperationException("Repair accounting conflicts with a retained item or destination slot.");
+                    // These objects are Manager read copies. Their donor, receipt
+                    // time, transaction and ledger ID stay unchanged.
+                    source.Items.Remove(item);
+                    item.InnerSlot = t.TargetSlot;
+                    item.ObservedUtc = DateTime.UtcNow;
+                    target.Items.Add(item);
+                    var address = outer[target.LastUniqueIdentity].Single();
+                    anchor.Location = Normal(address) ? "inventory" : "bank";
+                    anchor.Bag = address.Slot & 65535;
+                    anchor.Slot = t.TargetSlot;
+                }
+                if (source.Items.Count != 0)
+                    throw new InvalidOperationException("The damaged bag still owns recorded items.");
+                // Rebind other bags moved for staging by identity, using fresh
+                // outer snapshots. Their contents are neither scanned nor rebuilt.
+                foreach (var binding in unchangedAnchors)
+                {
+                    var addresses = outer[binding.Bag.LastUniqueIdentity];
+                    // Another damaged bag is repaired on the next pass. None of
+                    // its references was selected or moved by this operation.
+                    if (addresses.Count != 1) continue;
+                    var address = addresses[0];
+                    binding.Item.Location = Normal(address) ? "inventory" : "bank";
+                    binding.Item.Bag = address.Slot & 65535;
+                }
+                foreach (var bag in original.Where(b => b != source))
+                {
+                    var addresses = outer[bag.LastUniqueIdentity];
+                    if (addresses.Count != 1) continue;
+                    var address = addresses[0];
+                    string location = Normal(address) ? "inventory" : "bank";
+                    bag.Source = location;
+                    bag.OuterSlotType = ((IdentityType)address.Type).ToString();
+                    bag.OuterSlotInstance = address.Slot & 65535;
+                    bag.LastHandle = 0;
+                }
+                worker.Bags.Remove(source);
+                worker.ObservedUtc = storage.UpdatedUtc = ledger.UpdatedUtc = DateTime.UtcNow;
+                var reserve = manager.ReadReserve(transaction);
+                int previousTarget;
+                if (!reserve.TryGetTarget(s.Character, out previousTarget) || previousTarget < originalCount)
+                    reserve.SetTarget(s.Character, originalCount);
+                manager.ChangeReserve(transaction, reserve);
+                manager.ChangeLedger(transaction, ledger);
+                manager.ChangeStorage(transaction, storage);
+                RuntimeStateStore.SaveCurrentStock(RuntimeStateStore.BuildCurrentStock(settings, storage));
+                manager.ChangeBagHistory(transaction, new BagHistoryRecord { Run = s.Run, Character = s.Character,
+                    Bag = s.Bag, Phase = "complete", EmptyShellsDisappeared = true, UpdatedUtc = DateTime.UtcNow,
+                    ReconciledUtc = DateTime.UtcNow, Transfers = s.Transfers });
+                s.Phase = "complete";
+                manager.ChangeBagRecovery(transaction, s);
+            });
         }
         internal static void MarkReconciled(string directory, IEnumerable<string> characters)
         {

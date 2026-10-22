@@ -65,7 +65,7 @@ namespace CityDwellers.Host
                     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name <> 'cd_storage_version'", _connection))
                     if (Convert.ToInt32(command.ExecuteScalar()) != 0)
                         throw new InvalidOperationException("Database has tables but no current schema version. Legacy import is no longer supported. Use an empty database or restore a current-schema backup.");
-                RuntimeLog.Write("Initializing empty business database (schema 12).");
+                RuntimeLog.Write("Initializing empty business database (schema 13).");
                 _tables.Create(_connection);
                 CreateSeenTables();
                 CreatePlayerProfileTable();
@@ -77,7 +77,7 @@ namespace CityDwellers.Host
                 };
                 _tables.Commit(_connection, new AccountingState { Reserve = null, Alts = null }, state, transaction =>
                 {
-                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(12)", _connection, transaction)) command.ExecuteNonQuery();
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(13)", _connection, transaction)) command.ExecuteNonQuery();
                 });
             }
             else
@@ -134,7 +134,14 @@ namespace CityDwellers.Host
                     using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(12)", _connection)) command.ExecuteNonQuery();
                     version = 12;
                 }
-                if (version != 12) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 12.");
+                if (version == 12)
+                {
+                    RuntimeLog.Write("Upgrading business schema 12 to 13: retaining interrupted bag repairs.");
+                    _tables.CreateBagRecoveryTables(_connection);
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(13)", _connection)) command.ExecuteNonQuery();
+                    version = 13;
+                }
+                if (version != 13) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 13.");
                 RuntimeLog.Write("Loading relational business rows into Manager RAM.");
                 state = _tables.Load(_connection);
             }

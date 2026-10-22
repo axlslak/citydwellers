@@ -73,6 +73,23 @@ namespace CityDwellers.Host
                 .Child("cd_bag_transfer_items", "Item", null);
             bagsHistory.Child("cd_bag_disposals", "Disposals", o => ((BagHistoryTransfer)o).Id)
                 .Child("cd_bag_disposal_items", "Item", null);
+            var repair = Root("cd_pending_bag_recovery", "BagRecoveries", o => ((BagRecoveryState)o).Character.ToLowerInvariant());
+            repair.Child("cd_bag_recovery_original", "Original", null);
+            repair.Child("cd_bag_recovery_destinations", "Destinations", null);
+            repair.Child("cd_bag_recovery_full_targets", "FullTargets", null);
+            repair.Child("cd_bag_recovery_baseline", "Baseline", null);
+            repair.Child("cd_bag_recovery_targets", "TargetBaselines", null)
+                .Child("cd_bag_recovery_target_items", "Items", null);
+            repair.Child("cd_bag_recovery_read_failures", "ReadFailures", null);
+            repair.Child("cd_bag_recovery_transfers", "Transfers", o => ((BagHistoryTransfer)o).Id)
+                .Child("cd_bag_recovery_transfer_items", "Item", null);
+            var intent = repair.Child("cd_bag_recovery_intent", "Pending", null);
+            intent.Child("cd_bag_recovery_intent_source", "Source", null);
+            intent.Child("cd_bag_recovery_intent_before", "Before", null);
+            intent.Child("cd_bag_recovery_source_items", "SourceBefore", null);
+            intent.Child("cd_bag_recovery_destination_items", "TargetBefore", null);
+            intent.Child("cd_bag_recovery_intent_transfer", "Transfer", null)
+                .Child("cd_bag_recovery_intent_item", "Item", null);
             Root("cd_cloak", "Cloak");
             Root("cd_cloak_events", "CloakEvents", o => ((CloakEvent)o).Id);
             Root("cd_worldboss_timers", "WorldBosses", o => ((WorldBossRecord)o).Boss);
@@ -189,6 +206,9 @@ namespace CityDwellers.Host
                 using (var command = new MySqlCommand(sql, connection)) command.ExecuteNonQuery();
             }
         }
+
+        internal void CreateBagRecoveryTables(MySqlConnection connection) => Create(connection,
+            Descendants(_roots.Single(t => t.Name == "cd_pending_bag_recovery")).Select(t => t.Name).ToArray());
 
         private Dictionary<string, Dictionary<string, Row>> Flatten(AccountingState state)
         {

@@ -25,6 +25,9 @@ namespace CityBankers
         private static string _localFaultReason, _lastRelogReason;
         private static bool _localRelogPending;
         private bool _startupFailed, _awaitingUnresolvedRelog, _heldForAdmin;
+        private bool _bagRecoveryActive, _bagRecoveryQuiesced;
+        private string _bagRecoveryWait;
+        private string BagRecoveryReservation => "bag-repair-" + _character.ToLowerInvariant();
 
         private static bool InitialAuditUsed => _directory != null &&
             Manager.InitialAuditUsed(MemberCharacter);
@@ -467,6 +470,15 @@ namespace CityBankers
             _poll.Restart();
             try
             {
+                // Actual duplicate containers have a narrowly scoped repair actor.
+                // Run it before the generic relog/admin hold; it never launches a
+                // startup or roster audit and never releases ordinary bag work early.
+                if (_bagRecoveryActive || (ClientIsInPlay() && ClientlessSessionGuard.BankCacheTrusted &&
+                    Inventory.Bank.IsOpen && SharedBagRecovery.RequiresHold))
+                {
+                    TickBagRecovery();
+                    return;
+                }
                 if (_localRelogPending && ClientIsInPlay() && !Trade.IsTrading)
                 {
                     _localRelogPending = false;
@@ -484,22 +496,6 @@ namespace CityBankers
                 if (_heldForAdmin || (_startupFailed && !_awaitingUnresolvedRelog)) return;
                 if (!ClientIsInPlay() || !ClientlessSessionGuard.BankCacheTrusted ||
                     !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
-                // Never compare a fresh inventory against an old connection's bank cache.
-                if (SharedBagRecovery.RequiresHold)
-                {
-                    _stagingFailureLayout = null;
-                    _presenceRetryAfter = 0;
-                    if (_localFaultReason != null && !_localRelogPending)
-                    {
-                        _heldForAdmin = true;
-                        Hold("Shared bag uncertainty persists after relog; administrator review required.");
-                        Logger.Error("[CityBankers] " + _character + " shared bag uncertainty persists after relog; no automatic audit or evacuation.");
-                        CityDwellers.Shared.ServiceEvents.Report("banker.fault", "error",
-                            "Shared bag uncertainty persists after relog; administrator review required.");
-                    }
-                    else Block("Shared bag state is uncertain; refresh this banker with a relog.");
-                    return;
-                }
                 if (_completedAdmissionReconnect != null && !ResumeCompletedAdmission()) return;
                 if (_awaitingUnresolvedRelog)
                 {
@@ -641,8 +637,8 @@ namespace CityBankers
                     string signature = InventoryLayout();
                     if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                     if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
-                    // Disabled: automatic shared-bag evacuation/audit recovery.
-                    // if (SharedBagRecovery.Tick()) { _signature = null; _settled.Restart(); return; }
+                    // Duplicate repair runs through TickBagRecovery before
+                    // admission; it does not depend on requesting a census.
                     if (!ClientlessSessionGuard.PrepareCensusConnection()) return;
                     ReportSmallBackpackCapacity();
                     ReportDuplicateBagRecords();
@@ -834,6 +830,65 @@ namespace CityBankers
         private void PublishReadyRoster(Cycle cycle)
         {
             Manager.SetCensus(cycle);
+        }
+
+        private void TickBagRecovery()
+        {
+            if (!_bagRecoveryActive)
+            {
+                _bagRecoveryActive = true;
+                _localRelogPending = false;
+                Hold("Repairing duplicate storage container; this banker only.");
+                ClearOperational();
+                Logger.Warning("[CityBankers] BAG RECOVERY " + _character +
+                    ": banker held for verified evacuation and empty damaged-bag removal.");
+                CityDwellers.Shared.ServiceEvents.Report("banker.repair", "warning",
+                    "Duplicate bag recovery started; this banker only.", new { Character = _character });
+            }
+            if (!ClientIsInPlay() || !ClientlessSessionGuard.BankCacheTrusted || !Inventory.Bank.IsOpen || Trade.IsTrading) return;
+            if (!_bagRecoveryQuiesced)
+            {
+                if (!BankingServiceAgent.CanQuiesceForBagRecovery(_settings, _character, _role == "central") ||
+                    !WithdrawalStore.TryReserveCensus(_settings, BagRecoveryReservation, _character, _role == "central"))
+                {
+                    if (_bagRecoveryWait == null)
+                        Logger.Warning("[CityBankers] BAG RECOVERY " + _character +
+                            ": waiting for retained trade/custody ownership before moving any contents.");
+                    _bagRecoveryWait = "custody";
+                    return;
+                }
+                if (!BankingServiceAgent.QuiesceForCensus(BagRecoveryReservation)) return;
+                _bagRecoveryQuiesced = true;
+            }
+            if (SharedBagRecovery.Tick()) return;
+            if (SharedBagRecovery.RequiresHold) return;
+            WithdrawalStore.ReleaseRecovery(_settings, BagRecoveryReservation);
+            _heldForAdmin = _startupFailed = _awaitingUnresolvedRelog = false;
+            _localFaultReason = _lastRelogReason = null;
+            _localRelogPending = false;
+            _idleReconnectCycle = null;
+            _completedAdmissionReconnect = null;
+            _stagingFailureLayout = null;
+            _presenceRetryAfter = 0;
+            Locked(() =>
+            {
+                var cycle = Current();
+                if (cycle?.Phase != "released") return;
+                cycle.Participants[_character] = _connection;
+                Manager.SetCensus(cycle);
+                Manager.ReadyBanker(_character, cycle.Id, _connection);
+                _auditCycle = cycle.Id;
+                _finished = true;
+                _auditPause = _holdVersion;
+                _invalidated = false;
+                _readyLoggedCycle = null;
+            });
+            _bagRecoveryActive = _bagRecoveryQuiesced = false;
+            _bagRecoveryWait = null;
+            Logger.Information("[CityBankers] BAG RECOVERY " + _character +
+                ": completed; existing stock and provenance retained; Central reserve may replace the removed bag.");
+            CityDwellers.Shared.ServiceEvents.Report("banker.repair", "info",
+                "Duplicate bag recovery completed; contents and provenance retained.", new { Character = _character });
         }
 
         private bool WaitForStagingChange(string reason)
@@ -1114,8 +1169,7 @@ namespace CityBankers
                 string signature = InventoryLayout();
                 if (signature != _signature) { _signature = signature; _settled.Restart(); return; }
                 if (_settled.ElapsedMilliseconds < 2000 || _retry.ElapsedMilliseconds < 3000) return;
-                // Disabled: automatic shared-bag evacuation/audit recovery.
-                // if (SharedBagRecovery.Tick()) { _signature = null; _settled.Restart(); return; }
+                // Duplicate repair runs before admission, independently of a census.
                 if (!ClientlessSessionGuard.PrepareCensusConnection()) return;
                 ReportSmallBackpackCapacity();
                 ReportDuplicateBagRecords();
