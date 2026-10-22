@@ -20,6 +20,37 @@ namespace CityBankers
         private WorkingBagReturn _layoutBankReturn;
         private bool _bankLayoutResumed, _emptyWorkerChecked;
         private string _layoutHold;
+        private string _layoutReconnectBefore;
+        private readonly Stopwatch _layoutActionAge = new Stopwatch();
+
+        private void SendLayoutAction(string phase, Item source, Action send)
+        {
+            if (_layoutReconnectBefore == null)
+                _layoutReconnectBefore = StartupCensusGate.ReconnectInventory(_bankLayout.Identity);
+            _bankLayout.Phase = phase;
+            _bankLayout.SourceSlot = source.Slot.Instance;
+            _bankLayout.StartedUtc = DateTime.UtcNow;
+            _layoutActionAge.Reset();
+            SaveBankLayout(); // Intent must commit before the packet is sent.
+            send();
+            // SQL admission/commit time is not time spent awaiting AO.
+            _layoutActionAge.Restart();
+            Logger.Information("[CityBankers] BAG LAYOUT " + phase + " requested " + _bankLayout.Identity +
+                "; source=" + source.Slot + "; awaiting native evidence.");
+        }
+
+        private void BeginLayoutBankReturn(Item bag) => SendLayoutAction("banking", bag,
+            () => _layoutBankReturn = BeginWorkingBagReturn(bag));
+
+        private void CheckLayoutActionTimeout()
+        {
+            if (!_layoutActionAge.IsRunning)
+                StartupCensusGate.Block("Retained bag layout has no unique fresh source or destination for " +
+                    _bankLayout.Identity + "/" + _bankLayout.Phase + "; intent retained.");
+            else if (_layoutActionAge.ElapsedMilliseconds >= ServicePolicy.BagMoveTimeoutMs)
+                StartupCensusGate.Block("Bag layout action remains unconfirmed after send; retained " +
+                    _bankLayout.Identity + "/" + _bankLayout.Phase + ". Refresh this local movement only.");
+        }
 
         private WorkingBagReturn BeginWorkingBagReturn(Item bag)
         {
@@ -55,6 +86,7 @@ namespace CityBankers
             _bankLayout.Phase = "completed";
             SaveBankLayout();
             _bankLayout = null; _layoutBankReturn = null; _layoutHold = null;
+            _layoutReconnectBefore = null; _layoutActionAge.Reset();
         }
 
         private void ResumeBankLayout()
@@ -122,8 +154,7 @@ namespace CityBankers
                     if (selected == null) return false;
                     _bankLayout = new ReserveOperation { Character = Client.CharacterName, Identity = selected.Record.Identity.ToString(),
                         Purpose = "layout-bank", Phase = "banking", SourceSlot = selected.Record.Bag.Slot.Instance, StartedUtc = DateTime.UtcNow };
-                    SaveBankLayout(); // intent precedes physical movement
-                    _layoutBankReturn = BeginWorkingBagReturn(selected.Record.Bag);
+                    BeginLayoutBankReturn(selected.Record.Bag);
                     return true;
                 }
                 // Central distributes its own empty surplus through the normal
@@ -145,12 +176,6 @@ namespace CityBankers
                 SaveBankLayout();
             }
             var op = _bankLayout;
-            if ((op.Purpose == "layout-bank" || op.Phase == "extracting" || op.Phase == "opening") &&
-                (DateTime.UtcNow - op.StartedUtc).TotalMilliseconds > ServicePolicy.BagMoveTimeoutMs)
-            {
-                StartupCensusGate.Block("Bag layout move needs a fresh connection for this banker only; intent retained: " + op.Identity + "/" + op.Phase);
-                return true;
-            }
             var records = StorageBagPolicy.AllBagRecords().Where(r => r.Identity.ToString() == op.Identity).ToList();
             if (op.Purpose == "layout-bank")
             {
@@ -169,7 +194,8 @@ namespace CityBankers
                     return true;
                 }
                 if (_layoutBankReturn == null && records.Count == 1 && records[0].Location == "inventory")
-                    _layoutBankReturn = BeginWorkingBagReturn(records[0].Bag);
+                    BeginLayoutBankReturn(records[0].Bag);
+                else CheckLayoutActionTimeout(); // Completion evidence always wins over a late tick.
                 return true;
             }
             // A layout return persists its normal, receipt-verified return ID in
@@ -190,26 +216,28 @@ namespace CityBankers
                 }
                 return true;
             }
-            if (records.Count != 1) return true; // packet transition; never choose a duplicate
+            if (records.Count != 1) { CheckLayoutActionTimeout(); return true; }
             var record = records[0];
             if (op.Phase == "locate")
             {
-                op.ObservationAfter = SharedBagRecovery.ContainerObservationSequence;
-                op.Phase = record.Location == "bank" ? "extracting" : "opening";
-                op.SourceSlot = record.Bag.Slot.Instance;
-                SaveBankLayout();
-                if (record.Location == "bank") BagOriginTrace.MoveToInventory(record.Bag);
-                else record.Bag.Use();
+                if (record.Location == "bank")
+                    SendLayoutAction("extracting", record.Bag, () => BagOriginTrace.MoveToInventory(record.Bag));
+                else
+                    SendLayoutAction("opening", record.Bag, () => RequestLayoutContents(record));
                 return true;
             }
-            if (record.Location != "inventory") return true;
+            if (record.Location != "inventory") { CheckLayoutActionTimeout(); return true; }
             if (op.Phase == "extracting")
             {
-                op.Phase = "opening"; op.SourceSlot = record.Bag.Slot.Instance; SaveBankLayout();
-                record.Bag.Use(); return true;
+                SendLayoutAction("opening", record.Bag, () => RequestLayoutContents(record));
+                return true;
             }
             int handle, count;
-            if (!SharedBagRecovery.TryObserveContainer(record.Identity, op.ObservationAfter, out handle, out count)) return true;
+            // No contents are changed by an outer-only layout operation. Reuse
+            // the wire snapshot from THIS connection, even if it arrived before
+            // Use or staging. A synthetic SDK empty container is never proof.
+            if (!SharedBagRecovery.TryObserveContainer(record.Identity, 0, out handle, out count))
+            { CheckLayoutActionTimeout(); return true; }
             if (count != 0) throw new InvalidOperationException("Surplus bag is occupied; its contents remain untouched: " + op.Identity);
             var current = Inventory.Containers.FirstOrDefault(c => c.Identity == record.Identity);
             if (current?.Items?.Count > 0) throw new InvalidOperationException("Surplus bag contains items; retaining it.");
@@ -232,6 +260,40 @@ namespace CityBankers
             _returnRequest = SendReturnMessage(_centralCharacter, "return-prepare", returnedOffer);
             _returnPhase.Restart();
             return true;
+        }
+
+        private static void RequestLayoutContents(StorageBagPolicy.BagRecord record)
+        {
+            int handle, count;
+            if (!SharedBagRecovery.TryObserveContainer(record.Identity, 0, out handle, out count)) record.Bag.Use();
+        }
+
+        internal static bool TryRetainLayoutReconnect(out string bag, out string otherItems)
+        {
+            bag = otherItems = null;
+            var actor = _ipcOwner;
+            var op = actor?._bankLayout;
+            Guid transfer;
+            if (op == null || actor._layoutReconnectBefore == null || !NoRetainedItemWork(actor) ||
+                (op.Purpose != "layout-bank" && op.Purpose != "layout-return") ||
+                Guid.TryParseExact(op.Phase, "N", out transfer)) return false;
+            bag = op.Identity; otherItems = actor._layoutReconnectBefore;
+            return true;
+        }
+
+        internal static bool VerifyLayoutReconnect(string bag, string otherItems)
+        {
+            var actor = _ipcOwner;
+            if (actor == null || string.IsNullOrEmpty(bag) || !NoRetainedItemWork(actor) || otherItems == null ||
+                StartupCensusGate.ReconnectInventory(bag) != otherItems) return false;
+            var op = ManagerMemory.Current.ReadReserveOperation(ManagerAccounting.TransactionId, Client.CharacterName);
+            Guid transfer;
+            if (op?.Identity != bag || (op.Purpose != "layout-bank" && op.Purpose != "layout-return") ||
+                Guid.TryParseExact(op.Phase, "N", out transfer)) return false;
+            var own = RuntimeStateStore.LoadStorageState(actor._settingsDir)?.Workers?.SingleOrDefault(w =>
+                string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+            return own?.Bags?.Count(b => b.LastUniqueIdentity == bag) == 1 &&
+                StorageBagPolicy.AllBagRecords().Count(r => r.Identity.ToString() == bag) == 1;
         }
 
         private static bool IsLayoutReturn(ReturnOffer offer) => offer != null && offer.LedgerId == null &&

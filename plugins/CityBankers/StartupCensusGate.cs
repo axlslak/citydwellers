@@ -53,6 +53,7 @@ namespace CityBankers
         private static bool _requestPublished;
         private static string _idleInventory;
         private string _idleReconnectCycle, _idleReconnectConnection, _idleReconnectInventory;
+        private string _layoutReconnectCycle, _layoutReconnectConnection, _layoutReconnectBag, _layoutReconnectInventory;
         private string _reconnectObserved;
         private readonly Stopwatch _reconnectSettled = new Stopwatch();
         private static readonly List<Action> Deferred = new List<Action>();
@@ -312,6 +313,8 @@ namespace CityBankers
         {
             string retiredConnection = _connection;
             bool initialUsed = InitialAuditUsed;
+            string layoutBag, layoutOtherItems;
+            bool retainLayout = BankingServiceAgent.TryRetainLayoutReconnect(out layoutBag, out layoutOtherItems);
             // A worker awaiting its first admission has performed no operational
             // transfers. Preserve completed evidence before retiring the old
             // connection; a fresh identical top-level snapshot is still required.
@@ -331,8 +334,20 @@ namespace CityBankers
                 Locked(() =>
                 {
                     var cycle = Current();
+                    bool layout = _layoutReconnectCycle != null && _layoutReconnectCycle == cycle?.Id;
+                    if (!layout && retainLayout && cycle?.Phase == "released" &&
+                        Includes(cycle, _character, retiredConnection))
+                    {
+                        _layoutReconnectCycle = cycle.Id;
+                        _layoutReconnectConnection = retiredConnection;
+                        _layoutReconnectBag = layoutBag;
+                        _layoutReconnectInventory = layoutOtherItems;
+                        layout = true;
+                    }
+                    // A known outer-bag move is not an idle inventory snapshot.
+                    if (layout) _idleReconnectCycle = null;
                     bool idle = _idleReconnectCycle == cycle?.Id && _idleReconnectCycle != null;
-                    if (!idle && cycle?.Phase == "released" &&
+                    if (!layout && !idle && cycle?.Phase == "released" &&
                         Includes(cycle, _character, retiredConnection) && _idleInventory != null &&
                         BankingServiceAgent.CanResumeIdleConnection())
                     {
@@ -357,7 +372,7 @@ namespace CityBankers
                         _auditCycle = null;
                         _issued = _finished = _quiesced = false;
                     }
-                    else if (!idle && _completedAdmissionReconnect == null)
+                    else if (!idle && !layout && _completedAdmissionReconnect == null)
                     {
                         // Retained unresolved operations are evidence, not permission
                         // to restart audits or clear another banker's state.
@@ -497,6 +512,7 @@ namespace CityBankers
                 if (!ClientIsInPlay() || !ClientlessSessionGuard.BankCacheTrusted ||
                     !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
                 if (_completedAdmissionReconnect != null && !ResumeCompletedAdmission()) return;
+                if (_layoutReconnectCycle != null && !TryResumeLayoutConnection()) return;
                 if (_awaitingUnresolvedRelog)
                 {
                     _awaitingUnresolvedRelog = false;
@@ -705,15 +721,58 @@ namespace CityBankers
                     .Select(i => "bank/" + i.Slot + "/" + i.UniqueIdentity)).OrderBy(s => s));
         }
 
-        private static string ReconnectInventory()
+        internal static string ReconnectInventory(string excludedBag = null)
         {
             // Fresh SDK objects must describe the same top-level items and bags.
             // Slot location, template, quality and stack quantity all matter.
-            return string.Join(";", Inventory.Items.Where(i => i != null)
+            return string.Join(";", Inventory.Items.Where(i => i != null &&
+                    (excludedBag == null || i.UniqueIdentity.ToString() != excludedBag))
                 .Select(i => "inventory/" + i.Slot + "/" + i.UniqueIdentity + "/" + i.Id + "/" + i.HighId + "/" + i.Ql + "/" + StackableItems.Quantity(i))
-                .Concat(Inventory.Bank.Items.Where(i => i != null)
+                .Concat(Inventory.Bank.Items.Where(i => i != null &&
+                        (excludedBag == null || i.UniqueIdentity.ToString() != excludedBag))
                     .Select(i => "bank/" + i.Slot + "/" + i.UniqueIdentity + "/" + i.Id + "/" + i.HighId + "/" + i.Ql + "/" + StackableItems.Quantity(i)))
                 .OrderBy(s => s));
+        }
+
+        private bool TryResumeLayoutConnection()
+        {
+            bool resumed = false;
+            string bag = _layoutReconnectBag;
+            Locked(() =>
+            {
+                var cycle = Current();
+                if (cycle?.Id != _layoutReconnectCycle || cycle.Phase != "released" ||
+                    !Includes(cycle, _character, _layoutReconnectConnection) ||
+                    !BankingServiceAgent.VerifyLayoutReconnect(bag, _layoutReconnectInventory))
+                {
+                    _heldForAdmin = true;
+                    Hold("Fresh login cannot verify retained bag layout movement " + bag +
+                        "; unrelated inventory must remain unchanged. No automatic audit.");
+                    Logger.Error("[CityBankers] " + _character + " local bag reconnect verification failed for " + bag +
+                        "; retained intent and inventory require administrator review.");
+                    return;
+                }
+                cycle.Participants[_character] = _connection;
+                Manager.SetCensus(cycle);
+                PublishReadyRoster(cycle);
+                Manager.ReadyBanker(_character, cycle.Id, _connection);
+                _invalidated = false;
+                _auditPause = _holdVersion;
+                _localFaultReason = null;
+                _awaitingUnresolvedRelog = false;
+                _idleReconnectCycle = null;
+                _idleInventory = null;
+                _layoutReconnectCycle = _layoutReconnectConnection = _layoutReconnectBag = _layoutReconnectInventory = null;
+                resumed = true;
+            });
+            if (resumed)
+            {
+                Logger.Information("[CityBankers] " + _character + " relog verified local bag " + bag +
+                    "; resuming retained layout without audit.");
+                CityDwellers.Shared.ServiceEvents.Report("banker.reconnected", "info",
+                    "Local bag movement verified; resumed retained layout without audit.");
+            }
+            return resumed;
         }
 
         private bool TryResumeIdleConnection()

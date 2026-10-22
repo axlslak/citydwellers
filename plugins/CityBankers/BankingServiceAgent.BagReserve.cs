@@ -198,6 +198,7 @@ namespace CityBankers
             _reserveResumeChecked = false;
             _bankLayoutResumed = _emptyWorkerChecked = false;
             _bankLayout = null; _layoutBankReturn = null;
+            _layoutReconnectBefore = null; _layoutActionAge.Reset();
             _reserveOperation = null;
             _reserveBefore = null;
             _reserveArrivalAfter.Clear(); _reserveEmptyArrivals.Clear();
@@ -301,8 +302,7 @@ namespace CityBankers
                 _reserveOperation = null;
                 _bankLayout = new ReserveOperation { Character = Client.CharacterName, Identity = expected.UniqueIdentity,
                     Purpose = "layout-bank", Phase = "banking", SourceSlot = physical[0].Bag.Slot.Instance, StartedUtc = DateTime.UtcNow };
-                SaveBankLayout();
-                _layoutBankReturn = BeginWorkingBagReturn(physical[0].Bag);
+                BeginLayoutBankReturn(physical[0].Bag);
             }
             else if (known != null)
             {

@@ -47,7 +47,12 @@ namespace CityBankers
         internal static bool CanResumeIdleConnection()
         {
             var a = _ipcOwner;
-            return a != null && a._enabled && !Trade.IsTrading &&
+            return a != null && a._bankLayout == null && a._bagShop == null && NoRetainedItemWork(a);
+        }
+
+        private static bool NoRetainedItemWork(BankingServiceAgent a)
+        {
+            return a != null && a._enabled && a._bagShop == null && !Trade.IsTrading &&
                 a._reserveOperation == null && a._stackOperation == null && a._receipt == null && a._afterReceipt == null &&
                 a._returnOffer == null && a._returnRequest == null &&
                 a._workerCommand == null && a._reservedDispatch == null &&
