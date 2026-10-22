@@ -171,6 +171,7 @@ namespace CityBankers
                         proposal.Reply.TrySetResult("denied:Physical audit requires explicit administrator action.");
                         continue;
                     }
+                    if (_bagShop != null) { proposal.Reply.TrySetResult("busy"); continue; }
                     if (HandleCruProposal(proposal)) continue;
                     if (_stackOperation != null || _reserveOperation != null) { proposal.Reply.TrySetResult("busy"); continue; }
                     // Disabled: if (HandleDispatchCensusProposal(proposal)) continue;

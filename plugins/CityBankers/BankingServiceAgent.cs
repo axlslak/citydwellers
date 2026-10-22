@@ -169,6 +169,8 @@ namespace CityBankers
             Client.MessageReceived += ObserveStorageMove;
             Client.Disconnected += InvalidateStorageMove;
             Client.Disconnected += InvalidateReserveEvidence;
+            Client.MessageReceived += ObserveBagShop;
+            Client.Disconnected += InvalidateBagShop;
             Client.OnUpdate += Tick;
             StartBankerMemory();
 
@@ -238,6 +240,8 @@ namespace CityBankers
             Client.MessageReceived -= ObserveStorageMove;
             Client.Disconnected -= InvalidateStorageMove;
             Client.Disconnected -= InvalidateReserveEvidence;
+            Client.MessageReceived -= ObserveBagShop;
+            Client.Disconnected -= InvalidateBagShop;
             Client.OnUpdate -= Tick;
             try { CityDwellers.Shared.ManagerMemory.Current.UnregisterBankerSignalWake(Client.CharacterName); }
             catch { }
@@ -277,7 +281,7 @@ namespace CityBankers
                 _activeBatch != null || _workerCommand != null || _storageJob != null ||
                 _reservedDispatch != null || _dispatchPreparation != null ||
                 _donationActive || _donationCleanup != null ||
-                _stackOperation != null || _reserveOperation != null ||
+                _stackOperation != null || _reserveOperation != null || _bagShop != null ||
                 _withdrawal != null || _withdrawalPreparation != null ||
                 _returnOffer != null || _returnRequest != null ||
                 _extraction != null || _extractionCommit != null ||
@@ -327,13 +331,15 @@ namespace CityBankers
 
             try
             {
+                ResumeBagShopWork();
                 TickBankerIpc();
-                ResumeReserveWork();
+                if (_bagShop == null) ResumeReserveWork();
                 if (_operationalHeartbeatAge.ElapsedMilliseconds >= 2000)
                 {
                     StartupCensusGate.PublishOperational();
                     _operationalHeartbeatAge.Restart();
                 }
+                if (TickBagShop()) return;
 
                 // The 2s idle fallback checks Manager memory for work that outlives
                 // local operation fields. In particular, _activeBatch is cleared
@@ -345,7 +351,7 @@ namespace CityBankers
                         RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(batch =>
                             string.Equals(batch.Status, "queued", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(batch.Status, "transferred", StringComparison.OrdinalIgnoreCase));
-                    if (pendingDispatch || CityDwellers.Shared.ManagerMemory.Current.BagReplacementPending(
+                    if (pendingDispatch || BagShopSupplyPending() || CityDwellers.Shared.ManagerMemory.Current.BagReplacementPending(
                             CityDwellers.Shared.ManagerAccounting.TransactionId) || WithdrawalStore.LoadAll(_settingsDir).Any(row =>
                         WithdrawalStore.IsActive(row) &&
                         (_isCentral ||
@@ -930,6 +936,8 @@ namespace CityBankers
             if (!_enabled || !Client.InPlay)
                 return;
 
+            if (BagShopTradeOpened(target)) return;
+
             _tradeTrace = "trade-" + Guid.NewGuid().ToString("N");
 
             try
@@ -938,7 +946,7 @@ namespace CityBankers
                 TraceTrade("trade.opened", new { Partner = target.ToString(), Name = targetName });
                 if (_afterReceipt != null)
                 { DeclineIncomingTrade(targetName, "The previous trade is still being verified. Please reopen shortly."); return; }
-                if (_stackOperation != null || _reserveOperation != null)
+                if (_stackOperation != null || _reserveOperation != null || _bagShop != null)
                 { DeclineIncomingTrade(targetName, "This banker is preparing supplies. Please reopen trade shortly."); return; }
                 if (_withdrawalCensus != null || _withdrawalDispute ||
                     WithdrawalStore.GetWithdrawalCensusId(_settingsDir, Client.CharacterName) != null)
@@ -1028,6 +1036,8 @@ namespace CityBankers
             if (!StartupCensusGate.IsOpen) return;
             if (!_enabled)
                 return;
+
+            if (BagShopTradeStatus(target, status)) return;
 
             TraceTrade("trade.status", new { Partner = target.ToString(), Status = status.ToString() },
                 status == TradeStatus.Declined);

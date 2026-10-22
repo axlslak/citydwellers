@@ -110,7 +110,7 @@ namespace CityBankers
             if (storage?.Workers == null) return false;
             var ready = BankerReadiness.GetReadyCharacters(_settingsDir);
             CaptureReserveTargets(state, storage, ready);
-            if (state.Bags.Count == 0) return false;
+            if (state.Bags.Count == 0) return StartBagShop(state, storage, ready);
             var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var records = StorageBagPolicy.AllBagRecords();
             string error;
@@ -157,7 +157,7 @@ namespace CityBankers
                 records.Count(r => r.Identity.ToString() == b.Identity && r.Location == "bank") == 1 &&
                 storage.Workers.Where(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase))
                     .SelectMany(w => w.Bags).Any(s => s.LastUniqueIdentity == b.Identity && s.Source == "bank" && s.Items?.Count == 0));
-            if (candidate == null || Inventory.NumFreeSlots < 2) return false;
+            if (candidate == null || Inventory.NumFreeSlots < 2) return StartBagShop(state, storage, ready);
             var target = storage.Workers.Where(w => !string.Equals(w.Role, "central", StringComparison.OrdinalIgnoreCase) &&
                     !string.Equals(w.Role, "spirit", StringComparison.OrdinalIgnoreCase) &&
                     _config.Roles.Any(p => p.Key == w.Role && string.Equals(p.Value.Character, w.Character, StringComparison.OrdinalIgnoreCase)) &&

@@ -100,7 +100,7 @@ namespace CityBankers
         // A local move needs no peer. Failed dispatch storage additionally
         // requires a grant backed by both peers' applied physical receipts.
         private bool CanStartLocalCensus() => StartupCensusGate.IsOpen &&
-            !Trade.IsTrading && _reserveOperation == null && _stackOperation == null && Inventory.Bank.IsOpen && _receipt == null && _afterReceipt == null &&
+            !Trade.IsTrading && _reserveOperation == null && _bagShop == null && _stackOperation == null && Inventory.Bank.IsOpen && _receipt == null && _afterReceipt == null &&
             _returnOffer == null && _workerCommand == null && _reservedDispatch == null &&
             _withdrawal == null && _activeBatch == null && !_donationActive && _donationCleanup == null &&
             _storageJob == null && _dispatchPreparation == null &&
