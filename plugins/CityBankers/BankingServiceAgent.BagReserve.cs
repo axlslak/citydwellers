@@ -233,17 +233,26 @@ namespace CityBankers
                         !new[] { "start", "opening", "verified-empty", "read-backoff", "extracting", "banking", "refresh-banking" }
                             .Contains(pending.Phase))
                         throw new InvalidOperationException("Interrupted reserve operation lacks one current bag address: " + pending.Identity);
-                    // A fresh bank location can finish an already verified return.
-                    // Otherwise restart observation from the current outer address,
-                    // rather than replaying the old movement or old read boundary.
-                    if (pending.Phase != "banking" || records[0].Location != "bank") pending.Phase = "start";
-                    pending.SourceSlot = records[0].Bag.Slot.Instance;
-                    pending.ObservationAfter = SharedBagRecovery.ContainerObservationSequence;
-                    pending.StartedUtc = DateTime.UtcNow; pending.ReadRetries = 0;
-                    _reserveOperation = pending; SaveReserveOperation();
+                    if (CompleteRecordedReservePlacement(pending, records[0]))
+                    {
+                        _reserveOperation = null;
+                        Logger.Information("[CityBankers] EMPTY BAG RESERVE completed retained banking intent " + pending.Identity +
+                            "; recorded placement matches the fresh bank address; stored contents preserved.");
+                    }
+                    else
+                    {
+                        // A fresh bank location can finish an already verified return.
+                        // Otherwise restart observation from the current outer address,
+                        // rather than replaying the old movement or old read boundary.
+                        if (pending.Phase != "banking" || records[0].Location != "bank") pending.Phase = "start";
+                        pending.SourceSlot = records[0].Bag.Slot.Instance;
+                        pending.ObservationAfter = SharedBagRecovery.ContainerObservationSequence;
+                        pending.StartedUtc = DateTime.UtcNow; pending.ReadRetries = 0;
+                        _reserveOperation = pending; SaveReserveOperation();
+                        Logger.Information("[CityBankers] EMPTY BAG RESERVE resumed " + pending.Identity +
+                            "; purpose=" + pending.Purpose + "; phase=" + pending.Phase + ".");
+                    }
                     BankerActivityGovernor.Wake();
-                    Logger.Information("[CityBankers] EMPTY BAG RESERVE resumed " + pending.Identity +
-                        "; purpose=" + pending.Purpose + "; phase=" + pending.Phase + ".");
                 }
                 _reserveResumeChecked = true;
             }
@@ -258,6 +267,10 @@ namespace CityBankers
             var batch = batches[0];
             if (ReadWorkerStorageReply(batch) != null) return;
             var expected = batch.Items[0];
+            // One actor executes one movement at a time. A different retained
+            // movement finishes in TickReserveOperation before this queued
+            // delivery can acquire the storage job; it is not a conflicting receipt.
+            if (_reserveOperation != null && _reserveOperation.Identity != expected.UniqueIdentity) return;
             var reserve = ReadReserve().Bags.SingleOrDefault(b => b.Identity == expected.UniqueIdentity &&
                 b.Batch == batch.BatchId && b.EmptyProofBatch == batch.BatchId && b.Transaction == batch.TransactionId &&
                 string.Equals(b.Destination, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
@@ -275,8 +288,8 @@ namespace CityBankers
                 !string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                 w.Bags.Any(b => b.LastUniqueIdentity == expected.UniqueIdentity)))
                 throw new InvalidOperationException("Replacement bag has conflicting recorded ownership: " + expected.UniqueIdentity);
-            if (_reserveOperation != null && (_reserveOperation.Identity != expected.UniqueIdentity || _reserveOperation.Purpose != "bank"))
-                throw new InvalidOperationException("Interrupted reserve movement belongs to another operation.");
+            if (_reserveOperation != null && _reserveOperation.Purpose != "bank")
+                throw new InvalidOperationException("Replacement receipt has an incompatible reserve movement purpose.");
 
             var known = storage.Workers.Where(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase))
                 .SelectMany(w => w.Bags).SingleOrDefault(b => b.LastUniqueIdentity == expected.UniqueIdentity);
@@ -317,6 +330,32 @@ namespace CityBankers
                 "; identity=" + expected.UniqueIdentity + "; alreadyRegistered=" + (known != null) + ".");
         }
 
+        private bool CompleteRecordedReservePlacement(ReserveOperation pending, StorageBagPolicy.BagRecord physical)
+        {
+            if (pending.Purpose != "bank" || pending.Phase != "banking" || physical.Location != "bank") return false;
+            return CityDwellers.Shared.ManagerAccounting.Transaction("Complete recorded reserve placement", () =>
+            {
+                var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+                if (storage?.Workers == null) return false;
+                var owners = storage.Workers.Where(w => w.Bags.Any(b => b.LastUniqueIdentity == pending.Identity)).ToList();
+                if (owners.Count == 0) return false;
+                if (owners.Count != 1 || !string.Equals(owners[0].Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidOperationException("Retained reserve placement has conflicting recorded ownership: " + pending.Identity);
+                var bag = owners[0].Bags.Single(b => b.LastUniqueIdentity == pending.Identity);
+                if (bag.Source != physical.Location || bag.OuterSlotInstance != (physical.Bag.Slot.Instance & 65535)) return false;
+                // Registration already exists at the exact observed address.
+                // Finish only the obsolete movement intent, never rewrite this
+                // bag as empty: it may have received stock since registration.
+                pending.Phase = "completed";
+                CityDwellers.Shared.ManagerMemory.Current.ChangeReserveOperation(
+                    CityDwellers.Shared.ManagerAccounting.TransactionId, pending);
+                if (!_isCentral && _storageJob != null && IsReserveBatch(_storageJob.Command.Items) &&
+                    _storageJob.Command.Items[0].UniqueIdentity == pending.Identity)
+                { _storageJob.StoredCount = 1; _storageJob.Index = 1; CompleteStorageJob(); }
+                return true;
+            });
+        }
+
         private void BeginReserveOperation(string identity, string purpose)
         {
             long after;
@@ -347,7 +386,8 @@ namespace CityBankers
                         OuterSlotInstance = record.Bag.Slot.Instance & 65535, LastUniqueIdentity = op.Identity,
                         LastHandle = handle, Capacity = 21, Items = new List<StoredItemState>() });
                 op.Phase = "completed"; SaveReserveOperation();
-                if (!_isCentral && _storageJob != null && IsReserveBatch(_storageJob.Command.Items))
+                if (!_isCentral && _storageJob != null && IsReserveBatch(_storageJob.Command.Items) &&
+                    _storageJob.Command.Items[0].UniqueIdentity == op.Identity)
                 { _storageJob.StoredCount = 1; _storageJob.Index = 1; CompleteStorageJob(); }
             });
             _reserveOperation = null;
