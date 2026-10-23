@@ -256,6 +256,7 @@ namespace CityBankers
                 Client.Chat.PrivateMessageReceived -= OnPrivateMessage;
 
             _enabled = false;
+            CityDwellers.Shared.ManagerMemory.Current.ReportBankerStorageWork(Client.CharacterName, null);
             try { RuntimeStateStore.AppendActivity(_settingsDir, Client.CharacterName, _role, "BANKING SERVICE teardown."); }
             catch (Exception ex) { Logger.Warning("[CityBankers] Teardown activity unavailable: " + ex.Message); }
         }
@@ -339,6 +340,10 @@ namespace CityBankers
                 ResumeLocalStorageExtraction();
                 TickBankerIpc();
                 if (_bagShop == null) ResumeReserveWork();
+                // Publish before the operational heartbeat. Reservation ownership
+                // was already published before a positive prepare reply.
+                CityDwellers.Shared.ManagerMemory.Current.ReportBankerStorageWork(Client.CharacterName,
+                    _storageJob?.Command?.BatchId ?? _workerCommand?.BatchId ?? _reservedDispatch?.BatchId ?? _receipt?.BatchId);
                 if (_operationalHeartbeatAge.ElapsedMilliseconds >= 2000)
                 {
                     StartupCensusGate.PublishOperational();
@@ -356,7 +361,7 @@ namespace CityBankers
                         RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(batch =>
                             string.Equals(batch.Status, "queued", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(batch.Status, "transferred", StringComparison.OrdinalIgnoreCase) ||
-                            batch.Status == "failed" || batch.Status == "custody-hold" || batch.Status == "retrying");
+                            batch.Status == "failed" || batch.Status == "custody-hold" || batch.Status == "retrying" || batch.Status == "trading");
                     if (pendingDispatch || BankLayoutPending() || BagShopSupplyPending() || CityDwellers.Shared.ManagerMemory.Current.BagReplacementPending(
                             CityDwellers.Shared.ManagerAccounting.TransactionId) || WithdrawalStore.LoadAll(_settingsDir).Any(row =>
                         WithdrawalStore.IsActive(row) &&

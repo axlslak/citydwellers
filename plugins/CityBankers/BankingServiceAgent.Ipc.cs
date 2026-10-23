@@ -240,6 +240,7 @@ namespace CityBankers
                 if (ready)
                 {
                     _reservedDispatch = command;
+                    CityDwellers.Shared.ManagerMemory.Current.ReportBankerStorageWork(Client.CharacterName, command.BatchId);
                     _reservationAge = Stopwatch.StartNew();
                 }
                 proposal.Reply.TrySetResult(ready ? "ready:" + command.BatchId : spaceReason == null ? "busy" : "busy:" + spaceReason);

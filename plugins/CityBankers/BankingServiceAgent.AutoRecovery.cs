@@ -45,12 +45,18 @@ namespace CityBankers
             return actor.TickAutomaticRepair(reason);
         }
 
+        private readonly HashSet<string> _orphanedDispatchBatches = new HashSet<string>(StringComparer.Ordinal);
         private bool TickUnresolvedBatches()
         {
             if (!_isCentral || Trade.IsTrading || _receipt != null || _activeBatch != null || _donationCleanup != null) return false;
+            var ready = BankerReadiness.GetReadyCharacters(_settingsDir);
             var failed = RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Where(b =>
-                b.Status == "failed" || b.Status == "custody-hold" || b.Status == "retrying").ToList();
+                b.Status == "failed" || b.Status == "custody-hold" || b.Status == "retrying" || b.Status == "trading" ||
+                (b.Status == "transferred" && ready.Contains(b.Character) &&
+                 ManagerMemory.Current.BankerStorageWork(b.Character) != b.BatchId &&
+                 ManagerMemory.Current.ReadStorageResult(ManagerAccounting.TransactionId, b.Character)?.BatchId != b.BatchId)).ToList();
             if (failed.Count == 0) return false;
+            foreach (var batch in failed) _orphanedDispatchBatches.Add(batch.BatchId);
             foreach (var batch in failed)
                 ManagerMemory.Current.RequestBankerRecovery(batch.Character,
                     "Resolve interrupted batch " + batch.BatchId + " from native custody.");
@@ -309,6 +315,7 @@ namespace CityBankers
             var queue = manager.ReadDispatch(transaction);
             var batchIds = new HashSet<string>(new[] { _activeBatch?.BatchId, _workerCommand?.BatchId,
                 _reservedDispatch?.BatchId, _storageJob?.Command?.BatchId }.Where(id => id != null));
+            batchIds.UnionWith(_orphanedDispatchBatches);
             queue.Batches.RemoveAll(b => batchIds.Contains(b.BatchId) ||
                 (_isCentral && (b.Status == "failed" || b.Status == "custody-hold" || b.Status == "retrying")) || (!_isCentral && SameCharacter(b.Character, character) &&
                 b.Status != "queued" && b.Status != "completed" && b.Status != "stored"));

@@ -56,6 +56,16 @@ namespace CityDwellers.Shared
     public sealed partial class ManagerMemory
     {
         private readonly object _bankerSync = new object();
+        private readonly Dictionary<string, string> _bankerStorageWork = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        public void ReportBankerStorageWork(string character, string batch)
+        {
+            lock (_bankerSync) {
+                if (batch == null) _bankerStorageWork.Remove(character);
+                else _bankerStorageWork[character] = batch;
+            }
+        }
+        public string BankerStorageWork(string character)
+        { lock (_bankerSync) { string batch; return _bankerStorageWork.TryGetValue(character, out batch) ? batch : null; } }
         private readonly Dictionary<string, string> _bankerRecovery = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         public void RequestBankerRecovery(string character, string reason)
         { lock (_bankerSync) if (!string.IsNullOrEmpty(character)) _bankerRecovery[character] = reason; }
