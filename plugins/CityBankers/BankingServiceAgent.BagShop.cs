@@ -190,9 +190,7 @@ namespace CityBankers
             if (work.Phase == "opening" && work.Opened && work.Slot >= 0)
             {
                 work.Phase = "offering"; work.Age.Restart();
-                Client.Send(new TradeMessage { Unknown1 = 2, Action = TradeAction.AddItem,
-                    Param1 = (int)work.Shop.Type, Param2 = work.Shop.Instance,
-                    Param3 = (int)IdentityType.ShopInventory, Param4 = work.Slot });
+                Trade.AddItem(work.Slot);
                 Logger.Information("[CityBankers] BAG SHOP requesting shop slot " + work.Slot + "; item=" +
                     work.Low + "/" + work.High + "; QL=" + work.Ql + ".");
                 return true;
