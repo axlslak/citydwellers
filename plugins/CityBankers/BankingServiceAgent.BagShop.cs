@@ -81,11 +81,11 @@ namespace CityBankers
 
         private bool BagShopSupplyNeeded(BagReserve reserve, StorageState storage, HashSet<string> ready)
         {
-            var configured = _config.Roles.Values.Select(a => a.Character).ToArray();
-            // A bag in an old worker's inventory is still supply, not a reason
-            // to buy its replacement before the surplus transfer can run.
-            if (configured.Any(c => !ready.Contains(c) || !storage.Workers.Any(w => string.Equals(w.Character, c, StringComparison.OrdinalIgnoreCase))))
-                return false;
+            // Provision known, available accounts. An unrelated offline banker
+            // neither becomes an invented empty bank nor pauses healthy demand.
+            var configured = _config.Roles.Values.Select(a => a.Character).Where(c => ready.Contains(c) &&
+                storage.Workers.Any(w => string.Equals(w.Character, c, StringComparison.OrdinalIgnoreCase))).ToArray();
+            if (configured.Length == 0) return false;
             int existing = storage.Workers.Where(w => configured.Contains(w.Character, StringComparer.OrdinalIgnoreCase))
                 .Sum(w => w.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count());
             var registered = new HashSet<string>(storage.Workers.SelectMany(w => w.Bags).Select(b => b.LastUniqueIdentity));

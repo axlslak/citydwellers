@@ -65,12 +65,16 @@ namespace CityBankers
             public string Destination;
             public int SourceSlot;
             public TransferItemState Item;
+            // Legacy singles retain Item/SourceSlot. New surplus trades retain
+            // every source slot and bag identity as one immutable manifest.
+            public List<ExtractionSlot> Bags;
             public DateTime StartedUtc;
             public DateTime? CompletedUtc;
             internal ReturnOffer Copy()
         {
             var copy = (ReturnOffer)MemberwiseClone();
             copy.Item = Item?.Copy();
+            copy.Bags = Bags?.Select(bag => bag?.Copy()).ToList();
             return copy;
         }
     }

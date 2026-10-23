@@ -154,6 +154,8 @@ namespace CityDwellers.Host
             var returns = Root("cd_pending_returns", "Returns", o => ((ReturnOffer)o).Id);
             returns.Retain = o => !((ReturnOffer)o).CompletedUtc.HasValue;
             returns.Child("cd_return_items", "Item", null);
+            returns.Child("cd_return_bags", "Bags", null)
+                .Child("cd_return_bag_items", "Item", null);
 
         }
         private Table Root(string name, string field, Func<object, string> identity = null)

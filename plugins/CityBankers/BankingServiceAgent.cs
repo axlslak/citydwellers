@@ -362,7 +362,8 @@ namespace CityBankers
                             string.Equals(batch.Status, "queued", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(batch.Status, "transferred", StringComparison.OrdinalIgnoreCase) ||
                             batch.Status == "failed" || batch.Status == "custody-hold" || batch.Status == "retrying" || batch.Status == "trading");
-                    if (pendingDispatch || BankLayoutPending() || BagShopSupplyPending() || CityDwellers.Shared.ManagerMemory.Current.BagReplacementPending(
+                    bool pendingReturn = ReturnQueue().Length > 0;
+                    if (pendingDispatch || pendingReturn || BankLayoutPending() || BagShopSupplyPending() || CityDwellers.Shared.ManagerMemory.Current.BagReplacementPending(
                             CityDwellers.Shared.ManagerAccounting.TransactionId) || WithdrawalStore.LoadAll(_settingsDir).Any(row =>
                         WithdrawalStore.IsActive(row) &&
                         (_isCentral ||
@@ -388,15 +389,16 @@ namespace CityBankers
                 if (TickReserveOperation()) return;
                 if (TickRecoveryExtraction()) return;
                 if (TickInitialInventoryStorage()) return;
+                if (_isCentral)
+                    foreach (var pending in RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches
+                        .Where(batch => batch.Status == "transferred" && IsDispatchDestinationEnabled(batch)).ToList())
+                        PollStorageResult(pending);
                 if (TickUnresolvedBatches()) return;
                 if (TickReturnTransfer()) return;
                 if (TickInitialBankSetup()) return;
                 if (TickBankLayout()) return;
                 if (_isCentral)
                 {
-                    foreach (var pending in RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches
-                        .Where(batch => batch.Status == "transferred" && IsDispatchDestinationEnabled(batch)).ToList())
-                        PollStorageResult(pending);
                     // Startup census owns the baseline. Never replace it later
                     // with an older manual storage-baseline.json snapshot.
                     if (TickCru()) return;
@@ -620,10 +622,8 @@ namespace CityBankers
                 })) + ".";
         }
 
-        // A failed batch keeps HasUnresolvedDispatchWork true, which is what
-        // refuses every new player trade. Session 186 removed failure-triggered
-        // execution and left the decision to the administrator; these verbs are
-        // that decision. Nothing here runs on its own.
+        // Explicit legacy controls remain available alongside automatic local
+        // recovery. Pending recipient work does not lock Central's trade window.
         // "retrying" is listed too. An administrator retry leaves the batch in
         // the queue under that status, so a crash or relog mid-retry still shows
         // the hold instead of losing the only record of unresolved items.
@@ -811,9 +811,7 @@ namespace CityBankers
                 return;
             }
 
-            // Removed, not marked "cancelled". HasQueuedDispatchWork counts every
-            // batch still in the list regardless of status, so a status change
-            // would leave the trade gate shut and look like the command failed.
+            // Retire the exact queue entry together with its custody records.
             string previousError = batch.LastError ?? "none";
             List<TransferItemState> items = batch.Items ?? new List<TransferItemState>();
             queue.Batches.Remove(batch);
@@ -975,8 +973,19 @@ namespace CityBankers
                     "TRADE OPEN target=" + (targetName ?? target.ToString()) + ".");
 
                 if (TryReturnTradeOpened(target, targetName)) return;
-                if (_bankLayout != null || _storageJob != null)
-                { DeclineIncomingTrade(targetName, "This banker is returning its working bag to bank. Please reopen shortly."); return; }
+                if (_isCentral && _activeBatch != null && target == _activeWorkerIdentity)
+                {
+                    // Stage 5: AO confirms the trade is open on Central.
+                    TradeTrace.Mark(_dispatchSpan, "trade.open.observed");
+                    _outgoingOpened = true;
+                    _dispatchTradeAge.Restart();
+                    return;
+                }
+
+                if (_bankLayout != null || _storageJob != null || _reserveOperation != null || _bagShop != null ||
+                    _stackOperation != null || _extraction != null ||
+                    StorageBagPolicy.AllBagRecords().Any(r => r.Location == "inventory"))
+                { DeclineIncomingTrade(targetName, "This banker is finishing its local inventory work. Please reopen shortly."); return; }
                 if (TryHandleWithdrawalTradeOpened(target, targetName))
                     return;
                 if (WithdrawalStore.LoadAll(_settingsDir).Any(WithdrawalStore.OwnsCentralTrade))
@@ -988,23 +997,11 @@ namespace CityBankers
 
                 if (_isCentral)
                 {
-                    if (_activeBatch != null && target == _activeWorkerIdentity)
-                    {
-                        // Stage 5: AO confirms the trade is open on Central.
-                        TradeTrace.Mark(_dispatchSpan, "trade.open.observed");
-                        _outgoingOpened = true;
-                        _dispatchTradeAge.Restart();
-                        return;
-                    }
-
-                    if (!_bankSetupComplete)
-                    { DeclineIncomingTrade(targetName, "Bank storage setup is in progress. Please try again when it has finished."); return; }
-
                     if (HasUnresolvedDispatchWork())
                     {
                         TellDirectPlayer(
                             targetName,
-                            "CityBankers is finishing pending storage work. Please try your trade again when the queue is clear.");
+                            "Central is finishing its current inventory operation. Please reopen shortly.");
                         RuntimeStateStore.AppendActivity(
                             _settingsDir,
                             Client.CharacterName,
@@ -1260,7 +1257,7 @@ namespace CityBankers
             {
                 TellDirectPlayer(
                     partnerName,
-                    "CityBankers is finishing pending storage work; your new donation trade was declined. Please try again when the queue is clear.");
+                    "Central is finishing its current inventory operation. Please reopen shortly.");
                 Trade.Decline();
                 return;
             }
@@ -1315,14 +1312,6 @@ namespace CityBankers
             {
                 _donationTimeoutBackoff[_donationPartnerName] = Stopwatch.GetTimestamp() + Stopwatch.Frequency * 15;
                 RejectDonation("Donation exceeded two minutes. Please let other users trade, then reopen when ready.",
-                    SnapshotTradeItems(Trade.TargetWindowCache.Items));
-                return;
-            }
-
-            if (HasQueuedDispatchWork())
-            {
-                RejectDonation(
-                    "Central's storage queue became busy while this donation was open. Please retry after the queue clears.",
                     SnapshotTradeItems(Trade.TargetWindowCache.Items));
                 return;
             }
@@ -1474,7 +1463,7 @@ namespace CityBankers
                 "AO server completed player donation; received items are now in Central normal inventory.",
                 received);
 
-            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            CurrentStockState stock = RetentionStock();
             var projectedCounts = new Dictionary<string, int>(StringComparer.Ordinal);
             List<TransferItemState> storeItems = new List<TransferItemState>();
             List<TransferItemState> deleteItems = new List<TransferItemState>();
@@ -1955,7 +1944,6 @@ namespace CityBankers
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
             DispatchBatchState next = queue.Batches.OrderBy(b => IsReserveBatch(b.Items) ? 0 : 1).FirstOrDefault(b =>
-                (_bankSetupComplete || IsReserveBatch(b.Items)) &&
                 IsDispatchDestinationEnabled(b) &&
                 !censusing.Contains(b.Character) &&
                 string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase) &&
@@ -3212,14 +3200,11 @@ namespace CityBankers
 
         private bool HasUnresolvedDispatchWork()
         {
+            // Queued recipient work does not own Central's trade window.
+            // Physical custody and available inventory bound new admission.
             return _stackOperation != null || _activeBatch != null || _donationCleanup != null ||
-                _receipt != null || HasQueuedDispatchWork();
-        }
-
-        private bool HasQueuedDispatchWork()
-        {
-            var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            return queue?.Batches != null && queue.Batches.Any(b => IsDispatchDestinationEnabled(b));
+                _receipt != null || _afterReceipt != null || _reserveOperation != null || _bagShop != null ||
+                _bankLayout != null || _storageJob != null || _extraction != null;
         }
 
         private bool IsRoleEnabled(string role) => !_disabledRoles.Contains(role);
@@ -3268,7 +3253,7 @@ namespace CityBankers
             List<TransferItemState> offeredInOrder,
             TransferItemState item)
         {
-            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            CurrentStockState stock = RetentionStock();
             string key = RetentionCountKey(item.AoId);
             int stored = 0;
             foreach (TransferItemState candidate in
@@ -3335,7 +3320,7 @@ namespace CityBankers
                     " - the destination banker is disabled or unavailable.");
                 return;
             }
-            CurrentStockState stock = RuntimeStateStore.LoadCurrentStock(_settingsDir);
+            CurrentStockState stock = RetentionStock();
             int count = CountStoredCopies(stock, item);
             int projectedStored = count + Math.Max(0, earlierCopiesInTrade);
             string destination = GetDonationDestinationCharacter(rule);
@@ -3345,7 +3330,7 @@ namespace CityBankers
                     progress + CityBankersChatPalette.Red("DELETING") + " " +
                     itemDescription + " - " +
                     CityBankersChatPalette.Cyan(projectedStored.ToString()) +
-                    " already stored on " + CityBankersChatPalette.Yellow(destination) + ".");
+                    " already held or queued in this category.");
                 return;
             }
             int copyNumber = projectedStored + 1;
@@ -3416,6 +3401,17 @@ namespace CityBankers
                 .Replace("&", "&amp;")
                 .Replace("<", "&lt;")
                 .Replace(">", "&gt;");
+        }
+
+        private CurrentStockState RetentionStock()
+        {
+            // One ledger occurrence covers both a stored item and its queued or
+            // in-flight placement. Summing queue + stock would count partial
+            // batches twice. This donation is projected separately below.
+            var stock = ActiveLedgerStore.BuildStockView(_settingsDir);
+            if (_donationTransactionId != null)
+                stock.Items.RemoveAll(i => i.TransactionId == _donationTransactionId);
+            return stock;
         }
 
         private int CountStoredCopies(CurrentStockState stock, TransferItemState item)

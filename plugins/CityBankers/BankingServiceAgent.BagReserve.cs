@@ -109,6 +109,9 @@ namespace CityBankers
                     _config.Roles.Any(p => CityDwellers.Shared.BankerRoles.Canonical(p.Key) == w.Role &&
                         string.Equals(p.Value.Character, w.Character, StringComparison.OrdinalIgnoreCase)) &&
                     ready.Contains(w.Character) && !censusing.Contains(w.Character) && !w.Bags.Any(b => b.Source == "inventory") &&
+                    !storage.Workers.Any(source => source.Character != w.Character && ready.Contains(source.Character) &&
+                        source.Bags.Count > StorageBankBagTarget && source.Bags.Any(b => b.Source == "inventory") &&
+                        string.Equals(LayoutDestination(source.Character), w.Character, StringComparison.OrdinalIgnoreCase)) &&
                     !queue.Batches.Any(b => IsReserveBatch(b.Items) && string.Equals(b.Character, w.Character, StringComparison.OrdinalIgnoreCase)) &&
                     DynelManager.Players.Any(p => p != null && string.Equals(p.Name, w.Character, StringComparison.OrdinalIgnoreCase)))
                 .Select(w => new { Worker = w, Missing = StorageBankBagTarget - w.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count() })
@@ -138,9 +141,10 @@ namespace CityBankers
                 .Select(b => new { Reserve = b, Physical = records.SingleOrDefault(r => r.Identity.ToString() == b.Identity) })
                 .Where(b => b.Physical != null).OrderBy(b => b.Physical.Location == "inventory" ? 0 : 1).FirstOrDefault();
             bool surplusPending = storage.Workers.Any(w => w.Role != "central" && ready.Contains(w.Character) &&
-                w.Bags.Count > StorageBankBagTarget && w.Bags.Any(b => b.Source == "inventory"));
-            // Give returning surplus priority over Central's bank reserve and
-            // purchases. Returned inventory bags can still go straight onward.
+                w.Bags.Count > StorageBankBagTarget && w.Bags.Any(b => b.Source == "inventory") &&
+                string.Equals(LayoutDestination(w.Character), _centralCharacter, StringComparison.OrdinalIgnoreCase));
+            // Only surplus actually destined for Central competes for this
+            // actor. Direct twin transfers run independently of Central supply.
             if (surplusPending && (candidate == null || candidate.Physical.Location == "bank")) return false;
             if (candidate != null && target != null && !reserveQueued && Inventory.NumFreeSlots >= 2)
             {
@@ -238,6 +242,7 @@ namespace CityBankers
             _bankSetupStage = null;
             _bankLayout = null; _layoutBankReturn = null;
             _layoutCancelRequest = null;
+            _layoutBatchReading = null; _layoutBatchReadAge.Reset();
             _layoutReconnectBefore = null; _layoutActionAge.Reset();
             _reserveOperation = null;
             _reserveBefore = null;

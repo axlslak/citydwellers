@@ -171,18 +171,20 @@ namespace CityBankers
                         proposal.Reply.TrySetResult("denied:Physical audit requires explicit administrator action.");
                         continue;
                     }
+                    // Proof/status/cancellation and durable queue admission do
+                    // not move AO items. Keep them reachable during local work.
+                    if (HandleTradeStageProposal(proposal)) continue;
+                    if (HandleCancellationProposal(proposal)) continue;
+                    if (HandleReturnProposal(proposal)) continue;
                     if (_bagShop != null) { proposal.Reply.TrySetResult("busy"); continue; }
                     if (HandleCruProposal(proposal)) continue;
                     if (_stackOperation != null || _reserveOperation != null) { proposal.Reply.TrySetResult("busy"); continue; }
                     // Disabled: if (HandleDispatchCensusProposal(proposal)) continue;
                     if (HandleWithdrawalPreparation(proposal)) continue;
-                    if (HandleTradeStageProposal(proposal)) continue;
                     // Disabled: if (HandleStorageRecoveryProposal(proposal)) continue;
-                    if (HandleCancellationProposal(proposal)) continue;
                     // First-startup admission calls the merger directly.
                     // Disabled: if (HandleLocalCensusProposal(proposal)) continue;
                     if (HandleExtractionProposal(proposal)) continue;
-                    if (HandleReturnProposal(proposal)) continue;
                 }
                 catch (Exception ex)
                 {
@@ -227,7 +229,7 @@ namespace CityBankers
                         string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                         string.Equals(w.Role, _role, StringComparison.OrdinalIgnoreCase));
                     ready = IsReserveBatch(command.Items) ? ReserveWorkerReady(command) :
-                        _bankSetupComplete && worker?.Bags != null && worker.Bags.Where(b => b.Source == "bank").Sum(b => b == null ? 0 :
+                        worker?.Bags != null && worker.Bags.Where(b => b.Source == "bank").Sum(b => b == null ? 0 :
                         Math.Max(0, b.Capacity - (b.Items?.Count ?? b.Capacity))) >= command.Items.Count;
                 }
                 string spaceReason = null;

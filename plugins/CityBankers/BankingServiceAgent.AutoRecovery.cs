@@ -346,11 +346,12 @@ namespace CityBankers
             manager.ChangeDispatch(transaction, queue);
             foreach (var pending in manager.ReadCharacterReturns(transaction, character, _isCentral))
             {
+                bool physicalWork = pending.SenderReceiptVerified || pending.ReceiverReceiptVerified || HasUnresolvedReturnReceipt(pending);
                 pending.Phase = "resolved-from-inventory";
                 pending.CompletedUtc = DateTime.UtcNow;
                 manager.ChangeReturn(transaction, pending);
                 string peer = SameCharacter(pending.Source, character) ? ReturnDestination(pending) : pending.Source;
-                if (!SameCharacter(peer, character)) manager.RequestBankerRecovery(peer,
+                if (physicalWork && !SameCharacter(peer, character)) manager.RequestBankerRecovery(peer,
                     "Reconcile interrupted return " + pending.Id + " from native custody.");
             }
             foreach (var pending in manager.ReadCharacterExtractions(transaction, character))
