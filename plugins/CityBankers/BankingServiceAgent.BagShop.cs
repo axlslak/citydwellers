@@ -285,12 +285,31 @@ namespace CityBankers
 
         private void BindPurchasedBag(BagShopWork work)
         {
-            if (!work.NativePurchaseStarted ||
-                !(work.TemplateReceipts == 1 || (work.TemplateReceipts == 0 && work.NativePurchaseCompleted)) || work.NativeBags.Count != 1 ||
-                (_publicTradePartner != Identity.None && _publicTradeStarted)) return;
+            if (!work.NativePurchaseStarted || !ReferenceEquals(_bagShop, work) || !work.SelectionAcknowledged ||
+                work.NativeBags.Count != 1 || _publicTradePartner != Identity.None) return;
             var expected = work.Receipt.Expected.Single();
             var before = work.Receipt.BeforeSlots;
             var beforeSlots = new HashSet<string>(before.Select(slot => slot.Slot), StringComparer.Ordinal);
+            var native = work.NativeBags.Single();
+            if (work.PreviousContainers.Contains(native.Key.ToString()) ||
+                (IsUsableIdentity(expected.UniqueIdentity) && expected.UniqueIdentity != native.Key.ToString())) return;
+            // The SDK also receives shop bags through CFU -> overflow spawn.
+            // That route already has the native identity and sends neither an
+            // AddTemplate receipt nor a shop Complete. Do not replace that item.
+            var identified = Inventory.Items.Where(item => StorageBagPolicy.IsNormalInventory(item) &&
+                item.UniqueIdentity == native.Key && item.Id == expected.AoId && item.HighId == expected.HighId &&
+                item.Ql == expected.Ql && !beforeSlots.Contains(item.Slot.ToString())).ToList();
+            if (identified.Count == 1 && Inventory.Items.Concat(Inventory.Bank.Items).Count(item => item.UniqueIdentity == native.Key) == 1 &&
+                before.Select(BagShopSlotKey).OrderBy(key => key).SequenceEqual(
+                    PhysicalSlots().Where(slot => slot.Slot != identified[0].Slot.ToString()).Select(BagShopSlotKey).OrderBy(key => key)))
+            {
+                expected.UniqueIdentity = native.Key.ToString();
+                ManagerAccounting.Transaction("Bind purchased bag native inventory identity", () =>
+                    ManagerMemory.Current.ChangeReceipt(ManagerAccounting.TransactionId, work.Receipt));
+                Logger.Information("[CityBankers] BAG SHOP native inventory bag bound " + native.Key + "; slot=" + identified[0].Slot + ".");
+                return;
+            }
+            if (!(work.TemplateReceipts == 1 || (work.TemplateReceipts == 0 && work.NativePurchaseCompleted))) return;
             var candidates = Inventory.Items.Where(item => StorageBagPolicy.IsNormalInventory(item) &&
                 item.UniqueIdentity == Identity.None && item.Id == expected.AoId && item.HighId == expected.HighId &&
                 item.Ql == expected.Ql && !beforeSlots.Contains(item.Slot.ToString())).ToList();
@@ -298,8 +317,6 @@ namespace CityBankers
             var stub = candidates[0];
             if (!before.Select(BagShopSlotKey).OrderBy(key => key).SequenceEqual(
                 PhysicalSlots().Where(slot => slot.Slot != stub.Slot.ToString()).Select(BagShopSlotKey).OrderBy(key => key))) return;
-            var native = work.NativeBags.Single();
-            if (IsUsableIdentity(expected.UniqueIdentity) && expected.UniqueIdentity != native.Key.ToString()) return;
             if (Inventory.Items.Concat(Inventory.Bank.Items).Any(item => item.UniqueIdentity == native.Key)) return;
             var items = Inventory.Items as IList<Item>;
             int index = items == null ? -1 : items.IndexOf(stub);
@@ -320,7 +337,11 @@ namespace CityBankers
             if (ReferenceEquals(_bagShop, work)) _bagShop = null;
             Logger.Warning("[CityBankers] BAG SHOP purchase receipt pending " + work.Receipt.TransactionId +
                 "; template receipts=" + work.TemplateReceipts + "; native containers=" + work.NativeBags.Count +
-                "; original shop complete=" + work.NativePurchaseCompleted + "; refreshing native inventory before further transfers.");
+                "; original shop complete=" + work.NativePurchaseCompleted +
+                "; native identities=" + string.Join(",", work.NativeBags.Keys) +
+                "; new inventory=" + string.Join(",", PhysicalSlots().Where(slot => !work.Receipt.BeforeSlots.Any(prior => prior.Slot == slot.Slot))
+                    .Select(slot => slot.Slot + "/" + slot.Identity + "/" + slot.AoId + "/" + slot.HighId + "/" + slot.Ql)) +
+                "; refreshing native inventory before further transfers.");
             // CFU can arrive without an SDK inventory slot. Its next-free-slot
             // guesses must not be used to offer another player's requested item.
             StartupCensusGate.Block("Resolve pending backpack purchase " + work.Receipt.TransactionId + " from fresh native custody.");
