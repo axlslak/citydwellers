@@ -51,7 +51,7 @@ namespace CityBankers
         private bool StartBagShop(BagReserve reserve, StorageState storage, HashSet<string> ready)
         {
             if (!_isCentral || _bagShop != null || DateTime.UtcNow < _bagShopRetryAfter || !CanStartLocalCensus() ||
-                Inventory.NumFreeSlots < 2 || ReserveBankFreeSlots < 1) return false;
+                Inventory.NumFreeSlots < 2) return false;
             if (RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b => IsReserveBatch(b.Items))) return false;
             if (!BagShopSupplyNeeded(reserve, storage, ready)) return false;
             int cash;
@@ -213,7 +213,7 @@ namespace CityBankers
 
         private bool CompleteBagShopReceipt(BagShopWork work)
         {
-            if (work.Receipt == null || Trade.IsTrading) return false;
+            if (work.Receipt == null || (Trade.IsTrading && _publicTradePartner == Identity.None)) return false;
             string error;
             if (!StorageBagPolicy.TryValidatePhysicalLayout(out error)) throw new InvalidOperationException(error);
             var before = work.Receipt.BeforeSlots;

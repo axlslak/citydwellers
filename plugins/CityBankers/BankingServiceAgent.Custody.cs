@@ -158,7 +158,7 @@ namespace CityBankers
             if (_afterReceipt == null) return false;
             // A cancellation request is not a closed trade. Wait for AO to
             // close it before treating an unchanged inventory as returned custody.
-            if (_receipt.Direction == 0 && Trade.IsTrading)
+            if (_receipt.Direction == 0 && Trade.IsTrading && _publicTradePartner == Identity.None)
             {
                 _settledInventory = null;
                 _inventoryStableFor.Restart();

@@ -204,7 +204,7 @@ namespace CityBankers
             bool known = current.All(i => StackableItems.Quantity(i) > 0);
             bool totalMatches = known && current.Sum(StackableItems.Quantity) == op.Total;
             Item split = op.SplitResult;
-            bool exactSplit = Client.InPlay && !Trade.IsTrading &&
+            bool exactSplit = Client.InPlay &&
                 op.Source.Slot == op.SplitSourceSlot && split != null && current.Contains(split) && !op.Before.Contains(split) &&
                 split.Slot == op.SplitSlot && current.Count(i => i.Slot == op.SplitSlot) == 1 &&
                 StackableItems.Quantity(split) == 1 && split.Id == op.Source.Id &&
@@ -264,3 +264,4 @@ namespace CityBankers
         }
     }
 }
+

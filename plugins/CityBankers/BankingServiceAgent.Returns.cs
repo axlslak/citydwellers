@@ -101,8 +101,7 @@ namespace CityBankers
             var offer = proposal.Return;
             Guid id;
             if (offer?.Item == null || !Guid.TryParseExact(offer.Id, "N", out id) ||
-                !string.Equals(ReturnDestination(offer), Client.CharacterName, StringComparison.OrdinalIgnoreCase) ||
-                (!_isCentral && !IsLayoutReturn(offer)))
+                !string.Equals(ReturnDestination(offer), Client.CharacterName, StringComparison.OrdinalIgnoreCase))
             { proposal.Reply.TrySetResult("busy"); return true; }
             var recorded = CityDwellers.Shared.ManagerMemory.Current.ReadReturn(
                 CityDwellers.Shared.ManagerAccounting.TransactionId, offer.Id);
@@ -158,7 +157,7 @@ namespace CityBankers
                 SaveReturn(offer, "queued");
             }
             TryClaimQueuedReturn();
-            int room = ReturnReceiverRoom();
+            int room = ReturnReceiverRoom(offer);
             proposal.Reply.TrySetResult(SameReturn(_returnOffer, offer) && IsReturnReceiver
                 ? "ready:" + offer.Id : ReturnReceiverIdle() && room > 0 && room < ReturnItems(offer).Count
                     ? "resize:" + room : "queued:" + offer.Id);
@@ -177,7 +176,11 @@ namespace CityBankers
                 !_config.Roles.Any(pair => !string.Equals(pair.Key, "central", StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(pair.Value?.Character, offer.Source, StringComparison.OrdinalIgnoreCase))) return false;
             if (IsLayoutReturn(offer)) return ValidLayoutReturn(offer);
-            if (!_isCentral || items.Count != 1 || offer.Bags?.Count > 0) return false;
+            if (items.Count != 1 || offer.Bags?.Count > 0) return false;
+            string role;
+            bool routed = SymbiantCatalog.TryGetDestinationRole(_settingsDir, offer.Item.AoId, out role) ||
+                SymbiantCatalog.TryGetDestinationRole(_settingsDir, offer.Item.HighId, out role);
+            if (!_isCentral && (!routed || !string.Equals(role, _role, StringComparison.OrdinalIgnoreCase))) return false;
             var entry = ActiveLedgerStore.LoadLedger(_settingsDir)?.Items?.SingleOrDefault(e => e.Id == offer.LedgerId);
             return entry != null && entry.TransactionId == offer.TransactionId && entry.AoId == offer.Item.AoId &&
                 (!entry.HighId.HasValue || entry.HighId == offer.Item.HighId) &&
@@ -192,17 +195,24 @@ namespace CityBankers
             _workerCommand == null && _reservedDispatch == null && _storageJob == null && _stackOperation == null &&
             _donationCleanup == null && _withdrawal == null && _extraction == null && _bankLayout == null &&
             _reserveOperation == null && _bagShop == null && _returnOffer == null &&
-            !StorageBagPolicy.AllBagRecords().Any(r => r.Location == "inventory") &&
             StorageBagPolicy.DuplicatedIdentities().Count == 0;
 
-        private int ReturnReceiverRoom() => Math.Max(0, Math.Min(ServicePolicy.MaxInternalTradeItems,
-            Math.Min(Inventory.NumFreeSlots - 1, _isCentral ? ServicePolicy.MaxInternalTradeItems :
-                Math.Min(ReserveBankFreeSlots, LayoutReturnRoom(Client.CharacterName)))));
+        private int ReturnReceiverRoom(ReturnOffer offer)
+        {
+            int room = ServicePolicy.MaxInternalTradeItems;
+            if (IsLayoutReturn(offer)) room = Math.Min(ReserveBankFreeSlots, LayoutReturnRoom(Client.CharacterName));
+            else if (!_isCentral)
+            {
+                var own = RuntimeStateStore.LoadStorageState(_settingsDir)?.Workers?.SingleOrDefault(w =>
+                    string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+                room = own?.Bags?.Where(b => b.Source == "bank").Sum(b => Math.Max(0, b.Capacity - (b.Items?.Count ?? 0))) ?? 0;
+            }
+            return Math.Max(0, Math.Min(ServicePolicy.MaxInternalTradeItems, Math.Min(Inventory.NumFreeSlots - 1, room)));
+        }
 
         private bool CanClaimReturn(ReturnOffer offer) => ReturnReceiverIdle() &&
             !WithdrawalStore.GetCensusCharacters(_settingsDir).Contains(offer.Source) &&
-            ReturnReceiverRoom() >= ReturnItems(offer).Count &&
-            (!_isCentral || !WithdrawalStore.LoadAll(_settingsDir).Any(WithdrawalStore.OwnsCentralTrade)) &&
+            ReturnReceiverRoom(offer) >= ReturnItems(offer).Count &&
             DynelManager.Players.Any(p => p != null && string.Equals(p.Name, offer.Source, StringComparison.OrdinalIgnoreCase)) &&
             !offer.SenderReceiptVerified && !offer.ReceiverReceiptVerified && !HasUnresolvedReturnReceipt(offer) &&
             ValidReturnSource(offer);
@@ -221,6 +231,23 @@ namespace CityBankers
 
         private bool TickReturnTransfer()
         {
+            // A queued send does not occupy this banker's window. If two
+            // bankers want to send to each other, the older offer goes first.
+            if (_returnOffer != null && !IsReturnReceiver && !ReturnHasPhysicalWork && _receipt == null && !Trade.IsTrading)
+            {
+                var incoming = ReturnQueue().FirstOrDefault(offer => ValidReturnSource(offer) &&
+                    ReturnReceiverRoom(offer) >= ReturnItems(offer).Count &&
+                    DynelManager.Players.Any(p => p != null && string.Equals(p.Name, offer.Source, StringComparison.OrdinalIgnoreCase)));
+                if (incoming != null && (incoming.StartedUtc < _returnOffer.StartedUtc ||
+                    (incoming.StartedUtc == _returnOffer.StartedUtc && string.CompareOrdinal(incoming.Id, _returnOffer.Id) < 0)) &&
+                    !_returnOffer.SenderReceiptVerified && !_returnOffer.ReceiverReceiptVerified && !HasUnresolvedReturnReceipt(_returnOffer))
+                {
+                    _returnOffer.CompletedUtc = DateTime.UtcNow;
+                    SaveReturn(_returnOffer, "cancelled-unsent");
+                    if (_bankLayout?.Phase == _returnOffer.Id) FinishBankLayout();
+                    ResetReturn();
+                }
+            }
             if (_returnOffer == null) TryClaimQueuedReturn();
             if (_returnOffer == null) return false;
             // Both physical sides publish to the same Manager. A lost request/
@@ -302,8 +329,7 @@ namespace CityBankers
                         ResetReturn(); return false; // cancel UNSENT manifest before making a smaller one
                     }
                     if (IsLayoutReturn(_returnOffer) && (!LayoutReturnSourceMatches(_returnOffer) ||
-                        (!string.Equals(ReturnDestination(_returnOffer), _centralCharacter, StringComparison.OrdinalIgnoreCase) &&
-                         LayoutReturnRoom(ReturnDestination(_returnOffer)) < ReturnItems(_returnOffer).Count)))
+                        LayoutReturnRoom(ReturnDestination(_returnOffer)) < ReturnItems(_returnOffer).Count))
                     { ResetReturn(); return false; }
                     return true;
                 }
@@ -312,14 +338,6 @@ namespace CityBankers
                     string.Equals(p.Name, ReturnDestination(_returnOffer), StringComparison.OrdinalIgnoreCase));
                 if (sourceItems.Any(i => i == null) || central == null || CensusReservedHere())
                 { ResetReturn(); return false; }
-                if (IsLayoutReturn(_returnOffer))
-                {
-                    // A reconnect invalidates old native empty views. Read only
-                    // the actual batch shells before binding a new trade receipt.
-                    foreach (var item in sourceItems)
-                        if (!ObserveEmptyLayoutBag(item)) return true;
-                    _layoutBatchReading = null; _layoutBatchReadAge.Reset();
-                }
                 _returnPartner = central.Identity;
                 PrepareReceipt("recovery-return-send", _returnOffer.TransactionId, _returnOffer.Id,
                     ReturnItems(_returnOffer), -1);
@@ -458,7 +476,7 @@ namespace CityBankers
                     i.HighId == item.HighId && i.Ql == item.Ql).ToList()).ToList();
                 if (arrivals.Any(items => items.Count != 1) || !ValidLayoutReturn(offer))
                     throw new InvalidOperationException("Surplus batch receipt or source ownership is ambiguous.");
-                CityDwellers.Shared.ManagerAccounting.Transaction("Receive verified empty surplus batch", () => {
+                CityDwellers.Shared.ManagerAccounting.Transaction("Receive surplus bags", () => {
                     // Re-read under the accounting lock before transferring every
                     // shell together. No partial ownership publication is allowed.
                     if (!ValidLayoutReturn(offer)) throw new InvalidOperationException("Surplus source ownership changed.");
@@ -497,8 +515,24 @@ namespace CityBankers
                 if (ReserveBankFreeSlots > 0) BeginReserveOperation(manifest[0].UniqueIdentity, "bank");
                 return;
             }
+            if (arrived.Count != 1) throw new InvalidOperationException("Returned item does not have one arrival slot.");
             ActiveLedgerStore.RecordPhysicalReturn(_settingsDir, offer.LedgerId, offer.TransactionId,
-                offer.Source, Client.CharacterName, offer.Item, arrived.Count == 1 ? (int?)arrived[0].Slot.Instance : null);
+                offer.Source, Client.CharacterName, offer.Item, arrived[0].Slot.Instance);
+            if (!_isCentral)
+            {
+                offer.CompletedUtc = DateTime.UtcNow;
+                SaveReturn(offer, "completed");
+                ResetReturn();
+                _storageJob = new StorageJob { LocalRecovery = true, RecoverySlot = arrived[0].Slot.Instance,
+                    RecoveryLedgerId = offer.LedgerId, Command = new DispatchCommand {
+                        BatchId = "local-" + offer.LedgerId, TransactionId = offer.TransactionId, Role = _role,
+                        SourceCharacter = Client.CharacterName, DestinationCharacter = Client.CharacterName,
+                        CreatedUtc = DateTime.UtcNow, Items = new List<TransferItemState> { offer.Item } },
+                    Phase = StoragePhase.FindBag, PhaseStartedUtc = DateTime.UtcNow,
+                    DeadlineUtc = DateTime.UtcNow.AddMilliseconds(ServicePolicy.ItemMoveTimeoutMs) };
+                Logger.Information("[CityBankers] ITEM received directly from " + offer.Source + " on " + Client.CharacterName + ".");
+                return;
+            }
             string role;
             if (SymbiantCatalog.TryGetDestinationRole(_settingsDir, offer.Item.AoId, out role) ||
                 SymbiantCatalog.TryGetDestinationRole(_settingsDir, offer.Item.HighId, out role))
@@ -547,6 +581,14 @@ namespace CityBankers
             _returnPoll.Restart();
         }
 
+        private string DirectItemDestination(string role)
+        {
+            RoleConfig destination;
+            return TryGetRole(role, out destination) && IsRoleEnabled(role) &&
+                !string.Equals(destination.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase)
+                ? destination.Character : null;
+        }
+
         private void TickLooseReturnRecovery()
         {
             if (_isCentral || _extraction != null || _returnOffer != null || _storageJob != null || _workerCommand != null ||
@@ -585,16 +627,26 @@ namespace CityBankers
                         offer.SourceSlot == item.Slot.Instance && offer.Item != null &&
                         CustodyKey(offer.Item) == CustodyKey(expected))
                     .OrderBy(offer => offer.StartedUtc).ThenBy(offer => offer.Id, StringComparer.Ordinal).FirstOrDefault();
+                string direct = DirectItemDestination(destination);
+                if (_returnOffer != null && direct != null &&
+                    !string.Equals(ReturnDestination(_returnOffer), direct, StringComparison.OrdinalIgnoreCase) &&
+                    !_returnOffer.SenderReceiptVerified && !_returnOffer.ReceiverReceiptVerified && !HasUnresolvedReturnReceipt(_returnOffer))
+                {
+                    _returnOffer.CompletedUtc = DateTime.UtcNow;
+                    SaveReturn(_returnOffer, "cancelled-unsent");
+                    _returnOffer = null;
+                }
                 if (_returnOffer == null)
                 {
                     _returnOffer = new ReturnOffer { Id = Guid.NewGuid().ToString("N"), LedgerId = entries[0].Id,
                         TransactionId = entries[0].TransactionId, Source = Client.CharacterName,
-                        SourceSlot = item.Slot.Instance, Item = expected, StartedUtc = DateTime.UtcNow };
+                        Destination = direct, SourceSlot = item.Slot.Instance, Item = expected, StartedUtc = DateTime.UtcNow };
+                    if (_returnOffer.Destination == null) { _returnOffer = null; continue; }
                     SaveReturn(_returnOffer, "queued");
                 }
                 _returnLocalVerified = _returnOffer.SenderReceiptVerified;
                 _returnPhase.Restart();
-                _returnRequest = _returnLocalVerified ? null : SendReturnMessage(_centralCharacter, "return-prepare", _returnOffer);
+                _returnRequest = _returnLocalVerified ? null : SendReturnMessage(ReturnDestination(_returnOffer), "return-prepare", _returnOffer);
                 return;
             }
         }

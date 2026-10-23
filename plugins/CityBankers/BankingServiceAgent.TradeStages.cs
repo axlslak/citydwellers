@@ -87,6 +87,14 @@ namespace CityBankers
             var state = WithdrawalStore.LoadAll(_settingsDir)
                 .SingleOrDefault(r => r.Id == proposal.Command?.BatchId);
             string blocker = WithdrawalPreparationBlocker(state, proposal.Command);
+            if (blocker == null && _withdrawalReceiveReserved &&
+                (_withdrawal?.Id != state.Id || _withdrawal.TransferAttemptId != state.TransferAttemptId)) blocker = "another-withdrawal";
+            if (blocker == null)
+            {
+                _withdrawal = state;
+                _withdrawalReceiveReserved = true;
+                _withdrawalReceiveAge.Restart();
+            }
             proposal.Reply.TrySetResult(blocker == null
                 ? "ready:" + state.TransferAttemptId + ":prepare"
                 : "pending:" + blocker);

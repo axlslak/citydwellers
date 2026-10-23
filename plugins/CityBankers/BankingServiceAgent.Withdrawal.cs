@@ -16,6 +16,17 @@ namespace CityBankers
     {
         private const int WithdrawalPhaseTimeoutSeconds = 30;
         private WithdrawalState _withdrawal;
+        private bool _withdrawalReceiveReserved;
+        private readonly Stopwatch _withdrawalReceiveAge = new Stopwatch();
+
+        private void ExpireWithdrawalReceiveReservation()
+        {
+            if (!_withdrawalReceiveReserved || _withdrawalTradeOpened || _receipt != null) return;
+            if (_withdrawalReceiveAge.Elapsed.TotalSeconds < 10 && _withdrawal != null &&
+                WithdrawalStore.LoadAll(_settingsDir).Any(row => row.Id == _withdrawal.Id && WithdrawalStore.HasStatus(row, "extracting"))) return;
+            _withdrawalReceiveReserved = false;
+            _withdrawal = null;
+        }
         private WithdrawalWorkerPhase _withdrawalWorkerPhaseValue;
         private WithdrawalWorkerPhase _withdrawalWorkerPhase
         {
@@ -84,6 +95,8 @@ namespace CityBankers
         private bool TickWithdrawalCentral()
         {
             List<WithdrawalState> rows = WithdrawalStore.LoadAll(_settingsDir);
+            if (!_withdrawalTradeOpened && _receipt == null && !_withdrawalReceiveReserved) _withdrawal = null;
+            if (_withdrawalReceiveReserved && !_withdrawalTradeOpened) return true;
             if (_withdrawal != null && !_withdrawalTradeOpened && _receipt == null &&
                 !rows.Any(row => row.Id == _withdrawal.Id && WithdrawalStore.IsActive(row)))
                 ResetWithdrawalLocal();
@@ -149,7 +162,6 @@ namespace CityBankers
                 WithdrawalStore.HasStatus(row, "central-received"));
             if (active != null)
             {
-                _withdrawal = active;
                 if (_extractionWaitId != active.Id)
                 {
                     _extractionWaitId = active.Id;
@@ -173,22 +185,17 @@ namespace CityBankers
                     else if (_receiptWait.Elapsed.TotalSeconds >= 30)
                         FailWithdrawal(active, "AO finished the worker trade but Central cannot identify the received copy.");
                 }
-                return true; // only physical extraction owns Central, never a waiting reservation
+                return WithdrawalStore.HasStatus(active, "central-received");
             }
 
             if (_donationActive || _donationCleanup != null || _activeBatch != null || Trade.IsTrading)
                 return false;
-            // Existing dispatch drains before another extraction; waiting pickups do not gate it.
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            if ((queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
-                batch != null && IsDispatchDestinationEnabled(batch) &&
-                !string.Equals(batch.Status, "failed", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(batch.Status, CustodyHoldStatus, StringComparison.OrdinalIgnoreCase)))
+            var readyCharacters = BankerReadiness.GetReadyCharacters(_settingsDir);
+            if (!readyCharacters.Contains(Client.CharacterName) || Inventory.NumFreeSlots < 2 || _receipt != null || _returnOffer != null)
                 return false;
-            if (!TrustedOperators.IsAllBankersReady() || Inventory.NumFreeSlots < 12)
-                return false; // retain room for a full donation even with waiting orders
             WithdrawalState next = rows.FirstOrDefault(row =>
-                (IsRoleEnabled(row.SourceRole) && IsCharacterEnabled(row.SourceCharacter)) &&
+                (IsRoleEnabled(row.SourceRole) && IsCharacterEnabled(row.SourceCharacter) && readyCharacters.Contains(row.SourceCharacter)) &&
                 ((!CruPolicy.IsCru(row) && WithdrawalStore.HasStatus(row, "requested")) || (!CruPolicy.IsCru(row) && CanRetryWithdrawalExtraction(row))) &&
                 !rows.Any(other => other.Id != row.Id && WithdrawalStore.HasStatus(other, "failed") &&
                     string.Equals(other.SourceCharacter, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)) &&
@@ -236,8 +243,7 @@ namespace CityBankers
                     (liveInventoryRetry
                         ? ": Central proved one exact-name loose item in the source worker's fresh inventory; resuming from live custody without replaying the old bag slot."
                         : ": Central scheduled one inventory-extraction retry; no delivery or pickup state is replayed."));
-            _withdrawal = next;
-            return true;
+            return false;
         }
 
         private bool CanRetryWithdrawalExtraction(WithdrawalState row)
@@ -359,6 +365,7 @@ namespace CityBankers
                       string.Equals(targetName, _centralCharacter, StringComparison.OrdinalIgnoreCase)));
             if (transfer != null)
             {
+                _withdrawalReceiveReserved = false;
                 _withdrawal = transfer;
                 _internalOpenedAge.Restart();
                 if (_receipt == null)
@@ -369,8 +376,7 @@ namespace CityBankers
                 _withdrawalTradePartner = target;
                 return true;
             }
-            if (!_isCentral || _receipt != null || _afterReceipt != null || rows.Any(WithdrawalStore.OwnsCentralTrade) ||
-                _activeBatch != null || _donationCleanup != null) return false;
+            if (!_isCentral || _receipt != null || _afterReceipt != null || _activeBatch != null) return false;
 
             // A ready order belongs to this collector; everybody else can donate normally.
             List<WithdrawalState> ready = WithdrawalStore.Update(_settingsDir, current =>
@@ -763,6 +769,7 @@ namespace CityBankers
                     Logger.Warning("[CityBankers] WITHDRAWAL PREPARE WAIT " +
                         (_withdrawal?.Id ?? "?") + ": " + blocker + ".");
                 }
+                if (preparationResult?.StartsWith("pending:", StringComparison.Ordinal) == true) SetWithdrawalDeadline();
                 return;
             }
             _withdrawalPreparationBlocker = null;
@@ -1277,6 +1284,7 @@ namespace CityBankers
 
         private void ResetWithdrawalLocal()
         {
+            _withdrawalReceiveReserved = false;
             _withdrawal = null;
             _withdrawalWorkerPhase = WithdrawalWorkerPhase.None;
             _withdrawalBag = null;
@@ -1288,3 +1296,4 @@ namespace CityBankers
         }
     }
 }
+

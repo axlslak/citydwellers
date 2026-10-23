@@ -282,7 +282,7 @@ namespace CityBankers
                 _receipt != null || _afterReceipt != null ||
                 _activeBatch != null || _workerCommand != null || _storageJob != null ||
                 _reservedDispatch != null || _dispatchPreparation != null ||
-                _donationActive || _donationCleanup != null ||
+                _donationActive || _donationCleanup != null || _pausedDonationCleanup.Count > 0 ||
                 _stackOperation != null || _reserveOperation != null || _bagShop != null || _bankLayout != null ||
                 _withdrawal != null || _withdrawalPreparation != null ||
                 _returnOffer != null || _returnRequest != null ||
@@ -338,6 +338,7 @@ namespace CityBankers
                 ResumeSurplusBagDisposal();
                 ResumeBagShopWork();
                 ResumeLocalStorageExtraction();
+                ExpireWithdrawalReceiveReservation();
                 TickBankerIpc();
                 if (_bagShop == null) ResumeReserveWork();
                 // Publish before the operational heartbeat. Reservation ownership
@@ -349,6 +350,7 @@ namespace CityBankers
                     StartupCensusGate.PublishOperational();
                     _operationalHeartbeatAge.Restart();
                 }
+                if (TickPublicTrade()) return;
                 if (TickBagShop()) return;
 
                 // The 2s idle fallback checks Manager memory for work that outlives
@@ -385,6 +387,7 @@ namespace CityBankers
                 if (_workerCommand != null && _storageJob == null)
                 { TickWorkerTrade(); return; }
                 TickCancellationOutbox();
+                if (_isCentral && TickWithdrawalCentral()) return;
                 // Disabled by owner: no automatic recovery audits. if (TickStorageRecovery()) return;
                 if (TickReserveOperation()) return;
                 if (TickRecoveryExtraction()) return;
@@ -402,8 +405,6 @@ namespace CityBankers
                     // Startup census owns the baseline. Never replace it later
                     // with an older manual storage-baseline.json snapshot.
                     if (TickCru()) return;
-                    if (TickWithdrawalCentral())
-                        return;
                     TickDonation();
                     TickDonationCleanup();
                     if (TickBagReserve()) return;
@@ -957,6 +958,17 @@ namespace CityBankers
             {
                 string targetName = FindPlayerName(target);
                 TraceTrade("trade.opened", new { Partner = target.ToString(), Name = targetName });
+                if (_isCentral && IsPublicTradeCharacter(targetName))
+                {
+                    if (_withdrawalReceiveReserved && !_withdrawalTradeOpened && _receipt == null)
+                    { _withdrawalReceiveReserved = false; _withdrawal = null; }
+                    _publicTradePartner = target;
+                    _publicTradeName = targetName;
+                    _publicTradeStarted = _publicPlayerAccepted = false;
+                    _publicTradePause.Restart();
+                    TickPublicTrade();
+                    return;
+                }
                 if (_afterReceipt != null)
                 { DeclineIncomingTrade(targetName, "The previous trade is still being verified. Please reopen shortly."); return; }
                 if (_stackOperation != null || _reserveOperation != null || _bagShop != null)
@@ -1043,7 +1055,7 @@ namespace CityBankers
             {
                 Logger.Error($"BANKING SERVICE TradeOpened handling failed: {ex}");
                 StartupCensusGate.Block("Trade preparation failed: " + ex);
-                TryDeclineTrade();
+                if (_publicTradePartner == Identity.None) TryDeclineTrade();
             }
         }
 
@@ -1054,7 +1066,15 @@ namespace CityBankers
             if (!_enabled)
                 return;
 
-            if (BagShopTradeStatus(target, status)) return;
+            if (_publicTradePartner != Identity.None && status == TradeStatus.Declined &&
+                Trade.IsTrading && Trade.CurrentTarget == _publicTradePartner) return;
+            if (_publicTradePartner != Identity.None && !_publicTradeStarted)
+            {
+                if (status == TradeStatus.Accept) _publicPlayerAccepted = true;
+                if (status == TradeStatus.Declined && (!Trade.IsTrading || Trade.CurrentTarget != _publicTradePartner)) EndPublicTradePause();
+                return;
+            }
+            if (_publicTradePartner == Identity.None && BagShopTradeStatus(target, status)) return;
 
             TraceTrade("trade.status", new { Partner = target.ToString(), Status = status.ToString() },
                 status == TradeStatus.Declined);
@@ -1094,8 +1114,8 @@ namespace CityBankers
                     }
                     return;
                 }
-                if (TryReturnTradeStatus(status)) return;
-                if (TryHandleWithdrawalTradeStatus(target, status))
+                if (_publicTradePartner == Identity.None && TryReturnTradeStatus(status)) return;
+                if ((_publicTradePartner == Identity.None || _withdrawalPickupTrade) && TryHandleWithdrawalTradeStatus(target, status))
                     return;
                 if (status == TradeStatus.Accept && _isCentral && _donationActive)
                 {
@@ -1134,6 +1154,12 @@ namespace CityBankers
                         return;
                     }
 
+                    if (offered.Count > Inventory.NumFreeSlots)
+                    {
+                        _donationAccepted = false;
+                        TellDonationPartner("Central has " + Inventory.NumFreeSlots + " free inventory slots. Reduce the offer to fit.");
+                        return;
+                    }
                     _donationSnapshot = new List<TransferItemState>(offered);
                     RecordDonationOffer();
                     _donationAccepted = true;
@@ -1233,44 +1259,116 @@ namespace CityBankers
         // Player -> Central donation
         // ---------------------------------------------------------------------
 
-        private readonly Stopwatch _publicDonationAge = new Stopwatch();
-        private readonly Dictionary<string, long> _donationTimeoutBackoff =
-            new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        private Identity _publicTradePartner = Identity.None;
+        private string _publicTradeName;
+        private bool _publicTradeStarted, _publicPlayerAccepted;
+        private readonly Stopwatch _publicTradePause = new Stopwatch();
+        private readonly Queue<DonationCleanupState> _pausedDonationCleanup = new Queue<DonationCleanupState>();
 
+        private bool TickPublicTrade()
+        {
+            if (_publicTradePartner == Identity.None) return false;
+            if (!Trade.IsTrading || Trade.CurrentTarget != _publicTradePartner)
+            {
+                if (_publicTradeStarted && _afterReceipt == null && (_donationActive || _withdrawalPickupTrade))
+                    OnTradeStatusChanged(_publicTradePartner, TradeStatus.Declined);
+                EndPublicTradePause(); return false;
+            }
+            if (!_publicTradeStarted)
+            {
+                if (_afterReceipt != null) { TickPhysicalReceipt(); return true; }
+                if (_receipt != null)
+                {
+                    if (_activeBatch != null) FailActiveBatch("Player opened trade before the internal transfer completed.", false);
+                    else VerifyCancelledReceipt();
+                    return true;
+                }
+                if (_bagShop?.Receipt != null)
+                {
+                    if (!CompleteBagShopReceipt(_bagShop))
+                    {
+                        if (_publicTradePause.ElapsedMilliseconds > ServicePolicy.ItemMoveTimeoutMs)
+                            throw new InvalidOperationException("Shop receipt did not arrive before player trade.");
+                        return true;
+                    }
+                }
+                if (PublicInventoryMovePending())
+                {
+                    if (_publicTradePause.ElapsedMilliseconds > ServicePolicy.ItemMoveTimeoutMs)
+                        throw new InvalidOperationException("Already sent inventory movement did not finish before player trade.");
+                    return true;
+                }
+                if (_donationCleanup != null)
+                { _pausedDonationCleanup.Enqueue(_donationCleanup); _donationCleanup = null; }
+                _publicTradeStarted = true;
+                if (!TryHandleWithdrawalTradeOpened(_publicTradePartner, _publicTradeName))
+                    BeginDonation(_publicTradePartner);
+                if (_publicPlayerAccepted) OnTradeStatusChanged(_publicTradePartner, TradeStatus.Accept);
+            }
+            if (_donationActive) TickDonation();
+            else if (_withdrawalPickupTrade && _pickupItems.Count > 0) TickWithdrawalPickupTrade(_pickupItems[0]);
+            return true;
+        }
+
+        // Wait only for packets already sent. Do not start the next background
+        // action while a player has the trade window open.
+        private bool PublicInventoryMovePending()
+        {
+            if (_stackOperation != null) { TickStackOperation(); if (_stackOperation != null) return true; }
+            if (_donationCleanup?.PendingDelete != null)
+            { TickDonationCleanup(); if (_donationCleanup?.PendingDelete != null) return true; }
+            if (_reserveOperation != null)
+            {
+                var op = _reserveOperation;
+                if (op.Purpose == "dispatch" && _supplyMoves.Any(id => StorageBagPolicy.AllRecordsFor(id, "inventory").Count != 1)) return true;
+                if (op.Phase == "banking" && StorageBagPolicy.AllRecordsFor(op.Identity, "bank").Count != 1) return true;
+                if (op.Phase == "extracting" && StorageBagPolicy.AllRecordsFor(op.Identity, "inventory").Count != 1) return true;
+            }
+            Item returned;
+            if (_layoutBankReturn != null && !ObserveWorkingBagReturn(_layoutBankReturn, out returned)) return true;
+            if (_bankLayout?.Purpose == "layout-return" && _layoutActionAge.IsRunning &&
+                StorageBagPolicy.AllRecordsFor(_bankLayout.Identity, "inventory").Count != 1) return true;
+            if (_storageJob != null)
+            {
+                if (_storageJob.Phase == StoragePhase.MovingBagToInventory && FindInventoryBagByIdentity(_storageJob.BagLiveIdentity) == null) return true;
+                if (_storageJob.Move != null && (!_storageJob.Move.Acknowledged || StorageMoveSource() != null)) return true;
+                if (_storageJob.BankReturn != null && !ObserveWorkingBagReturn(_storageJob.BankReturn, out returned)) return true;
+            }
+            if (_extraction != null)
+            {
+                if (_extractionPhase == ExtractionPhase.BagInventory && FindInventoryBagByIdentity(_extraction.BagIdentity) == null) return true;
+                if (_extractionPhase == ExtractionPhase.BagReturn && !ObserveWorkingBagReturn(_extractionBagReturn, out returned)) return true;
+                if (_extractionPhase == ExtractionPhase.ItemInventory && _extraction.BeforeInventory != null &&
+                    !Inventory.Items.Any(item => item != null && item.Slot.Type == IdentityType.Inventory &&
+                        item.Id == _extraction.Item.AoId && item.HighId == _extraction.Item.HighId && item.Ql == _extraction.Item.Ql &&
+                        !_extraction.BeforeInventory.Any(before => before.Slot == (item.Slot.Instance & 65535)))) return true;
+            }
+            return false;
+        }
+
+        private void EndPublicTradePause()
+        {
+            var paused = _publicTradePause.Elapsed;
+            if (_reserveOperation != null) _reserveOperation.StartedUtc += paused;
+            if (_bankLayout != null) _bankLayout.StartedUtc += paused;
+            if (_storageJob != null) _storageJob.DeadlineUtc += paused;
+            if (_layoutActionAge.IsRunning) _layoutActionAge.Restart();
+            if (_layoutBatchReadAge.IsRunning) _layoutBatchReadAge.Restart();
+            if (_bagShop != null) _bagShop.Age.Restart();
+            if (_extraction != null) _extractionAge.Restart();
+            if (_returnOffer != null) _returnPhase.Restart();
+            _publicTradePartner = Identity.None;
+            _publicTradeName = null;
+            _publicTradeStarted = _publicPlayerAccepted = false;
+            _publicTradePause.Reset();
+        }
+
+        private readonly Stopwatch _publicDonationAge = new Stopwatch();
         private void BeginDonation(Identity partner)
         {
             string partnerName = FindPlayerName(partner) ?? partner.ToString();
-            if (_receipt != null || _afterReceipt != null)
-            { DeclineIncomingTrade(partnerName, "The previous trade is still being verified. Please reopen shortly."); return; }
-            long now = Stopwatch.GetTimestamp(), retryAfter;
-            foreach (string name in _donationTimeoutBackoff.Where(p => p.Value <= now).Select(p => p.Key).ToArray())
-                _donationTimeoutBackoff.Remove(name);
-            if (_donationTimeoutBackoff.TryGetValue(partnerName, out retryAfter))
-            { DeclineIncomingTrade(partnerName, "Your last donation timed out. Please wait a few seconds so others can trade."); return; }
-            if (Inventory.NumFreeSlots < ServicePolicy.MaxTradeItems)
-            {
-                TellDirectPlayer(partnerName, "Central needs room for a full donation. Please try again after pending storage or pickups finish.");
-                Trade.Decline();
-                return;
-            }
-            if (HasUnresolvedDispatchWork())
-            {
-                TellDirectPlayer(
-                    partnerName,
-                    "Central is finishing its current inventory operation. Please reopen shortly.");
-                Trade.Decline();
-                return;
-            }
-
-            StorageState storage = RuntimeStateStore.LoadStorageState(_settingsDir);
-            if (storage == null)
-            {
-                TellDirectPlayer(
-                    partnerName,
-                    "CityBankers has no operational bag baseline yet. This trade is being declined safely.");
-                Trade.Decline();
-                return;
-            }
+            if (_receipt != null || _afterReceipt != null) throw new InvalidOperationException("Previous receipt has not completed.");
+            if (RuntimeStateStore.LoadStorageState(_settingsDir) == null) throw new InvalidOperationException("Storage state is unavailable.");
 
             _donationActive = true;
             _donationPartner = partner;
@@ -1310,7 +1408,6 @@ namespace CityBankers
 
             if (_publicDonationAge.Elapsed.TotalSeconds >= ServicePolicy.PublicDonationTimeoutSeconds)
             {
-                _donationTimeoutBackoff[_donationPartnerName] = Stopwatch.GetTimestamp() + Stopwatch.Frequency * 15;
                 RejectDonation("Donation exceeded two minutes. Please let other users trade, then reopen when ready.",
                     SnapshotTradeItems(Trade.TargetWindowCache.Items));
                 return;
@@ -1349,6 +1446,7 @@ namespace CityBankers
                 return;
             }
 
+            if (offered.Count > Inventory.NumFreeSlots) return;
             if (_donationAccepted)
                 return;
             if ((DateTime.UtcNow - _donationLastChangeUtc).TotalSeconds <
@@ -1367,16 +1465,6 @@ namespace CityBankers
         private bool ValidateDonationItems(List<TransferItemState> offered, out string error)
         {
             error = null;
-            int reserveBags = offered.Count(IsReserveBag);
-            if (reserveBags > 0)
-            {
-                var reserve = ReadReserve();
-                int awaitingBank = StorageBagPolicy.AllBagRecords().Count(r => r.Location == "inventory" &&
-                    reserve.Bags.Any(b => b.Identity == r.Identity.ToString() && !b.Delivered && !b.Quarantined && b.Destination == null));
-                int available = Math.Max(0, ReserveBankFreeSlots - awaitingBank);
-                if (reserveBags > available)
-                { error = "Central has bank room for " + available + " more Small Backpack(s). Please reduce this offer."; return false; }
-            }
             foreach (TransferItemState item in offered)
             {
                 if (IsReserveBag(item))
@@ -1515,8 +1603,10 @@ namespace CityBankers
 
         private void TickDonationCleanup()
         {
-            if (!_isCentral || _donationCleanup == null)
-                return;
+            if (!_isCentral) return;
+            if (_donationCleanup == null && _pausedDonationCleanup.Count > 0)
+                _donationCleanup = _pausedDonationCleanup.Dequeue();
+            if (_donationCleanup == null) return;
 
             DonationCleanupState cleanup = _donationCleanup;
             if (cleanup.PendingDelete != null)
@@ -2306,7 +2396,7 @@ namespace CityBankers
             }
         }
 
-        private void FailActiveBatch(string error)
+        private void FailActiveBatch(string error, bool declineTrade = true)
         {
             // Ship the timeline before unwinding; the run-up to a failure is the
             // most useful trace there is.
@@ -2342,7 +2432,7 @@ namespace CityBankers
             _outgoingPendingSlotSet = false;
             _outgoingPendingAddAttempts = 0;
             _outgoingAccepted = false;
-            TryDeclineTrade();
+            if (declineTrade) TryDeclineTrade();
         }
 
         private void MarkBatchFailed(DispatchQueueState queue, DispatchBatchState batch, string error)

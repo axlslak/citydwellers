@@ -137,7 +137,6 @@ namespace CityBankers
                 if (!Inventory.Items.Any(i => i != null && i.Slot.Type == IdentityType.Inventory &&
                     (i.Slot.Instance & 65535) == _extraction.InventorySlot && i.Id == _extraction.Item.AoId &&
                     i.HighId == _extraction.Item.HighId && i.Ql == _extraction.Item.Ql)) return true;
-                if (_isCentral || _extraction.LocalStorage)
                 {
                     _extractionCommitRetry.Restart();
                     try
@@ -151,13 +150,6 @@ namespace CityBankers
                             Logger.Warning("[CityBankers] Verified extraction accounting retry: " + ex.Message);
                         _extractionCommitError = ex.Message;
                     }
-                }
-                else if (_extractionCommit == null)
-                    _extractionCommit = SendExtraction(_extraction);
-                else if (_extractionCommit.IsCompleted)
-                {
-                    if (_extractionCommit.Result == "complete:" + _extraction.Id) FinishExtraction();
-                    else _extractionCommit = null;
                 }
                 return true;
             }
@@ -403,3 +395,4 @@ namespace CityBankers
         }
     }
 }
+

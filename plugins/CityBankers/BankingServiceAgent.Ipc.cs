@@ -65,13 +65,17 @@ namespace CityBankers
         }
         internal static DispatchCommand CurrentInboundDispatch =>
             _ipcOwner?._workerCommand ?? _ipcOwner?._reservedDispatch;
-        internal static bool CentralTransferBusy => _ipcOwner != null &&
-            (_ipcOwner._afterReceipt != null || _ipcOwner._bankLayout != null || _ipcOwner._reserveOperation != null || _ipcOwner._stackOperation != null || _ipcOwner._activeBatch != null || _ipcOwner._donationCleanup != null || _ipcOwner._returnOffer != null || _ipcOwner._extraction != null ||
-             (_ipcOwner._receipt != null && !_ipcOwner._donationActive));
+        internal static bool IsPublicTradeCharacter(string name) => _ipcOwner != null && _ipcOwner._isCentral &&
+            !string.IsNullOrWhiteSpace(name) && !_ipcOwner._config.Roles.Values.Any(account =>
+                string.Equals(account.Character, name, StringComparison.OrdinalIgnoreCase));
+        internal static bool PublicTradeWaiting(Identity partner) => _ipcOwner != null &&
+            _ipcOwner._publicTradePartner == partner && !_ipcOwner._publicTradeStarted;
 
         internal static bool OwnsDonationTrade(Identity partner) => _ipcOwner != null &&
             _ipcOwner._donationActive && _ipcOwner._donationPartner == partner &&
             _ipcOwner._receipt?.Kind == "donation" && _ipcOwner._afterReceipt == null;
+
+        internal static bool DonationOfferReady(Identity partner) => OwnsDonationTrade(partner) && _ipcOwner._donationAccepted;
 
         private void StartBankerMemory()
         {

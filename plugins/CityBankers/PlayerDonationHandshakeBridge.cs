@@ -26,8 +26,7 @@ namespace CityBankers
     ///
     /// BankingServiceAgent remains the sole authority for validation, AO Finished receipt,
     /// queue creation, storage, and ledger state. This bridge never records receipt or moves
-    /// an item. It also stays completely quiet while unresolved storage work exists; the
-    /// BankingService queue-priority path owns that single decline/retry message.
+    /// an item. Background bag work yields to the player trade.
     /// </summary>
     public class PlayerDonationHandshakeBridge : ClientlessPluginEntry
     {
@@ -97,7 +96,6 @@ namespace CityBankers
 
             string targetName = FindPlayerName(target);
             if (WithdrawalStore.LoadAll(_settingsDir).Any(row =>
-                WithdrawalStore.OwnsCentralTrade(row) ||
                 (WithdrawalStore.HasStatus(row, "central-ready") &&
                  WithdrawalStore.IsAllowedCollector(row, targetName) &&
                  WithdrawalStore.PickupWindowOpen(row))))
@@ -106,15 +104,7 @@ namespace CityBankers
                 return;
             }
 
-            if (BankingServiceAgent.CentralTransferBusy)
-            {
-                // Only a live Central operation owns this trade slot. Backlog on
-                // another banker does not make this donation impossible.
-                Reset();
-                return;
-            }
-
-            if (!TrustedOperators.IsTrustedAdmin(targetName))
+            if (!BankingServiceAgent.IsPublicTradeCharacter(targetName))
             {
                 Reset();
                 return;
@@ -153,6 +143,7 @@ namespace CityBankers
 
             if (status == TradeStatus.Accept)
             {
+                _offerSignature = BuildOfferSignature();
                 _playerAccepted = true;
                 _playerAcceptedUtc = DateTime.UtcNow;
 
@@ -205,6 +196,7 @@ namespace CityBankers
 
             try
             {
+                if (BankingServiceAgent.PublicTradeWaiting(_partner) && Trade.IsTrading && Trade.CurrentTarget == _partner) return;
                 if (!BankingServiceAgent.OwnsDonationTrade(_partner) ||
                     !Trade.IsTrading || Trade.CurrentTarget != _partner)
                 {
@@ -243,7 +235,7 @@ namespace CityBankers
                     return;
                 }
 
-                if (!_playerAccepted)
+                if (!_playerAccepted || !BankingServiceAgent.DonationOfferReady(_partner))
                     return;
 
                 int itemCount = Trade.TargetWindowCache?.Items?.Count ?? 0;
@@ -398,3 +390,4 @@ namespace CityBankers
         }
     }
 }
+
