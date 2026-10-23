@@ -25,6 +25,7 @@ namespace CityBankers
             public int Slot = -1, Low, High, Ql;
             public bool Opened, Declined, SelectionAcknowledged, NativePurchaseStarted, NativePurchaseCompleted;
             public int TemplateReceipts;
+            public Item SelectedOffer;
             public readonly HashSet<string> PreviousContainers = new HashSet<string>(StringComparer.Ordinal);
             public readonly Dictionary<Identity, Dictionary<Stat, int>> NativeBags = new Dictionary<Identity, Dictionary<Stat, int>>();
             public ReceiptEvidence Receipt;
@@ -39,7 +40,11 @@ namespace CityBankers
         private string BagShopReceiptId => "reserve-shop:" + Client.CharacterName.ToLowerInvariant();
 
         private void InvalidateBagShop()
-        { _bagShop = null; _pendingBagPurchase = null; _bagShopChecked = false; }
+        {
+            ReleaseBagShopOffer(_bagShop);
+            ReleaseBagShopOffer(_pendingBagPurchase);
+            _bagShop = null; _pendingBagPurchase = null; _bagShopChecked = false;
+        }
 
         private void ResumeBagShopWork()
         {
@@ -168,6 +173,9 @@ namespace CityBankers
         private bool BagShopTradeOpened(Identity target)
         {
             var work = _bagShop;
+            // Clientless does not clear its offer caches when another window
+            // opens. A shop selection must never enter a player's trade.
+            if (work != null && target != work.Shop) ReleaseBagShopOffer(work);
             if (work == null || work.Phase != "opening" || _publicTradePartner != Identity.None ||
                 (target != work.Dealer && target.Type != IdentityType.VendingMachine && target != Identity.None)) return false;
             // An NPC's world identity and its shop-session identity differ.
@@ -227,6 +235,10 @@ namespace CityBankers
                 // Shops acknowledge the catalogue selection with AddItem. The
                 // Clientless player-trade cache is not populated by that reply.
                 if (!work.SelectionAcknowledged) return true;
+                var offers = Trade.TargetWindowCache.Items;
+                if (offers.Count != 0 && (offers.Count != 1 || offers[0].UniqueIdentity != Identity.None ||
+                    offers[0].Id != work.Low || offers[0].HighId != work.High || offers[0].Ql != work.Ql))
+                { StopBagShop("The shop offer differs from the acknowledged catalogue selection; purchase cancelled."); return true; }
                 var selection = new TransferItemState { AoId = work.Low, HighId = work.High,
                     Ql = work.Ql, Quantity = 1, Name = "Small Backpack" };
                 int cash;
@@ -243,10 +255,17 @@ namespace CityBankers
                     ManagerMemory.Current.ChangeReceipt(ManagerAccounting.TransactionId, work.Receipt));
                 work.PreviousContainers.UnionWith(Inventory.Items.Concat(Inventory.Bank.Items)
                     .Where(i => i.UniqueIdentity.Type == IdentityType.Container).Select(i => i.UniqueIdentity.ToString()));
+                // The server acknowledged the catalogue item, but Clientless
+                // handles that AddItem as a player inventory offer and loses it.
+                // Supply the missing target entry so its native Complete handler
+                // adds the purchase to inventory. Receipt binding still requires
+                // the server's completion and native bag identity.
+                work.SelectedOffer = offers.Count == 1 ? offers[0] : new Item(
+                    new Identity(IdentityType.KnuBotTradeWindow, 0), Identity.None, work.Low, work.High, work.Ql);
+                if (offers.Count == 0) offers.Add(work.SelectedOffer);
                 work.NativePurchaseStarted = true;
                 work.Phase = "buying"; work.Age.Restart();
-                // The ordinary shop transaction uses the same completion target
-                // as the Grace reference. Nothing is offered from our inventory.
+                // Let the server complete the ordinary shop transaction.
                 Client.Send(new TradeMessage { Unknown1 = 2, Action = TradeAction.Accept, Param1 = 0, Param2 = 0 });
                 Logger.Information("[CityBankers] BAG SHOP purchasing one small backpack; receipt=" + work.Receipt.TransactionId + ".");
             }
@@ -264,7 +283,8 @@ namespace CityBankers
                 !_withdrawalTradeOpened && (Trade.PlayerWindowCache?.Items?.Count ?? -1) == 0 &&
                 offered != null && offered.Count == 1 && offered[0].Id == expected.AoId &&
                 offered[0].HighId == expected.HighId && offered[0].Ql == expected.Ql &&
-                completed != null && completed.Identity == DynelManager.LocalPlayer.Identity && completed.Action == TradeAction.Complete)
+                completed != null && completed.Identity == DynelManager.LocalPlayer.Identity && completed.Action == TradeAction.Complete &&
+                completed.Param1 == (int)work.Shop.Type && completed.Param2 == work.Shop.Instance)
                 work.NativePurchaseCompleted = true;
             var template = body as AddTemplateMessage;
             if (template != null && template.Identity == DynelManager.LocalPlayer.Identity &&
@@ -390,7 +410,16 @@ namespace CityBankers
 
         private void CloseBagShop(BagShopWork work)
         {
+            ReleaseBagShopOffer(work);
             if (work.Opened && Trade.CurrentTarget == work.Shop) Trade.Decline();
+        }
+
+        private static void ReleaseBagShopOffer(BagShopWork work)
+        {
+            if (work?.SelectedOffer == null) return;
+            var offers = Trade.TargetWindowCache?.Items;
+            if (offers != null) offers.RemoveAll(item => ReferenceEquals(item, work.SelectedOffer));
+            work.SelectedOffer = null;
         }
 
         private void SettleRecoveredBagPurchase()
