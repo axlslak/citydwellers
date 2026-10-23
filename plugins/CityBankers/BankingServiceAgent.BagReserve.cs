@@ -484,8 +484,8 @@ namespace CityBankers
             {
                 var supply = ReadReserve();
                 var batch = supply.Bags.Single(b => b.Identity == op.Identity).Batch;
-                int banked = StorageBagPolicy.AllBagRecords().Count(record => record.Location == "bank" && supply.Bags.Any(bag =>
-                    bag.Batch == batch && bag.Identity == record.Identity.ToString()));
+                int banked = StorageBagPolicy.AllBagRecords().Count(bagRecord => bagRecord.Location == "bank" && supply.Bags.Any(bag =>
+                    bag.Batch == batch && bag.Identity == bagRecord.Identity.ToString()));
                 if (_supplyMoveStartedUtc.Count == 0 && Inventory.NumFreeSlots < banked)
                 {
                     // A player may have filled slots before the first send. Keep
@@ -499,14 +499,14 @@ namespace CityBankers
                 else
                 {
                     var current = StorageBagPolicy.AllBagRecords();
-                    var remaining = current.Where(record => record.Location != "inventory" &&
-                        supply.Bags.Any(bag => bag.Batch == batch && bag.Identity == record.Identity.ToString())).ToList();
-                    var arrived = new HashSet<string>(current.Where(record => record.Location == "inventory").Select(record => record.Identity.ToString()));
+                    var remaining = current.Where(bagRecord => bagRecord.Location != "inventory" &&
+                        supply.Bags.Any(bag => bag.Batch == batch && bag.Identity == bagRecord.Identity.ToString())).ToList();
+                    var arrived = new HashSet<string>(current.Where(bagRecord => bagRecord.Location == "inventory").Select(bagRecord => bagRecord.Identity.ToString()));
                     foreach (var completed in _supplyMoveStartedUtc.Keys.Where(arrived.Contains).ToList())
                     { _supplyMoveStartedUtc.Remove(completed); _supplyMoves.Remove(completed); }
                     if (_supplyMoveStartedUtc.Any(move => (DateTime.UtcNow - move.Value).TotalMilliseconds > ServicePolicy.BagMoveTimeoutMs))
                         throw new InvalidOperationException("Bag supply bank move did not finish: " + batch +
-                            "; remaining=" + string.Join(",", remaining.Select(record => record.Identity + "/" + record.Bag.Slot)) +
+                            "; remaining=" + string.Join(",", remaining.Select(bagRecord => bagRecord.Identity + "/" + bagRecord.Bag.Slot)) +
                             "; sent=" + string.Join(",", _supplyMoveStartedUtc.Select(move => move.Key + "@" + move.Value.ToString("O"))) +
                             "; inventory free=" + Inventory.NumFreeSlots + ".");
                 }

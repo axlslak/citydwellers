@@ -46,7 +46,8 @@ namespace CityDwellers.Build
                 MethodReference member = instruction.Operand as MethodReference;
                 if (member != null && member.Name == "get_Size" &&
                     member.DeclaringType.FullName == "SmokeLounge.AOtomation.Messaging.Messages.ChatHeader" &&
-                    member.ReturnType.FullName == "System.UInt16") sizes.Add(instruction);
+                    // Clientless 1.0.16 references signed Int16; newer SDK source uses UInt16.
+                    (member.ReturnType.FullName == "System.Int16" || member.ReturnType.FullName == "System.UInt16")) sizes.Add(instruction);
             }
             if (sizes.Count != 3 || !AddsHeader(sizes[1]) || !AddsHeader(sizes[2]))
                 throw new InvalidOperationException("Clientless chat frame extents changed.");
