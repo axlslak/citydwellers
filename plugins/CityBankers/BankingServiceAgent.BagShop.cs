@@ -23,7 +23,7 @@ namespace CityBankers
             public string Phase;
             public Identity Dealer = Identity.None, Shop = Identity.None;
             public int Slot = -1, Low, High, Ql;
-            public bool Opened, Declined, SelectionAcknowledged, NativePurchaseStarted;
+            public bool Opened, Declined, SelectionAcknowledged, NativePurchaseStarted, NativePurchaseCompleted;
             public int TemplateReceipts;
             public readonly HashSet<string> PreviousContainers = new HashSet<string>(StringComparer.Ordinal);
             public readonly Dictionary<Identity, Dictionary<Stat, int>> NativeBags = new Dictionary<Identity, Dictionary<Stat, int>>();
@@ -253,6 +253,15 @@ namespace CityBankers
         private void ObservePurchasedBag(BagShopWork work, object body)
         {
             var expected = work.Receipt.Expected.Single();
+            var completed = body as TradeMessage;
+            var offered = Trade.TargetWindowCache?.Items;
+            if (ReferenceEquals(_bagShop, work) && work.NativePurchaseStarted && work.Opened && work.SelectionAcknowledged &&
+                work.Shop != Identity.None && Trade.CurrentTarget == work.Shop && _publicTradePartner == Identity.None &&
+                !_withdrawalTradeOpened && (Trade.PlayerWindowCache?.Items?.Count ?? -1) == 0 &&
+                offered != null && offered.Count == 1 && offered[0].Id == expected.AoId &&
+                offered[0].HighId == expected.HighId && offered[0].Ql == expected.Ql &&
+                completed != null && completed.Identity == DynelManager.LocalPlayer.Identity && completed.Action == TradeAction.Complete)
+                work.NativePurchaseCompleted = true;
             var template = body as AddTemplateMessage;
             if (template != null && template.Identity == DynelManager.LocalPlayer.Identity &&
                 template.LowId == expected.AoId && template.HighId == expected.HighId && template.Quality == expected.Ql)
@@ -276,7 +285,8 @@ namespace CityBankers
 
         private void BindPurchasedBag(BagShopWork work)
         {
-            if (!work.NativePurchaseStarted || work.TemplateReceipts != 1 || work.NativeBags.Count != 1 ||
+            if (!work.NativePurchaseStarted ||
+                !(work.TemplateReceipts == 1 || (work.TemplateReceipts == 0 && work.NativePurchaseCompleted)) || work.NativeBags.Count != 1 ||
                 (_publicTradePartner != Identity.None && _publicTradeStarted)) return;
             var expected = work.Receipt.Expected.Single();
             var before = work.Receipt.BeforeSlots;
@@ -310,7 +320,10 @@ namespace CityBankers
             if (ReferenceEquals(_bagShop, work)) _bagShop = null;
             Logger.Warning("[CityBankers] BAG SHOP purchase receipt pending " + work.Receipt.TransactionId +
                 "; template receipts=" + work.TemplateReceipts + "; native containers=" + work.NativeBags.Count +
-                "; no repeat purchase; other banking continues.");
+                "; original shop complete=" + work.NativePurchaseCompleted + "; refreshing native inventory before further transfers.");
+            // CFU can arrive without an SDK inventory slot. Its next-free-slot
+            // guesses must not be used to offer another player's requested item.
+            StartupCensusGate.Block("Resolve pending backpack purchase " + work.Receipt.TransactionId + " from fresh native custody.");
         }
 
         private void CloseBagShop(BagShopWork work)

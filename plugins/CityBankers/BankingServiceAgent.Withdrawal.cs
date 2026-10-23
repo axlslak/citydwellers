@@ -48,6 +48,7 @@ namespace CityBankers
             }
         }
         private readonly Stopwatch _withdrawalPhaseAge = Stopwatch.StartNew();
+        private string _withdrawalPreparingAttempt;
         private Stopwatch _withdrawalClosedAge;
         private StorageBagState _withdrawalBag;
         private string _withdrawalBagIdentity;
@@ -112,9 +113,9 @@ namespace CityBankers
             if (!_failedWithdrawalRecovery.Add(row.Id)) return;
             var manager = CityDwellers.Shared.ManagerMemory.Current;
             if (!string.IsNullOrWhiteSpace(row.SourceCharacter))
-                manager.RequestBankerRecovery(row.SourceCharacter, "Resolve failed withdrawal " + row.Id + "; the player job has ended.");
+                manager.RequestFailedWithdrawalRecovery(row.SourceCharacter, row.Id, "Resolve failed withdrawal " + row.Id + "; the player job has ended.");
             if (!string.IsNullOrWhiteSpace(row.CentralItemIdentity) || !string.IsNullOrWhiteSpace(row.TransferAttemptId))
-                manager.RequestBankerRecovery(_centralCharacter, "Resolve failed withdrawal " + row.Id + " from actual native custody.");
+                manager.RequestFailedWithdrawalRecovery(_centralCharacter, row.Id, "Resolve failed withdrawal " + row.Id + " from actual native custody.");
         }
 
         private bool TickWithdrawalCentral()
@@ -290,7 +291,9 @@ namespace CityBankers
             List<WithdrawalState> rows = WithdrawalStore.LoadAll(_settingsDir);
             WithdrawalState transfer = rows.FirstOrDefault(row => WithdrawalStore.HasStatus(row, "extracting") &&
                 (_isCentral
-                    ? string.Equals(row.SourceCharacter, targetName, StringComparison.OrdinalIgnoreCase)
+                    ? _withdrawalReceiveReserved && _withdrawal != null && row.Id == _withdrawal.Id &&
+                      !string.IsNullOrWhiteSpace(row.TransferAttemptId) && row.TransferAttemptId == _withdrawal.TransferAttemptId &&
+                      string.Equals(row.SourceCharacter, targetName, StringComparison.OrdinalIgnoreCase)
                     : string.Equals(row.SourceCharacter, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
                       string.Equals(targetName, _centralCharacter, StringComparison.OrdinalIgnoreCase)));
             if (transfer != null)
@@ -662,8 +665,12 @@ namespace CityBankers
             if (central == null) return;
             if (_withdrawalPreparation == null)
             {
-                _withdrawal.TransferAttemptId = Guid.NewGuid().ToString("N");
-                WithdrawalStore.Save(_settingsDir, _withdrawal);
+                if (_withdrawalPreparingAttempt == null)
+                {
+                    _withdrawal.TransferAttemptId = Guid.NewGuid().ToString("N");
+                    WithdrawalStore.Save(_settingsDir, _withdrawal);
+                    _withdrawalPreparingAttempt = _withdrawal.TransferAttemptId;
+                }
                 _withdrawalPreparationAge.Restart();
                 _withdrawalPreparation = AskWithdrawalPreparation(WithdrawalCommand(_withdrawal));
                 return;
@@ -681,6 +688,9 @@ namespace CityBankers
             // OpenTrade until the 30-second extraction deadline.
             if (!ready)
             {
+                // Central may be serving a player. Keep the queued preparation
+                // alive; the existing overall extraction deadline still applies.
+                if (preparationResult?.StartsWith("pending:", StringComparison.Ordinal) == true) SetWithdrawalDeadline();
                 string blocker = preparationResult ?? "pending:no-response";
                 if (!string.Equals(_withdrawalPreparationBlocker, blocker, StringComparison.Ordinal))
                 {
@@ -699,7 +709,6 @@ namespace CityBankers
                     Logger.Warning("[CityBankers] WITHDRAWAL PREPARE WAIT " +
                         (_withdrawal?.Id ?? "?") + ": " + blocker + ".");
                 }
-                if (preparationResult?.StartsWith("pending:", StringComparison.Ordinal) == true) SetWithdrawalDeadline();
                 return;
             }
             _withdrawalPreparationBlocker = null;
@@ -1036,10 +1045,6 @@ namespace CityBankers
         private static bool MatchesWithdrawalItem(Item item, WithdrawalState state)
         {
             if (item == null || state?.Item == null) return false;
-            if (!string.IsNullOrWhiteSpace(state.SourceItemIdentity) &&
-                !string.Equals(state.SourceItemIdentity, "(None:0000)", StringComparison.Ordinal) &&
-                string.Equals(item.UniqueIdentity.ToString(), state.SourceItemIdentity, StringComparison.Ordinal))
-                return true;
             return item.Id == state.Item.AoId && item.HighId == state.Item.HighId && item.Ql == state.Item.Ql;
         }
 
@@ -1120,7 +1125,7 @@ namespace CityBankers
                          state.Item?.Name ?? string.Empty,
                          StringComparison.OrdinalIgnoreCase) && item.Ql == state.Item.Ql))
                     .ToList();
-                if (anchored.Count == 1)
+                if (anchored.Count == 1 && MatchesWithdrawalItem(anchored[0], state))
                     return anchored[0];
             }
 
@@ -1128,7 +1133,7 @@ namespace CityBankers
             {
                 List<Item> exactCentral = inventory.Where(item =>
                     item.UniqueIdentity.ToString() == state.CentralItemIdentity).ToList();
-                return exactCentral.Count == 1 ? exactCentral[0] : null;
+                return exactCentral.Count == 1 && MatchesWithdrawalItem(exactCentral[0], state) ? exactCentral[0] : null;
             }
 
             if (IsUsableIdentity(state?.ExtractedItemIdentity))
@@ -1137,7 +1142,7 @@ namespace CityBankers
                     item.UniqueIdentity.ToString(),
                     state.ExtractedItemIdentity,
                     StringComparison.Ordinal)).ToList();
-                if (exactExtracted.Count == 1)
+                if (exactExtracted.Count == 1 && MatchesWithdrawalItem(exactExtracted[0], state))
                     return exactExtracted[0];
             }
 
@@ -1148,7 +1153,7 @@ namespace CityBankers
                     item.UniqueIdentity.ToString(),
                     state.SourceItemIdentity,
                     StringComparison.Ordinal)).ToList();
-                if (exact.Count == 1)
+                if (exact.Count == 1 && MatchesWithdrawalItem(exact[0], state))
                     return exact[0];
             }
 
@@ -1164,15 +1169,14 @@ namespace CityBankers
                 return matches[0];
             if (_isCentral) return null; // Never reuse a worker-side extraction slot on Central.
 
-            // AO can assign a different live identity/template representation while moving
-            // a bag item into normal inventory. The pre-move slot census still proves which
-            // single new slot appeared, and name+QL ties that occurrence to the reservation.
-            // This is deliberately unique-or-nothing so an unrelated inventory change can
-            // never be guessed as the withdrawn item.
+            // If several matching copies exist, select only the new occurrence.
+            // A name or identity must never substitute for the requested template.
             var priorSlots = new HashSet<int>(state.PreExtractionInventorySlots ?? new List<int>());
             List<Item> named = inventory.Where(item =>
+                    MatchesWithdrawalItem(item, state) &&
                     string.Equals(item.Name ?? string.Empty, state.Item.Name ?? string.Empty,
                         StringComparison.OrdinalIgnoreCase) &&
+                    item.Ql == state.Item.Ql &&
                     (priorSlots.Count == 0 || !priorSlots.Contains(item.Slot.Instance)) &&
                     !others.Any(row => IsUsableIdentity(row.CentralItemIdentity) &&
                         row.CentralItemIdentity == item.UniqueIdentity.ToString()))
@@ -1217,6 +1221,7 @@ namespace CityBankers
         private void ResetWithdrawalTrade()
         {
             _withdrawalPreparation = null;
+            _withdrawalPreparingAttempt = null;
             _withdrawalPreparationBlocker = null;
             _withdrawalTradeOpened = false;
             _withdrawalItemOffered = false;

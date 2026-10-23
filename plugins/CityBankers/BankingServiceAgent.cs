@@ -994,6 +994,11 @@ namespace CityBankers
                     return;
                 }
 
+                // Preparation already reserved this exact worker transfer. Staged
+                // supply bags must not turn that permission into a refusal.
+                if (_isCentral && _withdrawalReceiveReserved && _bankLayout == null && _storageJob == null &&
+                    TryHandleWithdrawalTradeOpened(target, targetName))
+                    return;
                 if (_bankLayout != null || _storageJob != null || _reserveOperation != null || _bagShop != null ||
                     _stackOperation != null || _extraction != null ||
                     StorageBagPolicy.AllBagRecords().Any(r => r.Location == "inventory"))
@@ -1289,6 +1294,8 @@ namespace CityBankers
                     {
                         if (_publicTradePause.ElapsedMilliseconds <= ServicePolicy.ItemMoveTimeoutMs) return true;
                         DeferBagPurchase(_bagShop);
+                        TryDeclineTrade(); // A real inventory fault; retain the order through local recovery.
+                        return true;
                     }
                 }
                 if (PublicInventoryMovePending())

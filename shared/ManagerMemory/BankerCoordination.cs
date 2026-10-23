@@ -67,6 +67,20 @@ namespace CityDwellers.Shared
         public string BankerStorageWork(string character)
         { lock (_bankerSync) { string batch; return _bankerStorageWork.TryGetValue(character, out batch) ? batch : null; } }
         private readonly Dictionary<string, string> _bankerRecovery = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, HashSet<string>> _failedWithdrawalRecoveries = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        public void RequestFailedWithdrawalRecovery(string character, string withdrawalId, string reason)
+        {
+            lock (_bankerSync)
+            {
+                if (string.IsNullOrEmpty(character) || string.IsNullOrEmpty(withdrawalId)) return;
+                HashSet<string> requested;
+                if (!_failedWithdrawalRecoveries.TryGetValue(character, out requested))
+                    _failedWithdrawalRecoveries[character] = requested = new HashSet<string>(StringComparer.Ordinal);
+                // Taking the queued request must not let another actor enqueue
+                // the same terminal job while its first recovery is running.
+                if (requested.Add(withdrawalId)) _bankerRecovery[character] = reason;
+            }
+        }
         public void RequestBankerRecovery(string character, string reason)
         { lock (_bankerSync) if (!string.IsNullOrEmpty(character)) _bankerRecovery[character] = reason; }
         public string TakeBankerRecovery(string character)

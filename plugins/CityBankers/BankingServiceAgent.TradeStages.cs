@@ -113,6 +113,8 @@ namespace CityBankers
             if (_receipt != null) return "receipt-" + (_receipt.Kind ?? "unknown");
             if (_activeBatch != null) return "active-batch-" + (_activeBatch.BatchId ?? "unknown");
             if (_bankLayout != null || _reserveOperation != null) return "bag-return-in-progress";
+            if (_storageJob != null || _stackOperation != null || _bagShop != null || _storageRecovery != null)
+                return "local-movement-in-progress";
             if (_returnOffer != null) return "return-offer";
             if (_donationActive) return "donation-active";
             if (_donationCleanup != null) return "donation-cleanup";
