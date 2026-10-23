@@ -227,6 +227,16 @@ namespace CityBankers
             var own = storage.Workers.SingleOrDefault(w => SameCharacter(w.Character, character)) ??
                 new StorageWorkerState { Character = character, Role = _role };
             var ledger = manager.ReadLedger(transaction);
+            var confirmedDeliveryIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var delivered in manager.ReadWithdrawals(transaction).Withdrawals.Where(request =>
+                WithdrawalStore.HasConfirmedDelivery(request) && request.DeliveredUtc.HasValue))
+            {
+                var original = ledger.Items.SingleOrDefault(entry => entry.Id == delivered.ActiveLedgerId && SameCharacter(entry.Character, character));
+                if (original == null) continue;
+                ActiveLedgerStore.RecordCensusConfirmedDelivery(_settingsDir, delivered, original);
+                confirmedDeliveryIds.Add(original.Id);
+                ledger.Items.Remove(original);
+            }
             var physical = StorageBagPolicy.AllBagRecords().GroupBy(b => b.Identity).Select(g =>
                 g.OrderBy(b => b.Location == "inventory" ? 0 : 1).ThenBy(b => b.OuterSlot).First()).ToList();
             var previousBags = own.Bags.ToList();
@@ -329,6 +339,7 @@ namespace CityBankers
             ActiveLedgerStore.ApplyCensus(_settingsDir, merged, observations.Select(o => new TransferItemState {
                 AoId = o.Item.LowId, HighId = o.Item.HighId, Ql = o.Item.Ql, Name = o.Item.Name,
                 UniqueIdentity = o.Item.UniqueIdentity }), "automatic-recovery:" + repair.Id,
+                confirmedDeliveryIds: confirmedDeliveryIds,
                 missingReason: "Claim unavailable after automatic native inventory recovery; cause unconfirmed. " + reason);
             foreach (var difference in plan.Differences.Where(d => d.Kind != "location-confirmed"))
                 manager.RecordItemHistory(transaction, new ActiveHistoryRecord { LeftUtc = DateTime.UtcNow,
@@ -343,6 +354,14 @@ namespace CityBankers
                 b.Status != "queued" && b.Status != "completed" && b.Status != "stored"));
             if (_isCentral)
             {
+                // A queued row is not native staging evidence after reconnect.
+                // Replan only unsent exact shells now observed back in the bank.
+                queue.Batches.RemoveAll(batch => batch.Status == "queued" && IsReserveBatch(batch.Items) &&
+                    batch.Items.All(item => physical.Any(record => record.Identity.ToString() == item.UniqueIdentity)) &&
+                    batch.Items.Any(item => physical.Any(record => record.Identity.ToString() == item.UniqueIdentity && record.Location != "inventory")) &&
+                    !manager.ReadCharacterReceipts(transaction, character).Concat(manager.ReadCharacterReceipts(transaction, batch.Character))
+                        .Any(receipt => receipt.BatchId == batch.BatchId && receipt.Direction != 0) &&
+                    !(manager.ReadStorageResult(transaction, batch.Character) is StorageBatchResult stored && stored.BatchId == batch.BatchId && stored.Success));
                 queue.Batches.RemoveAll(b => b.Status == "queued" && !IsReserveBatch(b.Items));
                 var routingPlan = new PhysicalLedgerReconciliation.Plan { Items = merged.Where(e =>
                     observations.Any(o => !o.Bag.HasValue && o.Location == "inventory" && o.Slot == e.Slot &&

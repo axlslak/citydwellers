@@ -64,7 +64,10 @@ namespace CityBankers
             if (TickBankLayout()) return true;
             var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
             var worker = storage.Workers.Single(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
-            bool inventoryBags = StorageBagPolicy.AllBagRecords().Any(r => r.Location == "inventory");
+            var stagedSupply = _isCentral ? new HashSet<string>(ReadReserve().Bags
+                .Where(bag => !bag.Delivered && !bag.Quarantined).Select(bag => bag.Identity)) : new HashSet<string>();
+            bool inventoryBags = StorageBagPolicy.AllBagRecords().Any(r => r.Location == "inventory" &&
+                !stagedSupply.Contains(r.Identity.ToString()));
             if (_isCentral && inventoryBags)
             {
                 // Only Central's own staged shells need its trade window. Other
@@ -220,9 +223,12 @@ namespace CityBankers
                 if (inventory.Count == 0) return false;
                 // Reserve donations/purchases have their own exact receipt and
                 // empty verification actor; do not adopt an unknown container.
+                var reserveOwned = _isCentral ? new HashSet<string>(ReadReserve().Bags
+                    .Where(bag => !bag.Delivered && !bag.Quarantined).Select(bag => bag.Identity)) : new HashSet<string>();
                 var candidates = inventory.Select(r => new { Record = r,
                     State = worker.Bags.SingleOrDefault(b => b.LastUniqueIdentity == r.Identity.ToString()) })
-                    .Where(r => r.State?.Items != null).OrderByDescending(r => r.State.Items.Count).ToList();
+                    .Where(r => r.State?.Items != null && !reserveOwned.Contains(r.Record.Identity.ToString()))
+                    .OrderByDescending(r => r.State.Items.Count).ToList();
                 var filled = candidates.FirstOrDefault(r => r.State.Items.Count > 0 || r.State.Capacity == 0);
                 if (ReserveBankFreeSlots > 0 && (filled != null || StorageBagPolicy.AllBagRecords().Count <= StorageBankBagTarget))
                 {

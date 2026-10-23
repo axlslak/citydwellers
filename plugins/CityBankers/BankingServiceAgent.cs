@@ -1349,6 +1349,7 @@ namespace CityBankers
         {
             var paused = _publicTradePause.Elapsed;
             if (_reserveOperation != null) _reserveOperation.StartedUtc += paused;
+            foreach (string id in _supplyMoveStartedUtc.Keys.ToList()) _supplyMoveStartedUtc[id] += paused;
             if (_bankLayout != null) _bankLayout.StartedUtc += paused;
             if (_storageJob != null) _storageJob.DeadlineUtc += paused;
             if (_layoutActionAge.IsRunning) _layoutActionAge.Restart();

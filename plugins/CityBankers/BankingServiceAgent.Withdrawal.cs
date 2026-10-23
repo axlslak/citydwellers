@@ -916,26 +916,47 @@ namespace CityBankers
 
         private void CompleteWithdrawalAccounting(WithdrawalState state)
         {
-            if (!CruPolicy.IsCru(state) && !ActiveLedgerStore.ArchiveActiveItemById(
-                    _settingsDir, state.ActiveLedgerId,
-                    state.DeliveredUtc ?? DateTime.UtcNow,
-                    "withdrawn", state.RecipientMain))
+            bool completed = CityDwellers.Shared.ManagerAccounting.Transaction("Complete confirmed withdrawal", () =>
             {
-                throw new InvalidOperationException("AO delivered the item, but active-ledger archival is still pending.");
-            }
-            state.Status = "completed";
-            WithdrawalStore.Save(_settingsDir, state);
-            RuntimeStateStore.AppendLedger(_settingsDir, new LedgerRecord
-            {
-                Utc = state.DeliveredUtc ?? DateTime.UtcNow,
-                Event = "member_withdrawal_completed",
-                TransactionId = state.Id,
-                Actor = Client.CharacterName,
-                Source = Client.CharacterName,
-                Destination = state.RecipientMain,
-                Message = "AO Finished confirmed reserved item delivery to the canonical AP member.",
-                Items = new List<LedgerItem> { ToLedgerItem(state.Item, state.SourceRole, null, null, null) }
+                var manager = CityDwellers.Shared.ManagerMemory.Current;
+                string transaction = CityDwellers.Shared.ManagerAccounting.TransactionId;
+                state = manager.ReadWithdrawals(transaction).Withdrawals.Single(row => row.Id == state.Id);
+                if (WithdrawalStore.HasStatus(state, "completed")) return false;
+                if (!WithdrawalStore.HasConfirmedDelivery(state) || !state.DeliveredUtc.HasValue)
+                    throw new InvalidOperationException("Withdrawal accounting requires its original confirmed delivery and time.");
+                var lost = manager.ReadLostItems(transaction);
+                bool hasClaim = !string.IsNullOrWhiteSpace(state.ActiveLedgerId);
+                if (!CruPolicy.IsCru(state) && hasClaim && !ActiveLedgerStore.ArchiveActiveItemById(
+                    _settingsDir, state.ActiveLedgerId, state.DeliveredUtc.Value, "withdrawn", state.RecipientMain))
+                {
+                    // Native delivery is already durable. Recovery may have moved
+                    // its old claim into history; never substitute another copy.
+                    var original = manager.ReadItemHistory(transaction).SelectMany(record => new[] { record.Item, record.CurrentItem })
+                        .Concat(lost.Entries.Select(record => record.PreviousLedgerEntry)).FirstOrDefault(entry => entry != null &&
+                            entry.Id == state.ActiveLedgerId && entry.TransactionId == state.DonationTransactionId &&
+                            entry.AoId == state.Item.AoId && (!entry.HighId.HasValue || entry.HighId == state.Item.HighId) &&
+                            (!entry.Ql.HasValue || entry.Ql == state.Item.Ql));
+                    ActiveLedgerStore.RecordCensusConfirmedDelivery(_settingsDir, state, original);
+                }
+                foreach (var claim in lost.Entries.Where(claim => hasClaim && claim.LedgerId == state.ActiveLedgerId &&
+                    (claim.PreviousLedgerEntry == null || claim.PreviousLedgerEntry.Id == state.ActiveLedgerId)))
+                    claim.ExcludedReason = "AO-confirmed withdrawal delivery " + state.Id;
+                manager.ChangeLostItems(transaction, lost);
+                state.Status = "completed";
+                state.Error = null;
+                WithdrawalStore.Save(_settingsDir, state);
+                if (!manager.ReadTransactions(transaction).Any(record => record.Event == "member_withdrawal_completed" && record.TransactionId == state.Id))
+                    RuntimeStateStore.AppendLedger(_settingsDir, new LedgerRecord
+                    {
+                        Id = "withdrawal-complete:" + state.Id, Utc = state.DeliveredUtc.Value,
+                        Event = "member_withdrawal_completed", TransactionId = state.Id,
+                        Actor = Client.CharacterName, Source = Client.CharacterName, Destination = state.RecipientMain,
+                        Message = "AO Finished confirmed reserved item delivery to the canonical AP member; original donor metadata is preserved where available.",
+                        Items = new List<LedgerItem> { ToLedgerItem(state.Item, state.SourceRole, null, null, null) }
+                    });
+                return true;
             });
+            if (!completed) return;
             TellPlayer(state.RequestedBy,
                 CityBankersChatPalette.Green("Pickup complete") + ": " +
                 CityBankersChatPalette.ItemLabel(state.Item.AoId, state.Item.HighId, state.Item.Ql, state.Item.Name) +

@@ -22,6 +22,7 @@ namespace CityBankers
         private bool _reserveResumeChecked;
         private Container _reserveBefore;
         private readonly HashSet<string> _supplyMoves = new HashSet<string>();
+        private readonly Dictionary<string, DateTime> _supplyMoveStartedUtc = new Dictionary<string, DateTime>();
         private string ReservePath => Path.Combine(RuntimeStateStore.GetDataDirectory(_settingsDir), "bag-recovery", "central-reserve.json");
         private string ReserveMovePath => Path.Combine(RuntimeStateStore.GetDataDirectory(_settingsDir),
             "bag-recovery", Client.CharacterName.ToLowerInvariant(), "reserve-move.json");
@@ -100,7 +101,13 @@ namespace CityBankers
             var preparing = state.Bags.FirstOrDefault(b => !b.Delivered && !b.Quarantined && b.Destination != null &&
                 !queue.Batches.Any(q => q.BatchId == b.Batch) &&
                 records.Any(r => r.Identity.ToString() == b.Identity));
-            if (preparing != null) { BeginReserveOperation(preparing.Identity, "dispatch"); return true; }
+            if (preparing != null)
+            {
+                int banked = records.Count(record => record.Location == "bank" && state.Bags.Any(bag =>
+                    bag.Batch == preparing.Batch && bag.Identity == record.Identity.ToString()));
+                if (Inventory.NumFreeSlots < banked) return false;
+                BeginReserveOperation(preparing.Identity, "dispatch"); return true;
+            }
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
             var target = storage.Workers.Where(w => w.Role != "central" &&
                     _config.Roles.Any(p => CityDwellers.Shared.BankerRoles.Canonical(p.Key) == w.Role &&
@@ -196,7 +203,12 @@ namespace CityBankers
             {
                 if (Inventory.NumFreeSlots < banked.Count) return;
                 foreach (var record in banked)
-                    if (_supplyMoves.Add(record.Identity.ToString())) record.Bag.MoveToInventory();
+                    if (_supplyMoves.Add(record.Identity.ToString()))
+                    {
+                        record.Bag.MoveToInventory();
+                        _supplyMoveStartedUtc[record.Identity.ToString()] = DateTime.UtcNow;
+                        Logger.Information("[CityBankers] BAG SUPPLY inventory move sent " + record.Identity + "; source=" + record.Bag.Slot + "; batch=" + batch + ".");
+                    }
                 return;
             }
             var first = group[0];
@@ -209,7 +221,8 @@ namespace CityBankers
                     UpdatedUtc = DateTime.UtcNow, Items = SnapshotTradeItems(staged.Select(r => r.Bag)) });
                 RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
             });
-            foreach (var bag in group) _supplyMoves.Remove(bag.Identity);
+            foreach (var bag in group)
+            { _supplyMoves.Remove(bag.Identity); _supplyMoveStartedUtc.Remove(bag.Identity); }
             Logger.Information("[CityBankers] BAG SUPPLY queued " + group.Count + " bags -> " + first.Destination + ".");
         }
 
@@ -266,7 +279,7 @@ namespace CityBankers
             _layoutReconnectBefore = null; _layoutActionAge.Reset();
             _reserveOperation = null;
             _reserveBefore = null;
-            _reserveArrivalAfter.Clear(); _reserveEmptyArrivals.Clear(); _supplyMoves.Clear();
+            _reserveArrivalAfter.Clear(); _reserveEmptyArrivals.Clear(); _supplyMoves.Clear(); _supplyMoveStartedUtc.Clear();
         }
 
         private void ResumeReserveWork()
@@ -407,6 +420,7 @@ namespace CityBankers
         {
             if (purpose == "dispatch")
             {
+                _supplyMoves.Clear(); _supplyMoveStartedUtc.Clear();
                 _reserveOperation = new ReserveOperation { Identity = identity, Purpose = purpose,
                     Phase = "start", StartedUtc = DateTime.UtcNow };
                 SaveReserveOperation();
@@ -470,11 +484,32 @@ namespace CityBankers
             {
                 var supply = ReadReserve();
                 var batch = supply.Bags.Single(b => b.Identity == op.Identity).Batch;
+                int banked = StorageBagPolicy.AllBagRecords().Count(record => record.Location == "bank" && supply.Bags.Any(bag =>
+                    bag.Batch == batch && bag.Identity == record.Identity.ToString()));
+                if (_supplyMoveStartedUtc.Count == 0 && Inventory.NumFreeSlots < banked)
+                {
+                    // A player may have filled slots before the first send. Keep
+                    // the intent, but release this actor so ordinary work can free room.
+                    op.Phase = "completed"; SaveReserveOperation(); _reserveOperation = null;
+                    return false;
+                }
                 QueueBagSupply(supply, batch);
                 if (RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b => b.BatchId == batch))
                 { op.Phase = "completed"; SaveReserveOperation(); _reserveOperation = null; }
-                else if ((DateTime.UtcNow - op.StartedUtc).TotalMilliseconds > ServicePolicy.BagMoveTimeoutMs)
-                    throw new InvalidOperationException("Bag supply bank move did not finish: " + batch);
+                else
+                {
+                    var current = StorageBagPolicy.AllBagRecords();
+                    var remaining = current.Where(record => record.Location != "inventory" &&
+                        supply.Bags.Any(bag => bag.Batch == batch && bag.Identity == record.Identity.ToString())).ToList();
+                    var arrived = new HashSet<string>(current.Where(record => record.Location == "inventory").Select(record => record.Identity.ToString()));
+                    foreach (var completed in _supplyMoveStartedUtc.Keys.Where(arrived.Contains).ToList())
+                    { _supplyMoveStartedUtc.Remove(completed); _supplyMoves.Remove(completed); }
+                    if (_supplyMoveStartedUtc.Any(move => (DateTime.UtcNow - move.Value).TotalMilliseconds > ServicePolicy.BagMoveTimeoutMs))
+                        throw new InvalidOperationException("Bag supply bank move did not finish: " + batch +
+                            "; remaining=" + string.Join(",", remaining.Select(record => record.Identity + "/" + record.Bag.Slot)) +
+                            "; sent=" + string.Join(",", _supplyMoveStartedUtc.Select(move => move.Key + "@" + move.Value.ToString("O"))) +
+                            "; inventory free=" + Inventory.NumFreeSlots + ".");
+                }
                 return true;
             }
             string error;

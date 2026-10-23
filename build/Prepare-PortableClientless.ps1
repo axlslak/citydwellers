@@ -74,6 +74,8 @@ try {
 # Bound the malformed HQ array before allocation in the deployed copy only.
 . (Join-Path $PSScriptRoot 'Protect-ClientlessPacketArrays.ps1')
 Protect-ClientlessPlayfieldArrayAllocation $root
+. (Join-Path $PSScriptRoot 'Protect-ClientlessChatFrames.ps1')
+Protect-ClientlessChatFrames $root
 
 # Mono probes the assembly identity, including filename case. Windows copies
 # may preserve an old destination's case, so use a two-step rename there too.
