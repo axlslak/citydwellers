@@ -2513,7 +2513,8 @@ namespace CityBankers
             if (Trade.PlayerWindowCache.Items.Count != 0 ||
                 !IsManifestSubset(offered, _workerCommand.Items))
             {
-                FailWorkerCommand("Dispatch trade windows contradict the prepared item manifest.");
+                Logger.Warning("[CityBankers] DISPATCH MANIFEST MISMATCH " + DispatchManifestDiagnostic(_workerCommand));
+                FailWorkerCommand(DispatchManifestMismatchError);
                 return;
             }
             // Trust this client's AO trade window. A partial cache is not enough,

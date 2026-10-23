@@ -170,6 +170,26 @@ namespace CityBankers
             return seen.GroupBy(CustodyKey).All(g => counts.ContainsKey(g.Key) && counts[g.Key] >= g.Count());
         }
 
+        private const string DispatchManifestMismatchError = "Dispatch trade windows contradict the prepared item manifest.";
+
+        private string DispatchManifestDiagnostic(DispatchCommand command)
+        {
+            Func<IEnumerable<Item>, string> raw = items => items == null ? "unavailable" : string.Join(";", items.Select(item =>
+                item == null ? "null" : item.Id + "/" + item.HighId + "/" + item.Ql +
+                    " slot=" + item.Slot + " identity=" + item.UniqueIdentity + " quantity=" + StackableItems.Quantity(item)));
+            var expected = command.Items ?? new List<TransferItemState>();
+            var seen = SnapshotTradeItems(Trade.TargetWindowCache.Items);
+            var counts = expected.GroupBy(CustodyKey).ToDictionary(group => group.Key, group => group.Count());
+            string differences = string.Join(";", seen.GroupBy(CustodyKey).Select(group => {
+                int count; counts.TryGetValue(group.Key, out count);
+                return group.Count() <= count ? null : group.Key + " seen=" + group.Count() + " expected=" + count;
+            }).Where(value => value != null));
+            return "attempt=" + command.AttemptId + "; batch=" + command.BatchId +
+                "; expected=[" + string.Join(";", expected.Select(item => CustodyKey(item) + " quantity=" + item.Quantity)) +
+                "]; local=[" + raw(Trade.PlayerWindowCache.Items) + "]; remote=[" + raw(Trade.TargetWindowCache.Items) +
+                "]; differences=[" + differences + "].";
+        }
+
         private bool DispatchWindowsConsistent(DispatchCommand command)
         {
             var local = Trade.PlayerWindowCache?.Items;

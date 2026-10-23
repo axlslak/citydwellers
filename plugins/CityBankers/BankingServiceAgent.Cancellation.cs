@@ -27,6 +27,21 @@ namespace CityBankers
         private readonly Dictionary<string, Stopwatch> _cancellationSettling = new Dictionary<string, Stopwatch>();
         private string _cancellationError;
 
+        private bool RecoverCancelledDispatchReceiver(DispatchBatchState batch)
+        {
+            var result = RuntimeStateStore.ReadStorageResult(_settingsDir, batch.Character);
+            if (result == null || result.Success || result.BatchId != batch.BatchId ||
+                result.TransactionId != batch.TransactionId || !string.Equals(result.Character, batch.Character, StringComparison.OrdinalIgnoreCase) ||
+                result.Error?.StartsWith(DispatchManifestMismatchError, StringComparison.Ordinal) != true) return false;
+            // Cancellation has already proved that stock is still on Central.
+            // Refresh the receiver's native cache before repeating its rejection.
+            CityDwellers.Shared.ManagerMemory.Current.RequestBankerRecovery(batch.Character,
+                "Dispatch receiver cache rejected the prepared manifest; refresh affected receiver before retry. " + result.Error);
+            Logger.Warning("[CityBankers] DISPATCH receiver recovery requested for " + batch.Character +
+                "; batch=" + batch.BatchId + "; stock remains on Central. " + result.Error);
+            return true;
+        }
+
         private static bool SameManifest(IEnumerable<TransferItemState> a, IEnumerable<TransferItemState> b) =>
             a != null && b != null && a.All(i => i != null) && b.All(i => i != null) &&
             a.Select(CustodyKey).OrderBy(k => k).SequenceEqual(b.Select(CustodyKey).OrderBy(k => k));
@@ -166,12 +181,15 @@ namespace CityBankers
                         RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
                         _workerRetries[batch.Character] = Stopwatch.StartNew();
 
+                        bool receiverRecovery = RecoverCancelledDispatchReceiver(batch);
+                        string outcome = receiverRecovery ? "sender-verified-retry-after-receiver-recovery" : "sender-verified-retry-queued";
+
                         owner.ChangeCancellation(
                             transaction,
                             new CancellationPair
                             {
                                 AttemptId = source.AttemptId,
-                                Outcome = "sender-verified-retry-queued",
+                                Outcome = outcome,
                                 Sender = source,
                                 Receiver = IsCancellationProof(receiver) ? receiver : null,
                                 OriginalBatch = original
@@ -183,7 +201,7 @@ namespace CityBankers
                         Logger.Information(
                             "[CityBankers] DISPATCH CANCELLATION RECONCILED " +
                             source.BatchId + "; attempt=" + source.AttemptId +
-                            "; sender-verified-retry-queued. Central exact inventory " +
+                            "; " + outcome + ". Central exact inventory " +
                             "and attempt-bound ledger custody remained unchanged; " +
                             "receiver cancellation proof was not required.");
                         return true;
@@ -335,6 +353,7 @@ namespace CityBankers
                             }
                             RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
                             _workerRetries[batch.Character] = Stopwatch.StartNew();
+                            if (available && RecoverCancelledDispatchReceiver(batch)) outcome = "retry-after-receiver-recovery";
                         }
                         // A retry uses a new batch ID as well as a new attempt ID:
                         // old storage replies cannot affect it. A completion-write
@@ -380,3 +399,4 @@ namespace CityBankers
         }
     }
 }
+
