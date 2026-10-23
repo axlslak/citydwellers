@@ -132,34 +132,32 @@ namespace CityBankers
             }
             SaveReserve(state);
             bool reserveQueued = queue.Batches.Any(b => IsReserveBatch(b.Items));
-            var candidate = state.Bags.Where(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
+            var availableBags = state.Bags.Where(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
                     !queue.Batches.Any(batch => batch.Items.Any(i => i.UniqueIdentity == b.Identity)))
                 .Select(b => new { Reserve = b, Physical = records.SingleOrDefault(r => r.Identity.ToString() == b.Identity) })
-                .Where(b => b.Physical != null).OrderBy(b => b.Physical.Location == "inventory" ? 0 : 1).FirstOrDefault();
+                .Where(b => b.Physical != null).OrderBy(b => b.Physical.Location == "inventory" ? 0 : 1).ToList();
+            var candidate = availableBags.FirstOrDefault();
+            // Already staged bags occupy slots, but still belong to this batch.
+            // Count them as capacity and leave one spare slot for further moves.
+            int stagingCapacity = availableBags.Count(b => b.Physical.Location == "inventory") +
+                Math.Max(0, Inventory.NumFreeSlots - 1);
             bool surplusPending = storage.Workers.Any(w => w.Role != "central" && ready.Contains(w.Character) &&
                 w.Bags.Count > StorageBankBagTarget && w.Bags.Any(b => b.Source == "inventory") &&
                 string.Equals(LayoutDestination(w.Character), _centralCharacter, StringComparison.OrdinalIgnoreCase));
             // Only surplus actually destined for Central competes for this
             // actor. Direct twin transfers run independently of Central supply.
             if (surplusPending && (candidate == null || candidate.Physical.Location == "bank")) return false;
-            if (candidate != null && target != null && !reserveQueued && Inventory.NumFreeSlots >= 2)
+            if (candidate != null && target != null && !reserveQueued && stagingCapacity > 0)
             {
-                int desired = Math.Min(target.Missing, Math.Min(ServicePolicy.MaxInternalTradeItems, Inventory.NumFreeSlots - 1));
-                int available = state.Bags.Count(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
-                    records.Any(r => r.Identity.ToString() == b.Identity) &&
-                    !queue.Batches.Any(q => q.Items.Any(i => i.UniqueIdentity == b.Identity)));
-                bool purchasedOnly = state.Bags.Where(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
-                    records.Any(r => r.Identity.ToString() == b.Identity)).All(b =>
-                        b.Transaction?.StartsWith("reserve-shop-", StringComparison.Ordinal) == true);
+                int desired = Math.Min(target.Missing, Math.Min(ServicePolicy.MaxInternalTradeItems, stagingCapacity));
+                bool purchasedOnly = availableBags.All(b =>
+                    b.Reserve.Transaction?.StartsWith("reserve-shop-", StringComparison.Ordinal) == true);
                 // Exhaust existing backups first. Only freshly purchased stock
                 // is accumulated into a new full trade batch.
-                if (!surplusPending && purchasedOnly && available < desired && StartBagShop(state, storage, ready)) return true;
+                if (!surplusPending && purchasedOnly && availableBags.Count < desired && StartBagShop(state, storage, ready)) return true;
                 string batch = "bag-reserve-" + Guid.NewGuid().ToString("N");
                 string transaction = "bag-supply-" + Guid.NewGuid().ToString("N");
-                int count = Math.Min(target.Missing, Math.Min(ServicePolicy.MaxInternalTradeItems, Inventory.NumFreeSlots - 1));
-                var group = state.Bags.Where(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
-                    records.Any(r => r.Identity.ToString() == b.Identity) &&
-                    !queue.Batches.Any(q => q.Items.Any(i => i.UniqueIdentity == b.Identity))).Take(count).ToList();
+                var group = availableBags.Take(desired).Select(b => b.Reserve).ToList();
                 foreach (var bag in group)
                 { bag.Destination = target.Worker.Character; bag.Role = target.Worker.Role;
                     bag.Batch = batch; bag.Transaction = transaction; bag.EmptyProofBatch = null; }
