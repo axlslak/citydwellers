@@ -334,6 +334,7 @@ namespace CityBankers
                 ResumeBankLayout();
                 ResumeSurplusBagDisposal();
                 ResumeBagShopWork();
+                ResumeLocalStorageExtraction();
                 TickBankerIpc();
                 if (_bagShop == null) ResumeReserveWork();
                 if (_operationalHeartbeatAge.ElapsedMilliseconds >= 2000)
@@ -378,6 +379,7 @@ namespace CityBankers
                 // Disabled by owner: no automatic recovery audits. if (TickStorageRecovery()) return;
                 if (TickReserveOperation()) return;
                 if (TickRecoveryExtraction()) return;
+                if (TickInitialInventoryStorage()) return;
                 if (TickReturnTransfer()) return;
                 if (TickInitialBankSetup()) return;
                 if (TickBankLayout()) return;

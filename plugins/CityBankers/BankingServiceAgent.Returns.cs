@@ -59,6 +59,10 @@ namespace CityBankers
         private string ReturnDestination(ReturnOffer offer) => offer?.Destination ?? _centralCharacter;
         private bool IsReturnReceiver => _returnOffer != null &&
             string.Equals(ReturnDestination(_returnOffer), Client.CharacterName, StringComparison.OrdinalIgnoreCase);
+        private bool ReturnHasPhysicalWork => _returnOpened || _returnOpenRequested || _returnLocalVerified;
+        private static bool HasUnresolvedReturnReceipt(ReturnOffer offer) =>
+            CityDwellers.Shared.ManagerMemory.Current.ReadReturnReceipts(
+                CityDwellers.Shared.ManagerAccounting.TransactionId, offer.Id).Any(r => r.Phase != "applied" || r.Direction != 0);
 
         private static void SaveReturn(ReturnOffer offer, string phase)
         {
@@ -88,6 +92,7 @@ namespace CityBankers
             {
                 bool cancellable = IsLayoutReturn(offer) && SameReturn(recorded, offer) &&
                     !recorded.SenderReceiptVerified && !recorded.ReceiverReceiptVerified &&
+                    !HasUnresolvedReturnReceipt(offer) &&
                     !Trade.IsTrading && _receipt == null && !_returnOpened && !_returnLocalVerified &&
                     (_returnOffer == null || SameReturn(_returnOffer, offer));
                 if (cancellable)
@@ -158,6 +163,15 @@ namespace CityBankers
         private bool TickReturnTransfer()
         {
             if (_returnOffer == null) return false;
+            // Both physical sides publish to the same Manager. A lost request/
+            // reply must not hide a committed receipt or completed accounting.
+            var recorded = CityDwellers.Shared.ManagerMemory.Current.ReadReturn(
+                CityDwellers.Shared.ManagerAccounting.TransactionId, _returnOffer.Id);
+            if (recorded != null && SameReturn(recorded, _returnOffer))
+            {
+                if (recorded.CompletedUtc.HasValue) { ResetReturn(); return true; }
+                if (IsReturnReceiver) _returnSenderVerified |= recorded.SenderReceiptVerified;
+            }
             if (_returnLocalVerified)
             {
                 if (IsReturnReceiver)
@@ -188,7 +202,7 @@ namespace CityBankers
                 {
                     _returnWaitReported = true;
                     Logger.Warning("[CityBankers] Verified return still awaiting peer/accounting acknowledgement: " +
-                        _returnOffer.Id + "; IPC retries remain active.");
+                        _returnOffer.Id + "; Manager memory acknowledgement remains pending.");
                 }
                 return true;
             }
@@ -267,6 +281,8 @@ namespace CityBankers
         private bool TryReturnTradeOpened(Identity target, string name)
         {
             if (_returnOffer == null) return false;
+            if (_extraction?.LocalStorage == true || _storageJob?.LocalRecovery == true)
+            { Trade.Decline(); return true; }
             string expected = IsReturnReceiver ? _returnOffer.Source : ReturnDestination(_returnOffer);
             if (_returnLocalVerified || !string.Equals(name, expected, StringComparison.OrdinalIgnoreCase))
             { Trade.Decline(); return true; }
@@ -312,6 +328,15 @@ namespace CityBankers
 
         private Item FindReturnSourceItem()
         {
+            if (IsLayoutReturn(_returnOffer))
+            {
+                var bags = StorageBagPolicy.AllRecordsFor(_returnOffer.Item.UniqueIdentity, "inventory");
+                if (bags.Count != 1 || StorageBagPolicy.AllRecordsFor(_returnOffer.Item.UniqueIdentity, "bank").Count != 0)
+                    return null;
+                var bag = bags[0].Bag;
+                return bag.Id == _returnOffer.Item.AoId && bag.HighId == _returnOffer.Item.HighId &&
+                    bag.Ql == _returnOffer.Item.Ql ? bag : null;
+            }
             return Inventory.Items.FirstOrDefault(i => i != null && i.Slot.Type == IdentityType.Inventory &&
                 i.Slot.Instance == _returnOffer.SourceSlot && i.Id == _returnOffer.Item.AoId &&
                 i.HighId == _returnOffer.Item.HighId && i.Ql == _returnOffer.Item.Ql &&

@@ -22,6 +22,7 @@ namespace CityBankers
     public sealed class ExtractionProof
     {
         public string Id;
+        public bool LocalStorage;
             public string Phase;
         public string LedgerId;
         public string TransactionId;

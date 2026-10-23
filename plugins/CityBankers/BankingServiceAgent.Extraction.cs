@@ -68,12 +68,12 @@ namespace CityBankers
         private void ExtractionStep(ExtractionPhase phase)
         { _extractionPhase = phase; _extractionAge.Restart(); _extractionSignature = null; _extractionStable.Restart(); }
 
-        private void StartRecoveryExtraction()
+        private void StartRecoveryExtraction(bool localStorage = false)
         {
             if (_localCensus != null || _extraction != null || Trade.IsTrading || !Inventory.Bank.IsOpen || Inventory.NumFreeSlots < 3 ||
-                _receipt != null || _returnOffer != null || _storageJob != null || _workerCommand != null ||
+                _receipt != null || (!localStorage && _returnOffer != null) || _storageJob != null || _workerCommand != null ||
                 _reservedDispatch != null || _withdrawal != null || _activeBatch != null || _donationActive ||
-                _donationCleanup != null || _dispatchPreparation != null || _extractionScan.ElapsedMilliseconds < 1500) return;
+                _donationCleanup != null || _dispatchPreparation != null || (!localStorage && _extractionScan.ElapsedMilliseconds < 1500)) return;
             _extractionScan.Restart();
             if (CensusReservedHere()) return;
             var ledger = CityDwellers.Shared.BankerState.ReadLedgerForCharacter<ActiveLedgerState>(Client.CharacterName);
@@ -81,6 +81,15 @@ namespace CityBankers
             var withdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(WithdrawalStore.IsActive).ToList();
             var candidates = ledger.Items.Where(e => e.Slot.HasValue && e.HighId.HasValue &&
                 e.Ql.HasValue && (e.Bag.HasValue || e.Location == "bank")).ToList();
+            if (localStorage)
+            {
+                var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+                if (RuntimeStateStore.FindNextFreeBag(storage, _role, Client.CharacterName) == null) return;
+                candidates = candidates.Where(e => e.Location == "inventory" && e.Bag.HasValue &&
+                    storage.Workers.Any(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) &&
+                        w.Bags.Any(b => b.Source == "inventory" && (b.OuterSlotInstance & 65535) == (e.Bag.Value & 65535) &&
+                            StorageBagPolicy.AllRecordsFor(b.LastUniqueIdentity, "inventory").Count == 1))).ToList();
+            }
             if (candidates.Count == 0) return;
             var rules = SymbiantCatalog.GetRulesFor(_settingsDir,
                 candidates.SelectMany(e => new[] { e.AoId, e.HighId.Value }));
@@ -89,19 +98,26 @@ namespace CityBankers
                 SymbiantCatalog.AcceptanceRule rule;
                 string destination = rules.TryGetValue(entry.AoId, out rule) ||
                     rules.TryGetValue(entry.HighId.Value, out rule) ? rule.Role : "central";
-                if ((_isCentral && destination == "central") ||
-                    (!_isCentral && entry.Bag.HasValue && string.Equals(destination, _role, StringComparison.OrdinalIgnoreCase))) continue;
+                if (!localStorage && ((_isCentral && destination == "central") ||
+                    (!_isCentral && entry.Bag.HasValue && string.Equals(destination, _role, StringComparison.OrdinalIgnoreCase)))) continue;
                 if (withdrawals.Any(w => w.ActiveLedgerId == entry.Id || (w.Item != null && w.Item.AoId == entry.AoId &&
                     w.Item.HighId == entry.HighId && w.Item.Ql == entry.Ql))) continue;
                 string operation = Guid.NewGuid().ToString("N");
-                if (!WithdrawalStore.TryReserveRecovery(_settingsDir, operation, entry.Id)) continue;
-                _extraction = new ExtractionProof { Id = operation, LedgerId = entry.Id,
-                    TransactionId = entry.TransactionId, Character = Client.CharacterName, Role = _role,
-                    Source = entry.Location, Bag = entry.Bag, SourceSlot = entry.Slot.Value & 65535,
-                    RecordedUtc = DateTime.UtcNow,
-                    Item = new TransferItemState { AoId = entry.AoId, HighId = entry.HighId.Value, Ql = entry.Ql.Value } };
-                SaveExtraction("intent");
+                bool reserved = CityDwellers.Shared.ManagerAccounting.Transaction("Reserve exact inventory extraction", () =>
+                {
+                    if (!WithdrawalStore.TryReserveRecovery(_settingsDir, operation, entry.Id)) return false;
+                    _extraction = new ExtractionProof { Id = operation, LocalStorage = localStorage, LedgerId = entry.Id,
+                        TransactionId = entry.TransactionId, Character = Client.CharacterName, Role = _role,
+                        Source = entry.Location, Bag = entry.Bag, SourceSlot = entry.Slot.Value & 65535,
+                        RecordedUtc = DateTime.UtcNow,
+                        Item = new TransferItemState { AoId = entry.AoId, HighId = entry.HighId.Value, Ql = entry.Ql.Value } };
+                    SaveExtraction("intent");
+                    return true;
+                });
+                if (!reserved) continue;
                 ExtractionStep(ExtractionPhase.Locate);
+                if (localStorage) Logger.Information("[CityBankers] BANK SETUP emptying inventory bag " + entry.Bag +
+                    "; item=" + entry.AoId + "; ledger=" + entry.Id + "; bank storage before surplus trades.");
                 return;
             }
         }
@@ -116,17 +132,21 @@ namespace CityBankers
                     StartupCensusGate.Block("Extraction needs local reconciliation: " + _extraction.Id + " phase=" + _extractionPhase);
                 return true;
             }
-            if (_extractionAge.ElapsedMilliseconds < 500) return true;
+            if (!_extraction.LocalStorage && _extractionAge.ElapsedMilliseconds < 500) return true;
             if (_extractionPhase == ExtractionPhase.Commit)
             {
                 if (!Inventory.Items.Any(i => i != null && i.Slot.Type == IdentityType.Inventory &&
                     (i.Slot.Instance & 65535) == _extraction.InventorySlot && i.Id == _extraction.Item.AoId &&
                     i.HighId == _extraction.Item.HighId && i.Ql == _extraction.Item.Ql)) return true;
-                if (_isCentral)
+                if (_isCentral || _extraction.LocalStorage)
                 {
-                    if (_extractionCommitRetry.ElapsedMilliseconds < 1000) return true;
+                    if (!_extraction.LocalStorage && _extractionCommitRetry.ElapsedMilliseconds < 1000) return true;
                     _extractionCommitRetry.Restart();
-                    try { ApplyExtraction(_extraction); FinishExtraction(); }
+                    try
+                    {
+                        CityDwellers.Shared.ManagerAccounting.Transaction("Commit verified local extraction", () => ApplyExtraction(_extraction));
+                        FinishExtraction();
+                    }
                     catch (Exception ex)
                     {
                         if (_extractionCommitError != ex.Message)
@@ -163,7 +183,12 @@ namespace CityBankers
                 _extraction.BagIdentity = bag.UniqueIdentity.ToString();
                 SaveExtraction("bag-prepared");
                 if (_extraction.Source == "bank") { BagOriginTrace.MoveToInventory(bag); ExtractionStep(ExtractionPhase.BagInventory); }
-                else { bag.Use(); ExtractionStep(ExtractionPhase.BagOpen); }
+                else
+                {
+                    var open = FindContainerByIdentity(_extraction.BagIdentity);
+                    if (!_extraction.LocalStorage || open == null || !open.IsOpen) bag.Use();
+                    ExtractionStep(ExtractionPhase.BagOpen);
+                }
                 return true;
             }
             if (_extractionPhase == ExtractionPhase.BagInventory)
@@ -175,7 +200,10 @@ namespace CityBankers
             if (_extractionPhase == ExtractionPhase.BagOpen)
             {
                 var container = FindContainerByIdentity(_extraction.BagIdentity);
-                if (container != null && container.IsOpen && container.Items != null) PrepareExtractionItem(container.Items);
+                int handle, count;
+                bool fresh = !_extraction.LocalStorage || SharedBagRecovery.TryObserveContainer(
+                    container?.Identity ?? Identity.None, 0, out handle, out count);
+                if (fresh && container != null && container.IsOpen && container.Items != null) PrepareExtractionItem(container.Items);
                 return true;
             }
             if (_extractionPhase == ExtractionPhase.ItemInventory)
@@ -184,7 +212,18 @@ namespace CityBankers
                 if (_extraction.Bag.HasValue)
                 {
                     var container = FindContainerByIdentity(_extraction.BagIdentity);
-                    if (container == null || !container.IsOpen || container.Items == null) return true;
+                    if (container == null || !container.IsOpen || container.Items == null)
+                    {
+                        if (_extraction.LocalStorage && _extractionMoveWait.ElapsedMilliseconds >= 1200)
+                        {
+                            var bag = FindInventoryBagByIdentity(_extraction.BagIdentity);
+                            if (bag != null) { bag.Use(); _extractionMoveWait.Restart(); }
+                        }
+                        return true;
+                    }
+                    int handle, count;
+                    if (_extraction.LocalStorage && !SharedBagRecovery.TryObserveContainer(container.Identity, 0, out handle, out count))
+                        return true;
                     source = container.Items;
                 }
                 else source = Inventory.Bank.Items;
@@ -213,7 +252,15 @@ namespace CityBankers
                 }
                 _extraction.InventorySlot = arrived[0].Slot;
                 if (!ValidExtraction(_extraction)) return true;
-                if (_extraction.Bag.HasValue)
+                if (_extraction.LocalStorage)
+                {
+                    var bag = FindInventoryBagByIdentity(_extraction.BagIdentity);
+                    if (bag == null) return true;
+                    _extraction.FinalBagSlot = bag.Slot.Instance & 65535;
+                    _extraction.FinalBagSource = "inventory";
+                    ExtractionStep(ExtractionPhase.Commit);
+                }
+                else if (_extraction.Bag.HasValue)
                 {
                     var bag = FindInventoryBagByIdentity(_extraction.BagIdentity);
                     if (bag == null) return true;
@@ -306,7 +353,7 @@ namespace CityBankers
                 throw new InvalidOperationException("Extraction no longer owns its ledger reservation.");
             SaveExtraction(proof, "verified");
             ActiveLedgerStore.RecordExtraction(_settingsDir, proof);
-            if (string.Equals(proof.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase))
+            if (!proof.LocalStorage && string.Equals(proof.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase))
             {
                 string role;
                 if (SymbiantCatalog.TryGetDestinationRole(_settingsDir, proof.Item.AoId, out role) ||
@@ -337,6 +384,24 @@ namespace CityBankers
             _extractionCommitError = null;
             _extractionCommit = null;
             _extractionScan.Restart();
+        }
+
+        private void ResumeLocalStorageExtraction()
+        {
+            if (_extraction != null || Trade.IsTrading || _receipt != null || !Inventory.Bank.IsOpen) return;
+            var proof = CityDwellers.Shared.ManagerMemory.Current.ReadLocalStorageExtraction(
+                CityDwellers.Shared.ManagerAccounting.TransactionId, Client.CharacterName);
+            if (proof == null) return;
+            if (!proof.Bag.HasValue || proof.Source != "inventory" ||
+                !WithdrawalStore.OwnsRecovery(_settingsDir, proof.Id, proof.LedgerId))
+                throw new InvalidOperationException("Local inventory emptying lost its exact source reservation.");
+            _extraction = proof;
+            _extractionMoveAttempts = 0;
+            _extractionMoveWait.Restart();
+            // Before a move was prepared there is no effect to recover. Otherwise
+            // inspect both recorded sides before retrying or committing the move.
+            ExtractionStep(proof.BeforeSource == null ? ExtractionPhase.Locate : ExtractionPhase.ItemInventory);
+            Logger.Information("[CityBankers] BANK SETUP resuming inventory-bag item " + proof.LedgerId + ".");
         }
     }
 }

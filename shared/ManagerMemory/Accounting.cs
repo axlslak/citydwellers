@@ -255,6 +255,9 @@ namespace CityDwellers.Shared
         }
         public ExtractionProof ReadExtraction(string transaction, string id)
         { lock (_accountingSync) return Accounting(transaction).Extractions.SingleOrDefault(row => row.Id == id)?.Copy(); }
+        public ExtractionProof ReadLocalStorageExtraction(string transaction, string character)
+        { lock (_accountingSync) return Accounting(transaction).Extractions.SingleOrDefault(row => row.LocalStorage &&
+            row.Phase != "completed" && string.Equals(row.Character, character, StringComparison.OrdinalIgnoreCase))?.Copy(); }
         public void ChangeExtraction(string transaction, ExtractionProof value)
         {
             if (value == null || string.IsNullOrEmpty(value.Id)) throw new ArgumentException("Operation identity is required.");
@@ -267,6 +270,9 @@ namespace CityDwellers.Shared
         }
         public ReturnOffer ReadReturn(string transaction, string id)
         { lock (_accountingSync) return Accounting(transaction).Returns.SingleOrDefault(row => row.Id == id)?.Copy(); }
+        public ReceiptEvidence[] ReadReturnReceipts(string transaction, string id)
+        { lock (_accountingSync) return Accounting(transaction).Receipts.Where(row => row.AttemptId == id &&
+            (row.Kind == "recovery-return-send" || row.Kind == "recovery-return-receive")).Select(row => row.Copy()).ToArray(); }
         public void ChangeReturn(string transaction, ReturnOffer value)
         {
             if (value == null || string.IsNullOrEmpty(value.Id)) throw new ArgumentException("Operation identity is required.");

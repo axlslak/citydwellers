@@ -18,7 +18,8 @@ namespace CityBankers
         private void TickLocalStorageRecovery(bool startup = false)
         {
             if ((_isCentral && !startup) || _extraction != null || !Inventory.Bank.IsOpen || Trade.IsTrading || _storageJob != null ||
-                _workerCommand != null || _reservedDispatch != null || _receipt != null || _withdrawal != null || _returnOffer != null ||
+                _workerCommand != null || _reservedDispatch != null || _receipt != null || _withdrawal != null ||
+                (_returnOffer != null && (!startup || ReturnHasPhysicalWork)) ||
                 (!startup && _looseRecoveryPoll.ElapsedMilliseconds < 1000)) return;
             _looseRecoveryPoll.Restart();
             if (CensusReservedHere()) return;
@@ -41,8 +42,11 @@ namespace CityBankers
             foreach (var item in inventory)
             {
                 SymbiantCatalog.AcceptanceRule rule;
-                if (!rules.TryGetValue(item.Id, out rule) && !rules.TryGetValue(item.HighId, out rule)) continue;
-                string destination = rule.Role;
+                bool accepted = rules.TryGetValue(item.Id, out rule) || rules.TryGetValue(item.HighId, out rule);
+                if (!accepted && !startup) continue;
+                // Existing ledger-owned stock must be banked even if today's
+                // donation policy no longer accepts that template.
+                string destination = accepted ? rule.Role : _role;
                 if (!startup && !string.Equals(destination, _role, StringComparison.OrdinalIgnoreCase)) continue;
                 var candidates = ledger.Items.Where(entry => entry.AoId == item.Id &&
                     (!entry.HighId.HasValue || entry.HighId == item.HighId) &&

@@ -23,6 +23,35 @@ namespace CityBankers
             Logger.Information("[CityBankers] BANK SETUP " + Client.CharacterName + ": " + stage);
         }
 
+        private bool TickInitialInventoryStorage()
+        {
+            if (_bankSetupComplete || Trade.IsTrading || !Inventory.Bank.IsOpen || _receipt != null ||
+                _afterReceipt != null || _reserveOperation != null || _bagShop != null ||
+                _workerCommand != null || _reservedDispatch != null || _activeBatch != null ||
+                _withdrawal != null || _donationActive || _donationCleanup != null ||
+                (_returnOffer != null && ReturnHasPhysicalWork)) return false;
+            Guid transfer;
+            if (_bankLayout != null && (_bankLayout.Purpose != "layout-return" ||
+                !Guid.TryParseExact(_bankLayout.Phase, "N", out transfer))) return false;
+            if (_bankLayout != null)
+            {
+                var retained = ManagerMemory.Current.ReadReturn(ManagerAccounting.TransactionId, _bankLayout.Phase);
+                if (retained == null || HasUnresolvedReturnReceipt(retained)) return false;
+            }
+            if (_storageJob != null)
+            {
+                if (!_storageJob.LocalRecovery) return false;
+                TickStorageJob();
+                return true;
+            }
+            TickLocalStorageRecovery(startup: true);
+            if (_storageJob != null) { TickStorageJob(); return true; }
+            StartRecoveryExtraction(localStorage: true);
+            if (_extraction == null) return false;
+            BankSetupStage("emptying inventory bags into bank bags before surplus trades");
+            return true;
+        }
+
         private bool TickInitialBankSetup()
         {
             if (_bankSetupComplete) return false;
@@ -251,13 +280,16 @@ namespace CityBankers
                 var offer = ManagerMemory.Current.ReadReturn(ManagerAccounting.TransactionId, op.Phase);
                 if (offer == null) throw new InvalidOperationException("Surplus bag return intent is missing.");
                 if (offer.CompletedUtc.HasValue) { FinishBankLayout(); return true; }
+                var owner = RuntimeStateStore.LoadStorageState(_settingsDir).Workers.Single(w =>
+                    string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+                var retainedBag = owner.Bags.SingleOrDefault(b => b.LastUniqueIdentity == op.Identity);
                 if (_returnOffer == null && !offer.SenderReceiptVerified && !offer.ReceiverReceiptVerified &&
                     ((string.Equals(ReturnDestination(offer), _centralCharacter, StringComparison.OrdinalIgnoreCase) &&
                         !string.Equals(LayoutDestination(Client.CharacterName), _centralCharacter, StringComparison.OrdinalIgnoreCase)) ||
-                        TwinBankFull()) &&
+                        TwinBankFull() || retainedBag?.Source != "inventory" ||
+                        retainedBag.OuterSlotInstance != (offer.SourceSlot & 65535)) &&
                     records.Count == 1 && records[0].Location == "inventory" &&
-                    ManagerMemory.Current.ReadCancellationReceipt(ManagerAccounting.TransactionId, offer.Id, "recovery-return-send") == null &&
-                    ManagerMemory.Current.ReadCancellationReceipt(ManagerAccounting.TransactionId, offer.Id, "recovery-return-receive") == null)
+                    !HasUnresolvedReturnReceipt(offer))
                 {
                     // Retire only an unsent reservation, either for an old
                     // Central route or a twin that has already reached capacity.
@@ -271,6 +303,20 @@ namespace CityBankers
                     }
                     return true;
                 }
+                if (_returnOffer == null && !offer.SenderReceiptVerified && !offer.ReceiverReceiptVerified &&
+                    records.Count == 1 && records[0].Location == "bank")
+                {
+                    // The unique retained shell is still ours. Stage its fresh
+                    // address instead of waiting forever for an old inventory slot.
+                    if (!_layoutActionAge.IsRunning)
+                    {
+                        _layoutReconnectBefore = StartupCensusGate.ReconnectInventory(op.Identity);
+                        BagOriginTrace.MoveToInventory(records[0].Bag);
+                        _layoutActionAge.Restart();
+                    }
+                    else CheckLayoutActionTimeout();
+                    return true;
+                }
                 if (_returnOffer == null && ((records.Count == 1 && records[0].Location == "inventory") ||
                     (records.Count == 0 && offer.SenderReceiptVerified)))
                 {
@@ -279,6 +325,7 @@ namespace CityBankers
                     _returnRequest = _returnLocalVerified ? null : SendReturnMessage(ReturnDestination(offer), "return-prepare", offer);
                     _returnPhase.Restart();
                 }
+                else if (_returnOffer == null) CheckLayoutActionTimeout();
                 return true;
             }
             if (records.Count != 1) { CheckLayoutActionTimeout(); return true; }
