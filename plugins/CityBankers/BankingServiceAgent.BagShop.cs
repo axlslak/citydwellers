@@ -22,17 +22,20 @@ namespace CityBankers
             public string Phase;
             public Identity Dealer = Identity.None, Shop = Identity.None;
             public int Slot = -1, Low, High, Ql;
-            public bool Opened, Declined, SelectionAcknowledged;
+            public bool Opened, Declined, SelectionAcknowledged, NativePurchaseStarted;
+            public int TemplateReceipts;
+            public readonly HashSet<string> PreviousContainers = new HashSet<string>(StringComparer.Ordinal);
+            public readonly Dictionary<Identity, Dictionary<Stat, int>> NativeBags = new Dictionary<Identity, Dictionary<Stat, int>>();
             public ReceiptEvidence Receipt;
             public readonly Stopwatch Age = Stopwatch.StartNew();
         }
-        private BagShopWork _bagShop;
+        private BagShopWork _bagShop, _pendingBagPurchase;
         private bool _bagShopChecked;
         private DateTime _bagShopRetryAfter;
         private string BagShopReceiptId => "reserve-shop:" + Client.CharacterName.ToLowerInvariant();
 
         private void InvalidateBagShop()
-        { _bagShop = null; _bagShopChecked = false; }
+        { _bagShop = null; _pendingBagPurchase = null; _bagShopChecked = false; }
 
         private void ResumeBagShopWork()
         {
@@ -43,14 +46,14 @@ namespace CityBankers
             if (receipt.Kind != "reserve-shop" || !string.Equals(receipt.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) ||
                 receipt.Expected?.Count != 1 || !IsReserveBag(receipt.Expected[0]) || receipt.BeforeSlots == null)
                 throw new InvalidOperationException("Interrupted reserve purchase has invalid receipt evidence.");
-            _bagShop = new BagShopWork { Phase = "buying", Receipt = receipt };
+            _pendingBagPurchase = new BagShopWork { Phase = "buying", Receipt = receipt };
             BankerActivityGovernor.Wake();
-            Logger.Information("[CityBankers] BAG SHOP restoring purchase receipt " + receipt.TransactionId + "; checking inventory before any new purchase.");
+            Logger.Information("[CityBankers] BAG SHOP restoring purchase receipt " + receipt.TransactionId + "; settling the original purchase before buying again.");
         }
 
         private bool StartBagShop(BagReserve reserve, StorageState storage, HashSet<string> ready)
         {
-            if (!_isCentral || _bagShop != null || DateTime.UtcNow < _bagShopRetryAfter || !CanStartLocalCensus() ||
+            if (!_isCentral || _bagShop != null || _pendingBagPurchase != null || DateTime.UtcNow < _bagShopRetryAfter || !CanStartLocalCensus() ||
                 Inventory.NumFreeSlots < 2) return false;
             if (RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b => IsReserveBatch(b.Items))) return false;
             if (!BagShopSupplyNeeded(reserve, storage, ready)) return false;
@@ -113,8 +116,14 @@ namespace CityBankers
             // consume it on Tick. Never interrupt the SDK's packet handler.
             try
             {
-                var work = _bagShop;
-                if (work == null || _publicTradePartner != Identity.None) return;
+                var work = _bagShop ?? _pendingBagPurchase;
+                if (work == null) return;
+                if (work.Phase == "buying" && work.Receipt != null)
+                {
+                    ObservePurchasedBag(work, message?.Body);
+                    return;
+                }
+                if (_publicTradePartner != Identity.None) return;
                 var trade = message?.Body as TradeMessage;
                 if (work.Phase == "offering" && trade != null && trade.Action == TradeAction.AddItem &&
                     trade.Identity == DynelManager.LocalPlayer.Identity &&
@@ -169,24 +178,18 @@ namespace CityBankers
 
         private bool TickBagShop()
         {
-            var work = _bagShop;
+            var work = _bagShop ?? _pendingBagPurchase;
             if (work == null) return false;
             if (work.Phase == "buying" && CompleteBagShopReceipt(work)) return true;
-            if (work.Receipt != null && work.Declined && !Trade.IsTrading &&
-                work.Receipt.BeforeSlots.Select(BagShopSlotKey).OrderBy(s => s).SequenceEqual(PhysicalSlots().Select(BagShopSlotKey).OrderBy(s => s)))
-            {
-                work.Receipt.Phase = "applied";
-                ManagerAccounting.Transaction("Cancel declined replacement bag purchase", () =>
-                    ManagerMemory.Current.ChangeReceipt(ManagerAccounting.TransactionId, work.Receipt));
-                _bagShop = null;
-                BagShopUnavailable("The dealer declined the purchase; inventory is unchanged.");
-                return true;
-            }
+            // An uncertain purchase owns its receipt, not Central's work loop.
+            if (_bagShop == null) return false;
             if (work.Age.Elapsed.TotalSeconds > ServicePolicy.TradeTimeoutSeconds)
             {
                 if (work.Receipt != null)
-                    throw new InvalidOperationException("Replacement bag purchase remains unverified: " + work.Receipt.TransactionId +
-                        ". Receipt retained; another purchase will not be sent.");
+                {
+                    DeferBagPurchase(work);
+                    return true;
+                }
                 StopBagShop("No completed shop response for phase " + work.Phase + ".");
                 return true;
             }
@@ -226,6 +229,9 @@ namespace CityBankers
                     PreparedItems = new List<TransferItemState> { selection } };
                 ManagerAccounting.Transaction("Prepare replacement bag purchase", () =>
                     ManagerMemory.Current.ChangeReceipt(ManagerAccounting.TransactionId, work.Receipt));
+                work.PreviousContainers.UnionWith(Inventory.Items.Concat(Inventory.Bank.Items)
+                    .Where(i => i.UniqueIdentity.Type == IdentityType.Container).Select(i => i.UniqueIdentity.ToString()));
+                work.NativePurchaseStarted = true;
                 work.Phase = "buying"; work.Age.Restart();
                 // The ordinary shop transaction uses the same completion target
                 // as the Grace reference. Nothing is offered from our inventory.
@@ -235,9 +241,86 @@ namespace CityBankers
             return true;
         }
 
+        private void ObservePurchasedBag(BagShopWork work, object body)
+        {
+            var expected = work.Receipt.Expected.Single();
+            var template = body as AddTemplateMessage;
+            if (template != null && template.Identity == DynelManager.LocalPlayer.Identity &&
+                template.LowId == expected.AoId && template.HighId == expected.HighId && template.Quality == expected.Ql)
+            {
+                work.TemplateReceipts += template.Count == 1 ? 1 : 2;
+                BankerActivityGovernor.Wake();
+            }
+            var chest = body as ChestFullUpdateMessage;
+            if (chest == null || chest.Owner != DynelManager.LocalPlayer.Identity ||
+                chest.Identity.Type != IdentityType.Container || chest.Stats == null ||
+                work.PreviousContainers.Contains(chest.Identity.ToString())) return;
+            if (chest.Stats.GroupBy(stat => stat.Value1).Any(group => group.Count() != 1)) return;
+            var stats = chest.Stats.ToDictionary(stat => stat.Value1, stat => stat.Value2);
+            int low, high, ql;
+            if (!stats.TryGetValue(Stat.ACGItemTemplateID, out low) || low != expected.AoId ||
+                !stats.TryGetValue(Stat.ACGItemTemplateID2, out high) || high != expected.HighId ||
+                !stats.TryGetValue(Stat.ACGItemLevel, out ql) || ql != expected.Ql) return;
+            work.NativeBags[chest.Identity] = stats;
+            BankerActivityGovernor.Wake();
+        }
+
+        private void BindPurchasedBag(BagShopWork work)
+        {
+            if (!work.NativePurchaseStarted || work.TemplateReceipts != 1 || work.NativeBags.Count != 1 ||
+                (_publicTradePartner != Identity.None && _publicTradeStarted)) return;
+            var expected = work.Receipt.Expected.Single();
+            var before = work.Receipt.BeforeSlots;
+            var beforeSlots = new HashSet<string>(before.Select(slot => slot.Slot), StringComparer.Ordinal);
+            var candidates = Inventory.Items.Where(item => StorageBagPolicy.IsNormalInventory(item) &&
+                item.UniqueIdentity == Identity.None && item.Id == expected.AoId && item.HighId == expected.HighId &&
+                item.Ql == expected.Ql && !beforeSlots.Contains(item.Slot.ToString())).ToList();
+            if (candidates.Count != 1) return;
+            var stub = candidates[0];
+            if (!before.Select(BagShopSlotKey).OrderBy(key => key).SequenceEqual(
+                PhysicalSlots().Where(slot => slot.Slot != stub.Slot.ToString()).Select(BagShopSlotKey).OrderBy(key => key))) return;
+            var native = work.NativeBags.Single();
+            if (IsUsableIdentity(expected.UniqueIdentity) && expected.UniqueIdentity != native.Key.ToString()) return;
+            if (Inventory.Items.Concat(Inventory.Bank.Items).Any(item => item.UniqueIdentity == native.Key)) return;
+            var items = Inventory.Items as IList<Item>;
+            int index = items == null ? -1 : items.IndexOf(stub);
+            if (index < 0 || items.IsReadOnly) return;
+            // Both facts came from AO for this one purchase. Preserve the native
+            // identity before upgrading its existing SDK-created slot object.
+            expected.UniqueIdentity = native.Key.ToString();
+            ManagerAccounting.Transaction("Bind purchased bag native identity", () =>
+                ManagerMemory.Current.ChangeReceipt(ManagerAccounting.TransactionId, work.Receipt));
+            items[index] = new UniqueItem(stub.Slot, native.Key, expected.AoId, expected.HighId, expected.Ql, native.Value);
+            Logger.Information("[CityBankers] BAG SHOP native bag bound " + native.Key + "; slot=" + stub.Slot + ".");
+        }
+
+        private void DeferBagPurchase(BagShopWork work)
+        {
+            CloseBagShop(work);
+            _pendingBagPurchase = work;
+            if (ReferenceEquals(_bagShop, work)) _bagShop = null;
+            Logger.Warning("[CityBankers] BAG SHOP purchase receipt pending " + work.Receipt.TransactionId +
+                "; template receipts=" + work.TemplateReceipts + "; native containers=" + work.NativeBags.Count +
+                "; no repeat purchase; other banking continues.");
+        }
+
+        private void CloseBagShop(BagShopWork work)
+        {
+            if (work.Opened && Trade.CurrentTarget == work.Shop) Trade.Decline();
+        }
+
+        private void SettleRecoveredBagPurchase()
+        {
+            if (!_isCentral) return;
+            var receipt = ManagerMemory.Current.ReadReceipt(ManagerAccounting.TransactionId, BagShopReceiptId);
+            if (receipt == null || receipt.Kind != "reserve-shop" || receipt.Phase == "applied") return;
+            CompleteBagShopReceipt(new BagShopWork { Phase = "buying", Receipt = receipt });
+        }
+
         private bool CompleteBagShopReceipt(BagShopWork work)
         {
-            if (work.Receipt == null || (Trade.IsTrading && _publicTradePartner == Identity.None)) return false;
+            if (work.Receipt == null) return false;
+            BindPurchasedBag(work);
             string error;
             if (!StorageBagPolicy.TryValidatePhysicalLayout(out error)) throw new InvalidOperationException(error);
             var before = work.Receipt.BeforeSlots;
@@ -270,7 +353,9 @@ namespace CityBankers
                 ManagerMemory.Current.ChangeReceipt(ManagerAccounting.TransactionId, work.Receipt);
             });
             _reserveEmptyArrivals.Add(bag.UniqueIdentity.ToString());
-            _bagShop = null;
+            CloseBagShop(work);
+            if (ReferenceEquals(_bagShop, work)) _bagShop = null;
+            if (ReferenceEquals(_pendingBagPurchase, work)) _pendingBagPurchase = null;
             Logger.Information("[CityBankers] BAG SHOP received " + bag.UniqueIdentity + "; replacement reserve replenished.");
             return true;
         }
@@ -285,7 +370,7 @@ namespace CityBankers
         }
         private void StopBagShop(string reason)
         {
-            if (_bagShop != null && _bagShop.Opened && Trade.CurrentTarget == _bagShop.Shop) Trade.Decline();
+            if (_bagShop != null) CloseBagShop(_bagShop);
             _bagShop = null;
             BagShopUnavailable(reason);
         }

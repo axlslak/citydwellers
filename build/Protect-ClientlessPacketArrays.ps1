@@ -1,19 +1,20 @@
 # Scope: the direct ArraySerializer.Deserialize allocation for the exact
 # PlayfieldAnarchyFMessage.PlayfieldDynelInfo type only. Its five 32-bit wire
 # fields require 20 bytes per element. Other types follow Array.CreateInstance
-# unchanged. This prevents impossible allocation, NOT unsupported HQ decoding.
+# unchanged. The captured extended HQ variant is aligned before allocation;
+# unknown/malformed layouts still pass through the original bounded guard.
 function Protect-ClientlessPlayfieldArrayAllocation([string]$RuntimeDirectory) {
     # Instruction.Operand is object-typed. Keep these mutations inside a
     # typed .NET call: PowerShell wrappers must not reach Cecil's IL writer,
     # which casts operands directly to Instruction/MethodReference.
-    if (-not ('CityDwellers.Build.CecilOperandsV2' -as [type])) {
+    if (-not ('CityDwellers.Build.CecilOperandsV3' -as [type])) {
         Add-Type -ReferencedAssemblies ([Mono.Cecil.Cil.Instruction].Assembly.Location) -TypeDefinition @'
 using System;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 namespace CityDwellers.Build
 {
-    public static class CecilOperandsV2
+    public static class CecilOperandsV3
     {
         // Mono.Cecil's attribute enums are ushort-backed. PowerShell's -bor
         // routes two such operands through a dynamic call site and throws
@@ -21,6 +22,177 @@ namespace CityDwellers.Build
         public static MethodAttributes GuardMethodAttributes
         {
             get { return MethodAttributes.Assembly | MethodAttributes.Static | MethodAttributes.HideBySig; }
+        }
+
+        private static string BodySignature(MethodDefinition method)
+        {
+            var parts = new System.Collections.Generic.List<string>();
+            foreach (var variable in method.Body.Variables) parts.Add("local:" + variable.VariableType.FullName);
+            foreach (var instruction in method.Body.Instructions)
+            {
+                var branch = instruction.Operand as Instruction;
+                var member = instruction.Operand as MemberReference;
+                var variable = instruction.Operand as VariableDefinition;
+                string operand = branch != null ? "branch:" + method.Body.Instructions.IndexOf(branch) :
+                    member != null ? member.FullName : variable != null ? "local:" + variable.Index :
+                    Convert.ToString(instruction.Operand, System.Globalization.CultureInfo.InvariantCulture);
+                parts.Add(instruction.OpCode.Code + ":" + operand);
+            }
+            return String.Join("|", parts);
+        }
+
+        private static bool SameMethod(MethodDefinition actual, MethodDefinition expected)
+        {
+            if (!actual.HasBody || actual.Attributes != expected.Attributes || actual.ReturnType.FullName != expected.ReturnType.FullName ||
+                actual.Parameters.Count != expected.Parameters.Count || !actual.Body.InitLocals || actual.Body.ExceptionHandlers.Count != 0)
+                return false;
+            for (int i = 0; i < actual.Parameters.Count; i++)
+                if (actual.Parameters[i].ParameterType.FullName != expected.Parameters[i].ParameterType.FullName) return false;
+            return BodySignature(actual) == BodySignature(expected);
+        }
+
+        private static void Seek(ILProcessor il, VariableDefinition stream, VariableDefinition position, long delta, MethodReference setter)
+        {
+            il.Emit(OpCodes.Ldloc, stream);
+            il.Emit(OpCodes.Ldloc, position);
+            if (delta != 0) { il.Emit(OpCodes.Ldc_I8, delta); il.Emit(OpCodes.Add); }
+            il.Emit(OpCodes.Callvirt, setter);
+        }
+
+        public static bool AlignExtendedHq(ModuleDefinition module, TypeDefinition reader, MethodDefinition deserialize,
+            FieldDefinition streamField, TypeDefinition dynel, MethodDefinition bounded)
+        {
+            const string normalizeName = "CityDwellersNormalizeHqDynelLengthV1";
+            const string wrapperName = "CityDwellersCreatePlayfieldDynelArrayHqV2";
+            MethodDefinition readInt = null, priorNormalize = null, priorWrapper = null;
+            foreach (var method in reader.Methods)
+            {
+                if (method.Name == "ReadInt32" && !method.IsStatic && method.Parameters.Count == 0 &&
+                    method.ReturnType.FullName == "System.Int32")
+                { if (readInt != null) throw new InvalidOperationException("Ambiguous wire integer reader."); readInt = method; }
+                if (method.Name == normalizeName)
+                { if (priorNormalize != null) throw new InvalidOperationException("Duplicate HQ normalizer."); priorNormalize = method; }
+                if (method.Name == wrapperName)
+                { if (priorWrapper != null) throw new InvalidOperationException("Duplicate HQ wrapper."); priorWrapper = method; }
+            }
+            if (readInt == null || (priorNormalize == null) != (priorWrapper == null))
+                throw new InvalidOperationException("Wire reader or prior HQ patch changed.");
+            MethodReference getType = null;
+            foreach (var instruction in bounded.Body.Instructions)
+            {
+                var method = instruction.Operand as MethodReference;
+                if (method != null && method.Name == "GetTypeFromHandle") getType = method;
+            }
+            if (getType == null) throw new InvalidOperationException("Bounded array type comparison changed.");
+            var canSeek = new MethodReference("get_CanSeek", module.TypeSystem.Boolean, streamField.FieldType) { HasThis = true };
+            var getLength = new MethodReference("get_Length", module.TypeSystem.Int64, streamField.FieldType) { HasThis = true };
+            var getPosition = new MethodReference("get_Position", module.TypeSystem.Int64, streamField.FieldType) { HasThis = true };
+            var setPosition = new MethodReference("set_Position", module.TypeSystem.Void, streamField.FieldType) { HasThis = true };
+            setPosition.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int64));
+            var normalize = new MethodDefinition(normalizeName, GuardMethodAttributes, module.TypeSystem.Int32);
+            normalize.Parameters.Add(new ParameterDefinition("elementType", ParameterAttributes.None, bounded.Parameters[0].ParameterType));
+            normalize.Parameters.Add(new ParameterDefinition("length", ParameterAttributes.None, module.TypeSystem.Int32));
+            normalize.Parameters.Add(new ParameterDefinition("reader", ParameterAttributes.None, reader));
+            normalize.Body.InitLocals = true;
+            normalize.Body.MaxStackSize = 4;
+            var stream = new VariableDefinition(streamField.FieldType);
+            var position = new VariableDefinition(module.TypeSystem.Int64);
+            var packetLength = new VariableDefinition(module.TypeSystem.Int64);
+            var count = new VariableDefinition(module.TypeSystem.Int32);
+            normalize.Body.Variables.Add(stream); normalize.Body.Variables.Add(position);
+            normalize.Body.Variables.Add(packetLength); normalize.Body.Variables.Add(count);
+            var il = normalize.Body.GetILProcessor();
+            var original = Instruction.Create(OpCodes.Ldarg_1);
+            var restore = Instruction.Create(OpCodes.Nop);
+            var extended = Instruction.Create(OpCodes.Nop);
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldtoken, dynel); il.Emit(OpCodes.Call, getType);
+            il.Emit(OpCodes.Ceq); il.Emit(OpCodes.Brfalse, original);
+            il.Emit(OpCodes.Ldarg_2); il.Emit(OpCodes.Ldfld, streamField); il.Emit(OpCodes.Stloc, stream);
+            il.Emit(OpCodes.Ldloc, stream); il.Emit(OpCodes.Callvirt, canSeek); il.Emit(OpCodes.Brfalse, original);
+            il.Emit(OpCodes.Ldloc, stream); il.Emit(OpCodes.Callvirt, getPosition); il.Emit(OpCodes.Stloc, position);
+            il.Emit(OpCodes.Ldloc, stream); il.Emit(OpCodes.Callvirt, getLength); il.Emit(OpCodes.Stloc, packetLength);
+            il.Emit(OpCodes.Ldloc, position); il.Emit(OpCodes.Ldc_I8, 68L); il.Emit(OpCodes.Blt, original);
+            il.Emit(OpCodes.Ldloc, packetLength); il.Emit(OpCodes.Ldloc, position); il.Emit(OpCodes.Sub);
+            il.Emit(OpCodes.Ldc_I8, 56L); il.Emit(OpCodes.Blt, original);
+            // The supplied C77B / 28 / 4 HQ variant has twelve additional
+            // opaque 32-bit words. Validate its full boundary before advancing.
+            Seek(il, stream, position, -68L, setPosition);
+            il.Emit(OpCodes.Ldarg_2); il.Emit(OpCodes.Call, readInt); il.Emit(OpCodes.Ldc_I4, 0xC77B); il.Emit(OpCodes.Bne_Un, restore);
+            il.Emit(OpCodes.Ldarg_2); il.Emit(OpCodes.Call, readInt); il.Emit(OpCodes.Pop);
+            il.Emit(OpCodes.Ldarg_2); il.Emit(OpCodes.Call, readInt); il.Emit(OpCodes.Ldc_I4, 28); il.Emit(OpCodes.Bne_Un, restore);
+            il.Emit(OpCodes.Ldarg_2); il.Emit(OpCodes.Call, readInt); il.Emit(OpCodes.Ldc_I4, 4); il.Emit(OpCodes.Bne_Un, restore);
+            // Preserve the legacy 48-byte layout when its count already fits.
+            il.Emit(OpCodes.Ldarg_1); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Blt, extended);
+            il.Emit(OpCodes.Ldarg_1); il.Emit(OpCodes.Conv_I8); il.Emit(OpCodes.Ldc_I8, 20L); il.Emit(OpCodes.Mul);
+            il.Emit(OpCodes.Ldc_I8, 8L); il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Ldloc, packetLength); il.Emit(OpCodes.Ldloc, position); il.Emit(OpCodes.Sub);
+            il.Emit(OpCodes.Beq, restore);
+            il.Append(extended);
+            Seek(il, stream, position, 44L, setPosition);
+            il.Emit(OpCodes.Ldarg_2); il.Emit(OpCodes.Call, readInt); il.Emit(OpCodes.Stloc, count);
+            il.Emit(OpCodes.Ldloc, count); il.Emit(OpCodes.Ldc_I4_0); il.Emit(OpCodes.Blt, restore);
+            il.Emit(OpCodes.Ldloc, count); il.Emit(OpCodes.Conv_I8); il.Emit(OpCodes.Ldc_I8, 20L); il.Emit(OpCodes.Mul);
+            il.Emit(OpCodes.Ldloc, position); il.Emit(OpCodes.Add); il.Emit(OpCodes.Ldc_I8, 56L); il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Ldloc, packetLength); il.Emit(OpCodes.Bne_Un, restore);
+            Seek(il, stream, packetLength, -8L, setPosition);
+            il.Emit(OpCodes.Ldarg_2); il.Emit(OpCodes.Call, readInt); il.Emit(OpCodes.Ldc_I4_M1); il.Emit(OpCodes.Bne_Un, restore);
+            il.Emit(OpCodes.Ldarg_2); il.Emit(OpCodes.Call, readInt); il.Emit(OpCodes.Ldc_I4_M1); il.Emit(OpCodes.Bne_Un, restore);
+            Seek(il, stream, position, 48L, setPosition);
+            il.Emit(OpCodes.Ldloc, count); il.Emit(OpCodes.Ret);
+            il.Append(restore);
+            Seek(il, stream, position, 0L, setPosition);
+            il.Append(original); il.Emit(OpCodes.Ret);
+
+            var wrapper = new MethodDefinition(wrapperName, GuardMethodAttributes, bounded.ReturnType);
+            wrapper.Parameters.Add(new ParameterDefinition("elementType", ParameterAttributes.None, bounded.Parameters[0].ParameterType));
+            wrapper.Parameters.Add(new ParameterDefinition("length", ParameterAttributes.None, new ByReferenceType(module.TypeSystem.Int32)));
+            wrapper.Parameters.Add(new ParameterDefinition("reader", ParameterAttributes.None, reader));
+            wrapper.Body.InitLocals = true; wrapper.Body.MaxStackSize = 4;
+            var wi = wrapper.Body.GetILProcessor();
+            wi.Emit(OpCodes.Ldarg_1); wi.Emit(OpCodes.Ldarg_0); wi.Emit(OpCodes.Ldarg_1); wi.Emit(OpCodes.Ldind_I4);
+            wi.Emit(OpCodes.Ldarg_2); wi.Emit(OpCodes.Call, normalize); wi.Emit(OpCodes.Stind_I4);
+            wi.Emit(OpCodes.Ldarg_0); wi.Emit(OpCodes.Ldarg_1); wi.Emit(OpCodes.Ldind_I4); wi.Emit(OpCodes.Ldarg_2);
+            wi.Emit(OpCodes.Call, bounded); wi.Emit(OpCodes.Ret);
+
+            Instruction call = null;
+            foreach (var instruction in deserialize.Body.Instructions)
+            {
+                var method = instruction.Operand as MethodReference;
+                if (method != null && method.DeclaringType.FullName == reader.FullName &&
+                    (method.Name == bounded.Name || method.Name == wrapperName))
+                { if (call != null) throw new InvalidOperationException("Ambiguous array guard call."); call = instruction; }
+            }
+            if (call == null || call.OpCode.Code != Code.Call || call.Previous == null ||
+                call.Previous.OpCode.Code != Code.Ldarg_1 || call.Previous.Previous == null)
+                throw new InvalidOperationException("Array guard call shape changed.");
+            var load = call.Previous.Previous;
+            if (priorWrapper != null)
+            {
+                if (((MethodReference)call.Operand).Name != wrapperName ||
+                    (load.OpCode.Code != Code.Ldloca && load.OpCode.Code != Code.Ldloca_S) ||
+                    !(load.Operand is VariableDefinition) || ((VariableDefinition)load.Operand).VariableType.FullName != "System.Int32" ||
+                    !SameMethod(priorNormalize, normalize) || !SameMethod(priorWrapper, wrapper))
+                    throw new InvalidOperationException("Existing HQ alignment patch changed.");
+                return false;
+            }
+            VariableDefinition lengthVariable;
+            switch (load.OpCode.Code)
+            {
+                case Code.Ldloc_0: lengthVariable = deserialize.Body.Variables[0]; break;
+                case Code.Ldloc_1: lengthVariable = deserialize.Body.Variables[1]; break;
+                case Code.Ldloc_2: lengthVariable = deserialize.Body.Variables[2]; break;
+                case Code.Ldloc_3: lengthVariable = deserialize.Body.Variables[3]; break;
+                case Code.Ldloc: case Code.Ldloc_S: lengthVariable = load.Operand as VariableDefinition; break;
+                default: throw new InvalidOperationException("Expected local array length before allocation.");
+            }
+            if (lengthVariable == null || lengthVariable.VariableType.FullName != "System.Int32")
+                throw new InvalidOperationException("Array length local changed.");
+            // Pass the existing local by reference so both allocation AND the
+            // deserializer loop use the corrected count, rather than the float.
+            load.OpCode = OpCodes.Ldloca; load.Operand = lengthVariable;
+            reader.Methods.Add(normalize); reader.Methods.Add(wrapper); call.Operand = wrapper;
+            deserialize.Body.MaxStackSize = Math.Max(4, deserialize.Body.MaxStackSize);
+            return true;
         }
 
         public static void ReplaceAllocation(MethodDefinition method, Instruction allocation, MethodDefinition guard)
@@ -138,7 +310,7 @@ namespace CityDwellers.Build
         })
         $guardCalls = @($deserialize.Body.Instructions | Where-Object {
             $_.Operand -is [Mono.Cecil.MethodReference] -and
-            $_.Operand.DeclaringType.FullName -ceq $wireReader.FullName -and $_.Operand.Name -ceq $markerName
+            $_.Operand.DeclaringType.FullName -ceq $wireReader.FullName -and $_.Operand.Name -cin @($markerName, 'CityDwellersCreatePlayfieldDynelArrayHqV2')
         })
         if ($null -eq $marker) {
             if ($directCalls.Count -ne 1 -or $guardCalls.Count -ne 0) {
@@ -180,7 +352,7 @@ namespace CityDwellers.Build
 
         # Combined in the typed bridge: PowerShell cannot -bor a ushort-backed
         # enum. Do not inline this back into a PowerShell bitwise expression.
-        $attributes = [CityDwellers.Build.CecilOperandsV2]::GuardMethodAttributes
+        $attributes = [CityDwellers.Build.CecilOperandsV3]::GuardMethodAttributes
         $expected = [Mono.Cecil.MethodDefinition]::new($markerName, $attributes, $createReference.ReturnType)
         $expected.Parameters.Add([Mono.Cecil.ParameterDefinition]::new('elementType', [Mono.Cecil.ParameterAttributes]::None, $createReference.Parameters[0].ParameterType))
         $expected.Parameters.Add([Mono.Cecil.ParameterDefinition]::new('length', [Mono.Cecil.ParameterAttributes]::None, $module.TypeSystem.Int32))
@@ -268,8 +440,15 @@ namespace CityDwellers.Build
         } else {
             $wireReader.Methods.Add($expected)
             $guardStage = 'rewriting allocation operands'
-            [CityDwellers.Build.CecilOperandsV2]::ReplaceAllocation($deserialize, $directCalls[0], $expected)
+            [CityDwellers.Build.CecilOperandsV3]::ReplaceAllocation($deserialize, $directCalls[0], $expected)
             $guardChanged = $true
+        }
+        $guardStage = 'aligning the known extended HQ dynel block'
+        $bounded = if ($null -ne $marker) { $marker } else { $expected }
+        $hqChanged = [CityDwellers.Build.CecilOperandsV3]::AlignExtendedHq(
+            $module, $wireReader, $deserialize, $streamField, $dynelType, $bounded)
+        $guardChanged = $guardChanged -or $hqChanged
+        if ($guardChanged) {
             $guardStage = 'writing guarded dependency'
             $commonAssembly.Write($guardTemp)
         }
@@ -288,5 +467,5 @@ namespace CityDwellers.Build
     } finally {
         if (Test-Path -LiteralPath $guardTemp) { Remove-Item -LiteralPath $guardTemp -Force }
     }
-    Write-Host "Playfield array allocation guard verified (newly applied: $guardChanged); unsupported packet layout remains rejected."
+    Write-Host "Playfield array allocation guard and extended HQ alignment verified (newly applied: $guardChanged); existing allocation bounds retained."
 }

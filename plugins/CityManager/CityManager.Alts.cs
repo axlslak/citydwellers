@@ -686,7 +686,10 @@ namespace CityManager
                     (declaredCount != 0 || pageCount == 1);
                 if (complete && !validSnapshot)
                 {
+                    string parsedMains = string.Join(",", _onlineSnapshotResponse.Groups.Keys.OrderBy(name => name));
                     _onlineSnapshotResponse = null;
+                    Logger.Warning($"ALTS ONLINE payload <- {_altsBotName}: parsed=[{parsedMains}]; raw=" +
+                        (message ?? string.Empty).Replace("\r", "\\r").Replace("\n", "\\n"));
                     Logger.Warning($"ALTS ONLINE <- {_altsBotName} rejected as a complete snapshot: " +
                         $"declared mains={declaredCount}, parsed mains={mainCount}, online={onlineCount}, " +
                         $"pages={receivedPages}/{pageCount}; prior presence preserved, positive mappings retained.");
@@ -2223,3 +2226,4 @@ namespace CityManager
         }
     }
 }
+

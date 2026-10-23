@@ -1287,9 +1287,8 @@ namespace CityBankers
                 {
                     if (!CompleteBagShopReceipt(_bagShop))
                     {
-                        if (_publicTradePause.ElapsedMilliseconds > ServicePolicy.ItemMoveTimeoutMs)
-                            throw new InvalidOperationException("Shop receipt did not arrive before player trade.");
-                        return true;
+                        if (_publicTradePause.ElapsedMilliseconds <= ServicePolicy.ItemMoveTimeoutMs) return true;
+                        DeferBagPurchase(_bagShop);
                     }
                 }
                 if (PublicInventoryMovePending())

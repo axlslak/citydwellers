@@ -219,6 +219,7 @@ namespace CityBankers
             string character = Client.CharacterName;
             string transaction = ManagerAccounting.TransactionId;
             var manager = ManagerMemory.Current;
+            SettleRecoveredBagPurchase();
             var storage = manager.ReadStorage(transaction);
             var own = storage.Workers.SingleOrDefault(w => SameCharacter(w.Character, character)) ??
                 new StorageWorkerState { Character = character, Role = _role };
@@ -390,10 +391,13 @@ namespace CityBankers
             manager.RecordTransaction(transaction, new LedgerRecord { Id = "repair-" + repair.Id, Utc = DateTime.UtcNow,
                 Event = "automatic_recovery", Actor = character, Character = character, Role = _role,
                 Message = reason + "; pending operations resolved from native state; unmatched claims preserved in lost/found." });
-            foreach (var receipt in manager.ReadCharacterReceipts(transaction, character))
+            var receipts = manager.ReadCharacterReceipts(transaction, character);
+            var pendingPurchases = receipts.Where(receipt => receipt.Kind == "reserve-shop" && receipt.Phase != "applied").ToList();
+            foreach (var receipt in receipts.Where(receipt => !pendingPurchases.Any(pending => pending.Id == receipt.Id)))
                 CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
                     receipt.TransactionId ?? receipt.Id, character, "receipt.resolved-native", receipt, true);
             manager.RetireCharacterReceipts(transaction, character);
+            foreach (var receipt in pendingPurchases) manager.ChangeReceipt(transaction, receipt);
         }
     }
 }
