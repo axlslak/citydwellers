@@ -93,11 +93,14 @@ namespace CityBankers
             return existing + incoming < configured.Length * StorageBankBagTarget;
         }
 
-        private VendingMachine FindBagDealer() => DynelManager.VendingMachines
-            .Where(d => d.Name == BagDealerName && d.Transform != null && d.DistanceFrom(DynelManager.LocalPlayer) <= 5)
+        private Dynel FindBagDealer() => DynelManager.Npcs
+            .Where(d => string.Equals(d.Name, BagDealerName, StringComparison.OrdinalIgnoreCase)).Cast<Dynel>()
+            .Concat(DynelManager.VendingMachines
+                .Where(d => string.Equals(d.Name, BagDealerName, StringComparison.OrdinalIgnoreCase)).Cast<Dynel>())
+            .Where(d => d.Transform != null && d.DistanceFrom(DynelManager.LocalPlayer) <= 5)
             .OrderBy(d => d.DistanceFrom(DynelManager.LocalPlayer)).FirstOrDefault();
 
-        private void OpenBagShop(VendingMachine dealer)
+        private void OpenBagShop(Dynel dealer)
         {
             _bagShop.Shop = dealer.Identity; _bagShop.Phase = "opening"; _bagShop.Age.Restart();
             dealer.Use();
