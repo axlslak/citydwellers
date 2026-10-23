@@ -14,8 +14,8 @@ using Newtonsoft.Json.Linq;
 
 namespace CityBankers
 {
-    // One initial physical census per banker per host. Later uncertainty is
-    // handled by local relog/reporting; never by another automatic census.
+    // Normal startup trusts persisted state. Faults recover this banker from
+    // fresh native inventory; they never wait for administrator intervention.
     public sealed class StartupCensusGate : ClientlessPluginEntry
     {
         private static readonly string Generation = Process.GetCurrentProcess().Id + "-" +
@@ -24,8 +24,8 @@ namespace CityBankers
         private static StartupCensusGate _owner;
         private static string _localFaultReason, _lastRelogReason;
         private static bool _localRelogPending;
-        private bool _startupFailed, _awaitingUnresolvedRelog, _heldForAdmin;
-        private bool _bagRecoveryActive, _bagRecoveryQuiesced;
+        private bool _startupFailed, _awaitingUnresolvedRelog;
+        private bool _bagRecoveryActive, _bagRecoveryQuiesced, _bagRecoveryRefreshed;
         private string _bagRecoveryWait;
         private string BagRecoveryReservation => "bag-repair-" + _character.ToLowerInvariant();
 
@@ -189,7 +189,7 @@ namespace CityBankers
         {
             if (_localFaultReason != null) return; // Retain the first fault; no retry storm.
             _localFaultReason = reason;
-            _localRelogPending = reason != _lastRelogReason;
+            _localRelogPending = true;
             _invalidated = true;
             try
             {
@@ -201,46 +201,14 @@ namespace CityBankers
             }
             catch (Exception ex) { Logger.Error("[CityBankers] Local fault recording failed: " + ex.Message); }
             Logger.Error("[CityBankers] BANKER FAULT " + MemberCharacter + ": " + reason +
-                (_localRelogPending ? " Relog queued for this banker only, after any trade ends." :
-                    " Fault persisted after relog; administrator review required. No automatic audit."));
+                " Automatic local recovery queued, after any trade ends.");
             CityDwellers.Shared.ServiceEvents.Report("banker.fault", "error", reason,
                 new { Character = MemberCharacter, RelogQueued = _localRelogPending });
-#if false // Owner policy: retained legacy recovery/audit path.
-
-            // Ordinary local census pauses do not request a roster-wide recovery.
-            // An unrelated error explicitly supersedes that owner through a new
-            // cycle; no old local completion is allowed to release its token.
-            _invalidated = true;
-            _holdVersion++;
-            _recoveryRequest = _recoveryRequest ?? Guid.NewGuid().ToString("N");
-            BankingServiceAgent.TraceRecovery(reason, "recovery-request:" + _recoveryRequest);
-            if (_directory != null)
-                CityDwellers.Shared.IncidentJournal.Record(_traceData,
-                    "recovery-request:" + _recoveryRequest, MemberCharacter, "recovery.requested", new { Reason = reason }, true);
-            _requestPublished = false;
-            try
-            {
-                if (_directory != null) Locked(() =>
-                {
-                    Hold(reason);
-                    PublishRequest(reason);
-                });
-            }
-            catch (Exception ex) { Logger.Error("[CityBankers] Recovery publication retry: " + ex.Message); }
-            Logger.Error("[CityBankers] CENSUS RECOVERY " + MemberCharacter + ": " + reason);
-            CityDwellers.Shared.ServiceEvents.Report("census.recovery", "error", reason);
-        #endif
         }
 
         private static void PublishRequest(string reason)
         {
             throw new InvalidOperationException("Automatic roster audit requests are disabled.");
-#if false // Owner policy: retained legacy recovery/audit path.
-
-            RuntimeStateStore.WriteJsonAtomic(MemberPath(MemberCharacter, ".recovery.json"), new
-            { Id = _recoveryRequest, Connection = _connection, Reason = reason });
-            _requestPublished = true;
-        #endif
         }
 
         internal static bool RosterRecoveryActive
@@ -311,6 +279,8 @@ namespace CityBankers
         private void RejectBeforeCensus(Identity target) { if (!IsOpen) Trade.Decline(); }
         private void OnDisconnected()
         {
+            BankingServiceAgent.InvalidateAutomaticRepair();
+            if (_bagRecoveryActive) _bagRecoveryRefreshed = true;
             string retiredConnection = _connection;
             bool initialUsed = InitialAuditUsed;
             string layoutBag, layoutOtherItems;
@@ -318,7 +288,7 @@ namespace CityBankers
             // A worker awaiting its first admission has performed no operational
             // transfers. Preserve completed evidence before retiring the old
             // connection; a fresh identical top-level snapshot is still required.
-            if (_admission?.Result != null && _finished && !_heldForAdmin && !_startupFailed && _localFaultReason == null &&
+            if (_admission?.Result != null && _finished && !_startupFailed && _localFaultReason == null &&
                 _completedAdmissionInventory != null && BankingServiceAgent.HasNeverStartedOperations &&
                 !SharedBagRecovery.RequiresHold)
                 _completedAdmissionReconnect = _admission;
@@ -361,7 +331,9 @@ namespace CityBankers
                     Hold("Banker disconnected; refresh this connection only. No automatic audit.");
                     ClearOperational();
                     Manager.ClearBankerPresence(_character);
-                    if (!initialUsed)
+                    if (_localFaultReason != null || _startupFailed)
+                        _awaitingUnresolvedRelog = true;
+                    if (!initialUsed && !_awaitingUnresolvedRelog)
                     {
                         // Pre-scan reconnect keeps the initial cycle; nobody repeats a scan.
                         if (cycle?.Phase == "collecting" && Includes(cycle, _character, retiredConnection))
@@ -372,7 +344,7 @@ namespace CityBankers
                         _auditCycle = null;
                         _issued = _finished = _quiesced = false;
                     }
-                    else if (!idle && !layout && _completedAdmissionReconnect == null)
+                    else if (_localFaultReason != null || (!idle && !layout && _completedAdmissionReconnect == null))
                     {
                         // Retained unresolved operations are evidence, not permission
                         // to restart audits or clear another banker's state.
@@ -384,86 +356,9 @@ namespace CityBankers
             }
             catch (Exception ex)
             {
-                _heldForAdmin = true;
-                Logger.Error("[CityBankers] Local reconnect state needs administrator review: " + ex.Message);
+                QueueAutomaticRecovery("Reconnect state changed: " + ex.Message);
             }
             finally { BagAuditAgent.CancelForRecovery(); }
-#if false // Owner policy: retained legacy recovery/audit path.
-
-            // Recovery owns a quiesced banker and has not issued its census.
-            // Its planned verification reconnect can withdraw just this member.
-            bool plannedPreCensus = (SharedBagRecovery.PlannedReconnect || ClientlessSessionGuard.CensusRefreshPending) &&
-                _quiesced && !_issued && !_finished;
-            try { RetireAdmission(); }
-            catch (Exception ex) { Logger.Error("[CityBankers] Admission cleanup on disconnect: " + ex.Message); }
-            _stagingBag = _stagingFailureLayout = _stagingBeforeLayout = null;
-            _extraReserveDeferred = false;
-            _presenceRetryAfter = 0;
-            _censusRejections = 0;
-            string retiredConnection = _connection;
-            bool invalidatedBeforeDisconnect = _invalidated;
-            _connection = Guid.NewGuid().ToString("N");
-            const string reason = "Banker disconnected; retire connection-bound work and obtain fresh physical evidence.";
-            // Invalidate this actor immediately, including any local audit token.
-            // A failed reconnect is not a new loss of custody for the roster.
-            _invalidated = true;
-            _holdVersion++;
-            bool recoveryRequested = false;
-            try
-            {
-                Locked(() =>
-                {
-                    var cycle = Current();
-                    // Preserve the original proof through unsuccessful reconnect
-                    // attempts. They cannot create new item movements.
-                    bool idle = (_idleReconnectCycle != null && _idleReconnectCycle == cycle?.Id) ||
-                        (cycle?.Phase == "released" && !invalidatedBeforeDisconnect &&
-                         _idleInventory != null && BankingServiceAgent.CanResumeIdleConnection());
-                    if (idle && _idleReconnectCycle == null && Includes(cycle, _character, retiredConnection))
-                    {
-                        _idleReconnectCycle = cycle.Id;
-                        _idleReconnectConnection = retiredConnection;
-                        _idleReconnectInventory = _idleInventory;
-                    }
-                    _reconnectObserved = null;
-                    _reconnectSettled.Reset();
-                    Hold(reason);
-                    ClearOperational();
-                    Manager.ClearBankerPresence(_character);
-                    // Compare the retired epoch, not the newly allocated one.
-                    // Coordinate uses this same mutex: it either already excluded
-                    // us or must reconcile the participant it still depends on.
-                    bool scopedRecovery = plannedPreCensus && cycle?.Phase == "collecting" &&
-                        !string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase);
-                    if (!idle && !scopedRecovery && Includes(cycle, _character, retiredConnection))
-                    {
-                        _recoveryRequest = _recoveryRequest ?? Guid.NewGuid().ToString("N");
-                        _requestPublished = false;
-                        PublishRequest(reason);
-                        recoveryRequested = true;
-                    }
-                    // Preserve any independent recovery request. Never delete or
-                    // acknowledge one just because this connection is absent.
-                });
-                if (recoveryRequested)
-                {
-                    Logger.Error("[CityBankers] CENSUS RECOVERY " + MemberCharacter + ": " + reason);
-                    CityDwellers.Shared.ServiceEvents.Report("census.recovery", "error", reason);
-                }
-                else
-                    Logger.Information("[CityBankers] " + MemberCharacter +
-                        " unavailable; healthy census retained. " +
-                        (_idleReconnectCycle != null ? "Idle reconnect will validate inventory without a bag audit." :
-                        plannedPreCensus ? "Planned recovery/census refresh; withdraw this banker without restarting peer audits." :
-                            "Connection was outside the current census roster."));
-            }
-            catch (Exception ex)
-            {
-                // Unknown membership/publication state must still fail closed.
-                Block("Disconnect recovery could not verify census membership: " + ex.Message);
-            }
-            finally { BagAuditAgent.CancelForRecovery(); }
-        #endif
         }
         public override void Teardown()
         {
@@ -481,12 +376,17 @@ namespace CityBankers
 
         private void Tick(object sender, double delta)
         {
-            if (_poll.ElapsedMilliseconds < 500) return;
+            if (_poll.ElapsedMilliseconds < BankerActivityGovernor.ActiveTickMilliseconds) return;
             _poll.Restart();
             try
             {
+                if (_localFaultReason == null && !_awaitingUnresolvedRelog)
+                {
+                    string requestedRecovery = Manager.TakeBankerRecovery(_character);
+                    if (requestedRecovery != null) Block(requestedRecovery);
+                }
                 // Actual duplicate containers have a narrowly scoped repair actor.
-                // Run it before the generic relog/admin hold; it never launches a
+                // Run it before the automatic local reconnect; it never launches a
                 // startup or roster audit and never releases ordinary bag work early.
                 if (_bagRecoveryActive || (ClientIsInPlay() && ClientlessSessionGuard.BankCacheTrusted &&
                     Inventory.Bank.IsOpen && SharedBagRecovery.RequiresHold))
@@ -503,29 +403,60 @@ namespace CityBankers
                     try { ClientlessSessionGuard.ReconnectForBagRecovery(); }
                     catch (Exception ex)
                     {
-                        _heldForAdmin = true;
-                        Logger.Error("[CityBankers] Relog failed; administrator review required. Type=" + ex.GetType().Name);
+                        _localRelogPending = true;
+                        Logger.Error("[CityBankers] Local relog will retry. Type=" + ex.GetType().Name);
                     }
                     return;
                 }
-                if (_heldForAdmin || (_startupFailed && !_awaitingUnresolvedRelog)) return;
                 if (!ClientIsInPlay() || !ClientlessSessionGuard.BankCacheTrusted ||
                     !Inventory.Bank.IsOpen || Stopwatch.GetTimestamp() < _presenceRetryAfter) return;
-                if (_completedAdmissionReconnect != null && !ResumeCompletedAdmission()) return;
-                if (_layoutReconnectCycle != null && !TryResumeLayoutConnection()) return;
+                // An explicitly requested startup audit may retry its failed
+                // local scan. Normal runtime recovery never starts a roster audit.
+                if (_awaitingUnresolvedRelog && Manager.StartupAuditRequested &&
+                    (Current()?.Phase == "collecting" || Current()?.Phase == "applying"))
+                {
+                    Locked(() => {
+                        var collecting = Current();
+                        if (collecting?.Phase != "collecting") return;
+                        collecting.Participants[_character] = _connection;
+                        Manager.SetCensus(collecting);
+                        Manager.RetryInitialAudit(_character);
+                        _auditCycle = null;
+                        _issued = _finished = _quiesced = _startupFailed = _awaitingUnresolvedRelog = false;
+                        _localFaultReason = null;
+                    });
+                }
+                if (_awaitingUnresolvedRelog && _role == "central" && Manager.StartupAuditRequested && Current()?.Phase == "applying")
+                    Locked(Coordinate);
                 if (_awaitingUnresolvedRelog)
                 {
-                    _awaitingUnresolvedRelog = false;
-                    _heldForAdmin = true;
-                    Hold("Fresh login received; retained operation is unresolved. Administrator review required; no automatic audit.");
-                    Logger.Error("[CityBankers] " + _character +
-                        " relog completed; retained operation still needs administrator review. Other bankers keep their state; no audit started.");
-                    CityDwellers.Shared.ServiceEvents.Report("banker.fault", "error",
-                        "Relog completed; unresolved operation retained for administrator review.", new { Character = _character });
+                    if (!BankingServiceAgent.RecoverFreshConnection(_settings, _role, _localFaultReason ?? "Interrupted local operation")) return;
+                    bool released = false;
+                    Locked(() =>
+                    {
+                        var recovered = Current();
+                        if (recovered?.Phase != "released") return;
+                        recovered.Participants[_character] = _connection;
+                        Manager.SetCensus(recovered);
+                        Manager.ReportBankerPresence(_character, _connection, Stopwatch.GetTimestamp());
+                        Manager.ReadyBanker(_character, recovered.Id, _connection);
+                        _auditCycle = recovered.Id;
+                        _auditPause = _holdVersion;
+                        _finished = true;
+                        _invalidated = false;
+                        _startupFailed = _awaitingUnresolvedRelog = false;
+                        _localFaultReason = _lastRelogReason = null;
+                        _completedAdmissionReconnect = null;
+                        _layoutReconnectCycle = _idleReconnectCycle = null;
+                        _idleInventory = null;
+                        released = true;
+                    });
+                    if (released) InitializeDeferred();
                     return;
                 }
+                if (_completedAdmissionReconnect != null && !ResumeCompletedAdmission()) return;
+                if (_layoutReconnectCycle != null && !TryResumeLayoutConnection()) return;
                 if (_idleReconnectCycle != null && !TryResumeIdleConnection()) return;
-                if (_heldForAdmin) return;
                 if (_stagingFailureLayout != null)
                 {
                     // A hold used to end only when the layout changed, and the hold
@@ -574,12 +505,7 @@ namespace CityBankers
                 if (cycle?.Phase == "released" && !Includes(cycle, _character, _connection) && !Requested())
                 {
                     if (!InitialAuditUsed || _admission != null) TickAdmission(cycle);
-                    else if (!_heldForAdmin)
-                    {
-                        _heldForAdmin = true;
-                        Hold("Initial audit already used; readmission cannot launch another audit. Administrator review required.");
-                        Logger.Error("[CityBankers] " + _character + " readmission requires administrator review; automatic audit denied.");
-                    }
+                    else QueueAutomaticRecovery("Rebinding this banker after interrupted startup admission.");
                     return;
                 }
                 if (!Includes(cycle, _character, _connection)) return;
@@ -674,26 +600,7 @@ namespace CityBankers
                     Manager.ReportInitialAudit(result);
                     _startupFailed = true;
                     Manager.ClearBankerPresence(_character);
-                    Block("Initial audit result was rejected; no automatic repeat. Relog and report this banker only.");
-#if false // Retained legacy repeated startup audits.
-                    _issued = false; _auditRun = Guid.NewGuid().ToString("N"); _retry.Restart();
-                    // An unscannable worker is unavailable, not a prerequisite
-                    // that prevents healthy members from starting indefinitely.
-                    if (!string.Equals(_role, "central", StringComparison.OrdinalIgnoreCase))
-                    {
-                        // Rejoining on a fixed interval lets a persistently
-                        // unscannable worker force a fresh cycle indefinitely.
-                        // Back off so a repeatedly failing member cannot keep
-                        // re-auditing the whole roster: 60s, 120s, 240s, 480s,
-                        // then 960s. A census this worker completes resets it.
-                        if (_censusRejections < 5) _censusRejections++;
-                        long backoff = 60L << (_censusRejections - 1);
-                        Logger.Warning("[CityBankers] Census rejected for " + _character +
-                            "; retrying in " + backoff + "s (consecutive rejections=" + _censusRejections + ").");
-                        _presenceRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * backoff;
-                        Manager.ClearBankerPresence(_character);
-                    }
-#endif
+                    Block("Initial audit result was rejected; recover and retry this banker automatically.");
                     throw;
                 }
                 Manager.AcceptInitialCensus(_character, result);
@@ -745,11 +652,7 @@ namespace CityBankers
                     !Includes(cycle, _character, _layoutReconnectConnection) ||
                     !BankingServiceAgent.VerifyLayoutReconnect(bag, _layoutReconnectInventory))
                 {
-                    _heldForAdmin = true;
-                    Hold("Fresh login cannot verify retained bag layout movement " + bag +
-                        "; unrelated inventory must remain unchanged. No automatic audit.");
-                    Logger.Error("[CityBankers] " + _character + " local bag reconnect verification failed for " + bag +
-                        "; retained intent and inventory require administrator review.");
+                    QueueAutomaticRecovery("Retained bag layout differs from fresh login: " + bag);
                     return;
                 }
                 cycle.Participants[_character] = _connection;
@@ -787,18 +690,12 @@ namespace CityBankers
                 if (cycle?.Id != _idleReconnectCycle || cycle.Phase != "released" ||
                     !Includes(cycle, _character, _idleReconnectConnection))
                 {
-                    _heldForAdmin = true;
-                    Hold("Reconnect membership changed; administrator review required. No automatic audit.");
+                    QueueAutomaticRecovery("Reconnect membership changed.");
                     return;
                 }
                 if (!BankingServiceAgent.CanResumeIdleConnection() || observed != _idleReconnectInventory)
                 {
-                    _heldForAdmin = true;
-                    Hold("Fresh login differs from retained idle evidence or has unresolved work. Administrator review required; no automatic audit.");
-                    Logger.Error("[CityBankers] " + _character +
-                        " relog completed but state remains uncertain; administrator review required. No peer recovery requested.");
-                    CityDwellers.Shared.ServiceEvents.Report("banker.fault", "error",
-                        "Relog completed but retained state remains uncertain; administrator review required.", new { Character = _character });
+                    QueueAutomaticRecovery("Fresh login differs from the previous inventory snapshot.");
                     return;
                 }
                 cycle.Participants[_character] = _connection;
@@ -817,73 +714,16 @@ namespace CityBankers
                 CityDwellers.Shared.ServiceEvents.Report("banker.reconnected", "info", "Relog verified; resumed without audit.");
             }
             return resumed;
-#if false // Owner policy: retained legacy recovery/audit path.
+        }
 
-            string observed = ReconnectInventory();
-            if (_reconnectObserved != observed)
-            {
-                _reconnectObserved = observed;
-                _reconnectSettled.Restart();
-                return false;
-            }
-            if (_reconnectSettled.ElapsedMilliseconds < 5000) return false;
-            bool resumed = false;
-            bool localAudit = false;
-            Locked(() =>
-            {
-                var cycle = Current();
-                if (cycle?.Id != _idleReconnectCycle || cycle.Phase != "released" || Requested())
-                {
-                    // An independently requested census owns recovery now.
-                    _idleReconnectCycle = null;
-                    return;
-                }
-                if (!Includes(cycle, _character, _idleReconnectConnection))
-                    throw new InvalidOperationException("Idle reconnect lost its prior census membership.");
-                if (!BankingServiceAgent.CanResumeIdleConnection())
-                {
-                    _idleReconnectCycle = null;
-                    Block("Reconnect validation found unresolved item work; retained idle evidence cannot release this banker.");
-                    return;
-                }
-                // Rebind only this member. Other members retain their current
-                // cycle, ready tokens and physical evidence, even while offline.
-                cycle.Participants[_character] = _connection;
-                Manager.SetCensus(cycle);
-                _idleReconnectConnection = _connection;
-                PublishReadyRoster(cycle);
-                Manager.ReadyBanker(_character, cycle.Id, _connection);
-                _invalidated = false;
-                if (observed != _idleReconnectInventory)
-                {
-                    // Ready is only provisional within this callback. No fresh
-                    // operational heartbeat is published before the local hold.
-                    bool acquired;
-                    try { acquired = BankingServiceAgent.ReconcileIdleReconnect(); }
-                    catch
-                    {
-                        _invalidated = true;
-                        Manager.HoldBanker(_character, "Reconnect reconciliation pending.");
-                        throw;
-                    }
-                    if (!acquired)
-                    {
-                        Hold("Waiting for ownership of reconnect inventory reconciliation.");
-                        return;
-                    }
-                    localAudit = true;
-                }
-                else _auditPause = _holdVersion;
-                _idleReconnectCycle = null;
-                resumed = true;
-            });
-            if (resumed && !localAudit)
-            {
-                Logger.Information("[CityBankers] " + _character + " idle reconnect verified; resumed without bag audit.");
-                CityDwellers.Shared.ServiceEvents.Report("banker.reconnected", "info", "Idle reconnect verified; resumed without bag audit.");
-            }
-            return _idleReconnectCycle == null;
-        #endif
+        private void QueueAutomaticRecovery(string reason)
+        {
+            _localFaultReason = reason;
+            _awaitingUnresolvedRelog = true;
+            _completedAdmissionReconnect = null;
+            _layoutReconnectCycle = _idleReconnectCycle = null;
+            Hold("Automatic local inventory recovery: " + reason);
+            Logger.Warning("[CityBankers] " + _character + " recovering automatically: " + reason);
         }
 
         private void PublishReadyRoster(Cycle cycle)
@@ -896,6 +736,7 @@ namespace CityBankers
             if (!_bagRecoveryActive)
             {
                 _bagRecoveryActive = true;
+                _bagRecoveryRefreshed = false;
                 _localRelogPending = false;
                 Hold("Repairing duplicate storage container; this banker only.");
                 ClearOperational();
@@ -907,22 +748,27 @@ namespace CityBankers
             if (!ClientIsInPlay() || !ClientlessSessionGuard.BankCacheTrusted || !Inventory.Bank.IsOpen || Trade.IsTrading) return;
             if (!_bagRecoveryQuiesced)
             {
-                if (!BankingServiceAgent.CanQuiesceForBagRecovery(_settings, _character, _role == "central") ||
-                    !WithdrawalStore.TryReserveCensus(_settings, BagRecoveryReservation, _character, _role == "central"))
+                if (!BankingServiceAgent.CanQuiesceForBagRecovery(_settings, _character, _role == "central"))
                 {
-                    if (_bagRecoveryWait == null)
-                        Logger.Warning("[CityBankers] BAG RECOVERY " + _character +
-                            ": waiting for retained trade/custody ownership before moving any contents.");
-                    _bagRecoveryWait = "custody";
-                    return;
+                    if (!_bagRecoveryRefreshed) { ClientlessSessionGuard.ReconnectForBagRecovery(); return; }
+                    if (!BankingServiceAgent.RecoverFreshConnection(_settings, _role,
+                        "Resolve interrupted custody before damaged-bag evacuation.")) return;
+                    SharedBagRecovery.ResumeAfterNativeRepair();
                 }
+                if (!WithdrawalStore.TryReserveCensus(_settings, BagRecoveryReservation, _character, _role == "central")) return;
                 if (!BankingServiceAgent.QuiesceForCensus(BagRecoveryReservation)) return;
                 _bagRecoveryQuiesced = true;
+            }
+            if (SharedBagRecovery.NeedsNativeRepair)
+            {
+                if (!BankingServiceAgent.RecoverFreshConnection(_settings, _role,
+                    "Reconcile changed contents during damaged-bag repair.")) return;
+                SharedBagRecovery.ResumeAfterNativeRepair();
             }
             if (SharedBagRecovery.Tick()) return;
             if (SharedBagRecovery.RequiresHold) return;
             WithdrawalStore.ReleaseRecovery(_settings, BagRecoveryReservation);
-            _heldForAdmin = _startupFailed = _awaitingUnresolvedRelog = false;
+            _startupFailed = _awaitingUnresolvedRelog = false;
             _localFaultReason = _lastRelogReason = null;
             _localRelogPending = false;
             _idleReconnectCycle = null;
@@ -955,7 +801,7 @@ namespace CityBankers
             _stagingFailureLayout = InventoryLayout();
             _stagingBag = null;
             if (_stagingHolds < 5) _stagingHolds++;
-            long cooloff = 60L << (_stagingHolds - 1);
+            long cooloff = 1;
             _stagingRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * cooloff;
             Manager.HoldBanker(_character, reason);
             // Withdrawing presence lets the running cycle drop this member and
@@ -1131,13 +977,11 @@ namespace CityBankers
                 var cycle = Current();
                 if (retained == null || cycle == null || cycle.Id != retained.Cycle || cycle.Phase != "released" ||
                     !BankingServiceAgent.HasNeverStartedOperations || SharedBagRecovery.RequiresHold ||
-                    _localFaultReason != null || _startupFailed || _heldForAdmin ||
+                    _localFaultReason != null || _startupFailed ||
                     inventory != _completedAdmissionInventory)
                 {
                     _completedAdmissionReconnect = null;
-                    _heldForAdmin = true;
-                    Hold("Completed startup evidence cannot be rebound to this connection; administrator review required. No new audit.");
-                    Logger.Error("[CityBankers] Completed startup reconnect evidence changed for " + _character + "; held for review.");
+                    QueueAutomaticRecovery("Completed startup evidence changed on reconnect.");
                     return;
                 }
                 // Same immutable census/run; only its connection ownership changes.
@@ -1175,7 +1019,7 @@ namespace CityBankers
             // No member can become ready from a retired connection/run. A
             // partially applied local bundle remains immutable evidence. Only
             // ResumeCompletedAdmission may rebind a proven idle startup result;
-            // other uncertainty remains held for explicit administrator review.
+            // other uncertainty is resolved from fresh native inventory automatically.
             Manager.SetAdmission(_character, null);
             Manager.SetAdmission(_character, null, true);
             WithdrawalStore.ReleaseRecovery(_settings, _admission.Run);
@@ -1250,16 +1094,7 @@ namespace CityBankers
                 RetireAdmission();
                 _startupFailed = true;
                 Manager.ClearBankerPresence(_character);
-                Block("Initial admission audit failed; no automatic repeat. Relog and report this banker only.");
-#if false // Retained legacy repeated admission audits.
-                RetireAdmission();
-                if (_censusRejections < 5) _censusRejections++;
-                long backoff = 60L << (_censusRejections - 1);
-                _presenceRetryAfter = Stopwatch.GetTimestamp() + Stopwatch.Frequency * backoff;
-                Manager.ClearBankerPresence(_character);
-                Logger.Warning("[CityBankers] CENSUS READMISSION rejected for " + _character +
-                    "; retrying only this banker in " + backoff + "s; healthy cycle retained.");
-#endif
+                Block("Initial admission audit failed; recover and retry this banker automatically.");
                 throw;
             }
             var completedAdmission = _admission;

@@ -58,6 +58,19 @@ namespace CityBankers
             return true;
         }
 
+        internal static bool TryReadContainer(Identity identity, out int handle, out List<BagInnerItem> items)
+        {
+            int count;
+            items = null;
+            if (!TryObserveContainer(identity, 0, out handle, out count) || count > 21) return false;
+            // Reconciliation uses packet contents themselves. Equal SDK/wire
+            // counts alone cannot prove which items arrived after a reconnect.
+            var view = views[identity.Instance];
+            items = view.Items.Select(i => new BagInnerItem { LowId = i.Low, HighId = i.High, Ql = i.Ql,
+                SlotInstance = i.Slot, UniqueIdentity = i.Identity }).ToList();
+            return true;
+        }
+
         internal static void Install(string directory)
         {
             if (installed) return;
@@ -66,6 +79,7 @@ namespace CityBankers
                 Client.CharacterName.ToLowerInvariant());
             path = Path.Combine(root, "active.json");
             // Unreadable persistence is a hold, never a fresh recovery plan.
+            NeedsNativeRepair = false;
             retained = ReadState() != null || CityDwellers.Shared.ManagerMemory.Current.ReadBagHistory(
                 CityDwellers.Shared.ManagerAccounting.TransactionId, Client.CharacterName).Any(row => row.Phase != "complete");
             epoch = bankEpoch = requestedOpen = reconnectRequested = pendingId = lastError = null;
@@ -149,12 +163,57 @@ namespace CityBankers
                 Warn("Incoming recovery evidence unavailable: " + ex.GetType().Name);
             }
         }
+        internal static bool NeedsNativeRepair { get; private set; }
+        internal static IEnumerable<string> AffectedBagIdentities()
+        {
+            var state = ReadState();
+            var ids = new HashSet<int>();
+            if (state != null) {
+                ids.Add(state.Bag);
+                foreach (var target in state.TargetBaselines ?? new List<BagRecoveryTarget>()) ids.Add(target.Bag);
+                foreach (var target in state.Destinations ?? new List<int>()) ids.Add(target);
+            }
+            foreach (var history in CityDwellers.Shared.ManagerMemory.Current.ReadBagHistory(
+                CityDwellers.Shared.ManagerAccounting.TransactionId, Client.CharacterName).Where(h => h.Phase != "complete"))
+            {
+                ids.Add(history.Bag);
+                foreach (var transfer in history.Transfers) ids.Add(transfer.TargetBag);
+            }
+            return ids.Select(id => new Identity(IdentityType.Container, id).ToString());
+        }
+        internal static void ResumeAfterNativeRepair()
+        {
+            CityDwellers.Shared.ManagerAccounting.Transaction("Retire interrupted bag repair after native reconciliation", () => {
+                var manager = CityDwellers.Shared.ManagerMemory.Current;
+                string tx = CityDwellers.Shared.ManagerAccounting.TransactionId;
+                var state = ReadState();
+                if (state != null) {
+                    // Retire the instruction, not the evidence. No empty-shell
+                    // deletion or completed transfer is inferred by this record.
+                    manager.ChangeBagHistory(tx, new BagHistoryRecord { Run = state.Run, Character = state.Character,
+                        Bag = state.Bag, Phase = "complete", Transfers = state.Transfers ?? new List<Transfer>(),
+                        EmptyShellsDisappeared = state.EmptyShellsDisappeared,
+                        UpdatedUtc = DateTime.UtcNow, ReconciledUtc = DateTime.UtcNow });
+                    state.Phase = "complete"; manager.ChangeBagRecovery(tx, state);
+                }
+                foreach (var history in manager.ReadBagHistory(tx, Client.CharacterName).Where(h => h.Phase != "complete"))
+                {
+                    history.Phase = "complete";
+                    history.ReconciledUtc = history.UpdatedUtc = DateTime.UtcNow;
+                    manager.ChangeBagHistory(tx, history);
+                }
+                manager.ReconcileBagHistory(tx, Client.CharacterName);
+            });
+            retained = NeedsNativeRepair = false;
+            retryAge.Reset();
+            pendingId = requestedOpen = null;
+            // Actual remaining duplicate aliases will start a fresh evacuation
+            // against the reconciled stock on the next update.
+        }
+
         private static State Load()
         {
             var s = ReadState();
-            if (s == null && File.Exists(path) &&
-                (string)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(path))["Phase"] != "complete")
-                throw new InvalidOperationException("An unfinished older on-disk repair is present; preserving it for administrator review.");
             if (s != null && (s.Format != "citybankers-shared-bag-recovery-v2" ||
                 s.Character != Client.CharacterName || s.Transfers == null || s.Destinations == null ||
                 s.FullTargets == null || s.TargetBaselines == null || s.Baseline == null ||
@@ -353,7 +412,12 @@ namespace CityBankers
             catch (Exception ex)
             {
                 Warn(ex.Message); retryAge.Restart();
-                // Durable pending actions survive and will be observed, not resent.
+                // A deterministic journal/stock disagreement must not keep this
+                // banker stopped forever. Refresh and reconcile affected contents,
+                // preserving losses/finds, before building another physical plan.
+                NeedsNativeRepair = true;
+                try { Reconnect("Resolve interrupted bag repair from fresh native state."); }
+                catch (Exception reconnectError) { Warn("Recovery reconnect will retry: " + reconnectError.Message); }
                 return true;
             }
         }
@@ -399,7 +463,7 @@ namespace CityBankers
                 if (failed == null) { failed = new BagRecoveryReadFailure { Bag = address.Bag }; s.ReadFailures.Add(failed); }
                 int failures = failed.Count = Math.Min(6, failed.Count + 1);
                 s.FirstReadRefreshEpoch = failures == 1 ? epoch : null;
-                s.RetryAfterUtc = DateTime.UtcNow.AddSeconds(Math.Min(960, 15 * (1 << failures)));
+                s.RetryAfterUtc = default(DateTime);
                 Event(s, "No fresh shared-container snapshot for " + address.Key +
                     "; stop Use replay and refresh connection; retry after " + s.RetryAfterUtc.ToString("O"));
                 Save(s);
@@ -461,7 +525,7 @@ namespace CityBankers
             int secured = s.Transfers.Where(t => t.Item.Key == item.Key).Sum(t => t.Item.Quantity);
             if (secured + item.Quantity > budget)
             {
-                throw new InvalidOperationException("Source exceeds its recorded contents budget; retaining every item for administrator review.");
+                throw new InvalidOperationException("Source changed after the recorded contents budget; reconcile current native stock.");
             }
             var target = Outer().GroupBy(a => a.Bag).Where(g => g.Count() == 1 && g.Key != s.Bag &&
                 !s.FullTargets.Contains(g.Key)).Select(g => g.Single())
@@ -624,7 +688,7 @@ namespace CityBankers
         {
             s.FirstReadRefreshEpoch = null; // Never waive a mutation's no-effect backoff.
             s.UnappliedAttempts = Math.Min(6, s.UnappliedAttempts + 1);
-            s.RetryAfterUtc = DateTime.UtcNow.AddSeconds(Math.Min(960, 15 * (1 << s.UnappliedAttempts)));
+            s.RetryAfterUtc = default(DateTime);
         }
         private static void Finish(State s, string reason)
         {

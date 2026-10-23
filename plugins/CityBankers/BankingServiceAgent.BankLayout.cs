@@ -177,7 +177,7 @@ namespace CityBankers
                         Inventory.Items.Any(i => StorageBagPolicy.IsNormalInventory(i) && !BankerPersonalItems.IsPersonal(i.Id, i.HighId)) ||
                         ManagerMemory.Current.ReadLedger(ManagerAccounting.TransactionId).Items.Any(e =>
                             string.Equals(e.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase)))
-                        throw new InvalidOperationException("New banker is not empty; use the owner's initial audit before enrollment: " + Client.CharacterName);
+                        { StartupCensusGate.Block("Enroll this banker's existing native inventory automatically."); return; }
                     RuntimeStorageStateTransactions.ReplaceCensusedWorker(_settingsDir, new StorageWorkerState {
                         Role = _role, Character = Client.CharacterName, ObservedUtc = DateTime.UtcNow });
                     Logger.Information("[CityBankers] Enrolled empty new banker " + Client.CharacterName + "; no existing banker audited.");
@@ -221,7 +221,7 @@ namespace CityBankers
                 var candidates = inventory.Select(r => new { Record = r,
                     State = worker.Bags.SingleOrDefault(b => b.LastUniqueIdentity == r.Identity.ToString()) })
                     .Where(r => r.State?.Items != null).OrderByDescending(r => r.State.Items.Count).ToList();
-                var filled = candidates.FirstOrDefault(r => r.State.Items.Count > 0);
+                var filled = candidates.FirstOrDefault(r => r.State.Items.Count > 0 || r.State.Capacity == 0);
                 if (ReserveBankFreeSlots > 0 && (filled != null || StorageBagPolicy.AllBagRecords().Count <= StorageBankBagTarget))
                 {
                     var selected = filled ?? candidates.FirstOrDefault();
@@ -236,10 +236,10 @@ namespace CityBankers
                 // room for an occupied inventory bag.
                 if (_isCentral) return false;
                 var bankEmpty = StorageBagPolicy.AllBagRecords().Where(r => r.Location == "bank").FirstOrDefault(r =>
-                    worker.Bags.Any(b => b.LastUniqueIdentity == r.Identity.ToString() && b.Items?.Count == 0));
+                    worker.Bags.Any(b => b.LastUniqueIdentity == r.Identity.ToString() && b.Capacity > 0 && b.Items?.Count == 0));
                 // If occupied inventory bags need bank slots, release an EMPTY
                 // bank shell first. Never leave occupied bags for ordinary work.
-                var empty = filled != null ? bankEmpty : candidates.FirstOrDefault(r => r.State.Items.Count == 0)?.Record ?? bankEmpty;
+                var empty = filled != null ? bankEmpty : candidates.FirstOrDefault(r => r.State.Capacity > 0 && r.State.Items.Count == 0)?.Record ?? bankEmpty;
                 if (empty == null)
                 {
                     const string reason = "Bank is full and has no verified empty bag to exchange; occupied bags retained.";

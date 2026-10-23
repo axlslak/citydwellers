@@ -50,6 +50,7 @@
     <Compile Include="StartupCensusGate.cs" />
     <Compile Include="StorageBagPolicy.cs" />
     <Compile Include="BankingServiceAgent.cs" />
+    <Compile Include="BankingServiceAgent.AutoRecovery.cs" />
     <Compile Include="BankingServiceAgent.Custody.cs" />
     <Compile Include="BankingServiceAgent.Cancellation.cs" />
     <Compile Include="BankingServiceAgent.StorageRecovery.cs" />

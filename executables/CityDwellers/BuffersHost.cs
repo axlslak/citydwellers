@@ -173,8 +173,21 @@ internal static class BuffersHost
     private static void ProcessPaidBuffer(BufferRuntime runtime, List<BufferRuntime> runtimes, string plugin, Logger logger)
     {
         var memory = ManagerMemory.Current;
-        if (runtime.Blocked) return; // Failed unload: never retry login or release its account.
         string character = runtime.Account.Character;
+        if (runtime.Blocked)
+        {
+            string cleanupError;
+            // Keep account ownership until the old domain really exits, then
+            // resume scheduling. A failed unload is never a permanent admin latch.
+            if (runtime.Domain != null && !ClientDomainLifetime.TryUnload(runtime.Domain, out cleanupError)) return;
+            runtime.Domain = null;
+            runtime.Blocked = false;
+            memory.MarkBufferBotOffline(character);
+            memory.ReleaseAoAccount(runtime.Account.Username, runtime.AccountOwner);
+            memory.StopPaidBufferSession(character, false, null);
+            logger.Information("Paid buffer {Character} cleanup recovered; shared account released.", character);
+            return;
+        }
         var state = memory.ReadPaidBuffer(character);
         if (state == null) return;
         if (runtime.Domain == null)
@@ -199,7 +212,7 @@ internal static class BuffersHost
                     memory.ReleaseAoAccount(runtime.Account.Username, owner);
                     memory.StopPaidBufferSession(character, true, "Paid buffer login failed; please wait a minute before retrying.");
                 }
-                else memory.BlockPaidBuffer(character, "Paid buffer cleanup failed; administrator intervention required.");
+                else memory.DrainPaidBuffer(character);
             }
             return;
         }
@@ -219,7 +232,6 @@ internal static class BuffersHost
         {
             runtime.Blocked = true;
             memory.DrainPaidBuffer(character);
-            memory.BlockPaidBuffer(character, "Paid buffer could not unload; administrator intervention required.");
             logger.Warning("Paid buffer {Character} unload failed; account remains reserved: {Message}",
                 runtime.Account.Character, error);
             return;

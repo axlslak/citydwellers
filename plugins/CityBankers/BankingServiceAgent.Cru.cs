@@ -30,8 +30,8 @@ namespace CityBankers
         private readonly Stopwatch _stackFailureAge = Stopwatch.StartNew();
         private bool _cruRecovered;
         private bool _automaticCruStackingEnabled;
-        // Only completed preparation clears this latch. Actor readmission must not
-        // retry an uncertain split or merge against potentially stale quantities.
+        // An in-flight stack operation is verified or retired on a fresh login.
+        // Never issue another split using the same uncertain snapshot.
         private static bool _cruPreparationUnverified;
         private static readonly Stopwatch _cruMergeIdleAge = Stopwatch.StartNew();
 
@@ -46,7 +46,8 @@ namespace CityBankers
                 _extraction != null || _returnOffer != null)
             { proposal.Reply.TrySetResult("Central is busy. Please try #cru again shortly."); return true; }
             if (_cruPreparationUnverified)
-            { proposal.Reply.TrySetResult("CRU preparation is paused after an unverified stack operation. Please contact the bot owner."); return true; }
+            { StartupCensusGate.Block("Refresh unconfirmed CRU stack operation.");
+                proposal.Reply.TrySetResult("CRU supply is refreshing automatically. Please try again shortly."); return true; }
             StackableItems.Flush();
             var inventory = CruInventory();
             if (inventory.Any(i => StackableItems.Quantity(i) < 1))
@@ -190,7 +191,7 @@ namespace CityBankers
             Logger.Information("[CityBankers] STACK merge CRU via action53 survivor=" + source.Slot + "; consumed=" + target.Slot +
                 "; quantities=" + _stackOperation.SourceCount + "+" + _stackOperation.TargetCount);
             // Sending alone never authorizes another merge. A timeout, exception
-            // or actor teardown leaves preparation paused until a runtime restart.
+            // or actor teardown requires a fresh native inventory before retry.
             _cruPreparationUnverified = true;
             StackableItems.Merge(source, target);
             return true;
@@ -213,7 +214,7 @@ namespace CityBankers
                 ? totalMatches && exactSplit && current.Contains(op.Source) && StackableItems.Quantity(op.Source) == op.SourceCount - 1
                 : totalMatches && current.Contains(op.Source) && !current.Contains(op.Target) &&
                     StackableItems.Quantity(op.Source) == op.SourceCount + op.TargetCount;
-            if (done && op.Age.ElapsedMilliseconds >= 500)
+            if (done)
             {
                 Logger.Information("[CityBankers] STACK " + (op.Target == null
                     ? "split prepared locally (not server-acknowledged)" : "merge verified") + "; CRU units=" + op.Total);
@@ -232,18 +233,10 @@ namespace CityBankers
                 .Select(i => i.Slot + "/" + StackableItems.Quantity(i)));
             _stackFailureAge.Restart();
             if (op.Target != null) StackableItems.CancelMerge(op.Source, op.Target);
-            Logger.Warning("[CityBankers] STACK preparation incomplete; further operations paused. Inventory=" + _lastStackFailure);
-            Logger.Warning("[CityBankers] CRU merging and new CRU preparation paused until restart; other banking remains available.");
-            if (op.RequestId != null)
-            {
-                WithdrawalStore.Update(_settingsDir, rows =>
-                {
-                    var row = rows.Single(r => r.Id == op.RequestId);
-                    row.Status = "expired"; row.Error = "CRU split was not verified."; WithdrawalStore.Touch(row); return true;
-                });
-                var expiredRequest = WithdrawalStore.LoadAll(_settingsDir).Single(r => r.Id == op.RequestId);
-                TellPlayer(expiredRequest.RequestedBy, "Central could not verify the CRU split. CRU preparation is paused; please contact the bot owner.");
-            }
+            Logger.Warning("[CityBankers] STACK preparation incomplete; refreshing native inventory automatically.");
+            // Keep requested pickups queued. The fresh connection retires the
+            // uncertain split and rebuilds the available supply from actual stacks.
+            StartupCensusGate.Block("Unconfirmed CRU stack operation; refresh native quantities before retry.");
             _stackOperation = null;
             return true;
         }

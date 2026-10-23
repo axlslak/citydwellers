@@ -56,6 +56,18 @@ namespace CityDwellers.Shared
     public sealed partial class ManagerMemory
     {
         private readonly object _bankerSync = new object();
+        private readonly Dictionary<string, string> _bankerRecovery = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        public void RequestBankerRecovery(string character, string reason)
+        { lock (_bankerSync) if (!string.IsNullOrEmpty(character)) _bankerRecovery[character] = reason; }
+        public string TakeBankerRecovery(string character)
+        {
+            lock (_bankerSync) {
+                string reason;
+                if (!_bankerRecovery.TryGetValue(character, out reason)) return null;
+                _bankerRecovery.Remove(character);
+                return reason;
+            }
+        }
         private CensusCycle _census;
         private bool _startupAuditRequested;
         public bool StartupAuditRequested { get { lock (_bankerSync) return _startupAuditRequested; } }
@@ -107,6 +119,8 @@ namespace CityDwellers.Shared
         }
         public CensusCycle CurrentCensus() { lock (_bankerSync) return _census?.Copy(); }
         public void SetCensus(CensusCycle cycle) { lock (_bankerSync) _census = cycle?.Copy(); }
+        public void RetryInitialAudit(string character)
+        { lock (_bankerSync) { if (_startupAuditRequested) _initialAudits.Remove(character); } }
         public bool InitialAuditUsed(string character) { lock (_bankerSync) return _initialAudits.Contains(character); }
         public bool ConsumeInitialAudit(string character) { lock (_bankerSync) return _startupAuditRequested && _initialAudits.Add(character); }
         public void ReportBankerPresence(string character, string connection, long stamp)

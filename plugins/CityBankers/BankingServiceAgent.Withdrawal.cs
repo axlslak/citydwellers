@@ -726,7 +726,6 @@ namespace CityBankers
             if (central == null) return;
             if (_withdrawalPreparation == null)
             {
-                if (_withdrawalPreparationAge.ElapsedMilliseconds < 500) return;
                 _withdrawal.TransferAttemptId = Guid.NewGuid().ToString("N");
                 WithdrawalStore.Save(_settingsDir, _withdrawal);
                 _withdrawalPreparationAge.Restart();
@@ -851,7 +850,6 @@ namespace CityBankers
                     DeclinePickup(state, "Central cannot uniquely identify a reserved item for this pickup. Nothing will be handed out; your order remains pending.");
                     return;
                 }
-                if (_managedAddWait.ElapsedMilliseconds < 500) return;
                 Trade.AddItem(item.Slot);
                 _managedAddWait.Restart();
                 _pickupOfferedIds.Add(row.Id);
@@ -866,7 +864,6 @@ namespace CityBankers
             }
             if (!_withdrawalAccepted)
             {
-                if (!InternalOfferSettled(SnapshotTradeItems(Trade.PlayerWindowCache.Items))) return;
                 _withdrawalAccepted = true;
                 _localDispatchAcceptAge.Restart();
                 Trade.Accept();

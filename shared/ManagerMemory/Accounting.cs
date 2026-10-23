@@ -243,6 +243,20 @@ namespace CityDwellers.Shared
         }
         public ReceiptEvidence ReadReceipt(string transaction, string id)
         { lock (_accountingSync) return Accounting(transaction).Receipts.SingleOrDefault(row => row.Id == id)?.Copy(); }
+        public ReceiptEvidence[] ReadCharacterReceipts(string transaction, string character)
+        { lock (_accountingSync) return Accounting(transaction).Receipts.Where(row =>
+            string.Equals(row.Character, character, StringComparison.OrdinalIgnoreCase)).Select(row => row.Copy()).ToArray(); }
+        public void RetireCharacterReceipts(string transaction, string character)
+        { lock (_accountingSync) { var state = Writing(transaction); state.Receipts = state.Receipts.Where(row =>
+            !string.Equals(row.Character, character, StringComparison.OrdinalIgnoreCase)).ToList(); } }
+        public ExtractionProof[] ReadCharacterExtractions(string transaction, string character)
+        { lock (_accountingSync) return Accounting(transaction).Extractions.Where(row => row.Phase != "completed" &&
+            string.Equals(row.Character, character, StringComparison.OrdinalIgnoreCase)).Select(row => row.Copy()).ToArray(); }
+        public ReturnOffer[] ReadCharacterReturns(string transaction, string character, bool central = false)
+        { lock (_accountingSync) return Accounting(transaction).Returns.Where(row => !row.CompletedUtc.HasValue &&
+            (string.Equals(row.Source, character, StringComparison.OrdinalIgnoreCase) ||
+             (central && string.IsNullOrEmpty(row.Destination)) ||
+             string.Equals(row.Destination, character, StringComparison.OrdinalIgnoreCase))).Select(row => row.Copy()).ToArray(); }
         public void ChangeReceipt(string transaction, ReceiptEvidence value)
         {
             if (value == null || string.IsNullOrEmpty(value.Id)) throw new ArgumentException("Operation identity is required.");

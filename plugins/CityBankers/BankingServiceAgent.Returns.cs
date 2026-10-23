@@ -176,7 +176,7 @@ namespace CityBankers
             {
                 if (IsReturnReceiver)
                 {
-                    if (_returnSenderVerified && _returnCommitRetry.ElapsedMilliseconds >= 1000)
+                    if (_returnSenderVerified)
                     {
                         _returnCommitRetry.Restart();
                         try { CommitReturnOnCentral(); }
@@ -253,7 +253,6 @@ namespace CityBankers
             }
             if (Trade.CurrentTarget != _returnPartner || !DispatchPeerReady("opened")) return true;
             var offered = SnapshotTradeItems(IsReturnReceiver ? Trade.TargetWindowCache?.Items : Trade.PlayerWindowCache?.Items);
-            if (!InternalOfferSettled(offered)) return true;
             if (DispatchWindowsConsistent(CurrentInternalCommand()) &&
                 (IsReturnReceiver ? DispatchPeerReady("accepted") :
                     offered.Count == 1 && CustodyKey(offered[0]) == CustodyKey(_returnOffer.Item)))
@@ -410,8 +409,8 @@ namespace CityBankers
                     "RETURN RECEIVED " + offer.Item.Name + " from " + offer.Source + "; ledger=" + offer.LedgerId +
                     "; destination=" + (role ?? "central review") + ".");
                 if (role == null)
-                    TellKavem("Central is holding " + offer.Item.Name + " QL" + offer.Item.Ql +
-                        " returned by " + offer.Source + " for your review.");
+                    ReportBankerProblem("Central is holding " + offer.Item.Name + " QL" + offer.Item.Ql +
+                        " returned by " + offer.Source + " and recorded it for automatic routing.");
             }
             catch (Exception ex) { Logger.Warning("[CityBankers] Return committed; notification unavailable: " + ex.Message); }
         }
@@ -460,7 +459,6 @@ namespace CityBankers
                 string candidate = entries[0].Id + "/" + item.Slot.Instance;
                 if (_returnCandidate != candidate)
                 { _returnCandidate = candidate; _returnCandidateWait.Restart(); return; }
-                if (_returnCandidateWait.ElapsedMilliseconds < 500) return;
                 _returnOffer = new ReturnOffer { Id = Guid.NewGuid().ToString("N"), LedgerId = entries[0].Id,
                     TransactionId = entries[0].TransactionId, Source = Client.CharacterName,
                     SourceSlot = item.Slot.Instance, Item = SnapshotTradeItems(new[] { item })[0], StartedUtc = DateTime.UtcNow };

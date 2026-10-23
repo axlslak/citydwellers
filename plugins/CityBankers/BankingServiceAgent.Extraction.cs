@@ -132,7 +132,6 @@ namespace CityBankers
                     StartupCensusGate.Block("Extraction needs local reconciliation: " + _extraction.Id + " phase=" + _extractionPhase);
                 return true;
             }
-            if (!_extraction.LocalStorage && _extractionAge.ElapsedMilliseconds < 500) return true;
             if (_extractionPhase == ExtractionPhase.Commit)
             {
                 if (!Inventory.Items.Any(i => i != null && i.Slot.Type == IdentityType.Inventory &&
@@ -140,7 +139,6 @@ namespace CityBankers
                     i.HighId == _extraction.Item.HighId && i.Ql == _extraction.Item.Ql)) return true;
                 if (_isCentral || _extraction.LocalStorage)
                 {
-                    if (!_extraction.LocalStorage && _extractionCommitRetry.ElapsedMilliseconds < 1000) return true;
                     _extractionCommitRetry.Restart();
                     try
                     {

@@ -207,6 +207,7 @@ namespace CityBankers
                 "recovery:history/census-" + Path.GetFileName(directory).Replace("cycle-", "") + ".json");
             if (Trade.IsTrading) { TryDeclineTrade(); return false; }
             // Durable custody is already recorded by Manager; no duplicate actor dump.
+            _automaticRepairOwner = actor;
             var root = actor._lifecycleRoot ?? actor;
             actor.Teardown();
             actor._enabled = false;
@@ -305,7 +306,7 @@ namespace CityBankers
             }
             if (pending == null || _blockedRecoveryAge.ElapsedMilliseconds < 60000) return false;
             StartupCensusGate.Block("Recovery ownership/peer accounting did not converge: " + pending +
-                "; relog this banker only; unresolved evidence requires administrator review.");
+                "; relog this banker only; unresolved evidence is reconciled automatically.");
             return true;
         }
 
@@ -332,6 +333,7 @@ namespace CityBankers
             try
             {
                 ResumeBankLayout();
+                if (!StartupCensusGate.IsOpen) return;
                 ResumeSurplusBagDisposal();
                 ResumeBagShopWork();
                 ResumeLocalStorageExtraction();
@@ -353,7 +355,8 @@ namespace CityBankers
                     bool pendingDispatch = _isCentral &&
                         RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(batch =>
                             string.Equals(batch.Status, "queued", StringComparison.OrdinalIgnoreCase) ||
-                            string.Equals(batch.Status, "transferred", StringComparison.OrdinalIgnoreCase));
+                            string.Equals(batch.Status, "transferred", StringComparison.OrdinalIgnoreCase) ||
+                            batch.Status == "failed" || batch.Status == "custody-hold" || batch.Status == "retrying");
                     if (pendingDispatch || BankLayoutPending() || BagShopSupplyPending() || CityDwellers.Shared.ManagerMemory.Current.BagReplacementPending(
                             CityDwellers.Shared.ManagerAccounting.TransactionId) || WithdrawalStore.LoadAll(_settingsDir).Any(row =>
                         WithdrawalStore.IsActive(row) &&
@@ -380,6 +383,7 @@ namespace CityBankers
                 if (TickReserveOperation()) return;
                 if (TickRecoveryExtraction()) return;
                 if (TickInitialInventoryStorage()) return;
+                if (TickUnresolvedBatches()) return;
                 if (TickReturnTransfer()) return;
                 if (TickInitialBankSetup()) return;
                 if (TickBankLayout()) return;
@@ -1219,7 +1223,7 @@ namespace CityBankers
             catch (Exception ex)
             {
                 Logger.Error($"BANKING SERVICE trade-status handling failed: {ex}");
-                StartupCensusGate.Block("Trade handler failed; custody requires review: " + ex);
+                StartupCensusGate.Block("Trade handler failed; automatic custody recovery required: " + ex);
             }
         }
 
@@ -1731,11 +1735,10 @@ namespace CityBankers
             CityDwellers.Shared.ManagerAccounting.Transaction(
                 "CityBankers over-cap delete failure", () =>
                 FailDonationCleanupState(cleanup, error, evidence, remainingOverflow));
-            TellDonationPartner(
-                "DELETE FAILURE: " + error + " " + DescribeRetainedItems(evidence) +
-                " Storeable items from this donation may continue through the queue, but a failed central-delete hold will block new donations until the physical state is reconciled.");
+            ReportBankerProblem("Unverified over-cap deletion: " + error + " " + DescribeRetainedItems(evidence));
             _donationDispositionPartnerName = null;
             _donationCleanup = null;
+            StartupCensusGate.Block("Resolve unverified deletion from native inventory; retain actual remaining stock.");
         }
 
         private void FailDonationCleanupState(
@@ -2304,9 +2307,9 @@ namespace CityBankers
                     batch.Role,
                     result.Error,
                     batch.Items);
-                TellKavem(
+                ReportBankerProblem(
                     "STORAGE FAILURE " + batch.Role + ": " + result.Error +
-                    " Physical custody is retained; the affected worker is stopped for review.");
+                    " The affected worker is recovering automatically.");
             }
         }
 
@@ -2335,7 +2338,7 @@ namespace CityBankers
                 _activeBatch.Role,
                 error,
                 _activeBatch.Items);
-            TellKavem("Dispatch failure " + _activeBatch.Role + ": " + error);
+            ReportBankerProblem("Dispatch failure " + _activeBatch.Role + ": " + error);
             RuntimeStateStore.DeleteDispatchCommand(_settingsDir, _activeBatch.Character);
             _activeBatch = null;
             _activeWorkerIdentity = Identity.None;
@@ -2363,7 +2366,7 @@ namespace CityBankers
                 batch.Role,
                 error,
                 batch.Items);
-            TellKavem("Dispatch failure " + batch.Role + ": " + error);
+            ReportBankerProblem("Dispatch failure " + batch.Role + ": " + error);
         }
 
         // ---------------------------------------------------------------------
@@ -2375,7 +2378,7 @@ namespace CityBankers
             if (_storageJob != null)
             {
                 Trade.Decline();
-                TellKavem(
+                ReportBankerProblem(
                     "Worker " + Client.CharacterName +
                     " declined a new Central trade because a prior storage batch is still active.");
                 return;
@@ -2989,7 +2992,7 @@ namespace CityBankers
                 "STORAGE FAILURE: " + error);
             ReportTransferProgress("STORAGE FAILURE", job.Command?.BatchId,
                 "destination=" + Client.CharacterName + "; verified stored=" + job.StoredCount + "; " + error);
-            TellKavem(
+            ReportBankerProblem(
                 "STORAGE FAILURE on " + Client.CharacterName + ": " + error +
                 " No further items in this batch will be moved until reconciliation.");
             job.Failure = error;
@@ -3028,7 +3031,7 @@ namespace CityBankers
                     Error = error
                 });
             RuntimeStateStore.DeleteDispatchCommand(_settingsDir, Client.CharacterName);
-            TellKavem("Worker trade failure on " + Client.CharacterName + ": " + error);
+            ReportBankerProblem("Worker trade failure on " + Client.CharacterName + ": " + error);
             _workerCommand = null;
             _workerAccepted = false;
             TryDeclineTrade();
@@ -3072,7 +3075,7 @@ namespace CityBankers
                 return;
             RuntimeStateStore.SaveStorageBaseline(_settingsDir, imported, "audit-" + runId);
             _lastImportedBaselineRunId = runId;
-            TellKavem(
+            ReportBankerProblem(
                 "Storage baseline imported: run " + runId + ", workers=" +
                 imported.Workers.Count + ", bags=" +
                 imported.Workers.Sum(w => w.Bags?.Count ?? 0) + ", stock=" +
@@ -3706,9 +3709,12 @@ namespace CityBankers
                 activityLabel + " -> " + playerName + ": " + message);
         }
 
-        private void TellKavem(string message)
+        private void TellKavem(string message) => TellPlayer(TrustedOperators.BootstrapAdmin, message);
+
+        private void ReportBankerProblem(string message)
         {
-            TellPlayer(TrustedOperators.BootstrapAdmin, message);
+            Logger.Warning("[CityBankers] " + message);
+            CityDwellers.Shared.ServiceEvents.Report("banker.diagnostic", "warning", message);
         }
 
         // Observability is independent of custody/accounting: a channel failure

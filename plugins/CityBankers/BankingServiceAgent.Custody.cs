@@ -20,30 +20,14 @@ namespace CityBankers
         private Action _afterReceipt;
         private bool _lateReceiptDeclineReported;
         private Stopwatch _custodyVerificationWait;
-        private string _settledOffer;
-        private readonly Stopwatch _offerStableFor = Stopwatch.StartNew();
         private string _settledInventory;
         private readonly Stopwatch _inventoryStableFor = Stopwatch.StartNew();
         private Identity _pendingConfirmation = Identity.None;
-        private readonly Stopwatch _confirmationWait = Stopwatch.StartNew();
-
-        private bool InternalOfferSettled(IEnumerable<TransferItemState> items)
-        {
-            string signature = string.Join(";", items.Select(CustodyKey).OrderBy(key => key));
-            if (signature != _settledOffer)
-            {
-                _settledOffer = signature;
-                _offerStableFor.Restart();
-                return false;
-            }
-            return _offerStableFor.ElapsedMilliseconds >= 500;
-        }
 
         private void QueueInternalConfirmation(Identity target)
         {
             if (_pendingConfirmation == target) return;
             _pendingConfirmation = target;
-            _confirmationWait.Restart();
         }
 
         private void TickInternalConfirmation()
@@ -61,9 +45,7 @@ namespace CityBankers
                 (_receipt.Kind == "recovery-return-send" || _receipt.Kind == "recovery-return-receive");
             if (cautiousRecovery)
             {
-                if (_confirmationWait.ElapsedMilliseconds < 500 ||
-                    _localDispatchAcceptAge.ElapsedMilliseconds < 500 ||
-                    !DispatchWindowsConsistent(CurrentInternalCommand()) ||
+                if (!DispatchWindowsConsistent(CurrentInternalCommand()) ||
                     !DispatchPeerReady("accepted")) return;
             }
             else if (!DispatchWindowsExact(CurrentInternalCommand())) return;
@@ -113,7 +95,6 @@ namespace CityBankers
             _dispatchClosedAge = null;
             _tradeStages.Clear();
             _recordedTradeStages.Clear();
-            _settledOffer = null;
             _settledInventory = null;
             _pendingConfirmation = Identity.None;
             _receiptLiveBeforeItems = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory).ToList();
@@ -226,15 +207,6 @@ namespace CityBankers
                 }
                 TradeTrace.Wait(_dispatchSpan, "inventory-delta-exact");
                 TradeTrace.Wait(_storageSpan, "inventory-delta-exact");
-                return true;
-            }
-            // An artificial settle delay, named with its constant so the trace says
-            // what it is. The inventory delta already matched; this is 500ms of
-            // deliberate waiting on top of that, per receipt.
-            if (_inventoryStableFor.ElapsedMilliseconds < 500)
-            {
-                TradeTrace.Wait(_dispatchSpan, "settle-timer-500ms");
-                TradeTrace.Wait(_storageSpan, "settle-timer-500ms");
                 return true;
             }
             // Stage 17: post-trade physical evidence is complete on this side.

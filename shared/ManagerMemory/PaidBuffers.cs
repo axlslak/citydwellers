@@ -368,7 +368,7 @@ namespace CityDwellers.Shared
             {
                 var _paidBuffer = PaidBufferLocked(character);
                 if (_paidBuffer == null) return;
-                _paidBuffer.Running = _paidBuffer.Ready = false;
+                _paidBuffer.Running = _paidBuffer.Ready = _paidBuffer.Blocked = false;
                 // A priority account handoff can unload between caster acceptance
                 // and Manager's delivery acknowledgement. Preserve that work.
                 foreach (var request in _bufferPublicCommands.Values.Where(r => r.Accepted &&
@@ -408,17 +408,6 @@ namespace CityDwellers.Shared
         {
             lock (_bufferPublicCommandSync)
                 foreach (var character in _paidBuffers.Keys) FailPaidRequestsLocked(character, message);
-        }
-
-        public void BlockPaidBuffer(string character, string message)
-        {
-            lock (_bufferPublicCommandSync)
-            {
-                var _paidBuffer = PaidBufferLocked(character);
-                if (_paidBuffer == null) return;
-                _paidBuffer.Blocked = _paidBuffer.Draining = true;
-                FailPaidRequestsLocked(character, message);
-            }
         }
 
         private void FailPaidRequestsLocked(string character, string message)

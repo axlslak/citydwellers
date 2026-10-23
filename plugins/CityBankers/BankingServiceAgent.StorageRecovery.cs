@@ -59,7 +59,7 @@ namespace CityBankers
 
         private void RequestStorageRecovery(StorageJob job)
         {
-            StartupCensusGate.Block("Storage placement was not verified; relog this banker only. Retain the operation for administrator review if still unresolved.");
+            StartupCensusGate.Block("Storage placement was not verified; relog this banker only. Resolve the retained operation from fresh native inventory.");
 #if false // Owner policy: retained legacy automatic audit path.
 
             if (IsReserveBatch(job.Command?.Items))

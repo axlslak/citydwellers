@@ -468,12 +468,8 @@ namespace CityBankers
                 int lateHandle, lateCount;
                 if (SharedBagRecovery.TryObserveContainer(record.Identity, op.ObservationAfter, out lateHandle, out lateCount))
                 { ReservePhase("opening", record.Bag); return true; }
-                if ((DateTime.UtcNow - op.StartedUtc).TotalSeconds < Math.Min(960, 5 * (1 << op.ReadRetries))) return true;
-                if (ReserveBankFreeSlots < 1) return true;
-                // Re-stage only this container to obtain another server read.
-                // Contents remain untouched, even when emptiness is still unknown.
-                op.ObservationAfter = SharedBagRecovery.ContainerObservationSequence;
-                ReservePhase("refresh-banking", record.Bag); record.Bag.MoveToBank(); return true;
+                StartupCensusGate.Block("Reserve contents did not arrive; refresh this container automatically: " + op.Identity);
+                return true;
             }
             if (op.Phase == "refresh-banking")
             {
@@ -528,7 +524,7 @@ namespace CityBankers
                     {
                         var state = ReadReserve(); var bag = state.Bags.Single(b => b.Identity == op.Identity);
                         bag.Quarantined = true; SaveReserve(state);
-                        TellKavem("Reserve bag " + op.Identity + " is not empty. It is retained and excluded from replacements.");
+                        ReportBankerProblem("Reserve bag " + op.Identity + " is not empty. It is retained and excluded from replacements.");
                     }
                     _reserveOperation = null;
                     StartupCensusGate.Block("Reserve bag contains items; retain contents and reconcile before further operations.");

@@ -316,13 +316,13 @@ namespace CityBankers
 
         internal static void ApplyCensus(string settingsDir, List<ActiveLedgerItem> items,
             IEnumerable<TransferItemState> metadata, string evidence,
-            IEnumerable<string> confirmedDeliveryIds = null)
+            IEnumerable<string> confirmedDeliveryIds = null, string missingReason = null)
         {
             CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Ledger.v1", () =>
             {
                 UpsertIndex(settingsDir, metadata);
                 SaveLedger(settingsDir, new ActiveLedgerState { Items = items },
-                    "Ledger entry not matched by completed physical census; cause unknown. Compare found for possible provenance ambiguity.",
+                    missingReason ?? "Ledger entry not matched by completed physical census; cause unknown. Compare found for possible provenance ambiguity.",
                     evidence, confirmedDeliveryIds);
             });
         }
