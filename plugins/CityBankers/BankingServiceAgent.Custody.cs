@@ -99,7 +99,7 @@ namespace CityBankers
             _pendingConfirmation = Identity.None;
             _receiptLiveBeforeItems = Inventory.Items.Where(i => i != null && i.Slot.Type == IdentityType.Inventory).ToList();
             _reserveReceiptObservationAfter = SharedBagRecovery.ContainerObservationSequence;
-            if (kind == "dispatch-send") BindReserveProofToAttempt(expected, batch, transaction);
+            if (kind == "dispatch-send") BindBagSupplyToAttempt(expected, batch, transaction);
             _receipt = new ReceiptEvidence { Id = evidenceId ?? Guid.NewGuid().ToString("N"), Kind = kind, TransactionId = transaction,
                 BatchId = batch, Character = Client.CharacterName, Before = PhysicalInventory(), BeforeSlots = PhysicalSlots(),
                 Expected = expected == null ? null : new List<TransferItemState>(expected), Direction = direction,
@@ -247,3 +247,4 @@ namespace CityBankers
         }
     }
 }
+
