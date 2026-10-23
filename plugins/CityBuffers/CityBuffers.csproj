@@ -33,7 +33,6 @@
   <ItemGroup>
     <Compile Include="**\*.cs" Exclude="obj\**;bin\**" />
     <Content Include="JSON\Settings.json;JSON\BuffsDb.json;JSON\NanoMetadata.json;Templates\*.txt">
-      <Link>Buffers\%(Identity)</Link>
       <TargetPath>Buffers\%(Identity)</TargetPath>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

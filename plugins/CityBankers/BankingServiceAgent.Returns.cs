@@ -332,7 +332,7 @@ namespace CityBankers
                 var bags = StorageBagPolicy.AllRecordsFor(_returnOffer.Item.UniqueIdentity, "inventory");
                 if (bags.Count != 1 || StorageBagPolicy.AllRecordsFor(_returnOffer.Item.UniqueIdentity, "bank").Count != 0)
                     return null;
-                var bag = bags[0].Bag;
+                var bag = bags[0];
                 return bag.Id == _returnOffer.Item.AoId && bag.HighId == _returnOffer.Item.HighId &&
                     bag.Ql == _returnOffer.Item.Ql ? bag : null;
             }
