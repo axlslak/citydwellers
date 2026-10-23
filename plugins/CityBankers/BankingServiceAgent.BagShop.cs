@@ -20,7 +20,7 @@ namespace CityBankers
         private sealed class BagShopWork
         {
             public string Phase;
-            public Identity Shop = Identity.None;
+            public Identity Dealer = Identity.None, Shop = Identity.None;
             public int Slot = -1, Low, High, Ql;
             public bool Opened, Declined;
             public ReceiptEvidence Receipt;
@@ -102,7 +102,7 @@ namespace CityBankers
 
         private void OpenBagShop(Dynel dealer)
         {
-            _bagShop.Shop = dealer.Identity; _bagShop.Phase = "opening"; _bagShop.Age.Restart();
+            _bagShop.Dealer = dealer.Identity; _bagShop.Phase = "opening"; _bagShop.Age.Restart();
             dealer.Use();
             Logger.Information("[CityBankers] BAG SHOP opening " + dealer.Identity + ".");
         }
@@ -114,13 +114,18 @@ namespace CityBankers
             try
             {
                 var work = _bagShop;
-                if (work == null || !(message?.Body is ShopUpdateMessage shop) || shop.Identity != work.Shop) return;
+                if (work == null || work.Phase != "opening" || _publicTradePartner != Identity.None ||
+                    !(message?.Body is ShopUpdateMessage shop)) return;
+                // The N3 header is not the dealer identity. This catalogue belongs
+                // to the one shop opening initiated by this actor.
                 var slots = shop.VendingMachineSlots;
                 if (slots == null) return;
                 for (int i = 0; i < slots.Length; i++)
                 {
                     var item = slots[i];
                     if (item.ItemLowId != StorageBagPolicy.SmallBackpackId && item.ItemHighId != StorageBagPolicy.SmallBackpackId) continue;
+                    if (work.Slot < 0)
+                        Logger.Information("[CityBankers] BAG SHOP catalogue " + shop.Identity + "; backpack slot=" + i + ".");
                     work.Slot = i; work.Low = item.ItemLowId; work.High = item.ItemHighId; work.Ql = item.Quality;
                     break;
                 }
@@ -131,8 +136,14 @@ namespace CityBankers
 
         private bool BagShopTradeOpened(Identity target)
         {
-            if (_bagShop == null || target != _bagShop.Shop) return false;
-            _bagShop.Opened = true;
+            var work = _bagShop;
+            if (work == null || work.Phase != "opening" || _publicTradePartner != Identity.None ||
+                (target != work.Dealer && target.Type != IdentityType.VendingMachine && target != Identity.None)) return false;
+            // An NPC's world identity and its shop-session identity differ.
+            // Bind the callback target for all subsequent shop requests.
+            work.Shop = target;
+            work.Opened = true;
+            Logger.Information("[CityBankers] BAG SHOP session " + target + "; dealer=" + work.Dealer + ".");
             BankerActivityGovernor.Wake();
             return true;
         }
@@ -175,7 +186,7 @@ namespace CityBankers
                 return true;
             }
             if (work.Declined && work.Receipt == null)
-            { StopBagShop("The dealer declined the shop session."); return true; }
+            { StopBagShop("The shop session was declined before a purchase."); return true; }
             if (work.Phase == "opening" && work.Opened && work.Slot >= 0)
             {
                 work.Phase = "offering"; work.Age.Restart();
@@ -264,7 +275,7 @@ namespace CityBankers
         }
         private void StopBagShop(string reason)
         {
-            if (_bagShop != null && Trade.IsTrading && Trade.CurrentTarget == _bagShop.Shop) Trade.Decline();
+            if (_bagShop != null && _bagShop.Opened && Trade.CurrentTarget == _bagShop.Shop) Trade.Decline();
             _bagShop = null;
             BagShopUnavailable(reason);
         }
