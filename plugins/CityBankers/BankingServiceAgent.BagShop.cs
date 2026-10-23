@@ -29,6 +29,9 @@ namespace CityBankers
             public readonly Dictionary<Identity, Dictionary<Stat, int>> NativeBags = new Dictionary<Identity, Dictionary<Stat, int>>();
             public ReceiptEvidence Receipt;
             public readonly Stopwatch Age = Stopwatch.StartNew();
+            public readonly List<string> NativePackets = new List<string>();
+            public int NativePacketsDropped;
+            public string NativePacketCaptureError;
         }
         private BagShopWork _bagShop, _pendingBagPurchase;
         private bool _bagShopChecked;
@@ -252,6 +255,7 @@ namespace CityBankers
 
         private void ObservePurchasedBag(BagShopWork work, object body)
         {
+            CaptureBagPurchasePacket(work, body);
             var expected = work.Receipt.Expected.Single();
             var completed = body as TradeMessage;
             var offered = Trade.TargetWindowCache?.Items;
@@ -281,6 +285,32 @@ namespace CityBankers
                 !stats.TryGetValue(Stat.ACGItemLevel, out ql) || ql != expected.Ql) return;
             work.NativeBags[chest.Identity] = stats;
             BankerActivityGovernor.Wake();
+        }
+
+        private void CaptureBagPurchasePacket(BagShopWork work, object body)
+        {
+            // This trace observes the original receipt only. It never changes
+            // inventory, acknowledgements or durable business evidence.
+            try
+            {
+                if (!work.NativePurchaseStarted || body == null) return;
+                string kind = body.GetType().Name;
+                if (kind != "ContainerAddItem" && kind != "TemplateActionMessage" && kind != "AddTemplateMessage" &&
+                    kind != "TradeMessage" && kind != "KnuBotTradeMessage" && kind != "KnuBotFinishTradeMessage" &&
+                    kind != "KnuBotStartTradeMessage" && kind != "KnuBotRejectedItemsMessage" &&
+                    kind != "InventoryUpdateMessage" && kind != "BankMessage" && kind != "ChestFullUpdateMessage") return;
+                var chest = body as ChestFullUpdateMessage;
+                if (chest != null && (chest.Owner != DynelManager.LocalPlayer.Identity ||
+                    work.PreviousContainers.Contains(chest.Identity.ToString()))) return;
+                if (work.NativePackets.Count >= 32) { work.NativePacketsDropped++; return; }
+                work.NativePackets.Add("+" + work.Age.ElapsedMilliseconds + "ms " + Newtonsoft.Json.JsonConvert.SerializeObject(new
+                {
+                    Kind = kind, Body = body, CurrentTarget = Trade.CurrentTarget,
+                    PlayerOfferCount = Trade.PlayerWindowCache?.Items?.Count,
+                    TargetOfferCount = Trade.TargetWindowCache?.Items?.Count
+                }));
+            }
+            catch (Exception error) { work.NativePacketCaptureError = error.GetType().Name; }
         }
 
         private void BindPurchasedBag(BagShopWork work)
@@ -342,6 +372,17 @@ namespace CityBankers
                 "; new inventory=" + string.Join(",", PhysicalSlots().Where(slot => !work.Receipt.BeforeSlots.Any(prior => prior.Slot == slot.Slot))
                     .Select(slot => slot.Slot + "/" + slot.Identity + "/" + slot.AoId + "/" + slot.HighId + "/" + slot.Ql)) +
                 "; refreshing native inventory before further transfers.");
+            try
+            {
+                Logger.Warning("[CityBankers] BAG SHOP receipt inventory " + work.Receipt.TransactionId + ": " +
+                    Newtonsoft.Json.JsonConvert.SerializeObject(new { Before = work.Receipt.BeforeSlots, Current = PhysicalSlots() }));
+                foreach (string packet in work.NativePackets)
+                    Logger.Warning("[CityBankers] BAG SHOP receipt packet " + work.Receipt.TransactionId + ": " + packet);
+                if (work.NativePacketsDropped != 0 || work.NativePacketCaptureError != null)
+                    Logger.Warning("[CityBankers] BAG SHOP receipt trace " + work.Receipt.TransactionId +
+                        "; dropped=" + work.NativePacketsDropped + "; capture error=" + (work.NativePacketCaptureError ?? "none") + ".");
+            }
+            catch (Exception error) { Logger.Warning("[CityBankers] BAG SHOP receipt trace unavailable: " + error.GetType().Name); }
             // CFU can arrive without an SDK inventory slot. Its next-free-slot
             // guesses must not be used to offer another player's requested item.
             StartupCensusGate.Block("Resolve pending backpack purchase " + work.Receipt.TransactionId + " from fresh native custody.");
