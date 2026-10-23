@@ -22,7 +22,7 @@ namespace CityBankers
             public string Phase;
             public Identity Dealer = Identity.None, Shop = Identity.None;
             public int Slot = -1, Low, High, Ql;
-            public bool Opened, Declined;
+            public bool Opened, Declined, SelectionAcknowledged;
             public ReceiptEvidence Receipt;
             public readonly Stopwatch Age = Stopwatch.StartNew();
         }
@@ -114,8 +114,19 @@ namespace CityBankers
             try
             {
                 var work = _bagShop;
-                if (work == null || work.Phase != "opening" || _publicTradePartner != Identity.None ||
-                    !(message?.Body is ShopUpdateMessage shop)) return;
+                if (work == null || _publicTradePartner != Identity.None) return;
+                var trade = message?.Body as TradeMessage;
+                if (work.Phase == "offering" && trade != null && trade.Action == TradeAction.AddItem &&
+                    trade.Identity == DynelManager.LocalPlayer.Identity &&
+                    trade.Param1 == (int)work.Shop.Type && trade.Param2 == work.Shop.Instance &&
+                    trade.Param3 == (int)IdentityType.TradeWindow && trade.Param4 == work.Slot)
+                {
+                    work.SelectionAcknowledged = true;
+                    Logger.Information("[CityBankers] BAG SHOP selection acknowledged; session=" + work.Shop + "; slot=" + work.Slot + ".");
+                    BankerActivityGovernor.Wake();
+                    return;
+                }
+                if (work.Phase != "opening" || !(message?.Body is ShopUpdateMessage shop)) return;
                 // The N3 header is not the dealer identity. This catalogue belongs
                 // to the one shop opening initiated by this actor.
                 var slots = shop.VendingMachineSlots;
@@ -199,19 +210,20 @@ namespace CityBankers
             {
                 if (Trade.CurrentTarget != work.Shop || Trade.PlayerWindowCache.Items.Count != 0)
                 { StopBagShop("The shop session changed or contains an item offered by Central; purchase cancelled."); return true; }
-                var offered = Trade.TargetWindowCache.Items;
-                if (offered.Count == 0) return true;
-                if (offered.Count != 1 || offered[0].Id != work.Low || offered[0].HighId != work.High || offered[0].Ql != work.Ql ||
-                    StackableItems.Quantity(offered[0]) != 1)
-                { StopBagShop("The dealer's offer does not contain exactly the requested small backpack."); return true; }
+                // Shops acknowledge the catalogue selection with AddItem. The
+                // Clientless player-trade cache is not populated by that reply.
+                if (!work.SelectionAcknowledged) return true;
+                var selection = new TransferItemState { AoId = work.Low, HighId = work.High,
+                    Ql = work.Ql, Quantity = 1, Name = "Small Backpack" };
                 int cash;
                 long price = Math.Max(Math.Abs((long)Trade.PlayerWindowCache.Credits), Math.Abs((long)Trade.TargetWindowCache.Credits));
                 if (!DynelManager.LocalPlayer.TryGetStat(Stat.Cash, out cash) || cash <= 0 || price > cash)
                 { StopBagShop("Central cannot pay the dealer's quoted price."); return true; }
                 work.Receipt = new ReceiptEvidence { Id = BagShopReceiptId, Kind = "reserve-shop", Character = Client.CharacterName,
                     TransactionId = "reserve-shop-" + Guid.NewGuid().ToString("N"), Phase = "buying",
-                    Before = PhysicalInventory(), BeforeSlots = PhysicalSlots(), Expected = SnapshotTradeItems(offered),
-                    PreparedItems = SnapshotTradeItems(offered) };
+                    Before = PhysicalInventory(), BeforeSlots = PhysicalSlots(),
+                    Expected = new List<TransferItemState> { selection },
+                    PreparedItems = new List<TransferItemState> { selection } };
                 ManagerAccounting.Transaction("Prepare replacement bag purchase", () =>
                     ManagerMemory.Current.ChangeReceipt(ManagerAccounting.TransactionId, work.Receipt));
                 work.Phase = "buying"; work.Age.Restart();
