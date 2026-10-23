@@ -966,7 +966,7 @@ namespace CityManager
             Reply(target,
                 "Withdrawal " + request.Id.Substring(request.Id.Length - 8) +
                 " started for " + CityBankersChatPalette.ItemLabel(physical.AoId, physical.HighId, physical.Ql, physical.Name) +
-                ". Added to your order (maximum ten items). Ready items remain collectible; " +
+                ". Added to your order (maximum three items). Ready items remain collectible; " +
                 "the pickup clock resets to three minutes now and when this item arrives.");
         }
 
@@ -1480,3 +1480,4 @@ namespace CityManager
         }
     }
 }
+

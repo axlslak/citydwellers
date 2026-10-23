@@ -92,8 +92,34 @@ namespace CityBankers
         private List<WithdrawalState> _pickupItems = new List<WithdrawalState>();
         private readonly HashSet<string> _pickupOfferedIds = new HashSet<string>(StringComparer.Ordinal);
 
+        private readonly HashSet<string> _failedWithdrawalRecovery = new HashSet<string>(StringComparer.Ordinal);
+
+        private void MaintainWithdrawalJobs()
+        {
+            foreach (var group in WithdrawalStore.ExpireUnfulfilled(_settingsDir).GroupBy(row => row.RequestedBy))
+            {
+                Logger.Warning("[CityBankers] WITHDRAWAL reservations ended for " + group.Key + ": " + group.Count() + ".");
+                try { TellPlayer(group.Key, group.Count() + " unfulfilled item reservation(s) ended. No pickup was recorded."); }
+                catch (Exception ex) { Logger.Warning("Withdrawal expiry notice unavailable: " + ex.Message); }
+            }
+            foreach (var row in WithdrawalStore.LoadAll(_settingsDir).Where(row =>
+                WithdrawalStore.HasStatus(row, "failed") && !WithdrawalStore.HasConfirmedDelivery(row)))
+                RequestFailedWithdrawalRecovery(row);
+        }
+
+        private void RequestFailedWithdrawalRecovery(WithdrawalState row)
+        {
+            if (!_failedWithdrawalRecovery.Add(row.Id)) return;
+            var manager = CityDwellers.Shared.ManagerMemory.Current;
+            if (!string.IsNullOrWhiteSpace(row.SourceCharacter))
+                manager.RequestBankerRecovery(row.SourceCharacter, "Resolve failed withdrawal " + row.Id + "; the player job has ended.");
+            if (!string.IsNullOrWhiteSpace(row.CentralItemIdentity) || !string.IsNullOrWhiteSpace(row.TransferAttemptId))
+                manager.RequestBankerRecovery(_centralCharacter, "Resolve failed withdrawal " + row.Id + " from actual native custody.");
+        }
+
         private bool TickWithdrawalCentral()
         {
+            MaintainWithdrawalJobs();
             List<WithdrawalState> rows = WithdrawalStore.LoadAll(_settingsDir);
             if (!_withdrawalTradeOpened && _receipt == null && !_withdrawalReceiveReserved) _withdrawal = null;
             if (_withdrawalReceiveReserved && !_withdrawalTradeOpened) return true;
@@ -116,7 +142,8 @@ namespace CityBankers
                 return true;
             }
 
-            foreach (WithdrawalState row in rows.Where(WithdrawalStore.IsActive))
+            foreach (WithdrawalState row in rows.Where(row => WithdrawalStore.IsActive(row) ||
+                (WithdrawalStore.HasConfirmedDelivery(row) && !WithdrawalStore.HasStatus(row, "completed"))))
             {
                 if (WithdrawalStore.HasConfirmedDelivery(row))
                     RetryConfirmedWithdrawalAccounting(row);
@@ -168,7 +195,7 @@ namespace CityBankers
                     _extractionWait.Restart();
                 }
                 if (WithdrawalStore.HasStatus(active, "extracting") &&
-                    _extractionWait.Elapsed.TotalSeconds >= 240)
+                    (_extractionWait.Elapsed.TotalSeconds >= 240 || DateTime.UtcNow - active.CreatedUtc >= TimeSpan.FromSeconds(240)))
                 {
                     FailWithdrawal(active, "Worker extraction did not finish within four minutes; custody needs reconciliation.");
                     return true;
@@ -196,38 +223,11 @@ namespace CityBankers
                 return false;
             WithdrawalState next = rows.FirstOrDefault(row =>
                 (IsRoleEnabled(row.SourceRole) && IsCharacterEnabled(row.SourceCharacter) && readyCharacters.Contains(row.SourceCharacter)) &&
-                ((!CruPolicy.IsCru(row) && WithdrawalStore.HasStatus(row, "requested")) || (!CruPolicy.IsCru(row) && CanRetryWithdrawalExtraction(row))) &&
-                !rows.Any(other => other.Id != row.Id && WithdrawalStore.HasStatus(other, "failed") &&
-                    string.Equals(other.SourceCharacter, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)) &&
+                !CruPolicy.IsCru(row) && WithdrawalStore.HasStatus(row, "requested") &&
                 !(queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
                     batch != null && !batch.TransferNeverStarted && string.Equals(batch.Character, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)));
             if (next == null) return false;
-            bool retry = WithdrawalStore.HasStatus(next, "failed");
-            JToken liveInventoryMatch = retry
-                ? FindUniqueLooseWorkerHeartbeatMatch(next)
-                : null;
-            bool liveInventoryRetry = liveInventoryMatch != null &&
-                next.LiveInventoryAnchorAttempts == 0;
-            if (liveInventoryRetry)
-            {
-                next.LiveInventoryAnchorAttempts++;
-                next.LiveInventoryAnchorSlot =
-                    (int?)(liveInventoryMatch["Slot"] ?? liveInventoryMatch["slot"]);
-                next.LiveInventoryAnchorIdentity =
-                    (string)(liveInventoryMatch["UniqueIdentity"] ??
-                             liveInventoryMatch["uniqueIdentity"]);
-            }
-            else if (retry)
-                next.RecoveryAttempts++;
-            if (retry && liveInventoryRetry)
-            {
-                // This is not a replay of the audited bag slot. Central has a
-                // fresh unique observation of the already-extracted occurrence
-                // in the source worker's normal inventory, so resume that exact
-                // loose custody in place.
-                if (!WithdrawalStore.TryResumeFailedExtraction(_settingsDir, next)) return false;
-            }
-            else if (StartupCensusGate.UsesPhysicalRecovery)
+            if (StartupCensusGate.UsesPhysicalRecovery)
             {
                 if (!WithdrawalStore.TryBeginExtraction(_settingsDir, next)) return false;
             }
@@ -238,77 +238,7 @@ namespace CityBankers
             }
             _extractionWaitId = next.Id;
             _extractionWait.Restart();
-            if (retry)
-                Logger.Warning("[CityBankers] WITHDRAWAL RECOVERY RETRY " + next.Id +
-                    (liveInventoryRetry
-                        ? ": Central proved one exact-name loose item in the source worker's fresh inventory; resuming from live custody without replaying the old bag slot."
-                        : ": Central scheduled one inventory-extraction retry; no delivery or pickup state is replayed."));
             return false;
-        }
-
-        private bool CanRetryWithdrawalExtraction(WithdrawalState row)
-        {
-            if (!WithdrawalStore.HasStatus(row, "failed") || row.DeliveredUtc.HasValue ||
-                !string.IsNullOrWhiteSpace(row.CentralItemIdentity))
-                return false;
-
-            // A fresh unique loose-inventory observation is positive custody
-            // evidence for the occurrence we already extracted. It is safe to
-            // resume that exact loose item even when automatic physical audits
-            // are disabled; the old bag slot is never replayed.
-            if (row.LiveInventoryAnchorAttempts == 0 &&
-                FindUniqueLooseWorkerHeartbeatMatch(row) != null)
-                return true;
-
-            // Other legacy retry shapes still belong to the retired automatic
-            // physical-recovery path and remain disabled in normal operation.
-            if (StartupCensusGate.UsesPhysicalRecovery) return false;
-
-            return row.RecoveryAttempts == 0 &&
-                !row.DeliveredUtc.HasValue && string.IsNullOrWhiteSpace(row.CentralItemIdentity) &&
-                (row.Error ?? string.Empty).StartsWith(
-                    "Timed out during worker extraction phase WaitItemInventory.", StringComparison.Ordinal);
-        }
-
-        private JToken FindUniqueLooseWorkerHeartbeatMatch(WithdrawalState row)
-        {
-            if (row?.Item == null || string.IsNullOrWhiteSpace(row.SourceCharacter))
-                return null;
-            string token = CityDwellers.Shared.CharacterNames.FileToken(row.SourceCharacter);
-            var health = CityDwellers.Shared.ManagerMemory.Current.BankerHealth(row.SourceCharacter);
-            JObject heartbeat = health == null ? null : JObject.FromObject(health);
-            DateTime? observed = (DateTime?)heartbeat?["ObservedUtc"];
-            if (heartbeat == null ||
-                (int?)heartbeat["ProcessId"] != Process.GetCurrentProcess().Id ||
-                (bool?)heartbeat["InPlay"] != true ||
-                !observed.HasValue ||
-                observed.Value.ToUniversalTime() > DateTime.UtcNow.AddSeconds(2) ||
-                DateTime.UtcNow - observed.Value.ToUniversalTime() > TimeSpan.FromSeconds(10))
-                return null;
-            JArray items = heartbeat["InventoryItems"] as JArray;
-            if (items == null)
-                return null;
-            List<JToken> matches = items.Where(item =>
-                item != null && !((bool?)(item["IsContainer"] ?? item["isContainer"]) ?? false) &&
-                LiveInventorySnapshotMatches(item, row)).ToList();
-            return matches.Count == 1 ? matches[0] : null;
-        }
-
-        private static bool LiveInventorySnapshotMatches(JToken item, WithdrawalState row)
-        {
-            string identity = (string)(item["UniqueIdentity"] ?? item["uniqueIdentity"]);
-            if (!string.IsNullOrWhiteSpace(row.SourceItemIdentity) &&
-                !string.Equals(row.SourceItemIdentity, "(None:0000)", StringComparison.Ordinal) &&
-                string.Equals(identity, row.SourceItemIdentity, StringComparison.Ordinal))
-                return true;
-            string name = (string)(item["Name"] ?? item["name"]);
-            int? aoId = (int?)(item["AoId"] ?? item["aoId"]);
-            int? highId = (int?)(item["HighId"] ?? item["highId"]);
-            int? ql = (int?)(item["Ql"] ?? item["ql"]);
-            return string.Equals(
-                    name ?? string.Empty, row.Item.Name ?? string.Empty,
-                    StringComparison.OrdinalIgnoreCase) &&
-                aoId == row.Item.AoId && highId == row.Item.HighId && ql == row.Item.Ql;
         }
 
         private bool TickWithdrawalWorker()
@@ -1235,11 +1165,12 @@ namespace CityBankers
             state.Status = "failed";
             state.Error = error;
             WithdrawalStore.Save(_settingsDir, state);
+            if (!WithdrawalStore.HasConfirmedDelivery(state)) RequestFailedWithdrawalRecovery(state);
             VerifyCancelledReceipt();
             TryDeclineTrade();
             ResetWithdrawalLocal();
             Logger.Error("[CityBankers] WITHDRAWAL FAILED " + state.Id + ": " + error);
-            try { TellPlayer(state.RequestedBy, "Withdrawal paused for physical recovery: " + error); }
+            try { TellPlayer(state.RequestedBy, "Retrieval failed; this reservation has ended. The item remains recorded for automatic recovery: " + error); }
             catch (Exception ex) { Logger.Warning("[CityBankers] Withdrawal failure notice unavailable: " + ex.Message); }
         }
 

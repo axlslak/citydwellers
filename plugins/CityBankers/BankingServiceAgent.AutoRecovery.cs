@@ -95,6 +95,24 @@ namespace CityBankers
                         (b.OuterSlotInstance & 65535) == (_withdrawal.SourceBagOuterSlot & 65535));
                     if (bag != null) _automaticRepair.Targets.Add(bag.LastUniqueIdentity);
                 }
+                var failedWithdrawals = WithdrawalStore.LoadAll(_settingsDir).Where(row =>
+                    WithdrawalStore.HasStatus(row, "failed") && !WithdrawalStore.HasConfirmedDelivery(row) &&
+                    SameCharacter(row.SourceCharacter, Client.CharacterName)).ToList();
+                if (failedWithdrawals.Count > 0)
+                {
+                    var ledger = ManagerMemory.Current.ReadLedger(ManagerAccounting.TransactionId);
+                    foreach (var row in failedWithdrawals)
+                    {
+                        var claim = ledger.Items.SingleOrDefault(entry => entry.Id == row.ActiveLedgerId &&
+                            SameCharacter(entry.Character, Client.CharacterName));
+                        var bag = claim?.Bag != null ? own?.Bags.SingleOrDefault(b => b.Source == claim.Location &&
+                            (b.OuterSlotInstance & 65535) == (claim.Bag.Value & 65535)) : null;
+                        if (bag == null)
+                            bag = own?.Bags.SingleOrDefault(b => b.Source == row.SourceBag &&
+                                (b.OuterSlotInstance & 65535) == (row.SourceBagOuterSlot & 65535));
+                        if (!string.IsNullOrEmpty(bag?.LastUniqueIdentity)) _automaticRepair.Targets.Add(bag.LastUniqueIdentity);
+                    }
+                }
                 foreach (string id in SharedBagRecovery.AffectedBagIdentities()) _automaticRepair.Targets.Add(id);
                 foreach (var receipt in ManagerMemory.Current.ReadCharacterReceipts(ManagerAccounting.TransactionId, Client.CharacterName))
                     foreach (var item in (receipt.Before ?? new List<TransferItemState>()).Concat(receipt.Expected ?? new List<TransferItemState>()))
@@ -359,7 +377,7 @@ namespace CityBankers
             var operation = manager.ReadReserveOperation(transaction, character);
             if (operation != null) { operation.Phase = "completed"; manager.ChangeReserveOperation(transaction, operation); }
             var requests = manager.ReadWithdrawals(transaction);
-            foreach (var request in requests.Withdrawals.Where(w => WithdrawalStore.IsActive(w) &&
+            foreach (var request in requests.Withdrawals.Where(w => (WithdrawalStore.IsActive(w) || WithdrawalStore.HasStatus(w, "failed")) &&
                 !WithdrawalStore.HasConfirmedDelivery(w) && (w.Id == _withdrawal?.Id ||
                 (SameCharacter(w.SourceCharacter, character) && w.Status != "requested"))))
             { request.Status = "cancelled"; request.Error = "Resolved from native inventory after interrupted operation."; WithdrawalStore.Touch(request); }

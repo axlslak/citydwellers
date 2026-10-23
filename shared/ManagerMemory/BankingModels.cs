@@ -302,6 +302,8 @@ namespace CityBankers.Shared
         public bool IsTerminal() =>
             string.Equals(Status, "completed", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(Status, "expired", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Status, "failed", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(Status, "cancelled", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(Status, "reconciled", StringComparison.OrdinalIgnoreCase);
         internal WithdrawalState Copy()
         {
@@ -477,3 +479,4 @@ namespace CityBankers.Shared
         internal RecoveryReservation Copy() => (RecoveryReservation)MemberwiseClone();
         }
 }
+

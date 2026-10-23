@@ -47,7 +47,9 @@ namespace CityBankers.Shared
         }
 
         public static HashSet<string> GetRecoveryReservedIds(string directory) => Locked(() =>
-            new HashSet<string>(ReadRecovery(directory).Where(r => !string.IsNullOrWhiteSpace(r.LedgerId)).Select(r => r.LedgerId), StringComparer.Ordinal));
+            new HashSet<string>(ReadRecovery(directory).Where(r => !string.IsNullOrWhiteSpace(r.LedgerId)).Select(r => r.LedgerId)
+                .Concat(Read(directory).Where(r => HasStatus(r, "failed") && !HasConfirmedDelivery(r) &&
+                    !string.IsNullOrWhiteSpace(r.ActiveLedgerId)).Select(r => r.ActiveLedgerId)), StringComparer.Ordinal));
 
         public static HashSet<string> GetCensusCharacters(string directory) => Locked(() =>
             new HashSet<string>(ReadRecovery(directory).Where(r => !string.IsNullOrWhiteSpace(r.CensusCharacter))
@@ -312,7 +314,7 @@ namespace CityBankers.Shared
 
         public const int PickupSeconds = 180;
         public const int MaximumOrders = 4;
-        public const int MaximumOrderItems = ServicePolicy.MaxTradeItems;
+        public const int MaximumOrderItems = 3;
         public const string FileName = "withdrawal.json";
         private const string MutexName = "CityBankers.Withdrawal.v1";
 
@@ -376,6 +378,34 @@ namespace CityBankers.Shared
             });
         }
 
+        public static List<WithdrawalState> ExpireUnfulfilled(string directory)
+        {
+            return Update(directory, rows =>
+            {
+                var ended = new List<WithdrawalState>();
+                foreach (var row in rows.Where(row => HasStatus(row, "requested") &&
+                    DateTime.UtcNow - row.CreatedUtc >= TimeSpan.FromSeconds(PickupSeconds)))
+                {
+                    row.Status = "expired";
+                    row.Error = "Retrieval did not start within three minutes; reservation ended.";
+                    Touch(row); ended.Add(row);
+                }
+                foreach (var member in rows.Where(IsActive).GroupBy(row => row.RecipientMain, StringComparer.OrdinalIgnoreCase))
+                {
+                    var excess = member.OrderBy(row => HasStatus(row, "requested") ? 1 : 0)
+                        .ThenBy(row => row.CreatedUtc).ThenBy(row => row.Id, StringComparer.Ordinal)
+                        .Skip(MaximumOrderItems).Where(row => HasStatus(row, "requested")).ToList();
+                    foreach (var row in excess)
+                    {
+                        row.Status = "cancelled";
+                        row.Error = "Reservation exceeded the three-item order limit.";
+                        Touch(row); ended.Add(row);
+                    }
+                }
+                return ended;
+            });
+        }
+
         public static void Save(string directory, WithdrawalState state)
         {
             Update(directory, rows =>
@@ -406,6 +436,8 @@ namespace CityBankers.Shared
                     row.RecipientMain, request.RecipientMain, StringComparison.OrdinalIgnoreCase)).ToList();
                 if (!IsCharacterReady(directory, request.SourceCharacter))
                     reason = "The bank is checking its physical inventory. Please try again when it is ready.";
+                else if (rows.Any(row => HasStatus(row, "failed") && !HasConfirmedDelivery(row) && row.ActiveLedgerId == request.ActiveLedgerId))
+                    reason = "That copy is being recovered after a failed retrieval. Other items remain available.";
                 else if (active.Any(row => row.ActiveLedgerId == request.ActiveLedgerId))
                     reason = "That copy was just reserved. Please select it again.";
                 else if (ReadRecovery(directory).Any(r => r.CensusCentral || r.LedgerId == request.ActiveLedgerId ||
@@ -419,7 +451,7 @@ namespace CityBankers.Shared
                 else if (own.Any(row => HasStatus(row, "pickup-trading")))
                     reason = "Finish your open pickup trade before adding another item.";
                 else if (own.Count >= MaximumOrderItems)
-                    reason = "Your order already has ten items. Collect the ready items first.";
+                    reason = "Your order already has three items. Collect the ready items first.";
                 else if (own.Count == 0 && active.Select(row => row.OrderId).Distinct().Count() >= MaximumOrders)
                     reason = "All four pickup orders are occupied. Please try again after a pickup.";
                 if (reason != null) return false;
@@ -490,3 +522,4 @@ namespace CityBankers.Shared
         }
     }
 }
+
