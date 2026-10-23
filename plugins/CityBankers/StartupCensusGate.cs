@@ -430,7 +430,7 @@ namespace CityBankers
                     Locked(Coordinate);
                 if (_awaitingUnresolvedRelog)
                 {
-                    if (!BankingServiceAgent.RecoverFreshConnection(_settings, _role, _localFaultReason ?? "Interrupted local operation")) return;
+                    if (!BankingServiceAgent.RecoverFreshConnection(_settings, _role, _localFaultReason ?? "Interrupted local operation", freshConnection: true)) return;
                     bool released = false;
                     Locked(() =>
                     {
@@ -1227,3 +1227,4 @@ namespace CityBankers
         }
     }
 }
+

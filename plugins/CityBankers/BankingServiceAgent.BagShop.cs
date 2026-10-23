@@ -17,6 +17,7 @@ namespace CityBankers
     {
         private const int SummonBagDealerNano = 300439;
         private const string BagDealerName = "Buckethead Technodealer";
+        private const string BagPurchaseWithBankBaseline = "buying-bank-baseline";
         private sealed class BagShopWork
         {
             public string Phase;
@@ -46,7 +47,14 @@ namespace CityBankers
             if (receipt.Kind != "reserve-shop" || !string.Equals(receipt.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase) ||
                 receipt.Expected?.Count != 1 || !IsReserveBag(receipt.Expected[0]) || receipt.BeforeSlots == null)
                 throw new InvalidOperationException("Interrupted reserve purchase has invalid receipt evidence.");
-            _pendingBagPurchase = new BagShopWork { Phase = "buying", Receipt = receipt };
+            _pendingBagPurchase = RestoreBagPurchase(receipt);
+            if (receipt.Phase == "buying" || !IsUsableIdentity(receipt.Expected[0].UniqueIdentity))
+            {
+                // Older receipts lack a bank baseline; an unbound interrupted
+                // receipt also lacks its original native identity association.
+                StartupCensusGate.Block("Resolve interrupted backpack purchase from fresh native custody.");
+                return;
+            }
             BankerActivityGovernor.Wake();
             Logger.Information("[CityBankers] BAG SHOP restoring purchase receipt " + receipt.TransactionId + "; settling the original purchase before buying again.");
         }
@@ -223,8 +231,9 @@ namespace CityBankers
                 if (!DynelManager.LocalPlayer.TryGetStat(Stat.Cash, out cash) || cash <= 0 || price > cash)
                 { StopBagShop("Central cannot pay the dealer's quoted price."); return true; }
                 work.Receipt = new ReceiptEvidence { Id = BagShopReceiptId, Kind = "reserve-shop", Character = Client.CharacterName,
-                    TransactionId = "reserve-shop-" + Guid.NewGuid().ToString("N"), Phase = "buying",
-                    Before = PhysicalInventory(), BeforeSlots = PhysicalSlots(),
+                    TransactionId = "reserve-shop-" + Guid.NewGuid().ToString("N"), Phase = BagPurchaseWithBankBaseline,
+                    Before = PhysicalInventory().Concat(SnapshotTradeItems(Inventory.Bank.Items
+                        .Where(item => item.UniqueIdentity.Type == IdentityType.Container))).ToList(), BeforeSlots = PhysicalSlots(),
                     Expected = new List<TransferItemState> { selection },
                     PreparedItems = new List<TransferItemState> { selection } };
                 ManagerAccounting.Transaction("Prepare replacement bag purchase", () =>
@@ -314,49 +323,77 @@ namespace CityBankers
             if (!_isCentral) return;
             var receipt = ManagerMemory.Current.ReadReceipt(ManagerAccounting.TransactionId, BagShopReceiptId);
             if (receipt == null || receipt.Kind != "reserve-shop" || receipt.Phase == "applied") return;
-            CompleteBagShopReceipt(new BagShopWork { Phase = "buying", Receipt = receipt });
+            CompleteBagShopReceipt(RestoreBagPurchase(receipt));
+        }
+
+        private static BagShopWork RestoreBagPurchase(ReceiptEvidence receipt)
+        {
+            var work = new BagShopWork { Phase = "buying", Receipt = receipt };
+            work.PreviousContainers.UnionWith((receipt.Before ?? new List<TransferItemState>())
+                .Where(IsReserveBag).Select(item => item.UniqueIdentity).Where(IsUsableIdentity));
+            return work;
+        }
+
+        private void FinishBagPurchase(BagShopWork work)
+        {
+            CloseBagShop(work);
+            if (_bagShop?.Receipt?.TransactionId == work.Receipt.TransactionId) _bagShop = null;
+            if (_pendingBagPurchase?.Receipt?.TransactionId == work.Receipt.TransactionId) _pendingBagPurchase = null;
         }
 
         private bool CompleteBagShopReceipt(BagShopWork work)
         {
             if (work.Receipt == null) return false;
+            var saved = ManagerMemory.Current.ReadReceipt(ManagerAccounting.TransactionId, work.Receipt.Id);
+            if (saved?.TransactionId == work.Receipt.TransactionId && saved.Phase == "applied")
+            { FinishBagPurchase(work); return true; }
             BindPurchasedBag(work);
+            var expected = work.Receipt.Expected.Single();
+            // An anonymous new bag may belong to a player donation or a bank
+            // withdrawal. Only the original native purchase binding identifies it.
+            if (!IsUsableIdentity(expected.UniqueIdentity)) return false;
             string error;
             if (!StorageBagPolicy.TryValidatePhysicalLayout(out error)) throw new InvalidOperationException(error);
             var before = work.Receipt.BeforeSlots;
-            var expected = work.Receipt.Expected.Single();
             var previousIds = new HashSet<string>(before.Select(i => i.Identity));
-            var arrivals = Inventory.Items.Where(i => StorageBagPolicy.IsNormalInventory(i) && StorageBagPolicy.IsSmallBackpack(i) &&
+            var reserve = ReadReserve();
+            var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+            var arrivals = Inventory.Items.Concat(Inventory.Bank.Items).Where(i =>
+                (StorageBagPolicy.IsNormalInventory(i) || i.Slot.Type == IdentityType.BankByRef) && StorageBagPolicy.IsSmallBackpack(i) &&
                 i.Id == expected.AoId && i.HighId == expected.HighId && i.Ql == expected.Ql &&
-                (expected.UniqueIdentity == null || !expected.UniqueIdentity.StartsWith("(Container:", StringComparison.Ordinal) ||
-                    expected.UniqueIdentity == i.UniqueIdentity.ToString()) &&
-                !previousIds.Contains(i.UniqueIdentity.ToString())).ToList();
+                expected.UniqueIdentity == i.UniqueIdentity.ToString() &&
+                !previousIds.Contains(i.UniqueIdentity.ToString()) && !work.PreviousContainers.Contains(i.UniqueIdentity.ToString())).ToList();
             if (arrivals.Count != 1) return false;
             var bag = arrivals[0];
             var after = PhysicalSlots();
-            if (!before.Select(BagShopSlotKey).OrderBy(s => s).SequenceEqual(after.Where(i => i.Identity != bag.UniqueIdentity.ToString()).Select(BagShopSlotKey).OrderBy(s => s)))
-                return false;
+            // Its identity was durably bound at the original native receipt.
+            // Later unrelated inventory moves cannot undo that association.
+            var registrations = storage.Workers.SelectMany(worker => worker.Bags.Where(b =>
+                b.LastUniqueIdentity == bag.UniqueIdentity.ToString()).Select(b => new { Worker = worker, Bag = b })).ToList();
+            string location = StorageBagPolicy.IsNormalInventory(bag) ? "inventory" : "bank";
+            if (registrations.Any(row => !SameCharacter(row.Worker.Character, Client.CharacterName) || row.Bag.Source != location ||
+                (row.Bag.OuterSlotInstance & 65535) != (bag.Slot.Instance & 65535))) return false;
+            bool enrolled = false;
             ManagerAccounting.Transaction("Enroll purchased replacement bag", () =>
             {
-                var reserve = ReadReserve();
+                reserve = ReadReserve();
                 var existing = reserve.Bags.SingleOrDefault(b => b.Identity == bag.UniqueIdentity.ToString());
-                if (existing != null && existing.Transaction != work.Receipt.TransactionId)
-                    throw new InvalidOperationException("Purchased bag identity already belongs to another reserve receipt: " + bag.UniqueIdentity);
-                var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
-                if (storage?.Workers?.Any(w => w.Bags.Any(b => b.LastUniqueIdentity == bag.UniqueIdentity.ToString())) == true)
-                    throw new InvalidOperationException("Purchased bag identity is already registered as storage: " + bag.UniqueIdentity);
-                if (existing == null)
+                // Transaction changes when reserve stock is assigned to a supply
+                // batch. Preserve that disposition and any existing storage row.
+                if (existing == null && registrations.Count == 0)
+                {
                     reserve.Bags.Add(new ReserveBag { Identity = bag.UniqueIdentity.ToString(), Transaction = work.Receipt.TransactionId });
-                SaveReserve(reserve);
+                    SaveReserve(reserve);
+                    enrolled = true;
+                }
                 work.Receipt.Observed = SnapshotTradeItems(new[] { bag }); work.Receipt.ObservedSlots = after;
                 work.Receipt.Phase = "applied";
                 ManagerMemory.Current.ChangeReceipt(ManagerAccounting.TransactionId, work.Receipt);
             });
-            _reserveEmptyArrivals.Add(bag.UniqueIdentity.ToString());
-            CloseBagShop(work);
-            if (ReferenceEquals(_bagShop, work)) _bagShop = null;
-            if (ReferenceEquals(_pendingBagPurchase, work)) _pendingBagPurchase = null;
-            Logger.Information("[CityBankers] BAG SHOP received " + bag.UniqueIdentity + "; replacement reserve replenished.");
+            if (enrolled) _reserveEmptyArrivals.Add(bag.UniqueIdentity.ToString());
+            FinishBagPurchase(work);
+            Logger.Information("[CityBankers] BAG SHOP receipt applied " + work.Receipt.TransactionId +
+                "; bag=" + bag.UniqueIdentity + "; reserve entry added=" + enrolled + ".");
             return true;
         }
 

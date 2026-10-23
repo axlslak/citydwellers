@@ -18,7 +18,7 @@ namespace CityBankers
             public HashSet<string> Targets = new HashSet<string>(StringComparer.Ordinal);
             public Dictionary<string, List<BagInnerItem>> Contents = new Dictionary<string, List<BagInnerItem>>(StringComparer.Ordinal);
             public string Current, Phase;
-            public bool WasBanked;
+            public bool WasBanked, FreshConnection;
             public int Attempts;
             public readonly Stopwatch Age = Stopwatch.StartNew();
         }
@@ -30,7 +30,7 @@ namespace CityBankers
             if (_automaticRepairOwner != null) _automaticRepairOwner._automaticRepair = null;
         }
 
-        internal static bool RecoverFreshConnection(string settings, string role, string reason)
+        internal static bool RecoverFreshConnection(string settings, string role, string reason, bool freshConnection = false)
         {
             var actor = _ipcOwner ?? _automaticRepairOwner;
             if (actor == null)
@@ -42,7 +42,7 @@ namespace CityBankers
             }
             _automaticRepairOwner = actor;
             if (!Client.InPlay || Trade.IsTrading || !Inventory.Bank.IsOpen || !ClientlessSessionGuard.BankCacheTrusted) return false;
-            return actor.TickAutomaticRepair(reason);
+            return actor.TickAutomaticRepair(reason, freshConnection);
         }
 
         private readonly HashSet<string> _orphanedDispatchBatches = new HashSet<string>(StringComparer.Ordinal);
@@ -64,7 +64,7 @@ namespace CityBankers
             return true;
         }
 
-        private bool TickAutomaticRepair(string reason)
+        private bool TickAutomaticRepair(string reason, bool freshConnection)
         {
             var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
             var own = storage.Workers.SingleOrDefault(w => SameCharacter(w.Character, Client.CharacterName));
@@ -114,9 +114,11 @@ namespace CityBankers
                     }
                 }
                 foreach (string id in SharedBagRecovery.AffectedBagIdentities()) _automaticRepair.Targets.Add(id);
-                foreach (var receipt in ManagerMemory.Current.ReadCharacterReceipts(ManagerAccounting.TransactionId, Client.CharacterName))
-                    foreach (var item in (receipt.Before ?? new List<TransferItemState>()).Concat(receipt.Expected ?? new List<TransferItemState>()))
-                        if (IsReserveBag(item)) _automaticRepair.Targets.Add(item.UniqueIdentity);
+                foreach (var receipt in ManagerMemory.Current.ReadCharacterReceipts(ManagerAccounting.TransactionId, Client.CharacterName)
+                    .Where(receipt => receipt.Phase != "attribution-unknown"))
+                    foreach (var item in (receipt.Kind == "reserve-shop" ? Enumerable.Empty<TransferItemState>() :
+                        receipt.Before ?? new List<TransferItemState>()).Concat(receipt.Expected ?? new List<TransferItemState>()))
+                        if (IsReserveBag(item) && IsUsableIdentity(item.UniqueIdentity)) _automaticRepair.Targets.Add(item.UniqueIdentity);
                 foreach (var bag in own?.Bags.Where(b => b.Capacity == 0) ?? Enumerable.Empty<StorageBagState>())
                     _automaticRepair.Targets.Add(bag.LastUniqueIdentity);
                 foreach (var bag in StorageBagPolicy.AllBagRecords().Where(b => own == null ||
@@ -126,6 +128,7 @@ namespace CityBankers
                     "; affected containers=" + _automaticRepair.Targets.Count + "; reason=" + reason);
             }
             var repair = _automaticRepair;
+            repair.FreshConnection |= freshConnection;
             if (repair.Current != null)
             {
                 var records = StorageBagPolicy.AllBagRecords().Where(b => b.Identity.ToString() == repair.Current).ToList();
@@ -393,6 +396,19 @@ namespace CityBankers
                 Message = reason + "; pending operations resolved from native state; unmatched claims preserved in lost/found." });
             var receipts = manager.ReadCharacterReceipts(transaction, character);
             var pendingPurchases = receipts.Where(receipt => receipt.Kind == "reserve-shop" && receipt.Phase != "applied").ToList();
+            if (repair.FreshConnection)
+                foreach (var receipt in pendingPurchases.Where(receipt => receipt.Id == BagShopReceiptId))
+                {
+                    // Native custody has been reconciled after a confirmed relog.
+                    // Keep the original attempt as unknown, never as a successful
+                    // purchase, and let actual stock determine subsequent demand.
+                    receipt.Id += ":" + receipt.TransactionId;
+                    receipt.Phase = "attribution-unknown";
+                    manager.RecordTransaction(transaction, new LedgerRecord { Id = "purchase-attribution-" + receipt.TransactionId,
+                        Utc = DateTime.UtcNow, Event = "purchase_attribution_unknown", Actor = character, Character = character, Role = _role,
+                        Message = "Original purchase " + receipt.TransactionId + " retained without success/failure attribution after fresh native custody reconciliation." });
+                    Logger.Warning("[CityBankers] BAG SHOP purchase attribution unknown after native recovery; original receipt retained: " + receipt.TransactionId + ".");
+                }
             foreach (var receipt in receipts.Where(receipt => !pendingPurchases.Any(pending => pending.Id == receipt.Id)))
                 CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
                     receipt.TransactionId ?? receipt.Id, character, "receipt.resolved-native", receipt, true);
