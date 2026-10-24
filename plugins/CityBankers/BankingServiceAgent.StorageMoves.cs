@@ -54,6 +54,10 @@ namespace CityBankers
         private void CaptureStorageMove(Message message)
         {
             CaptureWorkingBagReturns(message);
+            if (_withdrawalItemMoveSource != Identity.None && message?.Body is ContainerAddItem withdrawalMove &&
+                DynelManager.LocalPlayer != null && withdrawalMove.Identity == DynelManager.LocalPlayer.Identity &&
+                withdrawalMove.Source == _withdrawalItemMoveSource && withdrawalMove.Target == DynelManager.LocalPlayer.Identity)
+                _withdrawalItemMoveAcknowledged = true;
             var job = _storageJob;
             var move = job?.Move;
             if (move == null || job.Failure != null) return;
@@ -82,6 +86,14 @@ namespace CityBankers
                 }).ToList();
                 BankerActivityGovernor.Wake();
             }
+        }
+
+        private void SendWithdrawalItemMove(Item item)
+        {
+            _withdrawalItemMoveSource = item.Slot;
+            _withdrawalItemMoveAcknowledged = false;
+            _withdrawalItemMoveAfter = SharedBagRecovery.ContainerObservationSequence;
+            BagOriginTrace.MoveToContainer(item, DynelManager.LocalPlayer.Identity);
         }
 
         private void SendStorageItemMove(Item item, Container container, int retries = 0)

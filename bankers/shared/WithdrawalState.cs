@@ -181,6 +181,8 @@ namespace CityBankers.Shared
                 var current = rows.SingleOrDefault(r => r.Id == request.Id);
                 if (current == null || current.Revision != request.Revision ||
                     !HasStatus(current, "requested") || !IsCharacterReady(directory, request.SourceCharacter) ||
+                    rows.Any(r => r.Id != request.Id && HasStatus(r, "extracting") &&
+                        string.Equals(r.SourceCharacter, request.SourceCharacter, StringComparison.OrdinalIgnoreCase)) ||
                     ReadRecovery(directory).Any(r => r.CensusCentral || r.LedgerId == request.ActiveLedgerId ||
                         string.Equals(r.CensusCharacter, request.SourceCharacter, StringComparison.OrdinalIgnoreCase)))
                     return false;
@@ -522,4 +524,3 @@ namespace CityBankers.Shared
         }
     }
 }
-

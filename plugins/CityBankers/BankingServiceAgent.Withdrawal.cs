@@ -73,8 +73,17 @@ namespace CityBankers
         private DateTime _withdrawalNextItemMoveRetryUtc;
         private string _receiptWaitId;
         private readonly Stopwatch _receiptWait = new Stopwatch();
-        private string _extractionWaitId;
-        private readonly Stopwatch _extractionWait = new Stopwatch();
+        private readonly Dictionary<string, Stopwatch> _withdrawalExtractionWaits = new Dictionary<string, Stopwatch>();
+        private Stopwatch WithdrawalExtractionWait(WithdrawalState state)
+        {
+            Stopwatch wait;
+            if (!_withdrawalExtractionWaits.TryGetValue(state.Id, out wait))
+                _withdrawalExtractionWaits.Add(state.Id, wait = Stopwatch.StartNew());
+            return wait;
+        }
+        private long _withdrawalBagOpenAfter, _withdrawalItemMoveAfter;
+        private Identity _withdrawalItemMoveSource = Identity.None;
+        private bool _withdrawalItemMoveAcknowledged;
         private readonly Dictionary<string, Stopwatch> _withdrawalAccountingRetry = new Dictionary<string, Stopwatch>();
         private readonly Dictionary<string, string> _withdrawalAccountingError = new Dictionary<string, string>();
 
@@ -137,7 +146,7 @@ namespace CityBankers
                 if (_withdrawalPickupTrade && _pickupItems.Count > 0)
                     TickWithdrawalPickupTrade(_pickupItems[0]);
                 else if (!_withdrawalPickupTrade) TickWithdrawalReceiver();
-                if (!_withdrawalPickupTrade && _extractionWait.IsRunning && _extractionWait.Elapsed.TotalSeconds >= 240)
+                if (!_withdrawalPickupTrade && WithdrawalExtractionWait(_withdrawal).Elapsed.TotalSeconds >= 240)
                     FailWithdrawal(rows.First(row => row.Id == _withdrawal.Id),
                         "Worker return trade did not finish within four minutes; custody needs reconciliation.");
                 return true;
@@ -185,22 +194,21 @@ namespace CityBankers
             }
 
             rows = WithdrawalStore.LoadAll(_settingsDir);
-            WithdrawalState active = rows.FirstOrDefault(row =>
-                (WithdrawalStore.HasStatus(row, "extracting") && (IsRoleEnabled(row.SourceRole) && IsCharacterEnabled(row.SourceCharacter))) ||
-                WithdrawalStore.HasStatus(row, "central-received"));
-            if (active != null)
-            {
-                if (_extractionWaitId != active.Id)
+            var extracting = rows.Where(row => WithdrawalStore.HasStatus(row, "extracting") &&
+                IsRoleEnabled(row.SourceRole) && IsCharacterEnabled(row.SourceCharacter)).ToList();
+            var activeIds = new HashSet<string>(extracting.Select(row => row.Id));
+            foreach (string id in _withdrawalExtractionWaits.Keys.Where(id => !activeIds.Contains(id)).ToList())
+                _withdrawalExtractionWaits.Remove(id);
+            foreach (var pending in extracting)
+                if (WithdrawalExtractionWait(pending).Elapsed.TotalSeconds >= 240 ||
+                    DateTime.UtcNow - pending.CreatedUtc >= TimeSpan.FromSeconds(240))
                 {
-                    _extractionWaitId = active.Id;
-                    _extractionWait.Restart();
-                }
-                if (WithdrawalStore.HasStatus(active, "extracting") &&
-                    (_extractionWait.Elapsed.TotalSeconds >= 240 || DateTime.UtcNow - active.CreatedUtc >= TimeSpan.FromSeconds(240)))
-                {
-                    FailWithdrawal(active, "Worker extraction did not finish within four minutes; custody needs reconciliation.");
+                    FailWithdrawal(pending, "Worker extraction did not finish within four minutes; custody needs reconciliation.");
                     return true;
                 }
+            WithdrawalState active = rows.FirstOrDefault(row => WithdrawalStore.HasStatus(row, "central-received"));
+            if (active != null)
+            {
                 if (WithdrawalStore.HasStatus(active, "central-received") && !Trade.IsTrading)
                 {
                     if (_receiptWaitId != active.Id)
@@ -220,11 +228,15 @@ namespace CityBankers
                 return false;
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var readyCharacters = BankerReadiness.GetReadyCharacters(_settingsDir);
-            if (!readyCharacters.Contains(Client.CharacterName) || Inventory.NumFreeSlots < 2 || _receipt != null || _returnOffer != null)
+            // Each admitted extraction will need one Central inventory slot.
+            // Keep one handling slot beyond those already promised arrivals.
+            if (!readyCharacters.Contains(Client.CharacterName) || Inventory.NumFreeSlots < extracting.Count + 2 ||
+                _receipt != null || _returnOffer != null)
                 return false;
             WithdrawalState next = rows.FirstOrDefault(row =>
                 (IsRoleEnabled(row.SourceRole) && IsCharacterEnabled(row.SourceCharacter) && readyCharacters.Contains(row.SourceCharacter)) &&
                 !CruPolicy.IsCru(row) && WithdrawalStore.HasStatus(row, "requested") &&
+                !extracting.Any(pending => string.Equals(pending.SourceCharacter, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)) &&
                 !(queue.Batches ?? new List<DispatchBatchState>()).Any(batch =>
                     batch != null && !batch.TransferNeverStarted && string.Equals(batch.Character, row.SourceCharacter, StringComparison.OrdinalIgnoreCase)));
             if (next == null) return false;
@@ -237,8 +249,7 @@ namespace CityBankers
                 next.Status = "extracting";
                 WithdrawalStore.Save(_settingsDir, next);
             }
-            _extractionWaitId = next.Id;
-            _extractionWait.Restart();
+            WithdrawalExtractionWait(next);
             return false;
         }
 
@@ -547,9 +558,7 @@ namespace CityBankers
                     if (staged != null)
                     {
                         _withdrawalBagIdentity = staged.UniqueIdentity.ToString();
-                        staged.Use();
-                        _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitBagOpen;
-                        SetWithdrawalDeadline();
+                        BeginWithdrawalBagOpen(staged);
                     }
                 }
                 return;
@@ -562,8 +571,7 @@ namespace CityBankers
             }
             else
             {
-                bag.Use();
-                _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitBagOpen;
+                BeginWithdrawalBagOpen(bag);
             }
             SetWithdrawalDeadline();
         }
@@ -572,6 +580,12 @@ namespace CityBankers
         {
             Item bag = FindInventoryBagByIdentity(_withdrawalBagIdentity);
             if (bag == null) return;
+            BeginWithdrawalBagOpen(bag);
+        }
+
+        private void BeginWithdrawalBagOpen(Item bag)
+        {
+            _withdrawalBagOpenAfter = SharedBagRecovery.ContainerObservationSequence;
             bag.Use();
             _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitBagOpen;
             SetWithdrawalDeadline();
@@ -581,6 +595,9 @@ namespace CityBankers
         {
             Container container = FindContainerByIdentity(_withdrawalBagIdentity);
             if (container == null || !container.IsOpen || container.Items == null) return;
+            int handle, count;
+            if (!SharedBagRecovery.TryObserveContainer(container.Identity, _withdrawalBagOpenAfter, out handle, out count) ||
+                handle == 0 || container.Handle != handle) return;
             Item item = container.Items.FirstOrDefault(value =>
                 value != null &&
                 (value.Slot.Instance & 0xFFFF) == _withdrawal.SourceInnerSlot &&
@@ -601,7 +618,7 @@ namespace CityBankers
                 "attempt=1; requester=" + _withdrawal.RequestedBy + "; source=" + Client.CharacterName +
                 "; bag=" + _withdrawal.SourceBag + "; innerSlot=" + _withdrawal.SourceInnerSlot +
                 "; sending move to normal inventory", new[] { _withdrawal.Item });
-            BagOriginTrace.MoveToContainer(item, DynelManager.LocalPlayer.Identity);
+            SendWithdrawalItemMove(item);
             _withdrawalItemMoveAttempts = 1;
             _withdrawalNextItemMoveRetryUtc = DateTime.UtcNow.AddSeconds(1);
             _withdrawalWorkerPhase = WithdrawalWorkerPhase.WaitItemInventory;
@@ -613,10 +630,20 @@ namespace CityBankers
             Item extracted = FindWithdrawalInventoryItem(_withdrawal);
             if (extracted == null)
             {
-                if (_withdrawalItemMoveAttempts < 3 &&
+                if (!_withdrawalItemMoveAcknowledged && _withdrawalItemMoveAttempts < 3 &&
                     DateTime.UtcNow >= _withdrawalNextItemMoveRetryUtc)
                 {
                     Container container = FindContainerByIdentity(_withdrawalBagIdentity);
+                    int handle, count;
+                    List<BagInnerItem> contents;
+                    // A cached source row can outlive a successful move. Replay
+                    // only after newer native contents still show this exact item.
+                    if (container == null || !SharedBagRecovery.TryObserveContainer(container.Identity,
+                        _withdrawalItemMoveAfter, out handle, out count) || handle != container.Handle ||
+                        !SharedBagRecovery.TryReadContainer(container.Identity, out handle, out contents) ||
+                        !contents.Any(value => value.SlotInstance == _withdrawal.SourceInnerSlot &&
+                            value.LowId == _withdrawal.Item.AoId && value.HighId == _withdrawal.Item.HighId &&
+                            value.Ql == _withdrawal.Item.Ql)) return;
                     Item stillInBag = container != null && container.IsOpen && container.Items != null
                         ? container.Items.FirstOrDefault(value =>
                             value != null &&
@@ -632,8 +659,8 @@ namespace CityBankers
                             (_withdrawal?.Id ?? "?") + ": attempt " +
                             _withdrawalItemMoveAttempts +
                             "; requester=" + _withdrawal.RequestedBy +
-                            "; still awaiting inventory confirmation; source bag slot remains visible; reissuing move.");
-                        BagOriginTrace.MoveToContainer(stillInBag, DynelManager.LocalPlayer.Identity);
+                            "; fresh native contents still show the exact source; retrying an unacknowledged move.");
+                        SendWithdrawalItemMove(stillInBag);
                     }
                 }
                 return;
@@ -868,39 +895,49 @@ namespace CityBankers
 
         private void OpenPickupWindow(WithdrawalState state)
         {
-            string error;
-            if (!RuntimeStateStore.RemoveStoredItem(
-                    _settingsDir, state.SourceCharacter, state.SourceBag,
-                    state.SourceBagOuterSlot, state.SourceInnerSlot,
-                    state.SourceItemIdentity, state.Item.AoId, out error))
-            {
-                // Restart/idempotence: absence is acceptable only when Central visibly owns
-                // the item and the exact old stock row is already gone.
-                if (FindWithdrawalInventoryItem(state) == null ||
-                    WithdrawalSourceStillPersisted(state))
-                {
-                    FailWithdrawal(state, "Central received the item but storage-state removal failed: " + error);
-                    return;
-                }
-            }
             Item received = FindWithdrawalInventoryItem(state);
             if (received == null) return;
-            ActiveLedgerStore.RecordWithdrawalArrival(_settingsDir, state, Client.CharacterName,
-                SnapshotTradeItems(new[] { received }).Single(), received.Slot.Instance);
-            WithdrawalStore.Update(_settingsDir, rows =>
+            try
             {
-                WithdrawalState fresh = rows.First(row => row.Id == state.Id);
-                fresh.CentralItemIdentity = IsUsableIdentity(received.UniqueIdentity.ToString())
-                    ? received.UniqueIdentity.ToString() : null;
-                fresh.Status = "central-ready";
-                foreach (WithdrawalState row in rows.Where(row => row.OrderId == fresh.OrderId &&
-                    WithdrawalStore.HasStatus(row, "central-ready")))
+                bool changed = CityDwellers.Shared.ManagerAccounting.Transaction("Withdrawal ready for pickup", () =>
                 {
-                    WithdrawalStore.RenewPickupWindow(row);
-                    WithdrawalStore.Touch(row);
-                }
-                return true;
-            });
+                    var fresh = WithdrawalStore.LoadAll(_settingsDir).Single(row => row.Id == state.Id);
+                    if (!WithdrawalStore.HasStatus(fresh, "central-received")) return false;
+                    state = fresh;
+                    // A receipt retry may find the exact source already removed.
+                    // Skip that idempotent no-op before entering the nested writer.
+                    if (WithdrawalSourceStillPersisted(state))
+                    {
+                        string error;
+                        if (!RuntimeStateStore.RemoveStoredItem(_settingsDir, state.SourceCharacter, state.SourceBag,
+                            state.SourceBagOuterSlot, state.SourceInnerSlot, state.SourceItemIdentity, state.Item.AoId, out error))
+                            throw new InvalidOperationException("Source storage removal failed: " + error);
+                    }
+                    ActiveLedgerStore.RecordWithdrawalArrival(_settingsDir, state, Client.CharacterName,
+                        SnapshotTradeItems(new[] { received }).Single(), received.Slot.Instance);
+                    WithdrawalStore.Update(_settingsDir, rows =>
+                    {
+                        WithdrawalState ready = rows.First(row => row.Id == state.Id);
+                        ready.CentralItemIdentity = IsUsableIdentity(received.UniqueIdentity.ToString())
+                            ? received.UniqueIdentity.ToString() : null;
+                        ready.Status = "central-ready";
+                        foreach (WithdrawalState row in rows.Where(row => row.OrderId == ready.OrderId &&
+                            WithdrawalStore.HasStatus(row, "central-ready")))
+                        {
+                            WithdrawalStore.RenewPickupWindow(row);
+                            WithdrawalStore.Touch(row);
+                        }
+                        return true;
+                    });
+                    return true;
+                });
+                if (!changed) return;
+            }
+            catch (Exception error)
+            {
+                FailWithdrawal(state, "Central received the item but atomic pickup accounting failed: " + error.Message);
+                return;
+            }
             ReportTransferProgress("WITHDRAWAL READY", state.Id,
                 "collector=" + state.RequestedBy + "; destination=" + Client.CharacterName + "; pickup window three minutes",
                 new[] { state.Item });
@@ -1265,8 +1302,10 @@ namespace CityBankers
             _withdrawalBankBag = false;
             _withdrawalItemMoveAttempts = 0;
             _withdrawalNextItemMoveRetryUtc = DateTime.MinValue;
+            _withdrawalBagOpenAfter = _withdrawalItemMoveAfter = 0;
+            _withdrawalItemMoveSource = Identity.None;
+            _withdrawalItemMoveAcknowledged = false;
             ResetWithdrawalTrade();
         }
     }
 }
-

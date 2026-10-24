@@ -178,7 +178,7 @@ namespace CityBankers
             _pendingConfirmation = Identity.None;
             ResetReturn(); ResetWithdrawalLocal();
             _receiptWaitId = null; _receiptWait.Reset();
-            _extractionWaitId = null; _extractionWait.Reset();
+            _withdrawalExtractionWaits.Clear();
             // Keep a local extraction's reservation until the new census commits;
             // TickLocalCensus already releases it after durable completion.
             _localCensus = run; _localCensusPause = pause; _localCensusReason = grant.Reason;
