@@ -97,6 +97,8 @@ namespace CityBankers
             public List<CustodySlot> BeforeSlots;
             public List<CustodySlot> ObservedSlots;
             public int Direction;
+            public string PeerCharacter;
+            public int? CreditAmount, CreditBefore, CreditAfter;
             public List<string> LedgerIds;
             internal ReceiptEvidence Copy()
         {

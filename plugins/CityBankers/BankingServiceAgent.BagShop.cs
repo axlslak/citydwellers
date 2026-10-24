@@ -43,12 +43,13 @@ namespace CityBankers
         {
             ReleaseBagShopOffer(_bagShop);
             ReleaseBagShopOffer(_pendingBagPurchase);
+            InvalidateBagFunding();
             _bagShop = null; _pendingBagPurchase = null; _bagShopChecked = false;
         }
 
         private void ResumeBagShopWork()
         {
-            if (!_isCentral || _bagShopChecked || !Inventory.Bank.IsOpen) return;
+            if (_bagShopChecked || !Inventory.Bank.IsOpen) return;
             _bagShopChecked = true;
             var receipt = ManagerMemory.Current.ReadReceipt(ManagerAccounting.TransactionId, BagShopReceiptId);
             if (receipt == null || receipt.Phase == "applied") return;
@@ -67,18 +68,14 @@ namespace CityBankers
             Logger.Information("[CityBankers] BAG SHOP restoring purchase receipt " + receipt.TransactionId + "; settling the original purchase before buying again.");
         }
 
-        private bool StartBagShop(BagReserve reserve, StorageState storage, HashSet<string> ready)
+        private bool StartBagShop()
         {
-            if (!_isCentral || _bagShop != null || _pendingBagPurchase != null || DateTime.UtcNow < _bagShopRetryAfter || !CanStartLocalCensus() ||
+            if (_bagShop != null || _pendingBagPurchase != null || _bagFunding != null || DateTime.UtcNow < _bagShopRetryAfter || !CanStartLocalCensus() ||
                 Inventory.NumFreeSlots < 2) return false;
-            if (RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b => IsReserveBatch(b.Items))) return false;
-            if (!BagShopSupplyNeeded(reserve, storage, ready)) return false;
-            int cash;
-            if (!DynelManager.LocalPlayer.TryGetStat(Stat.Cash, out cash) || cash <= 0)
-            { BagShopUnavailable("Central has no available credits for a replacement backpack."); return false; }
+            if (!BagShopSupplyPending() || BagSupplyServiceWaiting()) return false;
             var dealer = FindBagDealer();
             if (dealer == null && !(DynelManager.LocalPlayer.SpellList ?? new int[0]).Contains(SummonBagDealerNano))
-            { BagShopUnavailable("Central has not uploaded Summon Buckethead Technodealer (300439)."); return false; }
+            { RequestBagDealer(); return false; }
             if (dealer == null && DynelManager.LocalPlayer.IsCasting) return false;
             _bagShop = new BagShopWork { Phase = dealer == null ? "summoning" : "opening" };
             if (dealer == null)
@@ -93,23 +90,36 @@ namespace CityBankers
 
         private bool BagShopSupplyPending()
         {
-            if (!_isCentral || DateTime.UtcNow < _bagShopRetryAfter) return false;
+            if (DateTime.UtcNow < _bagShopRetryAfter || !Inventory.Bank.IsOpen || ReserveBankFreeSlots < 1) return false;
             var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
-            return storage?.Workers != null && BagShopSupplyNeeded(ReadReserve(), storage, BankerReadiness.GetReadyCharacters(_settingsDir));
+            var own = storage?.Workers?.SingleOrDefault(w => SameCharacter(w.Character, Client.CharacterName));
+            if (own == null) return false;
+            // Finish previously assigned physical deliveries before adding more
+            // equipment locally. Another banker's deliveries do not hold us up.
+            if (RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(b => IsReserveBatch(b.Items) &&
+                SameCharacter(b.Character, Client.CharacterName))) return false;
+            if (ReadReserve().Bags.Any(b => !b.Delivered && !b.Quarantined && SameCharacter(b.Destination, Client.CharacterName))) return false;
+            var identities = new HashSet<string>(own.Bags.Select(b => b.LastUniqueIdentity));
+            identities.UnionWith(StorageBagPolicy.AllBagRecords().Select(b => b.Identity.ToString()));
+            return identities.Count < StorageBankBagTarget;
         }
 
-        private bool BagShopSupplyNeeded(BagReserve reserve, StorageState storage, HashSet<string> ready)
+        private bool BagSupplyServiceWaiting()
         {
-            // Provision known, available accounts. An unrelated offline banker
-            // neither becomes an invented empty bank nor pauses healthy demand.
-            var configured = _config.Roles.Values.Select(a => a.Character).Where(c => ready.Contains(c) &&
-                storage.Workers.Any(w => string.Equals(w.Character, c, StringComparison.OrdinalIgnoreCase))).ToArray();
-            if (configured.Length == 0) return false;
-            int existing = storage.Workers.Where(w => configured.Contains(w.Character, StringComparer.OrdinalIgnoreCase))
-                .Sum(w => w.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count());
-            var registered = new HashSet<string>(storage.Workers.SelectMany(w => w.Bags).Select(b => b.LastUniqueIdentity));
-            int incoming = reserve.Bags.Count(b => !b.Delivered && !b.Quarantined && !registered.Contains(b.Identity));
-            return existing + incoming < configured.Length * StorageBankBagTarget;
+            return _publicTradePartner != Identity.None || _withdrawalReceiveReserved ||
+                WithdrawalStore.LoadAll(_settingsDir).Any(w =>
+                    (WithdrawalStore.HasStatus(w, "requested") || WithdrawalStore.HasStatus(w, "extracting") ||
+                     WithdrawalStore.HasStatus(w, "central-received")) &&
+                    (_isCentral || SameCharacter(w.SourceCharacter, Client.CharacterName)));
+        }
+
+        private bool YieldUnpaidBagShop()
+        {
+            if (_bagShop == null) return true;
+            if (_bagShop.Receipt != null) return false;
+            CloseBagShop(_bagShop);
+            _bagShop = null;
+            return true;
         }
 
         private Dynel FindBagDealer() => DynelManager.Npcs
@@ -176,6 +186,9 @@ namespace CityBankers
             // Clientless does not clear its offer caches when another window
             // opens. A shop selection must never enter a player's trade.
             if (work != null && target != work.Shop) ReleaseBagShopOffer(work);
+            if (work != null && target != work.Shop && work.Receipt == null &&
+                (work.Phase != "opening" || (target != work.Dealer && target.Type != IdentityType.VendingMachine)))
+            { _bagShop = null; return false; }
             if (work == null || work.Phase != "opening" || _publicTradePartner != Identity.None ||
                 (target != work.Dealer && target.Type != IdentityType.VendingMachine && target != Identity.None)) return false;
             // An NPC's world identity and its shop-session identity differ.
@@ -199,6 +212,8 @@ namespace CityBankers
         {
             var work = _bagShop ?? _pendingBagPurchase;
             if (work == null) return false;
+            if (work.Receipt == null && BagSupplyServiceWaiting())
+            { YieldUnpaidBagShop(); return false; }
             if (work.Phase == "buying" && CompleteBagShopReceipt(work)) return true;
             // An uncertain purchase owns its receipt, not Central's work loop.
             if (_bagShop == null) return false;
@@ -231,7 +246,7 @@ namespace CityBankers
             if (work.Phase == "offering")
             {
                 if (Trade.CurrentTarget != work.Shop || Trade.PlayerWindowCache.Items.Count != 0)
-                { StopBagShop("The shop session changed or contains an item offered by Central; purchase cancelled."); return true; }
+                { StopBagShop("The shop session changed or contains an item offered by the buyer; purchase cancelled."); return true; }
                 // Shops acknowledge the catalogue selection with AddItem. The
                 // Clientless player-trade cache is not populated by that reply.
                 if (!work.SelectionAcknowledged) return true;
@@ -243,8 +258,13 @@ namespace CityBankers
                     Ql = work.Ql, Quantity = 1, Name = "Small Backpack" };
                 int cash;
                 long price = Math.Max(Math.Abs((long)Trade.PlayerWindowCache.Credits), Math.Abs((long)Trade.TargetWindowCache.Credits));
-                if (!DynelManager.LocalPlayer.TryGetStat(Stat.Cash, out cash) || cash <= 0 || price > cash)
-                { StopBagShop("Central cannot pay the dealer's quoted price."); return true; }
+                if (!DynelManager.LocalPlayer.TryGetStat(Stat.Cash, out cash)) return true;
+                if (cash <= 0 || price > cash)
+                {
+                    YieldUnpaidBagShop();
+                    RequestBagFunding();
+                    return true;
+                }
                 work.Receipt = new ReceiptEvidence { Id = BagShopReceiptId, Kind = "reserve-shop", Character = Client.CharacterName,
                     TransactionId = "reserve-shop-" + Guid.NewGuid().ToString("N"), Phase = BagPurchaseWithBankBaseline,
                     Before = PhysicalInventory().Concat(SnapshotTradeItems(Inventory.Bank.Items
@@ -424,7 +444,6 @@ namespace CityBankers
 
         private void SettleRecoveredBagPurchase()
         {
-            if (!_isCentral) return;
             var receipt = ManagerMemory.Current.ReadReceipt(ManagerAccounting.TransactionId, BagShopReceiptId);
             if (receipt == null || receipt.Kind != "reserve-shop" || receipt.Phase == "applied") return;
             CompleteBagShopReceipt(RestoreBagPurchase(receipt));
@@ -486,18 +505,22 @@ namespace CityBankers
                 // batch. Preserve that disposition and any existing storage row.
                 if (existing == null && registrations.Count == 0)
                 {
-                    reserve.Bags.Add(new ReserveBag { Identity = bag.UniqueIdentity.ToString(), Transaction = work.Receipt.TransactionId });
-                    SaveReserve(reserve);
+                    RuntimeStorageStateTransactions.UpdateReserveBag(_settingsDir, Client.CharacterName, bag.UniqueIdentity.ToString(),
+                        new StorageBagState { Source = location, OuterSlotType = bag.Slot.Type.ToString(),
+                            OuterSlotInstance = bag.Slot.Instance & 65535, LastUniqueIdentity = bag.UniqueIdentity.ToString(),
+                            LastHandle = 0, Capacity = BankerRoles.SmallBackpackCapacity, Items = new List<StoredItemState>() });
                     enrolled = true;
                 }
                 work.Receipt.Observed = SnapshotTradeItems(new[] { bag }); work.Receipt.ObservedSlots = after;
                 work.Receipt.Phase = "applied";
                 ManagerMemory.Current.ChangeReceipt(ManagerAccounting.TransactionId, work.Receipt);
             });
-            if (enrolled) _reserveEmptyArrivals.Add(bag.UniqueIdentity.ToString());
+            // Legacy reserve assignments keep their original delivery path.
+            if (!enrolled && reserve.Bags.Any(b => b.Identity == bag.UniqueIdentity.ToString()))
+                _reserveEmptyArrivals.Add(bag.UniqueIdentity.ToString());
             FinishBagPurchase(work);
             Logger.Information("[CityBankers] BAG SHOP receipt applied " + work.Receipt.TransactionId +
-                "; bag=" + bag.UniqueIdentity + "; reserve entry added=" + enrolled + ".");
+                "; bag=" + bag.UniqueIdentity + "; local storage registered=" + enrolled + ".");
             return true;
         }
 

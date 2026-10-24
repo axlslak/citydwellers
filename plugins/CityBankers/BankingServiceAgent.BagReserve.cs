@@ -122,7 +122,7 @@ namespace CityBankers
                 .Where(w => w.Missing > 0).OrderByDescending(w => w.Missing).ThenBy(w => w.Worker.Character).FirstOrDefault();
             var central = storage.Workers.Single(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
             // Existing empty bank bags can be supplied without opening them again.
-            foreach (var bag in central.Bags.Where(b => b.Items?.Count == 0))
+            foreach (var bag in central.Bags.Where(b => b.Items?.Count == 0).Take(Math.Max(0, central.Bags.Count - StorageBankBagTarget)))
             {
                 if (state.Bags.Any(b => b.Identity == bag.LastUniqueIdentity && !b.Delivered) ||
                     queue.Batches.Any(b => b.Items.Any(i => i.UniqueIdentity == bag.LastUniqueIdentity))) continue;
@@ -157,11 +157,6 @@ namespace CityBankers
             if (candidate != null && target != null && !reserveQueued && stagingCapacity > 0)
             {
                 int desired = Math.Min(target.Missing, Math.Min(ServicePolicy.MaxInternalTradeItems, stagingCapacity));
-                bool purchasedOnly = availableBags.All(b =>
-                    b.Reserve.Transaction?.StartsWith("reserve-shop-", StringComparison.Ordinal) == true);
-                // Exhaust existing backups first. Only freshly purchased stock
-                // is accumulated into a new full trade batch.
-                if (!surplusPending && purchasedOnly && availableBags.Count < desired && StartBagShop(state, storage, ready)) return true;
                 string batch = "bag-reserve-" + Guid.NewGuid().ToString("N");
                 string transaction = "bag-supply-" + Guid.NewGuid().ToString("N");
                 var group = availableBags.Take(desired).Select(b => b.Reserve).ToList();
@@ -183,7 +178,7 @@ namespace CityBankers
             if (loose != null && target == null && !reserveQueued && AllConfiguredBanksSupplied(storage, ready))
             { BeginReserveOperation(loose.Identity, "discard"); return true; }
             if (reserveQueued || records.Any(r => r.Location == "inventory")) return false;
-            return StartBagShop(state, storage, ready);
+            return false;
         }
 
         private bool AllConfiguredBanksSupplied(StorageState storage, HashSet<string> ready) => _config.Roles.Values.All(account =>

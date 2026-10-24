@@ -415,6 +415,7 @@ namespace CityBankers
                 Message = reason + "; pending operations resolved from native state; unmatched claims preserved in lost/found." });
             var receipts = manager.ReadCharacterReceipts(transaction, character);
             var pendingPurchases = receipts.Where(receipt => receipt.Kind == "reserve-shop" && receipt.Phase != "applied").ToList();
+            var pendingFunding = receipts.Where(receipt => IsBagFundingReceipt(receipt) && !BagFundingTerminal(receipt)).ToList();
             if (repair.FreshConnection)
                 foreach (var receipt in pendingPurchases.Where(receipt => receipt.Id == BagShopReceiptId))
                 {
@@ -428,11 +429,13 @@ namespace CityBankers
                         Message = "Original purchase " + receipt.TransactionId + " retained without success/failure attribution after fresh native custody reconciliation." });
                     Logger.Warning("[CityBankers] BAG SHOP purchase attribution unknown after native recovery; original receipt retained: " + receipt.TransactionId + ".");
                 }
-            foreach (var receipt in receipts.Where(receipt => !pendingPurchases.Any(pending => pending.Id == receipt.Id)))
+            foreach (var receipt in receipts.Where(receipt => !pendingPurchases.Any(pending => pending.Id == receipt.Id) &&
+                !pendingFunding.Any(pending => pending.Id == receipt.Id)))
                 CityDwellers.Shared.IncidentJournal.Record(RuntimeStateStore.GetDataDirectory(_settingsDir),
                     receipt.TransactionId ?? receipt.Id, character, "receipt.resolved-native", receipt, true);
             manager.RetireCharacterReceipts(transaction, character);
             foreach (var receipt in pendingPurchases) manager.ChangeReceipt(transaction, receipt);
+            foreach (var receipt in pendingFunding) manager.ChangeReceipt(transaction, receipt);
         }
     }
 }

@@ -37,6 +37,7 @@ namespace CityBankers
             public ExtractionProof Extraction;
             public BagAuditResult Census;
             public ReceiptEvidence Cancellation;
+            public ReceiptEvidence Funding;
             public StorageRecoveryRequest StorageRecovery;
             [JsonIgnore]
             public readonly TaskCompletionSource<string> Reply =
@@ -179,6 +180,13 @@ namespace CityBankers
                     // not move AO items. Keep them reachable during local work.
                     if (HandleTradeStageProposal(proposal)) continue;
                     if (HandleCancellationProposal(proposal)) continue;
+                    if (HandleBagFundingProposal(proposal)) continue;
+                    if (proposal.Kind == "withdrawal-prepare" || proposal.Kind == "prepare" || proposal.Kind == "return-prepare")
+                        YieldUnopenedBagFunding();
+                    if (BagFundingReservesTrade && proposal.Kind != "return-sent" && proposal.Kind != "return-cancel")
+                    { proposal.Reply.TrySetResult("pending:credit-trade-opening"); continue; }
+                    if (proposal.Kind == "withdrawal-prepare" || proposal.Kind == "prepare" || proposal.Kind == "return-prepare")
+                        YieldUnpaidBagShop();
                     if (HandleReturnProposal(proposal)) continue;
                     if (_bagShop != null) { proposal.Reply.TrySetResult("busy"); continue; }
                     if (HandleCruProposal(proposal)) continue;

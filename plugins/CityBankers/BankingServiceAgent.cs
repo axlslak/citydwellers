@@ -283,7 +283,7 @@ namespace CityBankers
                 _activeBatch != null || _workerCommand != null || _storageJob != null ||
                 _reservedDispatch != null || _dispatchPreparation != null ||
                 _donationActive || _donationCleanup != null || _pausedDonationCleanup.Count > 0 ||
-                _stackOperation != null || _reserveOperation != null || _bagShop != null || _bankLayout != null ||
+                _stackOperation != null || _reserveOperation != null || _bagShop != null || _bankLayout != null || BagFundingPending ||
                 _withdrawal != null || _withdrawalPreparation != null ||
                 _returnOffer != null || _returnRequest != null ||
                 _extraction != null || _extractionCommit != null ||
@@ -351,6 +351,7 @@ namespace CityBankers
                     _operationalHeartbeatAge.Restart();
                 }
                 if (TickPublicTrade()) return;
+                if (TickBagFunding()) return;
                 if (TickBagShop()) return;
 
                 // The 2s idle fallback checks Manager memory for work that outlives
@@ -400,6 +401,7 @@ namespace CityBankers
                 if (TickReturnTransfer()) return;
                 if (TickInitialBankSetup()) return;
                 if (TickBankLayout()) return;
+                TickBagDealer();
                 if (_isCentral)
                 {
                     // Startup census owns the baseline. Never replace it later
@@ -414,6 +416,7 @@ namespace CityBankers
                     TickDispatch();
                     if (_localCensus != null || !StartupCensusGate.IsOpen) return;
                     StartRecoveryExtraction();
+                    if (CanStartLocalCensus()) { if (!StartBagFunding()) StartBagShop(); }
                 }
                 else
                 {
@@ -426,6 +429,7 @@ namespace CityBankers
                     TickLocalStorageRecovery();
                     TickLooseReturnRecovery();
                     StartRecoveryExtraction();
+                    if (CanStartLocalCensus()) { if (!StartBagFunding()) StartBagShop(); }
                 }
             }
             catch (System.Threading.ThreadAbortException)
@@ -951,6 +955,7 @@ namespace CityBankers
                 return;
 
             if (BagShopTradeOpened(target)) return;
+            if (BagFundingTradeOpened(target)) return;
 
             _tradeTrace = "trade-" + Guid.NewGuid().ToString("N");
 
@@ -960,6 +965,7 @@ namespace CityBankers
                 TraceTrade("trade.opened", new { Partner = target.ToString(), Name = targetName });
                 if (_isCentral && IsPublicTradeCharacter(targetName))
                 {
+                    YieldUnopenedBagFunding();
                     if (_withdrawalReceiveReserved && !_withdrawalTradeOpened && _receipt == null)
                     { _withdrawalReceiveReserved = false; _withdrawal = null; }
                     _publicTradePartner = target;
@@ -1080,6 +1086,7 @@ namespace CityBankers
                 return;
             }
             if (_publicTradePartner == Identity.None && BagShopTradeStatus(target, status)) return;
+            if (BagFundingTradeStatus(target, status)) return;
 
             TraceTrade("trade.status", new { Partner = target.ToString(), Status = status.ToString() },
                 status == TradeStatus.Declined);
