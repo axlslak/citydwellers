@@ -98,6 +98,12 @@ namespace CityBankers
         private void TickBagDealer()
         {
             if (!_isCentral || !_bagDealerRequested || Trade.IsTrading || BagSupplyServiceWaiting()) return;
+            var ready = BankerReadiness.GetReadyCharacters(_settingsDir);
+            var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
+            bool needed = _config.Roles.Values.Any(account => !SameCharacter(account.Character, _centralCharacter) &&
+                ready.Contains(account.Character) && storage.Workers.Any(worker => SameCharacter(worker.Character, account.Character) &&
+                    worker.Bags.Select(bag => bag.LastUniqueIdentity).Distinct().Count() < StorageBankBagTarget));
+            if (!needed) { _bagDealerRequested = false; return; }
             if (FindBagDealer() != null) { _bagDealerRequested = false; return; }
             if (DynelManager.LocalPlayer.IsCasting || DateTime.UtcNow < _bagDealerSummonAfter) return;
             if (!(DynelManager.LocalPlayer.SpellList ?? new int[0]).Contains(SummonBagDealerNano)) return;
@@ -147,6 +153,12 @@ namespace CityBankers
             { proposal.Reply.TrySetResult("pending"); return true; }
             if (work.Receipt.Phase == "requested")
             {
+                if (!BagShopSupplyPending())
+                {
+                    work.Receipt.Phase = "cancelled";
+                    SaveBagFunding(work.Receipt); _bagFunding = null;
+                    return false;
+                }
                 work.Receipt.CreditAmount = offer.CreditAmount;
                 work.Receipt.CreditBefore = cash;
                 work.Receipt.Phase = "prepared";

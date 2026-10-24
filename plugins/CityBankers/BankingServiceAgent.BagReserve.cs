@@ -50,8 +50,9 @@ namespace CityBankers
             bool changed = false;
             foreach (var worker in storage.Workers.Where(w => ready.Contains(w.Character)))
             {
-                if (ReserveTarget(state, worker.Character) == StorageBankBagTarget) continue;
-                state.SetTarget(worker.Character, StorageBankBagTarget); changed = true;
+                int target = worker.Role == "central" ? 0 : StorageBankBagTarget;
+                if (ReserveTarget(state, worker.Character) == target) continue;
+                state.SetTarget(worker.Character, target); changed = true;
             }
             if (changed) SaveReserve(state);
         }
@@ -87,7 +88,7 @@ namespace CityBankers
         // Central's empty bank reserve, and only then buy another shell.
         private bool TickBagReserve()
         {
-            if (!_isCentral || !CanStartLocalCensus() || CensusReservedHere()) return false;
+            if (!_isCentral || BagSupplyServiceWaiting() || !CanStartLocalCensus() || CensusReservedHere()) return false;
             var state = ReadReserve();
             var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
             if (storage?.Workers == null) return false;
@@ -122,7 +123,7 @@ namespace CityBankers
                 .Where(w => w.Missing > 0).OrderByDescending(w => w.Missing).ThenBy(w => w.Worker.Character).FirstOrDefault();
             var central = storage.Workers.Single(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
             // Existing empty bank bags can be supplied without opening them again.
-            foreach (var bag in central.Bags.Where(b => b.Items?.Count == 0).Take(Math.Max(0, central.Bags.Count - StorageBankBagTarget)))
+            foreach (var bag in central.Bags.Where(b => b.Items?.Count == 0))
             {
                 if (state.Bags.Any(b => b.Identity == bag.LastUniqueIdentity && !b.Delivered) ||
                     queue.Batches.Any(b => b.Items.Any(i => i.UniqueIdentity == bag.LastUniqueIdentity))) continue;
@@ -181,7 +182,8 @@ namespace CityBankers
             return false;
         }
 
-        private bool AllConfiguredBanksSupplied(StorageState storage, HashSet<string> ready) => _config.Roles.Values.All(account =>
+        private bool AllConfiguredBanksSupplied(StorageState storage, HashSet<string> ready) => _config.Roles.Values
+            .Where(account => !SameCharacter(account.Character, _centralCharacter)).All(account =>
             ready.Contains(account.Character) && storage.Workers.Any(w => string.Equals(w.Character, account.Character, StringComparison.OrdinalIgnoreCase) &&
                 w.Bags.Count(b => b.Source == "bank") >= StorageBankBagTarget));
 

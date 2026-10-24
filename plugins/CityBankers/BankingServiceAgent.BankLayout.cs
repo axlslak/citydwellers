@@ -82,7 +82,8 @@ namespace CityBankers
                 return true;
             }
             _bankSetupComplete = true;
-            BankSetupStage("local storage ready; " + worker.Bags.Count(b => b.Source == "bank") +
+            BankSetupStage(_isCentral ? "public buffer ready; no automatic storage-bag target" :
+                "local storage ready; " + worker.Bags.Count(b => b.Source == "bank") +
                 "/" + StorageBankBagTarget + " bank bags; remaining supply runs in background");
             return false;
         }
@@ -203,12 +204,7 @@ namespace CityBankers
         private bool BankLayoutPending()
         {
             if (_bankLayout != null || (Inventory.Bank.IsOpen && StorageBagPolicy.AllBagRecords().Any(r => r.Location == "inventory"))) return true;
-            if (!_isCentral) return false;
-            var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
-            return _config.Roles.Values.Any(account => {
-                var worker = storage?.Workers?.FirstOrDefault(w => string.Equals(w.Character, account.Character, StringComparison.OrdinalIgnoreCase));
-                return worker == null || worker.Bags.Count < StorageBankBagTarget || worker.Bags.Any(b => b.Source == "inventory");
-            });
+            return false;
         }
 
         private bool TickBankLayout()
@@ -438,7 +434,7 @@ namespace CityBankers
                     IsRoleEnabled(BankerRoles.Canonical(p.Key)) && ready.Contains(p.Value.Character))
                 .Select(p => new { Character = p.Value.Character, Category = BankerRoles.Canonical(p.Key),
                     Worker = storage.Workers.FirstOrDefault(w => string.Equals(w.Character, p.Value.Character, StringComparison.OrdinalIgnoreCase)) })
-                .Where(p => p.Worker != null && p.Worker.Bags.Count < StorageBankBagTarget)
+                .Where(p => p.Category != "central" && p.Worker != null && p.Worker.Bags.Count < StorageBankBagTarget)
                 .OrderBy(p => p.Category == category ? 0 : p.Category == "central" ? 2 : 1)
                 .ThenBy(p => p.Worker.Bags.Count).ThenBy(p => p.Character, StringComparer.OrdinalIgnoreCase)
                 .Select(p => p.Character).FirstOrDefault();
@@ -446,6 +442,7 @@ namespace CityBankers
 
         private int LayoutReturnRoom(string character)
         {
+            if (SameCharacter(character, _centralCharacter)) return 0;
             var worker = RuntimeStateStore.LoadStorageState(_settingsDir)?.Workers?.SingleOrDefault(w =>
                 string.Equals(w.Character, character, StringComparison.OrdinalIgnoreCase));
             return Math.Max(0, StorageBankBagTarget - (worker?.Bags?.Select(b => b.LastUniqueIdentity).Distinct().Count() ?? 0));

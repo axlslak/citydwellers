@@ -261,6 +261,12 @@ namespace CityBankers
                 SetWithdrawalDeadline();
             }
             WithdrawalWorkerPhase phaseAtStart = _withdrawalWorkerPhase;
+            if (phaseAtStart == WithdrawalWorkerPhase.OpenTrade &&
+                (_withdrawalPhaseAge.Elapsed.TotalSeconds >= 240 || DateTime.UtcNow - state.CreatedUtc >= TimeSpan.FromSeconds(240)))
+            {
+                FailWithdrawal(state, "Central did not become available within the four-minute retrieval window.");
+                return true;
+            }
             switch (_withdrawalWorkerPhase)
             {
                 case WithdrawalWorkerPhase.Locate: WithdrawalLocate(); break;
@@ -276,7 +282,9 @@ namespace CityBankers
             // timed out. On Clientless, the item-arrival update can be delivered on the
             // same tick that reaches the deadline; checking first caused a false failure
             // followed immediately by a successful recovery retry.
-            if (phaseAtStart != WithdrawalWorkerPhase.WaitTrade &&
+            // Waiting for Central's window is queue admission, not an AO move.
+            // The overall four-minute job bound still applies on Central.
+            if (phaseAtStart != WithdrawalWorkerPhase.WaitTrade && phaseAtStart != WithdrawalWorkerPhase.OpenTrade &&
                 _withdrawalWorkerPhase == phaseAtStart &&
                 _withdrawalPhaseAge.Elapsed.TotalSeconds >= WithdrawalPhaseTimeoutSeconds)
             {
@@ -690,7 +698,6 @@ namespace CityBankers
             {
                 // Central may be serving a player. Keep the queued preparation
                 // alive; the existing overall extraction deadline still applies.
-                if (preparationResult?.StartsWith("pending:", StringComparison.Ordinal) == true) SetWithdrawalDeadline();
                 string blocker = preparationResult ?? "pending:no-response";
                 if (!string.Equals(_withdrawalPreparationBlocker, blocker, StringComparison.Ordinal))
                 {
@@ -719,6 +726,7 @@ namespace CityBankers
             ReportTransferProgress("WITHDRAWAL TRANSFER OPENING", _withdrawal.Id,
                 "attempt=" + _withdrawal.TransferAttemptId + "; " + Client.CharacterName + " -> " + _centralCharacter,
                 new[] { _withdrawal.Item });
+            SetWithdrawalDeadline();
             Trade.Open(central.Identity);
         }
 
@@ -894,9 +902,15 @@ namespace CityBankers
             ReportTransferProgress("WITHDRAWAL READY", state.Id,
                 "collector=" + state.RequestedBy + "; destination=" + Client.CharacterName + "; pickup window three minutes",
                 new[] { state.Item });
-            TellDirectPlayer(state.RequestedBy,
-                CityBankersChatPalette.ItemLabel(state.Item.AoId, state.Item.HighId, state.Item.Ql, state.Item.Name) + " is ready on Kbcentral. " +
-                "Your order pickup clock is now three minutes. Open trade to collect all ready items.");
+            var order = WithdrawalStore.LoadAll(_settingsDir).Where(row => row.OrderId == state.OrderId &&
+                WithdrawalStore.IsActive(row)).ToList();
+            int readyCount = order.Count(row => WithdrawalStore.HasStatus(row, "central-ready"));
+            int preparingCount = order.Count - readyCount;
+            TellDirectPlayer(state.RequestedBy, preparingCount > 0
+                ? "Preparing your order: " + readyCount + "/" + order.Count + " items ready on " + _centralCharacter +
+                    "; " + preparingCount + " still being retrieved."
+                : "Your order is ready on " + _centralCharacter + ": " + readyCount +
+                    " item(s). Pickup window three minutes. Open trade to collect your order.");
         }
 
         private void RetryConfirmedWithdrawalAccounting(WithdrawalState state)

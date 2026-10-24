@@ -187,12 +187,12 @@ namespace CityBankers
                     { proposal.Reply.TrySetResult("pending:credit-trade-opening"); continue; }
                     if (proposal.Kind == "withdrawal-prepare" || proposal.Kind == "prepare" || proposal.Kind == "return-prepare")
                         YieldUnpaidBagShop();
+                    if (HandleWithdrawalPreparation(proposal)) continue;
                     if (HandleReturnProposal(proposal)) continue;
                     if (_bagShop != null) { proposal.Reply.TrySetResult("busy"); continue; }
                     if (HandleCruProposal(proposal)) continue;
                     if (_stackOperation != null || _reserveOperation != null) { proposal.Reply.TrySetResult("busy"); continue; }
                     // Disabled: if (HandleDispatchCensusProposal(proposal)) continue;
-                    if (HandleWithdrawalPreparation(proposal)) continue;
                     // Disabled: if (HandleStorageRecoveryProposal(proposal)) continue;
                     // First-startup admission calls the merger directly.
                     // Disabled: if (HandleLocalCensusProposal(proposal)) continue;

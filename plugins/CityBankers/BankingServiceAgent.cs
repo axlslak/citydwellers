@@ -2047,7 +2047,9 @@ namespace CityBankers
                 return;
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
             var censusing = WithdrawalStore.GetCensusCharacters(_settingsDir);
+            bool withdrawalWaiting = BagSupplyServiceWaiting();
             DispatchBatchState next = queue.Batches.OrderBy(b => IsReserveBatch(b.Items) ? 0 : 1).FirstOrDefault(b =>
+                (!withdrawalWaiting || !IsReserveBatch(b.Items)) &&
                 IsDispatchDestinationEnabled(b) &&
                 !censusing.Contains(b.Character) &&
                 string.Equals(b.Status, "queued", StringComparison.OrdinalIgnoreCase) &&

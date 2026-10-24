@@ -33,6 +33,7 @@ namespace CityBankers
             public readonly List<string> NativePackets = new List<string>();
             public int NativePacketsDropped;
             public string NativePacketCaptureError;
+            public readonly BagShopApproach Approach = new BagShopApproach();
         }
         private BagShopWork _bagShop, _pendingBagPurchase;
         private bool _bagShopChecked;
@@ -43,6 +44,7 @@ namespace CityBankers
         {
             ReleaseBagShopOffer(_bagShop);
             ReleaseBagShopOffer(_pendingBagPurchase);
+            StopBagShopApproach(_bagShop);
             InvalidateBagFunding();
             _bagShop = null; _pendingBagPurchase = null; _bagShopChecked = false;
         }
@@ -70,7 +72,7 @@ namespace CityBankers
 
         private bool StartBagShop()
         {
-            if (_bagShop != null || _pendingBagPurchase != null || _bagFunding != null || DateTime.UtcNow < _bagShopRetryAfter || !CanStartLocalCensus() ||
+            if (_isCentral || _bagShop != null || _pendingBagPurchase != null || _bagFunding != null || DateTime.UtcNow < _bagShopRetryAfter || !CanStartLocalCensus() ||
                 Inventory.NumFreeSlots < 2) return false;
             if (!BagShopSupplyPending() || BagSupplyServiceWaiting()) return false;
             var dealer = FindBagDealer();
@@ -90,7 +92,7 @@ namespace CityBankers
 
         private bool BagShopSupplyPending()
         {
-            if (DateTime.UtcNow < _bagShopRetryAfter || !Inventory.Bank.IsOpen || ReserveBankFreeSlots < 1) return false;
+            if (_isCentral || DateTime.UtcNow < _bagShopRetryAfter || !Inventory.Bank.IsOpen || ReserveBankFreeSlots < 1) return false;
             var storage = RuntimeStateStore.LoadStorageState(_settingsDir);
             var own = storage?.Workers?.SingleOrDefault(w => SameCharacter(w.Character, Client.CharacterName));
             if (own == null) return false;
@@ -131,9 +133,12 @@ namespace CityBankers
 
         private void OpenBagShop(Dynel dealer)
         {
+            if (dealer.DistanceFrom(DynelManager.LocalPlayer) > BagShopUseDistance)
+            { BeginBagShopApproach(dealer); return; }
             _bagShop.Dealer = dealer.Identity; _bagShop.Phase = "opening"; _bagShop.Age.Restart();
             dealer.Use();
-            Logger.Information("[CityBankers] BAG SHOP opening " + dealer.Identity + ".");
+            Logger.Information("[CityBankers] BAG SHOP opening " + dealer.Identity +
+                "; distance=" + dealer.DistanceFrom(DynelManager.LocalPlayer).ToString("F2") + "m.");
         }
 
         private void ObserveBagShop(object sender, Message message)
@@ -144,6 +149,7 @@ namespace CityBankers
             {
                 var work = _bagShop ?? _pendingBagPurchase;
                 if (work == null) return;
+                ObserveBagShopMovement(work, message?.Body as CharDCMoveMessage);
                 if (work.Phase == "buying" && work.Receipt != null)
                 {
                     ObservePurchasedBag(work, message?.Body);
@@ -188,7 +194,7 @@ namespace CityBankers
             if (work != null && target != work.Shop) ReleaseBagShopOffer(work);
             if (work != null && target != work.Shop && work.Receipt == null &&
                 (work.Phase != "opening" || (target != work.Dealer && target.Type != IdentityType.VendingMachine)))
-            { _bagShop = null; return false; }
+            { StopBagShopApproach(work); _bagShop = null; return false; }
             if (work == null || work.Phase != "opening" || _publicTradePartner != Identity.None ||
                 (target != work.Dealer && target.Type != IdentityType.VendingMachine && target != Identity.None)) return false;
             // An NPC's world identity and its shop-session identity differ.
@@ -227,6 +233,8 @@ namespace CityBankers
                 StopBagShop("No completed shop response for phase " + work.Phase + ".");
                 return true;
             }
+            if (work.Phase == "approaching" || work.Phase == "stopping")
+            { TickBagShopApproach(work); return true; }
             if (work.Phase == "summoning")
             {
                 var dealer = FindBagDealer();
@@ -430,6 +438,7 @@ namespace CityBankers
 
         private void CloseBagShop(BagShopWork work)
         {
+            StopBagShopApproach(work);
             ReleaseBagShopOffer(work);
             if (work.Opened && Trade.CurrentTarget == work.Shop) Trade.Decline();
         }
