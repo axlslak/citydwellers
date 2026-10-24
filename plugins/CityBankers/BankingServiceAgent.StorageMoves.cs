@@ -53,6 +53,7 @@ namespace CityBankers
 
         private void CaptureStorageMove(Message message)
         {
+            CaptureWorkingBagReturns(message);
             var job = _storageJob;
             var move = job?.Move;
             if (move == null || job.Failure != null) return;

@@ -333,6 +333,7 @@ namespace CityBankers
 
             try
             {
+                if (ResumeStorageBagIntent()) return;
                 ResumeBankLayout();
                 if (!StartupCensusGate.IsOpen) return;
                 ResumeSurplusBagDisposal();
@@ -364,7 +365,7 @@ namespace CityBankers
                         RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Any(batch =>
                             string.Equals(batch.Status, "queued", StringComparison.OrdinalIgnoreCase) ||
                             string.Equals(batch.Status, "transferred", StringComparison.OrdinalIgnoreCase) ||
-                            batch.Status == "failed" || batch.Status == "custody-hold" || batch.Status == "retrying" || batch.Status == "trading");
+                            batch.Status == "failed" || batch.Status == "storage-recovery" || batch.Status == "custody-hold" || batch.Status == "retrying" || batch.Status == "trading");
                     bool pendingReturn = ReturnQueue().Length > 0;
                     if (pendingDispatch || pendingReturn || BankLayoutPending() || BagShopSupplyPending() || CityDwellers.Shared.ManagerMemory.Current.BagReplacementPending(
                             CityDwellers.Shared.ManagerAccounting.TransactionId) || WithdrawalStore.LoadAll(_settingsDir).Any(row =>
@@ -1135,7 +1136,8 @@ namespace CityBankers
                         return;
 
                     List<TransferItemState> offered = SnapshotTradeItems(Trade.TargetWindowCache.Items);
-                    if (!MatchesExpected(offered, _donationPreviousOffer))
+                    if (_donationAccepted && SameDonationOffer(offered, _donationSnapshot)) return;
+                    if (!SameDonationOffer(offered, _donationPreviousOffer))
                     {
                         AnnounceDonationChanges(offered);
 
@@ -1337,20 +1339,19 @@ namespace CityBankers
                 if (op.Phase == "banking" && StorageBagPolicy.AllRecordsFor(op.Identity, "bank").Count != 1) return true;
                 if (op.Phase == "extracting" && StorageBagPolicy.AllRecordsFor(op.Identity, "inventory").Count != 1) return true;
             }
-            Item returned;
-            if (_layoutBankReturn != null && !ObserveWorkingBagReturn(_layoutBankReturn, out returned)) return true;
+            if (_layoutBankReturn != null && !WorkingBagReturnSettled(_layoutBankReturn)) return true;
             if (_bankLayout?.Purpose == "layout-return" && _layoutActionAge.IsRunning &&
                 StorageBagPolicy.AllRecordsFor(_bankLayout.Identity, "inventory").Count != 1) return true;
             if (_storageJob != null)
             {
                 if (_storageJob.Phase == StoragePhase.MovingBagToInventory && FindInventoryBagByIdentity(_storageJob.BagLiveIdentity) == null) return true;
                 if (_storageJob.Move != null && (!_storageJob.Move.Acknowledged || StorageMoveSource() != null)) return true;
-                if (_storageJob.BankReturn != null && !ObserveWorkingBagReturn(_storageJob.BankReturn, out returned)) return true;
+                if (_storageJob.BankReturn != null && !WorkingBagReturnSettled(_storageJob.BankReturn)) return true;
             }
             if (_extraction != null)
             {
                 if (_extractionPhase == ExtractionPhase.BagInventory && FindInventoryBagByIdentity(_extraction.BagIdentity) == null) return true;
-                if (_extractionPhase == ExtractionPhase.BagReturn && !ObserveWorkingBagReturn(_extractionBagReturn, out returned)) return true;
+                if (_extractionPhase == ExtractionPhase.BagReturn && !WorkingBagReturnSettled(_extractionBagReturn)) return true;
                 if (_extractionPhase == ExtractionPhase.ItemInventory && _extraction.BeforeInventory != null &&
                     !Inventory.Items.Any(item => item != null && item.Slot.Type == IdentityType.Inventory &&
                         item.Id == _extraction.Item.AoId && item.HighId == _extraction.Item.HighId && item.Ql == _extraction.Item.Ql &&
@@ -1366,6 +1367,7 @@ namespace CityBankers
             foreach (string id in _supplyMoveStartedUtc.Keys.ToList()) _supplyMoveStartedUtc[id] += paused;
             if (_bankLayout != null) _bankLayout.StartedUtc += paused;
             if (_storageJob != null) _storageJob.DeadlineUtc += paused;
+            foreach (var proof in _workingBagReturns) proof.Age.Restart();
             if (_layoutActionAge.IsRunning) _layoutActionAge.Restart();
             if (_layoutBatchReadAge.IsRunning) _layoutBatchReadAge.Restart();
             if (_bagShop != null) _bagShop.Age.Restart();
@@ -1428,7 +1430,8 @@ namespace CityBankers
             }
 
             List<TransferItemState> offered = SnapshotTradeItems(Trade.TargetWindowCache.Items);
-            if (!MatchesExpected(offered, _donationPreviousOffer))
+            if (_donationAccepted && SameDonationOffer(offered, _donationSnapshot)) return;
+            if (!SameDonationOffer(offered, _donationPreviousOffer))
             {
                 AnnounceDonationChanges(offered);
                 _donationPreviousOffer = new List<TransferItemState>(offered);
@@ -1474,6 +1477,21 @@ namespace CityBankers
                 "Donation stable: accepting " + offered.Count +
                 " item(s). Complete/confirm the AO trade normally.");
             Trade.Accept();
+        }
+
+        private static bool SameDonationOffer(List<TransferItemState> left, List<TransferItemState> right)
+        {
+            if (left == null || right == null || left.Count != right.Count) return false;
+            var remaining = new List<TransferItemState>(right);
+            foreach (var item in left)
+            {
+                int index = remaining.FindIndex(other => item.UniqueIdentity == other.UniqueIdentity &&
+                    item.AoId == other.AoId && item.HighId == other.HighId && item.Ql == other.Ql &&
+                    item.Quantity == other.Quantity && item.Name == other.Name);
+                if (index < 0) return false;
+                remaining.RemoveAt(index);
+            }
+            return true;
         }
 
         private bool ValidateDonationItems(List<TransferItemState> offered, out string error)
@@ -2361,14 +2379,14 @@ namespace CityBankers
             }
             _transferWaits.Remove(batch.BatchId);
 
-            DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
-            DispatchBatchState stored = FindBatch(queue, batch.BatchId);
-            if (result.Success && (result.ExpectedCount != (batch.Items?.Count ?? 0) ||
-                result.StoredCount != result.ExpectedCount))
+            bool invalidAcknowledgement = result.Success && (result.ExpectedCount != (batch.Items?.Count ?? 0) ||
+                result.StoredCount != result.ExpectedCount);
+            if (invalidAcknowledgement)
             {
                 result.Success = false;
                 result.Error = "Worker storage acknowledgment count does not match this dispatch.";
             }
+            if (!ApplyStorageResultToQueue(batch, result)) return;
             if (result.Success)
             {
                 // Stage 30: Central accepts the worker's storage completion. This is
@@ -2377,9 +2395,6 @@ namespace CityBankers
                     detail: "stored=" + result.StoredCount + "/" + result.ExpectedCount);
                 TradeTrace.End(_dispatchSpan, "completed");
                 _dispatchSpan = null;
-                if (stored != null)
-                    queue.Batches.Remove(stored);
-                RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
                 if (batch.AttemptId != null) _appliedDispatchReceipts.Remove(batch.AttemptId);
                 AppendTradeLedger(
                     "dispatch_stored",
@@ -2392,13 +2407,9 @@ namespace CityBankers
             }
             else
             {
-                if (stored != null)
-                {
-                    stored.Status = "failed";
-                    stored.LastError = result.Error;
-                    stored.UpdatedUtc = DateTime.UtcNow;
-                    RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
-                }
+                if (_workerStorageRecoveryRequested.Add(batch.BatchId) && invalidAcknowledgement)
+                    CityDwellers.Shared.ManagerMemory.Current.RequestBankerRecovery(batch.Character,
+                        "Storage acknowledgement mismatch for " + batch.BatchId + ".");
                 AppendTradeLedger(
                     "dispatch_storage_failed",
                     batch.TransactionId,
@@ -2410,6 +2421,29 @@ namespace CityBankers
                     "STORAGE FAILURE " + batch.Role + ": " + result.Error +
                     " The affected worker is recovering automatically.");
             }
+        }
+
+        private bool ApplyStorageResultToQueue(DispatchBatchState batch, StorageBatchResult result)
+        {
+            return CityDwellers.Shared.ManagerAccounting.Transaction("Apply worker storage result", () =>
+            {
+                // A worker can finish native recovery concurrently. Never revive
+                // a batch it already retired by writing an older queue snapshot.
+                var queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
+                var stored = FindBatch(queue, batch.BatchId);
+                if (stored == null || stored.TransactionId != batch.TransactionId ||
+                    stored.AttemptId != batch.AttemptId || stored.Status == "storage-recovery") return false;
+                if (result.Success) queue.Batches.Remove(stored);
+                else
+                {
+                    // Receipt is complete; only the receiving worker needs repair.
+                    stored.Status = "storage-recovery";
+                    stored.LastError = result.Error;
+                    stored.UpdatedUtc = DateTime.UtcNow;
+                }
+                RuntimeStateStore.SaveDispatchQueue(_settingsDir, queue);
+                return true;
+            });
         }
 
         private void FailActiveBatch(string error, bool declineTrade = true)
@@ -2613,7 +2647,7 @@ namespace CityBankers
                     BeginReserveOperation(_storageJob.Command.Items[_storageJob.Index].UniqueIdentity, "bank");
                     return;
                 }
-                if (_storageJob.Index >= _storageJob.Command.Items.Count)
+                if (_storageJob.Index >= _storageJob.Command.Items.Count && _storageJob.PendingPlacements.Count == 0)
                 {
                     CompleteStorageJob();
                     return;
@@ -2670,17 +2704,15 @@ namespace CityBankers
             _storageJob.Bag = bag;
             _storageJob.BagLiveIdentity = null;
             _storageJob.InnerSlot = -1;
-            // Stage 18. Emitted once per ITEM, not once per bag, because that is what
-            // the current design does: it reselects and re-extracts the destination
-            // bag for every item. If a ten-item batch shows ten of these for one
-            // outer slot, that is the finding, stated by the machine rather than by us.
+            // Select once per working bag; subsequent batch items use it in place.
             TradeTrace.Mark(_storageSpan, "bag.selected",
                 detail: bag.Source + "/outer=" + bag.OuterSlotInstance +
                     "; item " + (_storageJob.Index + 1) + " of " + _storageJob.Command.Items.Count,
                 aoId: expected.AoId, ql: expected.Ql, occurrence: expected.UniqueIdentity);
             if (string.Equals(bag.Source, "bank", StringComparison.OrdinalIgnoreCase))
             {
-                Item liveBag = FindBankBagAtOuterSlot(bag.OuterSlotInstance);
+                Item liveBag = IsUsableIdentity(bag.LastUniqueIdentity)
+                    ? FindBankBagByIdentity(bag.LastUniqueIdentity) : FindBankBagAtOuterSlot(bag.OuterSlotInstance);
                 if (liveBag == null)
                 {
                     FailStorageJob(
@@ -2689,6 +2721,7 @@ namespace CityBankers
                     return;
                 }
                 _storageJob.BagLiveIdentity = liveBag.UniqueIdentity.ToString();
+                RecordStorageBagIntent(liveBag);
                 _storageJob.Phase = StoragePhase.MovingBagToInventory;
                 SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
                 // Stage 19.
@@ -2708,6 +2741,7 @@ namespace CityBankers
                 return;
             }
             _storageJob.BagLiveIdentity = inventoryBag.UniqueIdentity.ToString();
+            RecordStorageBagIntent(inventoryBag);
             _storageJob.Phase = StoragePhase.OpeningBag;
             SetStorageDeadline(ServicePolicy.BagOpenTimeoutMs);
             // Stage 21 for a bag that already lives in inventory: no extraction needed.
@@ -2812,18 +2846,7 @@ namespace CityBankers
                 ? observed.UniqueIdentity.ToString()
                 : null;
             _storageJob.BagHandle = container.Handle;
-            Item liveBag = FindInventoryBagByIdentity(_storageJob.BagLiveIdentity);
-            if (liveBag == null)
-            {
-                FailStorageJob("Stored item is confirmed, but its working bag is unavailable for immediate bank return.");
-                return;
-            }
-            _storageJob.Phase = StoragePhase.ReturningBag;
-            SetStorageDeadline(ServicePolicy.BagMoveTimeoutMs);
-            _storageJob.BankReturn = BeginWorkingBagReturn(liveBag);
-            TradeTrace.Mark(_storageSpan, "bag.return.requested", detail: "identity=" + _storageJob.BagLiveIdentity);
-            TradeTrace.Count(_storageSpan, TradeTrace.BagIntoBank);
-            TradeTrace.Count(_storageSpan, TradeTrace.AoOperations);
+            QueueStoragePlacement(container);
         }
 
         private void ProcessStorageBagReturn()
@@ -2831,177 +2854,12 @@ namespace CityBankers
             Item returned;
             if (ObserveWorkingBagReturn(_storageJob.BankReturn, out returned))
             {
-                RuntimeStorageStateTransactions.RecordBankReturn(_settingsDir, Client.CharacterName,
-                    _storageJob.BagLiveIdentity, returned.Slot.Instance);
-                _storageJob.Bag.Source = "bank";
-                _storageJob.Bag.OuterSlotType = "BankByRef";
-                _storageJob.Bag.OuterSlotInstance = returned.Slot.Instance & 65535;
-                TradeTrace.Mark(_storageSpan, "bag.return.observed", detail: "outer=" + _storageJob.Bag.OuterSlotInstance);
-                CommitStoredItem();
+                CommitStorageBag(returned);
                 return;
             }
-            if (DateTime.UtcNow >= _storageJob.DeadlineUtc)
+            if (WorkingBagReturnTimedOut(_storageJob.BankReturn))
                 FailStorageJob("Working bag has not completed its verified bank return.");
             else TradeTrace.Wait(_storageSpan, "bag-return");
-        }
-
-        private void CommitStoredItem()
-        {
-            // Stages 25-26 bracket the accounting commit so its cost is separable
-            // from AO latency. One commit per item is deliberate; whether it is
-            // expensive is a question for the measurement, not for either of us.
-            //
-            // Deliberately a pair of marks and not a wait. The commit is synchronous,
-            // not a polled condition, so a wait stage would report a blind spot equal
-            // to its whole duration and the classifier would read blocking SQL as our
-            // polling latency. commit.end's SinceMs is the duration.
-            TradeTrace.Mark(_storageSpan, "commit.begin");
-            try
-            {
-                // AO has already verified the physical placement. Publish the storage
-                // baseline/current-stock mutation and the matching active-ledger
-                // location in one Manager accounting commit. The loose-inventory
-                // detector must never observe "stock says bag / ledger says loose".
-                CityDwellers.Shared.ManagerAccounting.Transaction(
-                    "CityBankers verified storage placement", () =>
-                    {
-                        string placementError;
-                        if (!RuntimeStateStore.RecordPlacement(
-                            _settingsDir,
-                            _storageJob.Command.TransactionId,
-                            _role,
-                            Client.CharacterName,
-                            _storageJob.Bag.Source,
-                            _storageJob.Bag.OuterSlotInstance,
-                            _storageJob.BagLiveIdentity,
-                            _storageJob.BagHandle,
-                            _storageJob.Expected,
-                            _storageJob.ObservedStoredItemIdentity,
-                            _storageJob.InnerSlot,
-                            out placementError))
-                            throw new InvalidOperationException(
-                                "Storage state update failed: " + (placementError ?? "unknown error"));
-
-                        string sourceCharacter;
-                        IEnumerable<string> ledgerIds;
-                        if (_storageJob.LocalRecovery)
-                        {
-                            if (string.IsNullOrWhiteSpace(_storageJob.RecoveryLedgerId))
-                                throw new InvalidOperationException(
-                                    "Verified local-recovery storage placement has no exact ledger occurrence.");
-
-                            // Local recovery starts from one exact active-ledger
-                            // occurrence already observed loose on this worker. It
-                            // has no Central dispatch attempt or sender receipt.
-                            sourceCharacter = Client.CharacterName;
-                            ledgerIds = new[] { _storageJob.RecoveryLedgerId };
-                        }
-                        else
-                        {
-                            if (string.IsNullOrWhiteSpace(_storageJob.Command.AttemptId))
-                                throw new InvalidOperationException(
-                                    "Verified storage placement has no dispatch attempt identity.");
-
-                            ReceiptEvidence senderReceipt =
-                                CityDwellers.Shared.ManagerMemory.Current.ReadCancellationReceipt(
-                                    CityDwellers.Shared.ManagerAccounting.TransactionId,
-                                    _storageJob.Command.AttemptId,
-                                    "dispatch-send");
-                            if (senderReceipt == null ||
-                                !string.Equals(senderReceipt.AttemptId, _storageJob.Command.AttemptId, StringComparison.Ordinal) ||
-                                !string.Equals(senderReceipt.BatchId, _storageJob.Command.BatchId, StringComparison.Ordinal) ||
-                                !string.Equals(senderReceipt.TransactionId, _storageJob.Command.TransactionId, StringComparison.Ordinal) ||
-                                !string.Equals(senderReceipt.Character, _centralCharacter, StringComparison.OrdinalIgnoreCase) ||
-                                !SameManifest(senderReceipt.PreparedItems, _storageJob.Command.Items) ||
-                                senderReceipt.LedgerIds == null ||
-                                senderReceipt.LedgerIds.Count != (_storageJob.Command.Items?.Count ?? 0) ||
-                                senderReceipt.LedgerIds.Any(string.IsNullOrWhiteSpace) ||
-                                senderReceipt.LedgerIds.Distinct().Count() != senderReceipt.LedgerIds.Count)
-                                throw new InvalidOperationException(
-                                    "Verified storage placement lacks the exact sender ledger receipt for this dispatch attempt.");
-
-                            sourceCharacter = senderReceipt.Character;
-                            ledgerIds = senderReceipt.LedgerIds;
-                        }
-
-                        ActiveLedgerStore.RecordStoredPlacement(
-                            _settingsDir,
-                            _storageJob.Command.TransactionId,
-                            sourceCharacter,
-                            Client.CharacterName,
-                            _storageJob.Bag.Source,
-                            _storageJob.Bag.OuterSlotInstance,
-                            _storageJob.InnerSlot,
-                            _storageJob.Expected,
-                            ledgerIds);
-                    });
-            }
-            catch (Exception ex)
-            {
-                TradeTrace.Mark(_storageSpan, "commit.failed", detail: ex.Message);
-                FailStorageJob(
-                    "AO placement succeeded but atomic storage/ledger update failed: " + ex.Message);
-                return;
-            }
-            // Stage 26.
-            TradeTrace.Mark(_storageSpan, "commit.end");
-            TradeTrace.Count(_storageSpan, TradeTrace.AccountingCommits);
-
-            // A mismatch observation from before this legitimate custody mutation
-            // cannot confirm one after it. Force the detector to establish two new,
-            // stable observations against the post-placement ledger revision.
-            _localCensusMismatch = null;
-            _localCensusScan.Restart();
-
-            LedgerRecord record = new LedgerRecord
-            {
-                Utc = DateTime.UtcNow,
-                Event = "item_stored",
-                TransactionId = _storageJob.Command.TransactionId,
-                BatchId = _storageJob.Command.BatchId,
-                Actor = Client.CharacterName,
-                Role = _role,
-                Character = Client.CharacterName,
-                Source = "normal-inventory",
-                Destination =
-                    _storageJob.Bag.Source + ":" + _storageJob.Bag.OuterSlotInstance +
-                    "/inner:" + _storageJob.InnerSlot,
-                Message = "AO confirmed item inside storage bag and required bank-bag return was verified.",
-                Items = new List<LedgerItem>
-                {
-                    ToLedgerItem(
-                        _storageJob.Expected,
-                        _role,
-                        _storageJob.Bag.Source,
-                        _storageJob.Bag.OuterSlotInstance,
-                        _storageJob.InnerSlot)
-                }
-            };
-            RuntimeStateStore.AppendLedger(_settingsDir, record);
-            RuntimeStateStore.AppendActivity(
-                _settingsDir,
-                Client.CharacterName,
-                _role,
-                "STORED " + _storageJob.Expected.Name + " QL" + _storageJob.Expected.Ql +
-                " -> " + _storageJob.Bag.Source + ":" + _storageJob.Bag.OuterSlotInstance +
-                "/inner:" + _storageJob.InnerSlot + ".");
-            ReportTransferProgress("STORED VERIFIED", _storageJob.Command.BatchId,
-                "transaction=" + _storageJob.Command.TransactionId + "; destination=" + Client.CharacterName +
-                "; " + _storageJob.Expected.Name + " QL" + _storageJob.Expected.Ql +
-                " AOID=" + _storageJob.Expected.AoId + "; " + _storageJob.Bag.Source + ":" +
-                _storageJob.Bag.OuterSlotInstance + "/inner:" + _storageJob.InnerSlot);
-            _storageJob.StoredCount++;
-            _storageJob.Index++;
-            _storageJob.Expected = null;
-            _storageJob.Bag = null;
-            _storageJob.BagLiveIdentity = null;
-            _storageJob.ActualItemIdentity = null;
-            _storageJob.ObservedStoredItemIdentity = null;
-            _storageJob.InnerSlot = -1;
-            _storageJob.BagHandle = 0;
-            _storageJob.Move = null;
-            _storageJob.Phase = StoragePhase.FindBag;
-            SetStorageDeadline(ServicePolicy.ItemMoveTimeoutMs);
         }
 
         private void CompleteStorageJob()
@@ -4059,6 +3917,8 @@ namespace CityBankers
             public int InnerSlot;
             public int BagHandle;
             public StorageMoveEvidence Move;
+            public string BagIntent;
+            public readonly List<PendingStoragePlacement> PendingPlacements = new List<PendingStoragePlacement>();
             public string Failure;
         }
     }

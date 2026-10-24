@@ -46,11 +46,19 @@ namespace CityBankers
         }
 
         private readonly HashSet<string> _orphanedDispatchBatches = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> _workerStorageRecoveryRequested = new HashSet<string>(StringComparer.Ordinal);
         private bool TickUnresolvedBatches()
         {
             if (!_isCentral || Trade.IsTrading || _receipt != null || _activeBatch != null || _donationCleanup != null) return false;
             var ready = BankerReadiness.GetReadyCharacters(_settingsDir);
-            var failed = RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches.Where(b =>
+            var batches = RuntimeStateStore.LoadDispatchQueue(_settingsDir).Batches;
+            // Re-admit a retained receiving-worker fault once after host restart.
+            // It never owns Central's public window or requires Central to relog.
+            foreach (var batch in batches.Where(b => b.Status == "storage-recovery"))
+                if (_workerStorageRecoveryRequested.Add(batch.BatchId))
+                    ManagerMemory.Current.RequestBankerRecovery(batch.Character,
+                        "Resolve retained storage placement " + batch.BatchId + " from native custody.");
+            var failed = batches.Where(b =>
                 b.Status == "failed" || b.Status == "custody-hold" || b.Status == "retrying" || b.Status == "trading" ||
                 (b.Status == "transferred" && ready.Contains(b.Character) &&
                  ManagerMemory.Current.BankerStorageWork(b.Character) != b.BatchId &&

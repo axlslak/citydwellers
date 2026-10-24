@@ -90,7 +90,25 @@ namespace CityBankers
         private sealed class WorkingBagReturn
         {
             public string Identity;
+            public Identity Source;
+            public bool Acknowledged, RefreshRequested;
+            public long RefreshAfter;
+            public readonly Stopwatch Age = new Stopwatch();
         }
+        private readonly List<WorkingBagReturn> _workingBagReturns = new List<WorkingBagReturn>();
+
+        private void CaptureWorkingBagReturns(SmokeLounge.AOtomation.Messaging.Messages.Message message)
+        {
+            var added = message?.Body as SmokeLounge.AOtomation.Messaging.Messages.N3Messages.ContainerAddItem;
+            if (added == null || DynelManager.LocalPlayer == null || added.Identity != DynelManager.LocalPlayer.Identity ||
+                added.Target.Type != IdentityType.Bank) return;
+            foreach (var proof in _workingBagReturns.Where(p => p.Source == added.Source)) proof.Acknowledged = true;
+        }
+
+        private static bool WorkingBagReturnSettled(WorkingBagReturn proof) => proof != null && proof.Acknowledged &&
+            StorageBagPolicy.AllRecordsFor(proof.Identity, "inventory").Count == 0;
+        private static bool WorkingBagReturnTimedOut(WorkingBagReturn proof) => proof == null ||
+            proof.Age.ElapsedMilliseconds >= ServicePolicy.BagMoveTimeoutMs;
         private ReserveOperation _bankLayout;
         private WorkingBagReturn _layoutBankReturn;
         private bool _bankLayoutResumed, _emptyWorkerChecked;
@@ -125,7 +143,7 @@ namespace CityBankers
             if (!_layoutActionAge.IsRunning)
                 StartupCensusGate.Block("Retained bag layout has no unique fresh source or destination for " +
                     _bankLayout.Identity + "/" + _bankLayout.Phase + "; intent retained.");
-            else if (_layoutActionAge.ElapsedMilliseconds >= ServicePolicy.BagMoveTimeoutMs)
+            else if ((_layoutBankReturn?.Age.ElapsedMilliseconds ?? _layoutActionAge.ElapsedMilliseconds) >= ServicePolicy.BagMoveTimeoutMs)
                 StartupCensusGate.Block("Bag layout action remains unconfirmed after send; retained " +
                     _bankLayout.Identity + "/" + _bankLayout.Phase + ". Refresh this local movement only.");
         }
@@ -138,21 +156,34 @@ namespace CityBankers
             if (StorageBagPolicy.AllRecordsFor(identity, "bank").Count != 0 ||
                 StorageBagPolicy.AllRecordsFor(identity, "inventory").Count != 1 || ReserveBankFreeSlots < 1)
                 throw new InvalidOperationException("Working bag has no unambiguous free bank destination: " + identity);
-            var proof = new WorkingBagReturn { Identity = identity };
+            var proof = new WorkingBagReturn { Identity = identity, Source = bag.Slot };
+            _workingBagReturns.Add(proof);
             BagOriginTrace.MoveToBank(bag);
+            proof.Age.Restart();
             return proof;
         }
 
-        private static bool ObserveWorkingBagReturn(WorkingBagReturn proof, out Item bag)
+        private bool ObserveWorkingBagReturn(WorkingBagReturn proof, out Item bag)
         {
             bag = null;
-            if (proof == null) return false;
+            if (!WorkingBagReturnSettled(proof)) return false;
+            if (!proof.RefreshRequested)
+            {
+                proof.RefreshAfter = ClientlessSessionGuard.BankSnapshotRevision;
+                if (!CityBankers.RequestBankSnapshot()) return false;
+                proof.RefreshRequested = true;
+                proof.Age.Restart(); // Snapshot is a separate bounded network request.
+                return false;
+            }
+            int nativeSlot;
+            if (!ClientlessSessionGuard.TryNativeBankSlot(proof.Identity, proof.RefreshAfter, out nativeSlot)) return false;
             var bank = StorageBagPolicy.AllRecordsFor(proof.Identity, "bank");
             var inventory = StorageBagPolicy.AllRecordsFor(proof.Identity, "inventory");
             // The destination was absent before the move. A cached pre-existing
             // record cannot satisfy this proof, nor can a second outer record.
-            if (bank.Count != 1 || inventory.Count != 0) return false;
+            if (bank.Count != 1 || inventory.Count != 0 || bank[0].Slot.Instance != nativeSlot) return false;
             bag = bank[0];
+            _workingBagReturns.Remove(proof);
             return true;
         }
 

@@ -18,6 +18,27 @@ namespace CityBankers
 {
     public class CityBankers : ClientlessPluginEntry
     {
+        private static CityBankers _bankAccess;
+        internal static bool RequestBankSnapshot()
+        {
+            var access = _bankAccess;
+            var player = DynelManager.LocalPlayer;
+            if (access == null || player?.Transform == null || !Client.InPlay || Trade.IsTrading) return false;
+            var position = player.Transform.Position;
+            double dx = position.X - CityOfficeBankX, dy = position.Y - CityOfficeBankY, dz = position.Z - CityOfficeBankZ;
+            if ((int)Playfield.ModelId == CityOfficePlayfieldModelId &&
+                Math.Sqrt(dx * dx + dy * dy + dz * dz) <= CityOfficeBankMaxDistance)
+            {
+                Client.Send(new GenericCmdMessage { Temp1 = 0, Count = 5, Action = GenericCmdAction.Use,
+                    Temp4 = 1, User = player.Identity,
+                    Target = new Identity(IdentityType.Terminal, access._cityOfficeBankTerminalInstance), Unknown = 1 });
+                return true;
+            }
+            var portable = FindPortableBank();
+            if (portable == null) return false;
+            portable.Use();
+            return true;
+        }
         private static readonly TimeSpan BankOpenTimeout =
             TimeSpan.FromSeconds(8);
 
@@ -65,6 +86,7 @@ namespace CityBankers
                 throw new InvalidOperationException(settingsError);
 
             _settingsDir = settingsDir;
+            _bankAccess = this;
             BagOriginTrace.Install(settingsDir);
             SharedBagRecovery.Install(settingsDir);
             StackableItems.Install();
@@ -118,6 +140,7 @@ namespace CityBankers
 
         public override void Teardown()
         {
+            if (ReferenceEquals(_bankAccess, this)) _bankAccess = null;
             BagOriginTrace.Stop();
             SharedBagRecovery.Stop();
             ClientlessSessionGuard.Stop();

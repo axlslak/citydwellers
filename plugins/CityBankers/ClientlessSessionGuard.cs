@@ -26,6 +26,13 @@ namespace CityBankers
         private static bool _faultReported;
         internal static bool BankCacheTrusted { get; private set; } = true;
         internal static bool CensusRefreshPending { get; private set; }
+        internal static long BankSnapshotRevision { get; private set; }
+        private static Dictionary<string, int> _nativeBankSlots = new Dictionary<string, int>(StringComparer.Ordinal);
+        internal static bool TryNativeBankSlot(string identity, long after, out int slot)
+        {
+            slot = -1;
+            return BankSnapshotRevision > after && _nativeBankSlots.TryGetValue(identity, out slot);
+        }
 
         internal static void Install()
         {
@@ -168,6 +175,7 @@ namespace CityBankers
                 // installs the real ID again after selecting the character.
                 _setCharacterId?.Invoke(null, new object[] { 0 });
                 Inventory.Bank.IsOpen = false; // Wait for the new connection's bank snapshot.
+                _nativeBankSlots.Clear();
                 Logger.Information("[CityBankers] Reconnect pending; character is offline, awaiting fresh authentication.");
             }
             catch (Exception ex)
@@ -196,6 +204,11 @@ namespace CityBankers
                 }
                 Inventory.Bank.IsOpen = false;
                 items.Clear();
+                _nativeBankSlots = bank.BankSlots.Where(s => s.Identity.Type == IdentityType.Container)
+                    .GroupBy(s => s.Identity.ToString()).Where(g => g.Count() == 1 &&
+                        bank.BankSlots.Count(s => s.Placement == g.Single().Placement) == 1)
+                    .ToDictionary(g => g.Key, g => g.Single().Placement, StringComparer.Ordinal);
+                BankSnapshotRevision++;
                 BankCacheTrusted = true;
             }
             try

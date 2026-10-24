@@ -293,11 +293,18 @@ namespace CityDwellers.Host
         internal WritePlan Prepare(AccountingState previous, AccountingState next)
         {
             var before = _committedRows ?? Flatten(previous);
-            var after = Flatten(next);
-            var changed = Tables().SelectMany(table => after[table.Name].Values
+            // Accounting roots are copy-on-write. A receipt change must not
+            // flatten unrelated stock or years of history under the SQL lock.
+            var roots = _committedRows == null ? _roots.ToArray() : _roots.Where(root =>
+                !ReferenceEquals(root.Field.GetValue(previous), root.Field.GetValue(next))).ToArray();
+            var tables = roots.SelectMany(Descendants).ToArray();
+            var after = new Dictionary<string, Dictionary<string, Row>>(before, StringComparer.Ordinal);
+            foreach (var table in tables) after[table.Name] = new Dictionary<string, Row>(StringComparer.Ordinal);
+            foreach (var root in roots) Flatten(root, next, null, after);
+            var changed = tables.SelectMany(table => after[table.Name].Values
                 .Where(row => !before[table.Name].ContainsKey(row.Id) || !Same(before[table.Name][row.Id], row))
                 .Select(row => Tuple.Create(table, row))).ToArray();
-            var removed = Tables().Reverse().SelectMany(table => before[table.Name].Keys.Except(after[table.Name].Keys)
+            var removed = tables.Reverse().SelectMany(table => before[table.Name].Keys.Except(after[table.Name].Keys)
                 .Select(id => Tuple.Create(table, id))).ToArray();
             return new WritePlan { After = after, Changed = changed, Removed = removed };
         }
@@ -308,7 +315,8 @@ namespace CityDwellers.Host
         {
             var changed = plan.Changed;
             var removed = plan.Removed;
-            if (changed.Length == 0 && removed.Length == 0 && beforeCommit == null) return;
+            if (changed.Length == 0 && removed.Length == 0 && beforeCommit == null)
+            { _committedRows = plan.After; return; }
             // Reconnect only when a real write is needed, before starting a
             // transaction. Never replay an indeterminate commit.
             if (connection.State != System.Data.ConnectionState.Open || !connection.Ping())

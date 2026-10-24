@@ -122,6 +122,7 @@ namespace CityBankers
                 .Select(w => new { Worker = w, Missing = StorageBankBagTarget - w.Bags.Select(b => b.LastUniqueIdentity).Distinct().Count() })
                 .Where(w => w.Missing > 0).OrderByDescending(w => w.Missing).ThenBy(w => w.Worker.Character).FirstOrDefault();
             var central = storage.Workers.Single(w => string.Equals(w.Character, Client.CharacterName, StringComparison.OrdinalIgnoreCase));
+            bool changed = false;
             // Existing empty bank bags can be supplied without opening them again.
             foreach (var bag in central.Bags.Where(b => b.Items?.Count == 0))
             {
@@ -129,16 +130,16 @@ namespace CityBankers
                     queue.Batches.Any(b => b.Items.Any(i => i.UniqueIdentity == bag.LastUniqueIdentity))) continue;
                 state.Bags.RemoveAll(b => b.Identity == bag.LastUniqueIdentity);
                 state.Bags.Add(new ReserveBag { Identity = bag.LastUniqueIdentity, Transaction = "bag-layout-" + Guid.NewGuid().ToString("N") });
+                changed = true;
             }
-            SaveReserve(state);
             foreach (var supplied in state.Bags.Where(b => !b.Delivered && !b.Quarantined && b.Destination != null))
             {
                 if (queue.Batches.Any(b => b.Items.Any(i => i.UniqueIdentity == supplied.Identity))) continue;
                 if (storage.Workers.Any(w => string.Equals(w.Character, supplied.Destination, StringComparison.OrdinalIgnoreCase) &&
                     w.Bags.Any(b => b.LastUniqueIdentity == supplied.Identity && b.Source == "bank")))
-                    supplied.Delivered = true;
+                { supplied.Delivered = true; changed = true; }
             }
-            SaveReserve(state);
+            if (changed) SaveReserve(state);
             bool reserveQueued = queue.Batches.Any(b => IsReserveBatch(b.Items));
             var availableBags = state.Bags.Where(b => !b.Delivered && !b.Quarantined && b.Destination == null &&
                     !queue.Batches.Any(batch => batch.Items.Any(i => i.UniqueIdentity == b.Identity)))

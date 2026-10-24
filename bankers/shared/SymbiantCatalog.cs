@@ -402,6 +402,7 @@ namespace CityBankers.Shared
 
         public static void ObserveItemPair(string settingsDirectory, int lowId, int highId)
         {
+            if (lowId <= 0 || highId <= 0 || lowId == highId) return;
             CityDwellers.Shared.ManagerAccounting.Transaction("CityBankers.Catalog.v1", () =>
             {
                 if (lowId <= 0 || highId <= 0 || lowId == highId) return;
