@@ -91,7 +91,9 @@ namespace CityBankers
         {
             public string Identity;
             public Identity Source;
-            public bool Acknowledged, RefreshRequested;
+            public bool Acknowledged, RefreshRequested, FallbackAttempted;
+            public string RefreshRoute;
+            public readonly List<string> Packets = new List<string>();
             public long RefreshAfter;
             public readonly Stopwatch Age = new Stopwatch();
         }
@@ -100,15 +102,44 @@ namespace CityBankers
         private void CaptureWorkingBagReturns(SmokeLounge.AOtomation.Messaging.Messages.Message message)
         {
             var added = message?.Body as SmokeLounge.AOtomation.Messaging.Messages.N3Messages.ContainerAddItem;
-            if (added == null || DynelManager.LocalPlayer == null || added.Identity != DynelManager.LocalPlayer.Identity ||
+            if (added == null) return;
+            foreach (var proof in _workingBagReturns.Where(p => p.Packets.Count < 4 &&
+                (p.Source == added.Source || added.Target.Type == IdentityType.Bank)))
+                proof.Packets.Add("owner=" + added.Identity + ",source=" + added.Source +
+                    ",target=" + added.Target + ",slot=" + added.Slot);
+            if (DynelManager.LocalPlayer == null || added.Identity != DynelManager.LocalPlayer.Identity ||
                 added.Target.Type != IdentityType.Bank) return;
             foreach (var proof in _workingBagReturns.Where(p => p.Source == added.Source)) proof.Acknowledged = true;
         }
 
-        private static bool WorkingBagReturnSettled(WorkingBagReturn proof) => proof != null && proof.Acknowledged &&
+        private static bool NativeBankReturnObserved(WorkingBagReturn proof)
+        {
+            int slot;
+            if (proof == null || !proof.RefreshRequested ||
+                !ClientlessSessionGuard.TryNativeBankSlot(proof.Identity, proof.RefreshAfter, out slot)) return false;
+            var bank = StorageBagPolicy.AllRecordsFor(proof.Identity, "bank");
+            return bank.Count == 1 && bank[0].Slot.Instance == slot &&
+                StorageBagPolicy.AllRecordsFor(proof.Identity, "inventory").Count == 0;
+        }
+        private static bool WorkingBagReturnSettled(WorkingBagReturn proof) => proof != null &&
+            (proof.Acknowledged || NativeBankReturnObserved(proof)) &&
             StorageBagPolicy.AllRecordsFor(proof.Identity, "inventory").Count == 0;
         private static bool WorkingBagReturnTimedOut(WorkingBagReturn proof) => proof == null ||
             proof.Age.ElapsedMilliseconds >= ServicePolicy.BagMoveTimeoutMs;
+
+        private static string WorkingBagReturnDetail(WorkingBagReturn proof)
+        {
+            if (proof == null) return "bank-return proof missing";
+            int slot;
+            bool native = ClientlessSessionGuard.TryNativeBankSlot(proof.Identity, proof.RefreshAfter, out slot);
+            return "bag=" + proof.Identity + "; source=" + proof.Source + "; ack=" + proof.Acknowledged +
+                "; inventory=" + StorageBagPolicy.AllRecordsFor(proof.Identity, "inventory").Count +
+                "; bank=" + StorageBagPolicy.AllRecordsFor(proof.Identity, "bank").Count +
+                "; refresh=" + proof.RefreshRequested + "; route=" + proof.RefreshRoute +
+                "; fallback=" + proof.FallbackAttempted + "; revision=" + ClientlessSessionGuard.BankSnapshotRevision +
+                "; after=" + proof.RefreshAfter + "; nativeSlot=" + (native ? slot.ToString() : "unavailable") +
+                "; packets=[" + string.Join(" | ", proof.Packets) + "]";
+        }
         private ReserveOperation _bankLayout;
         private WorkingBagReturn _layoutBankReturn;
         private bool _bankLayoutResumed, _emptyWorkerChecked;
@@ -145,7 +176,8 @@ namespace CityBankers
                     _bankLayout.Identity + "/" + _bankLayout.Phase + "; intent retained.");
             else if ((_layoutBankReturn?.Age.ElapsedMilliseconds ?? _layoutActionAge.ElapsedMilliseconds) >= ServicePolicy.BagMoveTimeoutMs)
                 StartupCensusGate.Block("Bag layout action remains unconfirmed after send; retained " +
-                    _bankLayout.Identity + "/" + _bankLayout.Phase + ". Refresh this local movement only.");
+                    _bankLayout.Identity + "/" + _bankLayout.Phase + ". Refresh this local movement only. " +
+                    WorkingBagReturnDetail(_layoutBankReturn));
         }
 
         private WorkingBagReturn BeginWorkingBagReturn(Item bag)
@@ -166,17 +198,40 @@ namespace CityBankers
         private bool ObserveWorkingBagReturn(WorkingBagReturn proof, out Item bag)
         {
             bag = null;
-            if (!WorkingBagReturnSettled(proof)) return false;
+            if (proof == null) return false;
+            // The requested full bank snapshot is independent proof. Do not
+            // require an intermediate callback before even requesting it.
             if (!proof.RefreshRequested)
             {
                 proof.RefreshAfter = ClientlessSessionGuard.BankSnapshotRevision;
-                if (!CityBankers.RequestBankSnapshot()) return false;
+                string route;
+                if (!CityBankers.RequestBankSnapshot(false, out route)) return false;
+                proof.RefreshRoute = route;
+                proof.FallbackAttempted = route == "terminal";
                 proof.RefreshRequested = true;
                 proof.Age.Restart(); // Snapshot is a separate bounded network request.
+                Logger.Information("[CityBankers] BANK RETURN snapshot requested; " + WorkingBagReturnDetail(proof));
                 return false;
             }
             int nativeSlot;
-            if (!ClientlessSessionGuard.TryNativeBankSlot(proof.Identity, proof.RefreshAfter, out nativeSlot)) return false;
+            if (!ClientlessSessionGuard.TryNativeBankSlot(proof.Identity, proof.RefreshAfter, out nativeSlot))
+            {
+                if (!proof.FallbackAttempted && WorkingBagReturnTimedOut(proof) && !Trade.IsTrading)
+                {
+                    proof.FallbackAttempted = true;
+                    long after = ClientlessSessionGuard.BankSnapshotRevision;
+                    string route;
+                    if (CityBankers.RequestBankSnapshot(true, out route))
+                    {
+                        proof.RefreshAfter = after;
+                        proof.RefreshRoute = route;
+                        proof.Age.Restart();
+                        Logger.Warning("[CityBankers] BANK RETURN portable snapshot did not arrive; terminal fallback sent; " +
+                            WorkingBagReturnDetail(proof));
+                    }
+                }
+                return false;
+            }
             var bank = StorageBagPolicy.AllRecordsFor(proof.Identity, "bank");
             var inventory = StorageBagPolicy.AllRecordsFor(proof.Identity, "inventory");
             // The destination was absent before the move. A cached pre-existing

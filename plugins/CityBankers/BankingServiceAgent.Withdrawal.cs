@@ -289,7 +289,9 @@ namespace CityBankers
                 _withdrawalPhaseAge.Elapsed.TotalSeconds >= WithdrawalPhaseTimeoutSeconds)
             {
                 FailWithdrawal(state, "Timed out during worker extraction phase " +
-                    _withdrawalWorkerPhase + ". Physical state requires reconciliation.");
+                    _withdrawalWorkerPhase + ". Physical state requires reconciliation." +
+                    (_withdrawalWorkerPhase == WithdrawalWorkerPhase.WaitBagReturn
+                        ? " " + WorkingBagReturnDetail(_withdrawalBagReturn) : string.Empty));
             }
             return true;
         }

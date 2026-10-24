@@ -19,25 +19,32 @@ namespace CityBankers
     public class CityBankers : ClientlessPluginEntry
     {
         private static CityBankers _bankAccess;
-        internal static bool RequestBankSnapshot()
+        internal static bool RequestBankSnapshot(bool terminalFallback, out string route)
         {
+            route = "unavailable";
             var access = _bankAccess;
             var player = DynelManager.LocalPlayer;
-            if (access == null || player?.Transform == null || !Client.InPlay || Trade.IsTrading) return false;
+            if (access == null || player == null || !Client.InPlay || Trade.IsTrading) return false;
+            var portable = FindPortableBank();
+            if (!terminalFallback && portable != null)
+            {
+                route = "portable";
+                portable.Use();
+                return true;
+            }
+            if (player.Transform == null) return false;
             var position = player.Transform.Position;
             double dx = position.X - CityOfficeBankX, dy = position.Y - CityOfficeBankY, dz = position.Z - CityOfficeBankZ;
             if ((int)Playfield.ModelId == CityOfficePlayfieldModelId &&
                 Math.Sqrt(dx * dx + dy * dy + dz * dz) <= CityOfficeBankMaxDistance)
             {
+                route = "terminal";
                 Client.Send(new GenericCmdMessage { Temp1 = 0, Count = 5, Action = GenericCmdAction.Use,
                     Temp4 = 1, User = player.Identity,
                     Target = new Identity(IdentityType.Terminal, access._cityOfficeBankTerminalInstance), Unknown = 1 });
                 return true;
             }
-            var portable = FindPortableBank();
-            if (portable == null) return false;
-            portable.Use();
-            return true;
+            return false;
         }
         private static readonly TimeSpan BankOpenTimeout =
             TimeSpan.FromSeconds(8);

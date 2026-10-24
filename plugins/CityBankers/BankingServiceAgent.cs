@@ -2858,7 +2858,8 @@ namespace CityBankers
                 return;
             }
             if (WorkingBagReturnTimedOut(_storageJob.BankReturn))
-                FailStorageJob("Working bag has not completed its verified bank return.");
+                FailStorageJob("Working bag has not completed its verified bank return. " +
+                    WorkingBagReturnDetail(_storageJob.BankReturn));
             else TradeTrace.Wait(_storageSpan, "bag-return");
         }
 
