@@ -47,6 +47,7 @@
     <Compile Include="BufferBotInfo.cs" />
     <Compile Include="BufferCatalogues.cs" />
     <Compile Include="BuffServiceCounters.cs" />
+    <Compile Include="BuffHistory.cs" />
     <Compile Include="NearbyPlayers.cs" />
     <Compile Include="BufferCoordination.cs" />
     <Compile Include="PaidBuffers.cs" />

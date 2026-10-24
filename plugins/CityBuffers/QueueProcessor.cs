@@ -22,6 +22,9 @@ namespace MalisBuffBots
         private sealed class CastWork
         {
             internal string AttemptKey, ObservationKey, LastRetryReason;
+            internal readonly string HistoryId = Guid.NewGuid().ToString("N");
+            internal string RecipientName;
+            internal BuffHistoryEntry History;
             internal int NanoId, InviteRequester;
             internal DateTime AttemptedUtc, PreviousExpiryUtc, DeadlineUtc, TeamDeadlineUtc;
             internal DateTime CompletionUtc, FeedbackUtc;
@@ -434,6 +437,13 @@ namespace MalisBuffBots
                 var entry = pair.Key;
                 var work = pair.Value;
                 if (!_castWork.ContainsKey(entry) || work.AttemptKey == null) continue;
+                if (work.History != null && !work.Counted)
+                {
+                    // Completion already happened. Retry only its history save;
+                    // never cast again to repair a persistence failure.
+                    CompleteBuffEntry(entry, completed: true);
+                    continue;
+                }
                 if (ObservationLanded(entry, work))
                 {
                     Logger.Information("Server/Manager confirmed '" + entry.NanoEntry.Name +
@@ -456,6 +466,7 @@ namespace MalisBuffBots
             foreach (var entry in Queue.Awaiting)
             {
                 var work = Work(entry);
+                if (work.History != null && !work.Counted) continue; // Save retry is owned by ConfirmServerEvidence.
                 if (ObservationLanded(entry, work))
                 {
                     Logger.Information("Manager NCU confirmed '" + entry.NanoEntry.Name +
@@ -725,15 +736,31 @@ namespace MalisBuffBots
                 completedWork.AttemptKey != null && completedWork.NanoId > 0 &&
                 DynelManager.LocalPlayer != null && entry.Requester != DynelManager.LocalPlayer.Identity)
             {
-                completedWork.Counted = true;
                 try
                 {
                     int caster = (int)DynelManager.LocalPlayer.Profession;
                     int profession = Main.BuffsJson.Entries.Where(pair => pair.Value.Any(n => n.ContainsId(completedWork.NanoId)))
                         .Select(pair => (int?)pair.Key).FirstOrDefault() ?? caster;
-                    ManagerMemory.Current.RecordBuffGiven(Main.PaidPilot, profession, caster);
+                    NanoItem deliveredNano;
+                    string nanoName = ItemData.Find(completedWork.NanoId, out deliveredNano)
+                        ? deliveredNano.Name : entry.NanoEntry.Name;
+                    if (completedWork.History == null)
+                        completedWork.History = new BuffHistoryEntry {
+                            Id = completedWork.HistoryId, CompletedUtc = DateTime.UtcNow,
+                            RecipientId = entry.Requester.Instance, Recipient = completedWork.RecipientName,
+                            Caster = Client.CharacterName, NanoId = completedWork.NanoId,
+                            NanoName = nanoName, Paid = Main.PaidPilot,
+                            BuffProfession = profession, CasterProfession = caster };
+                    ManagerMemory.Current.RecordBuffDelivered(completedWork.History);
+                    completedWork.Counted = true;
                 }
-                catch (Exception ex) { Logger.Warning("Buff counter update unavailable: " + ex.Message); }
+                catch (Exception ex)
+                {
+                    Logger.Error("Completed buff history could not be saved: " + ex.Message);
+                    Queue.AwaitConfirmation(entry);
+                    Main.Coordination.BotCache.PublishQueueInfo();
+                    return;
+                }
             }
             if (completed || superseded) ManagerMemory.Current.ReportBufferCastFinished(unchecked((uint)entry.Requester.Instance),
                 entry.NanoEntry.Tags.ToArray());
@@ -869,6 +896,7 @@ namespace MalisBuffBots
                 }
             }
             Work(Queue.Current).AttemptedUtc = DateTime.UtcNow;
+            Work(Queue.Current).RecipientName = buffTarget.Name;
             Work(Queue.Current).CompletionUtc = default(DateTime);
             Work(Queue.Current).FeedbackUtc = default(DateTime);
             Work(Queue.Current).RechargeRecorded = false;

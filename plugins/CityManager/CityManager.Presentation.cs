@@ -182,7 +182,10 @@ namespace CityManager
                         HelpSyntaxLine(target, "buff remove <tag, name or ID>", "Forget a buff and stop learning/automatically refreshing it until you add it again. Aliases: del, rem. Does not cancel a nano already in NCU.") +
                         HelpSyntaxLine(target, "buff redo", "Refresh recognized buffs currently active in your NCU. Alias: buff rebuff; rebuff still works.") +
                         HelpSyntaxLine(target, "buff macro", "Create a macro from recognized active buffs. buffmacro still works; generated macros use buff add.") +
-                        "\nBuff service totals track completed casts, split into froob/paid, buff profession (including Generic), and caster profession. Self-buffs, failures and retries do not count. A team cast counts once. Totals reset on a full service restart; they will be added to status later.";
+                        HelpSyntaxLine(target, "buff last [page]", "Show recent completed buff deliveries, newest first.") +
+                        HelpSyntaxLine(target, "buff top", "Show the most-given buffs and most-served characters.") +
+                        HelpSyntaxLine(target, "buff <person> [page]", "Show one character's totals, most-received buffs and recent deliveries. Older/Newer links browse saved history.") +
+                        "\nDelivery history is saved across full service restarts, beginning with this version. Self-buffs, failures and retries do not count. A team cast counts once for the requesting character; characters are not grouped by main. Existing host-run service counters remain separate.";
                     return true;
 
                 case "bufflist":

@@ -100,7 +100,8 @@ namespace CityManager
                 QueuePublicWork(privateTarget, () => RemovePersonalBuffSelection(senderName, arguments, privateTarget));
                 return;
             }
-            Reply(target, Usage(target, "buff list | buff mine | buff add <tag, name or ID> | buff remove <tag, name or ID> | buff redo | buff macro"));
+            if (TryProcessBuffHistoryCommand(parts, target)) return;
+            Reply(target, Usage(target, "buff list | buff mine | buff add <tag, name or ID> | buff remove <tag, name or ID> | buff redo | buff macro | buff last [page] | buff top | buff <person> [page]"));
         }
 
         private bool RequirePersonalBuffIdentity(ReplyTarget target)

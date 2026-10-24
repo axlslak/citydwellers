@@ -65,6 +65,7 @@
     <Compile Include="Storage\ManagerDatabase.cs" />
     <Compile Include="Storage\ManagerDatabase.Seen.cs" />
     <Compile Include="Storage\ManagerDatabase.PlayerProfiles.cs" />
+    <Compile Include="Storage\ManagerDatabase.BuffHistory.cs" />
     <Compile Include="Storage\BusinessTables.cs" />
     <Compile Include="..\..\shared\ShutdownControl.cs"><Link>ShutdownControl.cs</Link></Compile>
     <Compile Include="ClientDomainLifetime.cs" />
