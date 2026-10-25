@@ -65,11 +65,12 @@ namespace CityDwellers.Host
                     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name <> 'cd_storage_version'", _connection))
                     if (Convert.ToInt32(command.ExecuteScalar()) != 0)
                         throw new InvalidOperationException("Database has tables but no current schema version. Legacy import is no longer supported. Use an empty database or restore a current-schema backup.");
-                RuntimeLog.Write("Initializing empty business database (schema 19).");
+                RuntimeLog.Write("Initializing empty business database (schema 20).");
                 _tables.Create(_connection);
                 CreateSeenTables();
                 CreatePlayerProfileTable();
                 CreateBuffHistoryTable();
+                CreateLandControlTable();
                 state = new AccountingState
                 {
                     Ledger = new ActiveLedgerState(), Stock = new CurrentStockState(),
@@ -78,7 +79,7 @@ namespace CityDwellers.Host
                 };
                 _tables.Commit(_connection, new AccountingState { Reserve = null, Alts = null }, state, transaction =>
                 {
-                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(19)", _connection, transaction)) command.ExecuteNonQuery();
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(20)", _connection, transaction)) command.ExecuteNonQuery();
                 });
             }
             else
@@ -211,7 +212,14 @@ namespace CityDwellers.Host
                     using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(19)", _connection)) command.ExecuteNonQuery();
                     version = 19;
                 }
-                if (version != 19) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 19.");
+                if (version == 19)
+                {
+                    RuntimeLog.Write("Upgrading business schema 19 to 20: retaining observed land control announcements.");
+                    CreateLandControlTable();
+                    using (var command = new MySqlCommand("INSERT INTO cd_storage_version(version) VALUES(20)", _connection)) command.ExecuteNonQuery();
+                    version = 20;
+                }
+                if (version != 20) throw new InvalidOperationException("Unsupported business schema version " + version + ". Legacy migration is no longer supported; current schema is 20.");
                 RuntimeLog.Write("Loading relational business rows into Manager RAM.");
                 state = _tables.Load(_connection);
             }
@@ -238,6 +246,7 @@ namespace CityDwellers.Host
             ManagerMemory.InitializePlayerSeen(LoadSeen(), this);
             ManagerMemory.InitializePlayerProfiles(LoadPlayerProfiles(), this);
             ManagerMemory.InitializeBuffHistory(LoadBuffHistory(), this);
+            ManagerMemory.InitializeLandControl(LoadLandControl(), this);
         }
 
         private T Configuration<T>(string name) where T : class

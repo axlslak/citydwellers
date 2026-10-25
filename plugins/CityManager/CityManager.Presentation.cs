@@ -135,6 +135,16 @@ namespace CityManager
                         "No announcement observed yet means the timer is unknown. Other bots and timer websites are not required.";
                     return true;
 
+                case "lc":
+                    title = "Land control";
+                    body = HelpHeader("Land control", "Tower activity observed from native AO service announcements and saved across restarts. Replies are tells or guest-channel messages only.") +
+                        HelpSyntaxLine(target, "lc", "Show recent tower activity, with times and a detail window.") +
+                        HelpSyntaxLine(target, "lc attacks|victories|lost|damage|destroyed", "Filter the announcement history.") +
+                        HelpSyntaxLine(target, "lc ours", "Show observed announcements involving our organization.") +
+                        HelpSyntaxLine(target, "lc org <name>", "Filter by an exact organization name.") +
+                        "Use Older/Newer to page. Missing observations remain unknown; these notices are not a census of currently owned sites.";
+                    return true;
+
                 case "changelog":
                     title = "Changelog";
                     body = HelpHeader("Changelog", "Show the latest 25 owner-written entries.") +
@@ -492,6 +502,7 @@ namespace CityManager
             body.Append(HelpMenuLine(target, "help bankers", "City Bankers", "Donations, stock, pickups, storage work and tell delivery."));
             body.Append(HelpMenuLine(target, "help cloak", "Cloak", "Cloak observation and raid timing."));
             body.Append(HelpMenuLine(target, "help wb", "World bosses", "Tarasque, Vizaresh and The Hollow Reaper timers."));
+            body.Append(HelpMenuLine(target, "help lc", "Land control", "Observed tower attacks, victories and losses."));
             body.Append(HelpMenuLine(target, "help raid", "Raids", "Start, configure, assist, or cancel a raid."));
             body.Append(HelpMenuLine(target, "help alts", "Alts", "Main/alt lookup and cache behavior."));
             body.Append(HelpMenuLine(target, "help guest", "Guest channel", "Joining, leaving, and where replies go."));
@@ -546,6 +557,7 @@ namespace CityManager
             body.Append(HelpSyntaxLine(target, "status", "Open live system status."));
             body.Append(HelpSyntaxLine(target, "cloak", "Check city cloak through Flipper."));
             body.Append(HelpSyntaxLine(target, "wb [tara|vizaresh|reaper]", "Show world boss announcements and timers."));
+            body.Append(HelpSyntaxLine(target, "lc [last|attacks|victories|lost|damage|destroyed|ours|org <name>]", "Show tower announcements by tell or guest channel."));
             body.Append(HelpSyntaxLine(target, "buff list", "Open the cached buffer buff catalogue."));
             body.Append(HelpSyntaxLine(target, "buff mine", "Edit the buffs remembered for your character."));
             body.Append(HelpSyntaxLine(target, "buff add <tag, name or ID>", "Select and request buffs; cast remains an alias."));

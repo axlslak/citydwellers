@@ -51,6 +51,7 @@ namespace CityManager
                 "bankid",
                 "cloak",
                 "wb",
+                "lc",
                 "status",
                 "buffers",
                 "bufflist",
@@ -203,6 +204,8 @@ namespace CityManager
             InitializeTellQueue();
             LoadState();
             InitializeRaidCoordinator();
+            InitializeServiceMessages();
+            SubscribeServiceMessages();
             OrgRankAuthorizer.Initialize();
             CityRaidAutomation.Initialize(
                 _status,
@@ -218,6 +221,7 @@ namespace CityManager
             _publicWorkStopped = true;
             try
             {
+                ShutdownServiceMessages();
                 ShutdownEventReporting();
                 Client.MessageReceived -= MessageReceived;
                 CityRaidAutomation.Shutdown();
@@ -256,7 +260,10 @@ namespace CityManager
                 var n3Message = (N3Message)e.Body;
                 var serverText = n3Message as ChatTextMessage;
                 if (serverText != null)
+                {
+                    ObserveNativeServiceText(serverText);
                     ObserveWorldBossText(serverText.Text, "AO.ChatText");
+                }
                 ObserveServerBuffMessage(n3Message);
 
                 if (n3Message.N3MessageType == N3MessageType.AOTransportSignal)
@@ -287,6 +294,7 @@ namespace CityManager
                 return;
 
             _charInPlay = true;
+            SubscribeServiceMessages();
             Logger.Information("CityManager is in play and observing cloak packets, tells, org chat, and guest private chat.");
 
             BeginMembershipAfterInPlay();
@@ -525,7 +533,7 @@ namespace CityManager
                   command == "restart" ||
                   command == "shutdown") && parts.Length == 1) ||
                 (command == "buff" || command == "buffs") ||
-                (command == "wb" || command == "page" || OwnerCommands.Contains(command)) ||
+                (command == "wb" || command == "lc" || command == "page" || OwnerCommands.Contains(command)) ||
                 (command == "is" && parts.Length == 2) ||
                 (command == "cast" && parts.Length >= 2) ||
                 (command == "trace" && parts.Length <= 2) ||
@@ -599,6 +607,12 @@ namespace CityManager
                 return;
 
             string command = parts[0].ToLowerInvariant();
+            var commandSource = replyTarget;
+            // LC replies, including its help and denial/load-limit messages,
+            // never enter organization chat. Guest requests stay in the guest channel.
+            if (replyTarget.IsOrg && (command == "lc" || command == "help" && parts.Length > 1 &&
+                string.Equals(parts[1], "lc", StringComparison.OrdinalIgnoreCase)))
+                replyTarget = ReplyTarget.ForTell(replyTarget.SenderId, senderName);
             replyTarget.SenderName = senderName; // Preserve one principal across org/tell/guest work.
             bool isOwner = IsOrgChatOwner(senderName);
             bool isAdmin = isOwner || IsAdministrator(senderName);
@@ -626,7 +640,7 @@ namespace CityManager
                     senderName,
                     command,
                     parts,
-                    replyTarget,
+                    commandSource,
                     isAdmin))
             {
                 DevTrace(
@@ -765,6 +779,10 @@ namespace CityManager
 
                 case "wb":
                     ProcessWorldBossCommand(parts, replyTarget);
+                    break;
+
+                case "lc":
+                    ProcessLandControlCommand(parts, replyTarget);
                     break;
 
                 case "bankid":

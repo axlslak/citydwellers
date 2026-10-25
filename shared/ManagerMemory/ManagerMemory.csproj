@@ -31,6 +31,7 @@
     <Compile Include="PolicyModels.cs" />
     <Compile Include="CloakRecords.cs" />
     <Compile Include="WorldBossRecords.cs" />
+    <Compile Include="LandControlHistory.cs" />
     <Compile Include="PlayerPresence.cs" />
     <Compile Include="PlayerProfiles.cs" />
     <Compile Include="FlipperObservation.cs" />
@@ -39,6 +40,7 @@
     <Compile Include="AoLoginAdmission.cs" />
     <Compile Include="ServiceCoordination.cs" />
     <Compile Include="ServiceEventInbox.cs" />
+    <Compile Include="NativeServiceInbox.cs" />
     <Compile Include="..\BuddyPositionSnapshot.cs" />
     <Compile Include="BagAuditModels.cs" />
     <Compile Include="BankerCoordination.cs" />
