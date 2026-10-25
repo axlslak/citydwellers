@@ -10,7 +10,7 @@ namespace CityManager
 {
     public partial class CityManager
     {
-        private void ProcessLandControlCommand(string[] parts, ReplyTarget target)
+        private void ProcessLandControlHistoryCommand(string[] parts, ReplyTarget target)
         {
             var arguments = parts.Skip(1).ToList();
             int page = 1;

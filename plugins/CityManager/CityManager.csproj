@@ -46,6 +46,8 @@
     <Compile Include="CityManager.Events.cs" />
     <Compile Include="CityManager.WorldBosses.cs" />
     <Compile Include="CityManager.LandControl.cs" />
+    <Compile Include="CityManager.LandControlCommands.cs" />
+    <Compile Include="CityManager.LandControlScouting.cs" />
     <Compile Include="CityManager.LandControlMessages.cs" />
     <Compile Include="CityManager.ServiceMessages.cs" />
     <Compile Include="SyslogSender.cs" />

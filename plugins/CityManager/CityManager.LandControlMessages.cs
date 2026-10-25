@@ -43,9 +43,9 @@ namespace CityManager
 
             string text = Regex.Replace(Regex.Replace(notice.RawText, "<[^>]*>", ""), @"\s+", " ").Trim();
             const RegexOptions options = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
-            var match = Regex.Match(text, @"^The (?<aside>Clan|Neutral|Omni) organization (?<aorg>.+) just entered a state of war! (?<actor>.+) attacked the (?<dside>Clan|Neutral|Omni) organization (?<dorg>.+)'s tower in (?<pf>.+) at location \((?<x>\d+),\s*(?<y>\d+)\)\.$", options);
+            var match = Regex.Match(text, @"^The (?<aside>Clan|Neutral|Omni) organization (?<aorg>.+) just entered a state of war! (?<actor>.+) attacked the (?<dside>Clan|Neutral|Omni) organization (?<dorg>.+)'s tower in (?<pf>.+) at location \((?<x>\d+),\s*(?<y>\d+)\)\.?$", options);
             string kind = "attack";
-            if (!match.Success) match = Regex.Match(text, @"^(?<actor>.+) just attacked the (?<dside>Clan|Neutral|Omni) organization (?<dorg>.+)'s tower in (?<pf>.+) at location \((?<x>\d+),\s*(?<y>\d+)\)\.$", options);
+            if (!match.Success) match = Regex.Match(text, @"^(?<actor>.+) just attacked the (?<dside>Clan|Neutral|Omni) organization (?<dorg>.+)'s tower in (?<pf>.+) at location \((?<x>\d+),\s*(?<y>\d+)\)\.?$", options);
             if (!match.Success)
             {
                 kind = "victory";

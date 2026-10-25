@@ -1,4 +1,4 @@
--- Schema 20 reference / inspection, not a second schema installer.
+-- Schema 21 reference / inspection, not a second schema installer.
 -- Authoritative fixed relational definitions:
 -- executables/CityDwellers/Storage/BusinessTables.cs
 -- Presence: executables/CityDwellers/Storage/ManagerDatabase.Seen.cs
@@ -29,6 +29,7 @@ SHOW CREATE TABLE cd_seen;
 SHOW CREATE TABLE cd_seen_events;
 SHOW CREATE TABLE cd_player_profiles;
 SHOW CREATE TABLE cd_land_control_events;
+SHOW CREATE TABLE cd_land_control_reports;
 -- Full table/column inventory, including related items and pending operations.
 SELECT table_name, column_name, column_type, is_nullable, column_key
 FROM information_schema.columns

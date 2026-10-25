@@ -52,6 +52,7 @@ namespace CityManager
                 "cloak",
                 "wb",
                 "lc",
+                "attacks", "battles", "battle", "victory", "hot", "scout", "remscout", "needsscout", "towerstats", "towertype", "towerqty", "sites", "plant",
                 "status",
                 "buffers",
                 "bufflist",
@@ -533,7 +534,7 @@ namespace CityManager
                   command == "restart" ||
                   command == "shutdown") && parts.Length == 1) ||
                 (command == "buff" || command == "buffs") ||
-                (command == "wb" || command == "lc" || command == "page" || OwnerCommands.Contains(command)) ||
+                (command == "wb" || LandControlCommands.Contains(command) || command == "page" || OwnerCommands.Contains(command)) ||
                 (command == "is" && parts.Length == 2) ||
                 (command == "cast" && parts.Length >= 2) ||
                 (command == "trace" && parts.Length <= 2) ||
@@ -610,8 +611,8 @@ namespace CityManager
             var commandSource = replyTarget;
             // LC replies, including its help and denial/load-limit messages,
             // never enter organization chat. Guest requests stay in the guest channel.
-            if (replyTarget.IsOrg && (command == "lc" || command == "help" && parts.Length > 1 &&
-                string.Equals(parts[1], "lc", StringComparison.OrdinalIgnoreCase)))
+            if (replyTarget.IsOrg && (LandControlCommands.Contains(command) || command == "help" && parts.Length > 1 &&
+                LandControlCommands.Contains(parts[1])))
                 replyTarget = ReplyTarget.ForTell(replyTarget.SenderId, senderName);
             replyTarget.SenderName = senderName; // Preserve one principal across org/tell/guest work.
             bool isOwner = IsOrgChatOwner(senderName);
@@ -782,7 +783,9 @@ namespace CityManager
                     break;
 
                 case "lc":
-                    ProcessLandControlCommand(parts, replyTarget);
+                case "attacks": case "battles": case "battle": case "victory": case "hot":
+                case "scout": case "remscout": case "needsscout": case "towerstats": case "towertype": case "towerqty": case "sites": case "plant":
+                    ProcessTowerCommand(parts, replyTarget, senderName, isAdmin || commandSource.IsOrg || IsTellMember(senderName));
                     break;
 
                 case "bankid":

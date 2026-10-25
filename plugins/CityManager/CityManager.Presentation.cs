@@ -136,13 +136,28 @@ namespace CityManager
                     return true;
 
                 case "lc":
+                case "attacks": case "battles": case "battle": case "victory": case "hot": case "scout": case "remscout":
+                case "needsscout": case "towerstats": case "towertype": case "towerqty": case "sites": case "plant":
                     title = "Land control";
-                    body = HelpHeader("Land control", "Tower activity observed from native AO service announcements and saved across restarts. Replies are tells or guest-channel messages only.") +
-                        HelpSyntaxLine(target, "lc", "Show recent tower activity, with times and a detail window.") +
-                        HelpSyntaxLine(target, "lc attacks|victories|lost|damage|destroyed", "Filter the announcement history.") +
-                        HelpSyntaxLine(target, "lc ours", "Show observed announcements involving our organization.") +
-                        HelpSyntaxLine(target, "lc org <name>", "Filter by an exact organization name.") +
-                        "Use Older/Newer to page. Missing observations remain unknown; these notices are not a census of currently owned sites.";
+                    body = HelpHeader("Land control", "Local tower geography, scouting and battle history. Replies only in tells or guest chat. No external tower feed.") +
+                        HelpSyntaxLine(target, "lc", "List tower playfields, with recent battles.") +
+                        HelpSyntaxLine(target, "lc <playfield> [site]", "Site names, build QLs, waypoints and last locally observed state. Playfield names, short names and IDs work.") +
+                        HelpSyntaxLine(target, "lc org [name|ID]", "Known organization sites, controller types and total observed CT QL. Defaults to our organization; ours is an alias.") +
+                        HelpSyntaxLine(target, "lc all|open|hot|closed|penalty|unplanted|disabled|new [omni|clan|neutral|all] [player level] [time]", "Filter local sites. Player level means its PvP CT QL range. Time is a future offset for open/closed, or lookback for new (default 2h).") +
+                        HelpSyntaxLine(target, "lc unknown|occupied", "Unknown state or observed occupancy. Missing information is never treated as empty.") +
+                        HelpSyntaxLine(target, "lc ql <QL|low-high>", "Static sites whose build ranges overlap the requested QLs; lc QL also works when the number is not a playfield ID.") +
+                        HelpSyntaxLine(target, "attacks [playfield] [site] [--defender_org=name] [--attacker_org=name] [--attacker=name|ID] [--victory=true|false|all] [--page=N]", "Ten battles per page, with attackers and correlated outcomes. Finished includes base-loss notices. Filters accept % or * wildcards and multiple words.") +
+                        HelpSyntaxLine(target, "attacks battle <ID>", "Battle times, recorded duration, all attackers and their locally cached profiles. Attacker pages use --page=N.") +
+                        HelpSyntaxLine(target, "attacks org <pattern> | attacks player <pattern>", "Search either organization or an attacking character. battles, battle and victory are Tyrbot-compatible attacks aliases; victory keeps the same default all-outcomes filter.") +
+                        HelpSyntaxLine(target, "hot [faction] [player level] [time]", "Alias for lc open. No tower broadcasts.") +
+                        HelpSyntaxLine(target, "scout <playfield> <site> <CT inspection text|empty>", "Org members record their own CT inspection (including Created at UTC), or an observed empty site.") +
+                        HelpSyntaxLine(target, "scout add <playfield> <site> --ql=N --org=Name --faction=Clan [--planted=UTC]", "Local structured scouting; optional --org_id, --x/--y, --conductors, --turrets, --close=HH:mm:ss and --penalty=UTC.") +
+                        HelpSyntaxLine(target, "scout rem|remove <playfield> <site>", "Remove current scouting state with a retained tombstone; originals/history are never deleted. remscout is an alias.") +
+                        HelpSyntaxLine(target, "needsscout [playfield]", "Sites lacking usable current local state. sites aliases lc all; plant lists only explicitly reported empty sites, without claiming plantability.") +
+                        HelpSyntaxLine(target, "towerstats [duration]", "Received attack/outcome/damage counts by faction, default 24h; repeats remain evidence.") +
+                        HelpSyntaxLine(target, "towertype [QL] | towerqty [level]", "Controller type and personal tower allowance references.") +
+                        HelpSyntaxLine(target, "lc last|victories|lost|damage|destroyed [page N]", "Original classified event history, separate from the battle view.") +
+                        "Use --page=N on site lists. Durations: 30m, 2h, 1d6h. All original service occurrences are retained before parsing. " + LandControlEvidenceNote;
                     return true;
 
                 case "changelog":

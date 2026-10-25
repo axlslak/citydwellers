@@ -24,6 +24,7 @@ namespace CityManager
         private readonly CancellationTokenSource _nativeServiceStop = new CancellationTokenSource();
         private Task _nativeServiceWorker;
         private string _nativeServiceConsumer;
+        private int _allTowerChannelObserved, _towerOutcomeChannelObserved;
         private string _unknownServiceDay;
         private readonly HashSet<string> _unknownServiceSamples = new HashSet<string>(StringComparer.Ordinal);
 
@@ -99,7 +100,15 @@ namespace CityManager
             {
                 switch (message?.Body)
                 {
+                    case ChannelListMessage channel when channel.Unk1 == 10:
+                        ObserveTowerChannel(channel.ChannelId);
+                        QueueServiceMessage(new NativeServiceMessage {
+                            Source = "AO.TowerChannel", RawText = channel.ChannelName, GroupType = channel.Unk1, ChannelId = channel.ChannelId,
+                            Organization = Client.OrgName, Fields = new JObject { ["Unknown2"] = channel.Unk2, ["Unknown3"] = channel.Unk3, ["Unknown4"] = channel.Unk4 }
+                        });
+                        break;
                     case GroupMsgMessage group when group.SenderId == 0:
+                        if ((int)group.MessageType == 10) ObserveTowerChannel(group.ChannelId);
                         QueueServiceMessage(new NativeServiceMessage {
                             Source = "AO.Group", RawText = group.Text, GroupType = (int)group.MessageType,
                             ChannelId = group.ChannelId, Organization = Client.OrgName,
@@ -139,6 +148,21 @@ namespace CityManager
                 // let a diagnostic capture failure suppress that dispatch.
                 Logger.Warning("AO service message could not be queued: " + error.Message);
             }
+        }
+
+        private void ObserveTowerChannel(int channel)
+        {
+            if (channel == 0) Interlocked.Exchange(ref _allTowerChannelObserved, 1);
+            if (channel == 2) Interlocked.Exchange(ref _towerOutcomeChannelObserved, 1);
+        }
+
+        private string TowerChannelNote()
+        {
+            return (Interlocked.CompareExchange(ref _allTowerChannelObserved, 0, 0) == 0 ?
+                "All Towers availability has not been observed by this collector; global attack history may be incomplete. " : "All Towers was observed by this collector. ") +
+                (Interlocked.CompareExchange(ref _towerOutcomeChannelObserved, 0, 0) == 0 ?
+                "Outcome-channel availability has not been observed. " : "Tower outcomes were observed by this collector. ") +
+                "Channel observations do not guarantee uninterrupted connection coverage.\n\n";
         }
 
         private void ObserveNativeServiceText(ChatTextMessage message)

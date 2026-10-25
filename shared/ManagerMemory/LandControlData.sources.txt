@@ -1,0 +1,18 @@
+Static AO factual data snapshot
+
+Source: Budabot/Tyrbot commit 2d7583a70ebcb96bdde7b994c481306e3741f7d4.
+LandControlSites.tsv: modules/standard/tower/tower_site.sql, 263 site records.
+Fields: playfield ID, site number, minimum QL, maximum QL, center X, center Y,
+fixed UTC closing hour in seconds (blank for dynamic), site name, enabled.
+LandControlBounds.tsv: modules/standard/tower/tower_site_bounds.sql, 1394 rectangles.
+Fields: playfield ID, site number, X1, Y1, X2, Y2. Inclusive; Y1 >= Y2.
+LandControlPlayfields.tsv: modules/standard/helpbot/playfields.sql, the 34 tower playfields.
+Fields: ID, long name, short name, dungeon flag.
+LandControlLevels.tsv: modules/standard/level/level.sql, levels 1 through 220.
+Fields: player level, minimum PvP CT QL, maximum PvP CT QL.
+
+These TSV files contain extracted factual values, not upstream executable code
+or live ownership data. The implementation independently interprets native
+events and local scouting reports. No SQL export is executed against the host.
+Static closing groups alone do not establish a site's precise closing offset.
+No external tower API or websocket is used.

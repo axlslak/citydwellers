@@ -32,6 +32,9 @@
     <Compile Include="CloakRecords.cs" />
     <Compile Include="WorldBossRecords.cs" />
     <Compile Include="LandControlHistory.cs" />
+    <Compile Include="LandControlModels.cs" />
+    <Compile Include="LandControlCatalog.cs" />
+    <Compile Include="LandControlOperations.cs" />
     <Compile Include="PlayerPresence.cs" />
     <Compile Include="PlayerProfiles.cs" />
     <Compile Include="FlipperObservation.cs" />
@@ -56,6 +59,12 @@
     <Compile Include="PaidBufferPool.cs" />
     <Compile Include="..\TellQueue.cs" />
     <Compile Include="..\ManagerChannelQueue.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="LandControlSites.tsv"><LogicalName>CityDwellers.LandControlSites.tsv</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="LandControlBounds.tsv"><LogicalName>CityDwellers.LandControlBounds.tsv</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="LandControlPlayfields.tsv"><LogicalName>CityDwellers.LandControlPlayfields.tsv</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="LandControlLevels.tsv"><LogicalName>CityDwellers.LandControlLevels.tsv</LogicalName></EmbeddedResource>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

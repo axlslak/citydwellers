@@ -11,6 +11,7 @@ namespace CityDwellers.Shared
         public string AttackerSide, AttackerOrg, Attacker, DefenderSide, DefenderOrg, Playfield, Tower;
         public int? X, Y, HealthPercent, GroupType, ChannelId, Category, Instance;
         public DateTime ObservedUtc;
+        public long Sequence;
         internal LandControlEvent Copy() => (LandControlEvent)MemberwiseClone();
     }
 
@@ -26,6 +27,7 @@ namespace CityDwellers.Shared
     public interface ILandControlPersistence
     {
         void AppendLandControlEvent(LandControlEvent entry);
+        void AppendLandControlReport(LandControlReport report);
     }
 
     public sealed partial class ManagerMemory
@@ -36,10 +38,11 @@ namespace CityDwellers.Shared
         private static readonly IComparer<LandControlEvent> LandControlOrder = Comparer<LandControlEvent>.Create((a, b) =>
         {
             int time = a.ObservedUtc.CompareTo(b.ObservedUtc);
-            return time != 0 ? time : string.CompareOrdinal(a.Id, b.Id);
+            int sequence = a.Sequence.CompareTo(b.Sequence);
+            return time != 0 ? time : sequence != 0 ? sequence : string.CompareOrdinal(a.Id, b.Id);
         });
 
-        public static void InitializeLandControl(LandControlEvent[] entries, ILandControlPersistence persistence)
+        public static void InitializeLandControl(LandControlEvent[] entries, LandControlReport[] reports, ILandControlPersistence persistence)
         {
             if (!AppDomain.CurrentDomain.IsDefaultAppDomain())
                 throw new InvalidOperationException("Only ManagerHost owns land control persistence.");
@@ -47,8 +50,9 @@ namespace CityDwellers.Shared
             {
                 if (Current._landControlPersistence != null) throw new InvalidOperationException("Land control is already initialized.");
                 Current._landControlPersistence = persistence ?? throw new ArgumentNullException(nameof(persistence));
-                foreach (var entry in entries.OrderBy(e => e.ObservedUtc).ThenBy(e => e.Id, StringComparer.Ordinal))
+                foreach (var entry in entries.OrderBy(e => e.ObservedUtc).ThenBy(e => e.Sequence).ThenBy(e => e.Id, StringComparer.Ordinal))
                     Current.RememberLandControl(entry.Copy());
+                Current._landControlReports.AddRange(reports.Select(r => r.Copy()));
             }
         }
 
@@ -64,6 +68,7 @@ namespace CityDwellers.Shared
                 if (_landControlPersistence == null) throw new InvalidOperationException("Land control is not initialized.");
                 if (_landControlIds.Contains(entry.Id)) return false;
                 var copy = entry.Copy();
+                copy.ObservedUtc = LandControlMicroseconds(copy.ObservedUtc);
                 _landControlPersistence.AppendLandControlEvent(copy);
                 RememberLandControl(copy);
                 return true;
@@ -77,6 +82,9 @@ namespace CityDwellers.Shared
             if (index > 0 && LandControlOrder.Compare(_landControlEvents[index - 1], entry) > 0)
                 index = ~_landControlEvents.BinarySearch(entry, LandControlOrder);
             _landControlEvents.Insert(index, entry);
+            if (_landControlProjection != null && entry.ObservedUtc > _landControlProjection.LastUtc)
+                _landControlProjection.Observe(entry);
+            else _landControlProjection = null;
         }
 
         public LandControlSnapshot ReadLandControl(string kind, string organization, int page)
