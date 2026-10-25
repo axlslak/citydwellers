@@ -41,17 +41,28 @@ namespace CityManager
                         if (payload == null) continue;
                         try
                         {
-                            ObserveServiceMessage(JsonConvert.DeserializeObject<ServiceEvent>(payload));
-                            ManagerMemory.Current.CompleteNativeServiceMessage(_nativeServiceConsumer, payload);
-                            if (failed) Logger.Information("AO service message storage resumed.");
-                            failed = false;
+                            ArchiveServiceMessage(payload);
                         }
                         catch (Exception error) when (!_nativeServiceStop.IsCancellationRequested)
                         {
-                            if (!failed) Logger.Warning("AO service message retained for storage retry: " + error.Message);
+                            if (!failed) Logger.Warning("AO service message retained for archive retry: " + error.Message);
                             failed = true;
                             await Task.Delay(2000, _nativeServiceStop.Token).ConfigureAwait(false);
+                            continue;
                         }
+                        if (failed) Logger.Information("AO service message archiving resumed.");
+                        failed = false;
+                        if (_nativeServiceStop.IsCancellationRequested ||
+                            !ManagerMemory.Current.IsNativeServiceConsumer(_nativeServiceConsumer)) continue;
+                        try { ObserveServiceMessage(JsonConvert.DeserializeObject<ServiceEvent>(payload)); }
+                        catch (Exception error)
+                        {
+                            // The original is already durable. A decoder failure
+                            // must not prevent later messages reaching the archive.
+                            // SQL failures still invoke the host's fatal DB policy.
+                            Logger.Warning("AO service message archived but processing failed: " + error.Message);
+                        }
+                        ManagerMemory.Current.CompleteNativeServiceMessage(_nativeServiceConsumer, payload);
                     }
                 }
                 catch (OperationCanceledException) { }
@@ -145,11 +156,28 @@ namespace CityManager
 
         private static void QueueServiceMessage(NativeServiceMessage message)
         {
-            if (string.IsNullOrWhiteSpace(message.RawText)) return;
             var report = new ServiceEvent { Id = Guid.NewGuid().ToString("N"), TimeUtc = DateTime.UtcNow,
                 Character = Client.CharacterName, Role = "manager", Event = "ao.service", Severity = "info",
                 Message = "Native AO service message", Data = JObject.FromObject(message) };
             ManagerMemory.Current.EnqueueNativeServiceMessage(JsonConvert.SerializeObject(report));
+        }
+
+        private void ArchiveServiceMessage(string payload)
+        {
+            string day = DateTime.UtcNow.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            string folder = Path.Combine(_settingsDir, "data", "service-messages");
+            Directory.CreateDirectory(folder);
+            string path = Path.Combine(folder, "all-" + day + ".jsonl");
+            // Keep the original SDK-text envelope, including known messages,
+            // repeats and empty text. No parser output, deduplication or pruning.
+            // A leading LF isolates any interrupted append; stable report IDs
+            // identify whole-record retry duplicates without discarding evidence.
+            byte[] bytes = new UTF8Encoding(false).GetBytes("\n" + payload + "\n");
+            using (var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read))
+            {
+                stream.Write(bytes, 0, bytes.Length);
+                stream.Flush(true);
+            }
         }
 
         // Runs in Manager's dedicated native-message consumer, with stable identity
