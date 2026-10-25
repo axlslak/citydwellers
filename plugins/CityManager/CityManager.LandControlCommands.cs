@@ -107,7 +107,8 @@ namespace CityManager
             if (at > 0 && int.TryParse(text.Substring(at + 1), out number) && number > 0)
             { pf = LandControlCatalog.FindPlayfield(LcUnquote(text.Substring(0, at))); if (pf.HasValue) site = number; }
             if (!pf.HasValue) throw new ArgumentException("Unknown tower playfield: " + text + ". Use lc for the playfield list.");
-            if (site.HasValue && !LandControlCatalog.ReadSites().Any(s => s.PlayfieldId == pf.Value && s.Number == site.Value)) throw new ArgumentException("That site number does not exist in this playfield.");
+            int? resolvedSite = site;
+            if (resolvedSite.HasValue && !LandControlCatalog.ReadSites().Any(s => s.PlayfieldId == pf.Value && s.Number == resolvedSite.Value)) throw new ArgumentException("That site number does not exist in this playfield.");
             return pf;
         }
 
