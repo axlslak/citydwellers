@@ -1098,6 +1098,7 @@ namespace CityManager
         private List<CloakEventRecord> LoadRecentCloakEvents(int limit, bool announcementsOnly = false)
         {
             return ManagerMemory.Current.ReadCloakEvents(ManagerAccounting.TransactionId)
+                .Where(record => !IsAllianceCloakEvent(record))
                 .Select(record => Newtonsoft.Json.Linq.JObject.FromObject(record).ToObject<CloakEventRecord>())
                 .Where(record => !announcementsOnly ||
                     (record.EventType == "cloak_on_announcement" && record.NewStatus == CloakStatus.Enabled) ||

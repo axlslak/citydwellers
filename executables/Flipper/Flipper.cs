@@ -23,6 +23,9 @@ public class FlipperLoader
 
     private static Config _config;
     private static AccountInfo _account;
+    private static AccountInfo _primaryAccount;
+    private static readonly Dictionary<string, AccountInfo> TargetAccounts =
+        new Dictionary<string, AccountInfo>(StringComparer.OrdinalIgnoreCase);
     private static string _settingsDir;
     private static string _dataDir;
     private static string _pluginPath;
@@ -135,6 +138,24 @@ public class FlipperLoader
                 $"'{configPath}' still contains the user1/pass1/char1 defaults. " +
                 "Replace them with the Flipper account before starting the service.");
             return false;
+        }
+
+        _primaryAccount = _account;
+        TargetAccounts.Clear();
+        var characters = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { _account.Character };
+        foreach (var target in _config.Targets ?? new Dictionary<string, FlipperTargetSettings>())
+        {
+            if (string.IsNullOrWhiteSpace(target.Key) || target.Key.Length > 64 ||
+                target.Value == null || string.IsNullOrWhiteSpace(target.Value.Character) ||
+                !characters.Add(target.Value.Character) || TargetAccounts.ContainsKey(target.Key))
+            {
+                StopForConfiguration("Flipper.Targets requires unique keys and distinct nonempty characters.");
+                return false;
+            }
+            TargetAccounts.Add(target.Key, new AccountInfo {
+                Username = _primaryAccount.Username, Password = _primaryAccount.Password,
+                Character = target.Value.Character
+            });
         }
 
         _timeoutMs = _config.ProbeTimeoutMs > 0
@@ -276,6 +297,22 @@ public class FlipperLoader
 
     private static WorkerResponse HandleRequest(WorkerRequest request)
     {
+        // One consumer owns selection, the AO account lease and the plugin slot.
+        // Extra targets inherit credentials; they never run a second service.
+        AccountInfo selected = _primaryAccount;
+        bool primary = string.IsNullOrWhiteSpace(request?.FlipperTarget);
+        if (!primary && !TargetAccounts.TryGetValue(request.FlipperTarget, out selected))
+            return Fail(request, "Unknown Flipper target.");
+        if (!primary && !string.Equals(request.Command, "ensure-enabled", StringComparison.OrdinalIgnoreCase))
+            return Fail(request, "Alliance flippers support automatic cloak raising only.");
+        _account = selected;
+        FlipperCacheStore.UsePrimaryCache = primary;
+        try { return HandleSelectedRequest(request); }
+        finally { _account = _primaryAccount; FlipperCacheStore.UsePrimaryCache = true; }
+    }
+
+    private static WorkerResponse HandleSelectedRequest(WorkerRequest request)
+    {
         if (_stopping)
             return Fail(request, "Flipper service is stopping; no AO client was started.");
 
@@ -367,7 +404,7 @@ public class FlipperLoader
                 "Cloak already enabled; no action needed.");
         }
 
-        ProbeRun run = RunProbe("enable");
+        ProbeRun run = RunProbe("enable", _timeoutMs, request.Id);
 
         if (!run.Success || run.Result == null)
         {
@@ -827,7 +864,8 @@ public class FlipperLoader
             string json = ManagerMemory.Current.ReadFlipperOperation()?.Result;
             run.Result = JsonConvert.DeserializeObject<FlipperResult>(json);
             run.TotalMilliseconds = totalTimer.Elapsed.TotalMilliseconds;
-            run.Success = run.Result != null;
+            run.Success = run.Result != null && string.Equals(
+                run.Result.Character, _account.Character, StringComparison.OrdinalIgnoreCase);
             run.Canceled = run.Result != null && run.Result.Canceled;
 
             if (run.Success)
@@ -1012,6 +1050,7 @@ public class FlipperLoader
     public class Config
     {
         public List<AccountInfo> Accounts;
+        public Dictionary<string, FlipperTargetSettings> Targets = new Dictionary<string, FlipperTargetSettings>();
         public int ProbeTimeoutMs = 20000;
         public int DelayBetweenPassesMs = 5000;
         public int CacheFreshSeconds = 60;

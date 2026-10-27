@@ -50,6 +50,7 @@
     <Compile Include="CityManager.LandControlScouting.cs" />
     <Compile Include="CityManager.LandControlMessages.cs" />
     <Compile Include="CityManager.ServiceMessages.cs" />
+    <Compile Include="CityManager.AllianceFlippers.cs" />
     <Compile Include="SyslogSender.cs" />
     <Compile Include="TraceCollector.cs" />
     <Compile Include="CityManager.Buffers.cs" />

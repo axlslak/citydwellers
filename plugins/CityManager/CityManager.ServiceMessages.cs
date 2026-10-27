@@ -212,6 +212,11 @@ namespace CityManager
                 throw new InvalidDataException("Native service observation is invalid.");
             var notice = report.Data.ToObject<NativeServiceMessage>();
             if (notice == null || string.IsNullOrWhiteSpace(notice.RawText)) return;
+            if (notice.Source == "Relay.Alliance")
+            {
+                if (!ObserveAllianceRelay(report, notice)) SaveUnknownServiceMessage(report, notice);
+                return;
+            }
             LandControlEvent row;
             if (TryParseLandControl(notice, out row))
             {

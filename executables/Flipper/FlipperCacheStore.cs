@@ -4,6 +4,9 @@ using CityDwellers.Shared;
 
 internal static class FlipperCacheStore
 {
+    // The existing shared cache belongs to AP. Alliance requests always observe
+    // their own controller and must never read or overwrite that cache.
+    public static bool UsePrimaryCache = true;
     private static int _freshSeconds;
     public static void Initialize(string dataDirectory, int freshSeconds)
     {
@@ -12,18 +15,20 @@ internal static class FlipperCacheStore
     }
     public static bool TryGetFresh(out FlipperCacheSnapshot snapshot)
     {
+        if (!UsePrimaryCache) { snapshot = null; return false; }
         snapshot = ManagerMemory.Current.FlipperObservation(true, _freshSeconds);
         return snapshot != null;
     }
     public static bool TryGetAny(out FlipperCacheSnapshot snapshot)
     {
+        if (!UsePrimaryCache) { snapshot = null; return false; }
         snapshot = ManagerMemory.Current.FlipperObservation(false, _freshSeconds);
         return snapshot != null;
     }
 
     public static void SaveFromResult(FlipperLoader.FlipperResult result)
     {
-        if (result == null || result.Canceled)
+        if (!UsePrimaryCache || result == null || result.Canceled)
             return;
 
         string state = GetDictionaryValue(result.CloakInfo, "CloakState");

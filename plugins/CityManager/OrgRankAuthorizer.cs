@@ -285,6 +285,8 @@ namespace CityManager
 
     internal static class CityRaidAutomation
     {
+        // All cities share one physical account and one Flipper operation slot.
+        internal static readonly object FlipperRequestSync = new object();
         private const string OrgChannelName = "Athen Paladins";
         private const string FlipperComponentName = "Flipper";
         private const int RetryAfterFailureSeconds = 30;
@@ -959,6 +961,11 @@ namespace CityManager
         }
 
         private static WorkerResponse SendFlipperRequest(WorkerRequest request)
+        {
+            lock (FlipperRequestSync) return SendFlipperRequestCore(request);
+        }
+
+        private static WorkerResponse SendFlipperRequestCore(WorkerRequest request)
         {
             if (request == null)
                 throw new ArgumentNullException(nameof(request));

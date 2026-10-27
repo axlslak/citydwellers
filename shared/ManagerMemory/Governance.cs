@@ -11,6 +11,8 @@ namespace CityDwellers.Shared
     {
         public string Id;
         public string Command;
+        // Missing means the original AP flipper. Extra targets are cloak-only.
+        public string FlipperTarget;
         public DateTime? NotBeforeUtc;
         public int? TimeoutSeconds;
         public int? Level;
@@ -21,6 +23,14 @@ namespace CityDwellers.Shared
         public bool Home;
         public bool LogoutAfterHome;
         public string HomeJobId;
+    }
+
+    public sealed class FlipperTargetSettings
+    {
+        public string Character;
+        public string Organization;
+        public string RelayBot = "Bobsan";
+        public List<string> RelayLabels = new List<string>();
     }
 
     [Serializable]

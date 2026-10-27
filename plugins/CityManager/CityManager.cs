@@ -204,6 +204,7 @@ namespace CityManager
             PublishBufferAuthoritySnapshot(true);
             InitializeTellQueue();
             LoadState();
+            InitializeAllianceFlippers();
             InitializeRaidCoordinator();
             InitializeServiceMessages();
             SubscribeServiceMessages();
@@ -320,6 +321,7 @@ namespace CityManager
                 if (msg == null || string.IsNullOrWhiteSpace(msg.Message))
                     return;
 
+                QueueAllianceRelay(msg.SenderId, msg.SenderName, msg.Message, "tell", null);
                 if (TryHandleAltsBotTell(msg))
                     return;
 
@@ -370,6 +372,7 @@ namespace CityManager
                     return;
 
                 RememberOrganizationChannel(msg.ChannelId, msg.ChannelName);
+                QueueAllianceRelay(msg.SenderId, msg.SenderName, msg.Message, "org", msg.ChannelName, msg.ChannelId);
                 // Our own reply coming back is the only proof it was delivered.
                 ObserveOrgEcho(msg);
                 ObserveAltPresenceAnnouncement(msg.SenderName, msg.Message);
@@ -438,6 +441,7 @@ namespace CityManager
                 if (msg.SenderId == Client.Chat.CharId)
                     return;
 
+                QueueAllianceRelay(msg.SenderId, msg.SenderName, msg.Message, "guest", null, msg.ChannelId);
                 // Any incoming guest-channel traffic proves the diagnostic channel
                 // is live. Confirm it without treating ordinary chatter as commands.
                 ConfirmDevChannel();
@@ -1814,6 +1818,14 @@ namespace CityManager
 
         private WorkerResponse SendWorkerRequest(string target, WorkerRequest request, int minimumTimeoutMs)
         {
+            if (string.Equals(target, FlipperComponentName, StringComparison.Ordinal))
+                lock (CityRaidAutomation.FlipperRequestSync)
+                    return SendWorkerRequestCore(target, request, minimumTimeoutMs);
+            return SendWorkerRequestCore(target, request, minimumTimeoutMs);
+        }
+
+        private WorkerResponse SendWorkerRequestCore(string target, WorkerRequest request, int minimumTimeoutMs)
+        {
             if (!string.Equals(target, FlipperComponentName, StringComparison.Ordinal) &&
                 !string.Equals(target, BuddiesComponentName, StringComparison.Ordinal))
                 throw new InvalidOperationException("No Governor target exists for the requested worker.");
@@ -2655,6 +2667,7 @@ namespace CityManager
             TickPresence();
             PublishBufferAuthoritySnapshot();
             TickRaidCoordinator();
+            TickAllianceFlippers();
 
             if (_status != CloakStatus.Disabled || !_canRaiseAtUtc.HasValue || _raiseDueLogged)
                 return;
@@ -2787,6 +2800,7 @@ namespace CityManager
 
         private CloakEventRecord LoadLatestCloakEvent() =>
             ManagerMemory.Current.ReadCloakEvents(ManagerAccounting.TransactionId)
+                .Where(record => !IsAllianceCloakEvent(record))
                 .OrderByDescending(record => record.OccurredUtc)
                 .Select(record => JObject.FromObject(record).ToObject<CloakEventRecord>()).FirstOrDefault();
 
