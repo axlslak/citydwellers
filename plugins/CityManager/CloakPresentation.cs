@@ -17,7 +17,8 @@ namespace CityManager
             int? shieldTimerInSeconds,
             float? controllerCharge,
             bool cached,
-            DateTime? observedUtc)
+            DateTime? observedUtc,
+            string city = "AP")
         {
             string stateText = string.IsNullOrWhiteSpace(cloakState)
                 ? "UNKNOWN"
@@ -54,14 +55,14 @@ namespace CityManager
                 : "UNKNOWN";
 
             string reply =
-                $"<font color={Cyan}>City Cloak</font>: " +
+                $"<font color={Cyan}>{city} City Cloak</font>: " +
                 $"<font color={stateColor}>{stateText}</font> " +
                 $"<font color={Separator}>|</font> Shield: " +
                 $"<font color={shieldColor}>{shieldText}</font> " +
                 $"<font color={Separator}>|</font> Charge: " +
                 $"<font color={Amber}>{chargeText}</font>";
 
-            if (cached && observedUtc.HasValue)
+            if (observedUtc.HasValue)
             {
                 TimeSpan age;
                 bool validAge = UtcTimestamp.TryGetAge(
@@ -69,10 +70,12 @@ namespace CityManager
                     DateTime.UtcNow,
                     out age);
                 string ageText = !validAge
-                    ? "cached timestamp is invalid"
+                    ? "observation timestamp is invalid"
                     : age.TotalSeconds < 5
-                        ? "last verified just now"
-                        : $"last verified {FormatAge(age)} ago";
+                        ? "observed just now"
+                        : $"observed {FormatAge(age)} ago";
+
+                if (cached) ageText += " (cached)";
 
                 reply +=
                     $" <font color={Separator}>|</font> " +
@@ -98,11 +101,11 @@ namespace CityManager
                 $"<font color={Gray}>Please try #cloak again.</font>";
         }
 
-        public static string Unavailable()
+        public static string Unavailable(string city = "AP", string detail = null)
         {
             return
-                $"<font color={Red}>City Cloak:</font> " +
-                $"<font color={Gray}>unable to verify city state right now.</font>";
+                $"<font color={Red}>{city} City Cloak:</font> " +
+                $"<font color={Gray}>{detail ?? "unable to verify city state right now."}</font>";
         }
 
         private static string FormatDuration(TimeSpan value)

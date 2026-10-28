@@ -23,6 +23,16 @@ internal static class FlipperCacheStore
     {
         if (!UsePrimaryCache) { snapshot = null; return false; }
         snapshot = ManagerMemory.Current.FlipperObservation(false, _freshSeconds);
+        // Unlike the fresh-cache read, this fallback still carries the timer
+        // from its original observation. Return its remaining time, not that
+        // old countdown as if it had just been read from the controller.
+        if (snapshot != null && snapshot.ShieldTimerInSeconds > 0)
+        {
+            TimeSpan age;
+            snapshot.ShieldTimerInSeconds = UtcTimestamp.TryGetAge(snapshot.ObservedUtc, DateTime.UtcNow, out age)
+                ? (int)Math.Max(0, snapshot.ShieldTimerInSeconds.Value - Math.Floor(age.TotalSeconds))
+                : (int?)null;
+        }
         return snapshot != null;
     }
 

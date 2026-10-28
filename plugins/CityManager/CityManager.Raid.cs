@@ -2671,7 +2671,7 @@ namespace CityManager
                      _raidSession.Stage == RaidStage.LoweringCloak))
                 {
                     reply =
-                        "City Cloak: raid start is using Flipper. " +
+                        "AP City Cloak: raid start is using Flipper. " +
                         $"CT charge = {FormatCharge(_raidSession.LastControllerCharge)}.";
                 }
             }

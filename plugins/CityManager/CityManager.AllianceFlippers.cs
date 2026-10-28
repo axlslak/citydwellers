@@ -151,6 +151,27 @@ namespace CityManager
                     _raidSession.Stage == RaidStage.LoweringCloak);
         }
 
+        private bool ApplyAllianceQueryObservation(AllianceCloak target, WorkerResponse response,
+            long revision, DateTime requestedUtc)
+        {
+            if (response.Cached || !string.Equals(response.Character, target.Settings.Character, StringComparison.OrdinalIgnoreCase) ||
+                !response.ObservedUtc.HasValue || UtcTimestamp.Normalize(response.ObservedUtc.Value) < requestedUtc)
+                return false;
+            lock (_allianceSync)
+            {
+                if (target.Revision != revision) return false;
+                DateTime observed = UtcTimestamp.Normalize(response.ObservedUtc.Value);
+                bool enabled = string.Equals(response.CloakState, "Enabled", StringComparison.OrdinalIgnoreCase);
+                int retry = response.ShieldTimerInSeconds.GetValueOrDefault() > 0
+                    ? Math.Max(5, Math.Min(3600, response.ShieldTimerInSeconds.Value) + 2) : 30;
+                DateTime? due = enabled ? (DateTime?)null : observed.AddSeconds(retry);
+                RecordAllianceCloak(target, enabled ? CloakStatus.Enabled : CloakStatus.Disabled,
+                    observed, due, response.ShieldTimerInSeconds, "flipper_observation", response.Character, response.Message);
+                target.NextAttemptUtc = due ?? DateTime.MaxValue;
+                return true;
+            }
+        }
+
         private void TickAllianceFlippers()
         {
             if (_publicWorkStopped || _allianceCloaks.Count == 0 || PrimaryFlipperReserved()) return;
@@ -179,6 +200,8 @@ namespace CityManager
                 lock (CityRaidAutomation.FlipperRequestSync)
                 {
                     if (_publicWorkStopped || PrimaryFlipperReserved()) return;
+                    lock (_allianceSync)
+                        if (target.Revision != revision) return;
                     response = SendWorkerRequest(FlipperComponentName, request, WorkerRequestMinimumTimeoutMs);
                 }
                 if (_publicWorkStopped) return;

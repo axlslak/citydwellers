@@ -261,9 +261,9 @@ namespace CityManager
                     title = "Cloak";
                     body = CommandHelp(
                         target,
-                        "cloak",
-                        "Ask Flipper for the latest city-cloak observation, shield timer, and controller charge.",
-                        "Use it before planning a raid. A cached answer is identified as cached; status also shows the recent cloak-event history.",
+                        "cloak [ap|goa]",
+                        "Show both city cloaks, or select AP or GOA. Each result has its own state, shield timer, controller charge, observation age and history.",
+                        "Examples: #cloak, #cloak ap, #cloak goa. A query only observes the controller. AP raid reservations are respected; an unavailable city does not hide the other result.",
                         "Organization or guest; administrators may also use tells",
                         null);
                     return true;
@@ -570,7 +570,7 @@ namespace CityManager
             body.Append(HelpHeader("Member commands", "The day-to-day City Dwellers command list."));
             body.Append(HelpSyntaxLine(target, "help [topic]", "Open help."));
             body.Append(HelpSyntaxLine(target, "status", "Open live system status."));
-            body.Append(HelpSyntaxLine(target, "cloak", "Check city cloak through Flipper."));
+            body.Append(HelpSyntaxLine(target, "cloak [ap|goa]", "Check both city cloaks, or select AP or GOA."));
             body.Append(HelpSyntaxLine(target, "wb [tara|vizaresh|reaper]", "Show world boss announcements and timers."));
             body.Append(HelpSyntaxLine(target, "lc [last|attacks|victories|lost|damage|destroyed|ours|org <name>]", "Show tower announcements by tell or guest channel."));
             body.Append(HelpSyntaxLine(target, "buff list", "Open the cached buffer buff catalogue."));
@@ -845,7 +845,8 @@ namespace CityManager
             // authorization. Browsing/detail links continue privately.
             if (target.IsOrg && (command == "raid" || command.StartsWith("raid ", StringComparison.OrdinalIgnoreCase) ||
                 command.StartsWith("raidassist ", StringComparison.OrdinalIgnoreCase) ||
-                command.StartsWith("cancel", StringComparison.OrdinalIgnoreCase) || command == "cloak"))
+                command.StartsWith("cancel", StringComparison.OrdinalIgnoreCase) || command == "cloak" ||
+                command.StartsWith("cloak ", StringComparison.OrdinalIgnoreCase)))
                 route = "/o #" + command;
             else if (target.IsGuest)
                 route = "/g Apcmanager #" + command;
@@ -1033,10 +1034,10 @@ namespace CityManager
                 EscapeBlobText(BuildIdentity.ShortRevision(revision)) + "</font>";
         }
 
-        private void ReplyWithCloakHistory(ReplyTarget target, string summary)
+        private void ReplyWithCloakHistory(ReplyTarget target, string summary, string city = "AP")
         {
             var body = new StringBuilder();
-            List<CloakEventRecord> events = LoadRecentCloakEvents(25, true);
+            List<CloakEventRecord> events = LoadRecentCloakEvents(25, true, city);
             foreach (CloakEventRecord record in events)
             {
                 string actor = string.IsNullOrWhiteSpace(record.Actor) ? "Unknown" : record.Actor;
@@ -1046,14 +1047,17 @@ namespace CityManager
                         "dd-MMM-yyyy HH:mm 'UTC'", CultureInfo.InvariantCulture))
                     .Append("</font> - <font color='").Append(ColorTitle).Append("'>")
                     .Append(EscapeBlobText(actor))
-                    .Append("</font> <font color='").Append(enabled ? ColorGood : ColorBad)
+                    .Append("</font> ")
+                    .Append(city != "AP" && record.EventType == "flipper_observation" ? "observed " : "")
+                    .Append("<font color='").Append(enabled ? ColorGood : ColorBad)
                     .Append("'>").Append(enabled ? "enabled" : "disabled")
                     .Append("</font> cloak\n");
             }
             if (events.Count == 0)
                 body.Append("No cloak changes have been observed yet.");
 
-            Reply(target, BuildBlobLinks(target, "Cloak History", "Cloak History", body.ToString())
+            string title = city + " Cloak History";
+            Reply(target, BuildBlobLinks(target, title, title, body.ToString())
                 .Select(link => summary + " " + link));
         }
 
@@ -1095,12 +1099,13 @@ namespace CityManager
             return body.ToString();
         }
 
-        private List<CloakEventRecord> LoadRecentCloakEvents(int limit, bool announcementsOnly = false)
+        private List<CloakEventRecord> LoadRecentCloakEvents(int limit, bool announcementsOnly = false, string city = "AP")
         {
             return ManagerMemory.Current.ReadCloakEvents(ManagerAccounting.TransactionId)
-                .Where(record => !IsAllianceCloakEvent(record))
+                .Where(record => city == "AP" ? !IsAllianceCloakEvent(record) :
+                    string.Equals(record.Source, AllianceCloakSource + city, StringComparison.OrdinalIgnoreCase))
                 .Select(record => Newtonsoft.Json.Linq.JObject.FromObject(record).ToObject<CloakEventRecord>())
-                .Where(record => !announcementsOnly ||
+                .Where(record => !announcementsOnly || city != "AP" ||
                     (record.EventType == "cloak_on_announcement" && record.NewStatus == CloakStatus.Enabled) ||
                     (record.EventType == "cloak_off_announcement" && record.NewStatus == CloakStatus.Disabled))
                 .OrderByDescending(record => record.OccurredUtc).Take(Math.Max(0, limit)).ToList();

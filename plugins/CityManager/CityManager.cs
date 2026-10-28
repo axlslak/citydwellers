@@ -523,7 +523,6 @@ namespace CityManager
                 ((command == "cru" ||
                   command == "changelog" ||
                   command == "online" ||
-                  command == "cloak" ||
                   command == "status" ||
                   command == "buffers" ||
                   command == "bufflist" ||
@@ -537,6 +536,7 @@ namespace CityManager
                   command == "dump" ||
                   command == "restart" ||
                   command == "shutdown") && parts.Length == 1) ||
+                (command == "cloak" && parts.Length <= 2) ||
                 (command == "buff" || command == "buffs") ||
                 (command == "wb" || LandControlCommands.Contains(command) || command == "page" || OwnerCommands.Contains(command)) ||
                 (command == "is" && parts.Length == 2) ||
@@ -779,7 +779,7 @@ namespace CityManager
                     break;
 
                 case "cloak":
-                    BeginFlipperProbe(replyTarget);
+                    BeginFlipperProbe(parts, replyTarget);
                     break;
 
                 case "wb":
@@ -1132,99 +1132,92 @@ namespace CityManager
             return $"Usage: {(target.RequiresPrefix ? CommandPrefix : string.Empty)}{syntax}";
         }
 
-        private void BeginFlipperProbe(ReplyTarget target)
+        private void BeginFlipperProbe(string[] parts, ReplyTarget target)
         {
-            if (TryReplyRaidFlipperReservation(target))
+            if (parts.Length > 2 || parts.Length == 2 &&
+                !string.Equals(parts[1], "ap", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(parts[1], "goa", StringComparison.OrdinalIgnoreCase))
+            {
+                Reply(target, Usage(target, "cloak [ap|goa]"));
                 return;
+            }
 
+            string[] cities = parts.Length == 1
+                ? new[] { "AP", "GOA" } : new[] { parts[1].ToUpperInvariant() };
             QueuePublicWork(target, () =>
             {
-                try
+                foreach (string city in cities)
                 {
-                    // A cloak query can be queued just before raid-start CT
-                    // handling begins. Recheck here so that it cannot take the
-                    // one Flipper login away from the raid-start operation.
-                    if (TryReplyRaidFlipperReservation(target))
-                        return;
-
-                    var request = new WorkerRequest
+                    if (_publicWorkStopped) return;
+                    try { ObserveCloakCity(city, target); }
+                    catch (Exception error)
                     {
-                        Id = Guid.NewGuid().ToString("N"),
-                        Command = "observe"
-                    };
-
-                    string shortId = ShortId(request.Id);
-                    Logger.Information($"MEM -> Flipper {request.Id}: observe");
-                    DevTrace($"FLIPPER -> observe [{shortId}]");
-
-                    WorkerResponse response = SendWorkerRequest(
-                        FlipperComponentName,
-                        request,
-                        WorkerRequestMinimumTimeoutMs);
-
-                    if (!response.Ok)
-                    {
-                        Logger.Warning($"MEM <- Flipper {request.Id}: FAIL {response.Message}");
-                        DevTrace($"FLIPPER FAIL [{shortId}]: {response.Message}");
-
-                        ReplyWithCloakHistory(target, CloakPresentation.Unavailable());
-
-                        return;
+                        Logger.Warning($"Flipper {city} query failed: {error.Message}");
+                        ReplyWithCloakHistory(target, CloakPresentation.Unavailable(city), city);
                     }
-
-                    if (response.ObservedUtc.HasValue &&
-                        UtcTimestamp.IsFuture(
-                            response.ObservedUtc.Value,
-                            DateTime.UtcNow))
-                    {
-                        string invalidTime =
-                            UtcTimestamp.Normalize(response.ObservedUtc.Value).ToString("O");
-                        Logger.Warning(
-                            $"MEM <- Flipper {request.Id}: rejected future " +
-                            $"observation {invalidTime}.");
-                        DevTrace(
-                            $"FLIPPER FAIL [{shortId}]: rejected future-dated " +
-                            $"cache observation {invalidTime}.");
-                        ReplyWithCloakHistory(target, CloakPresentation.Unavailable());
-                        return;
-                    }
-
-                    ApplyFlipperObservation(response);
-
-                    string reply = CloakPresentation.Build(
-                        response.CloakState,
-                        response.ShieldTimerInSeconds,
-                        response.ControllerCharge,
-                        response.Cached,
-                        response.ObservedUtc);
-
-                    string chargeText = response.ControllerCharge.HasValue
-                        ? $"{response.ControllerCharge.Value * 100:F1}%"
-                        : "unknown";
-                    string rawTimerText = response.ShieldTimerInSeconds.HasValue
-                        ? $"{response.ShieldTimerInSeconds.Value}s"
-                        : "unknown";
-                    string sourceText = response.Cached
-                        ? $"cache observed={response.ObservedUtc:O}"
-                        : "fresh";
-
-                    string diagnosticReply =
-                        $"Cloak = {response.CloakState ?? "Unknown"}. " +
-                        $"Raw shield timer = {rawTimerText}. Charge = {chargeText}. Source = {sourceText}.";
-
-                    Logger.Information($"MEM <- Flipper {request.Id}: {diagnosticReply}");
-                    DevTrace($"FLIPPER OK [{shortId}]: {diagnosticReply}");
-
-                    ReplyWithCloakHistory(target, reply);
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warning($"Flipper Governor request failed: {ex.Message}");
-                    DevTrace($"FLIPPER ERROR: {ex.Message}");
-
-                    ReplyWithCloakHistory(target, CloakPresentation.Unavailable());
                 }
             });
+        }
+
+        private void ObserveCloakCity(string city, ReplyTarget target)
+        {
+            AllianceCloak alliance = null;
+            if (city == "GOA" && !_allianceCloaks.TryGetValue(city, out alliance))
+            {
+                ReplyWithCloakHistory(target, CloakPresentation.Unavailable(city, "not configured."), city);
+                return;
+            }
+
+            var request = new WorkerRequest { Id = Guid.NewGuid().ToString("N"),
+                Command = "observe", FlipperTarget = alliance?.Key, TimeoutSeconds = 145 };
+            long revision = 0;
+            DateTime? primaryObservedUtc = null;
+            WorkerResponse response;
+            lock (CityRaidAutomation.FlipperRequestSync)
+            {
+                // Recheck after waiting for another city's active probe. A query
+                // cannot take the account from an AP raid-start reservation.
+                if (_publicWorkStopped) return;
+                if (city == "AP" && TryReplyRaidFlipperReservation(target)) return;
+                if (alliance != null && PrimaryFlipperReserved())
+                {
+                    ReplyWithCloakHistory(target, CloakPresentation.Unavailable(city,
+                        "AP raid start or cloak recovery is using Flipper."), city);
+                    return;
+                }
+                if (alliance != null)
+                    lock (_allianceSync) revision = alliance.Revision;
+                else
+                    lock (_stateSync) primaryObservedUtc = _lastObservedUtc;
+                request.NotBeforeUtc = DateTime.UtcNow;
+                Logger.Information($"MEM -> Flipper {request.Id}: observe {city}");
+                response = SendWorkerRequest(FlipperComponentName, request, WorkerRequestMinimumTimeoutMs);
+            }
+
+            if (!response.Ok || !response.ObservedUtc.HasValue ||
+                UtcTimestamp.IsFuture(response.ObservedUtc.Value, DateTime.UtcNow) ||
+                !(string.Equals(response.CloakState, "Enabled", StringComparison.OrdinalIgnoreCase) ||
+                  string.Equals(response.CloakState, "Disabled", StringComparison.OrdinalIgnoreCase)))
+            {
+                Logger.Warning($"MEM <- Flipper {request.Id}: {city} unavailable; {response.Message}");
+                ReplyWithCloakHistory(target, CloakPresentation.Unavailable(city), city);
+                return;
+            }
+
+            bool applied = alliance == null
+                ? ApplyFlipperObservation(response, primaryObservedUtc, true)
+                : ApplyAllianceQueryObservation(alliance, response, revision, request.NotBeforeUtc.Value);
+            if (!applied)
+            {
+                ReplyWithCloakHistory(target, CloakPresentation.Unavailable(city), city);
+                return;
+            }
+
+            string summary = CloakPresentation.Build(response.CloakState, response.ShieldTimerInSeconds,
+                response.ControllerCharge, response.Cached, response.ObservedUtc, city);
+            Logger.Information($"MEM <- Flipper {request.Id}: {city} state={response.CloakState}; " +
+                $"timer={response.ShieldTimerInSeconds}; observed={response.ObservedUtc:O}; cached={response.Cached}.");
+            ReplyWithCloakHistory(target, summary, city);
         }
 
         private string BuildCloakStatusSummary()
@@ -2486,6 +2479,14 @@ namespace CityManager
             string channelName,
             string rawMessage)
         {
+            lock (_stateSync)
+                HandleCloakAnnouncementCore(newStatus, actor, channelName, rawMessage);
+        }
+
+        private void HandleCloakAnnouncementCore(
+            CloakStatus newStatus, string actor, string channelName, string rawMessage)
+        {
+            ManagerMemory.Current.InvalidateFlipperFreshness();
             DateTime now = DateTime.UtcNow;
             CloakStatus previousStatus = _status;
 
@@ -2529,6 +2530,12 @@ namespace CityManager
 
         private void HandleCloakInfo(CloakInfo cloakInfo)
         {
+            lock (_stateSync) HandleCloakInfoCore(cloakInfo);
+        }
+
+        private void HandleCloakInfoCore(CloakInfo cloakInfo)
+        {
+            ManagerMemory.Current.InvalidateFlipperFreshness();
             DateTime now = DateTime.UtcNow;
             CloakStatus previousStatus = _status;
             bool previousKnown = previousStatus != CloakStatus.Unknown;
@@ -2578,24 +2585,26 @@ namespace CityManager
             SaveState();
         }
 
-        private void ApplyFlipperObservation(WorkerResponse response)
+        private bool ApplyFlipperObservation(WorkerResponse response,
+            DateTime? expectedObservationUtc = null, bool requireUnchanged = false)
         {
-            // CT charge belongs to Manager's shared raid state, regardless of
-            // which Manager command requested the Flipper observation.
-            ApplyRaidControllerObservation(response);
-
             CloakStatus parsedStatus;
             if (!Enum.TryParse(response.CloakState, true, out parsedStatus))
             {
                 Logger.Warning($"Flipper returned unknown cloak state '{response.CloakState}'.");
                 DevTrace($"FLIPPER WARN: unknown cloak state '{response.CloakState}'.");
-                return;
+                return false;
             }
 
             DateTime now = DateTime.UtcNow;
 
             lock (_stateSync)
             {
+                if ((requireUnchanged && _lastObservedUtc != expectedObservationUtc) ||
+                    (response.Cached && _lastObservedUtc.HasValue && response.ObservedUtc.HasValue &&
+                     UtcTimestamp.Normalize(response.ObservedUtc.Value) < _lastObservedUtc.Value))
+                    return false;
+
                 CloakStatus previousStatus = _status;
 
                 _status = parsedStatus;
@@ -2627,11 +2636,14 @@ namespace CityManager
                 SaveState();
             }
 
+            // Rejected observations must not update AP's raid controller either.
+            ApplyRaidControllerObservation(response);
             CityRaidAutomation.ObserveConfirmedState(
                 _status,
                 _lastObservedUtc,
                 _canRaiseAtUtc,
                 _observationSource);
+            return true;
         }
 
         private void ApplyCloakRecoveryObservation(

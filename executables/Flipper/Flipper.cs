@@ -303,8 +303,9 @@ public class FlipperLoader
         bool primary = string.IsNullOrWhiteSpace(request?.FlipperTarget);
         if (!primary && !TargetAccounts.TryGetValue(request.FlipperTarget, out selected))
             return Fail(request, "Unknown Flipper target.");
-        if (!primary && !string.Equals(request.Command, "ensure-enabled", StringComparison.OrdinalIgnoreCase))
-            return Fail(request, "Alliance flippers support automatic cloak raising only.");
+        if (!primary && !string.Equals(request.Command, "ensure-enabled", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(request.Command, "observe", StringComparison.OrdinalIgnoreCase))
+            return Fail(request, "Alliance flippers support observation and automatic cloak raising only.");
         _account = selected;
         FlipperCacheStore.UsePrimaryCache = primary;
         try { return HandleSelectedRequest(request); }
