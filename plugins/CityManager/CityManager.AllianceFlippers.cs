@@ -68,8 +68,8 @@ namespace CityManager
                         state.NextAttemptUtc = state.DueUtc.Value;
                 }
                 _allianceCloaks.Add(entry.Key, state);
-                Logger.Information("ALLIANCE CLOAK {Target}: {Character}; relay={Relay}; restored={Status}; due={Due}.",
-                    entry.Key, entry.Value.Character, entry.Value.RelayBot, state.Status, state.DueUtc);
+                Logger.Information($"ALLIANCE CLOAK {entry.Key}: {entry.Value.Character}; " +
+                    $"relay={entry.Value.RelayBot}; restored={state.Status}; due={state.DueUtc:O}.");
             }
         }
 
@@ -124,7 +124,7 @@ namespace CityManager
                     match.Groups["actor"].Value, notice.RawText);
                 target.NextAttemptUtc = due ?? DateTime.MaxValue;
             }
-            Logger.Information("ALLIANCE CLOAK {Target}: relay={Status}; due={Due}.", target.Key, status, target.DueUtc);
+            Logger.Information($"ALLIANCE CLOAK {target.Key}: relay={status}; due={target.DueUtc:O}.");
             return true;
         }
 
@@ -204,16 +204,15 @@ namespace CityManager
                         target.NextAttemptUtc = due ?? DateTime.MaxValue;
                     }
                     else target.NextAttemptUtc = DateTime.UtcNow.AddSeconds(90);
-                    if (enabled) Logger.Information("ALLIANCE CLOAK {Target}: confirmed Enabled by {Character}.", target.Key, response.Character);
-                    else Logger.Warning("ALLIANCE CLOAK {Target}: {Message}; next attempt={Due}.",
-                        target.Key, response.Message, target.NextAttemptUtc);
+                    if (enabled) Logger.Information($"ALLIANCE CLOAK {target.Key}: confirmed Enabled by {response.Character}.");
+                    else Logger.Warning($"ALLIANCE CLOAK {target.Key}: {response.Message}; next attempt={target.NextAttemptUtc:O}.");
                 }
             }
             catch (Exception error)
             {
                 lock (_allianceSync)
                     if (target.Revision == revision) target.NextAttemptUtc = DateTime.UtcNow.AddSeconds(30);
-                if (!_publicWorkStopped) Logger.Warning("ALLIANCE CLOAK {Target}: {Message}; will retry.", target.Key, error.Message);
+                if (!_publicWorkStopped) Logger.Warning($"ALLIANCE CLOAK {target.Key}: {error.Message}; will retry.");
             }
             finally
             {
