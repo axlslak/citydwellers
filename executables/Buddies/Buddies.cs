@@ -27,10 +27,6 @@ public class BuddiesHost
     private const int DefaultDemoLeaseSeconds = 150;
     private const int DefaultRaidSafetyLeaseSeconds = 1365;
     private const int FailedCleanupRetrySeconds = 30;
-    // ClientDomain unload is immediate locally, but AO can leave the avatar
-    // visible and attackable for roughly 30 seconds. Keep the account slot
-    // reserved beyond that blind server-side interval.
-    private const int ServerLogoutLingerSeconds = 35;
     private const int HomeNavigationTimeoutSeconds = 600;
     // One-line rollback switch. "continuous" uses the smooth controller;
     // "bounded-pulse" retains the previous stop/start movement implementation.
@@ -44,7 +40,6 @@ public class BuddiesHost
         new Dictionary<int, ActiveBuddy>();
     private static BuddySlotWorker[] _slotWorkers;
     private static SemaphoreSlim _loginGate;
-    private static long[] _slotLingeringUntilTimestamp;
     private static readonly object HomeMaintenanceLock = new object();
     private static HomeMaintenanceState _homeMaintenance;
 
@@ -264,7 +259,6 @@ public class BuddiesHost
             _config.MaxParallelLogins.Value,
             _config.MaxParallelLogins.Value);
         _slotWorkers = new BuddySlotWorker[_config.AccountCount];
-        _slotLingeringUntilTimestamp = new long[_config.AccountCount];
 
         for (int index = 0; index < _slotWorkers.Length; index++)
             _slotWorkers[index] = new BuddySlotWorker(index);
@@ -464,16 +458,6 @@ public class BuddiesHost
             if (_stopping)
                 return Fail(request, "Buddies service is stopping.");
 
-            int remaining = GetLogoutQuarantineRemainingSeconds(
-                _slotLingeringUntilTimestamp[index]);
-            if (remaining > 0)
-            {
-                return Fail(
-                    request,
-                    $"Account index {index} is quarantined for {remaining}s while " +
-                    "its previous AO avatar finishes leaving the server.");
-            }
-
             ActiveBuddy existing;
 
             if (ActiveBuddies.TryGetValue(index, out existing))
@@ -590,7 +574,6 @@ public class BuddiesHost
                 else
                 {
                     RemoveStartupReservation(index, activeBuddy);
-                    MarkSlotLingering(index, character);
                 }
 
                 domain = null;
@@ -658,8 +641,6 @@ public class BuddiesHost
             if (!startupRetained)
             {
                 RemoveStartupReservation(index, activeBuddy);
-                if (domain != null)
-                    MarkSlotLingering(index, character);
             }
 
             Console.WriteLine(
@@ -814,8 +795,6 @@ public class BuddiesHost
                     ReferenceEquals(current, buddy))
                 {
                     ActiveBuddies.Remove(index);
-                    _slotLingeringUntilTimestamp[index] =
-                        GetLogoutQuarantineDeadline();
                 }
             }
             DeleteReadyMarker(buddy.Character);
@@ -823,9 +802,7 @@ public class BuddiesHost
             DeleteHomeDirective(buddy.Character);
 
             Console.WriteLine(
-                $"Buddy unloaded: {buddy.Character}. Account index {index} is " +
-                $"quarantined for {ServerLogoutLingerSeconds}s while AO removes " +
-                "the server-side avatar.");
+                $"Buddy unloaded: {buddy.Character}. Account index {index} is available.");
 
             return Ok(
                 request,
@@ -1459,8 +1436,7 @@ public class BuddiesHost
                   $"{request.Level.Value} characters. It owns navigation time " +
                   "independently of demo leases."
                 : "Home verification started for every configured level. " +
-                  "Levels will rotate in the background, respecting AO's " +
-                  $"{ServerLogoutLingerSeconds}s logout quarantine.");
+                  "Levels will rotate in the background.");
         PopulateHomeResponse(result, state);
         ThreadPool.QueueUserWorkItem(_ => RunHomeMaintenance(state));
         return result;
@@ -1564,12 +1540,6 @@ public class BuddiesHost
 
                 WaitForHomeLevel(levelJobId);
                 summaries.Add($"{level}:{reached}/{_config.AccountCount}");
-
-                if (response.Indexes != null &&
-                    state.Levels[state.Levels.Count - 1] != level)
-                {
-                    WaitForLogoutQuarantine(response.Indexes);
-                }
             }
 
             lock (HomeMaintenanceLock)
@@ -1636,35 +1606,6 @@ public class BuddiesHost
             }
 
             if (!pending)
-                return;
-
-            Thread.Sleep(1000);
-        }
-    }
-
-    private static void WaitForLogoutQuarantine(List<int> indexes)
-    {
-        if (indexes == null || indexes.Count == 0)
-            return;
-
-        while (!_stopping)
-        {
-            long latest = 0;
-
-            lock (ActiveLock)
-            {
-                foreach (int index in indexes)
-                {
-                    if (index >= 0 &&
-                        index < _slotLingeringUntilTimestamp.Length &&
-                        _slotLingeringUntilTimestamp[index] > latest)
-                    {
-                        latest = _slotLingeringUntilTimestamp[index];
-                    }
-                }
-            }
-
-            if (GetLogoutQuarantineRemainingSeconds(latest) <= 0)
                 return;
 
             Thread.Sleep(1000);
@@ -1945,46 +1886,6 @@ public class BuddiesHost
     private static void DeleteHomeDirective(string character)
     {
         ManagerMemory.Current.SetBuddyHome(character, null);
-    }
-
-    private static void MarkSlotLingering(int index, string character)
-    {
-        lock (ActiveLock)
-        {
-            if (_slotLingeringUntilTimestamp != null &&
-                index >= 0 &&
-                index < _slotLingeringUntilTimestamp.Length)
-            {
-                _slotLingeringUntilTimestamp[index] =
-                    GetLogoutQuarantineDeadline();
-            }
-        }
-
-        Console.WriteLine(
-            $"Account index {index} is quarantined for " +
-            $"{ServerLogoutLingerSeconds}s after unloading {character}.");
-    }
-
-    private static long GetLogoutQuarantineDeadline()
-    {
-        long duration = (long)Math.Ceiling(
-            ServerLogoutLingerSeconds * (double)Stopwatch.Frequency);
-        return Stopwatch.GetTimestamp() + duration;
-    }
-
-    private static int GetLogoutQuarantineRemainingSeconds(long deadline)
-    {
-        if (deadline <= 0)
-            return 0;
-
-        long remainingTicks = deadline - Stopwatch.GetTimestamp();
-        if (remainingTicks <= 0)
-            return 0;
-
-        return Math.Max(
-            1,
-            (int)Math.Ceiling(
-                remainingTicks / (double)Stopwatch.Frequency));
     }
 
     private static void ReconcileHomeNavigation()
