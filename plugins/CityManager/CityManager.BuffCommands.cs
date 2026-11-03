@@ -193,8 +193,9 @@ namespace CityManager
                     else requests.Add(query); // Existing engine reports unknown tags without rejecting the other work.
                     continue;
                 }
-                int numeric;
-                bool exact = int.TryParse(query, out numeric);
+                bool isTag = choice.Tags.Contains(query, StringComparer.OrdinalIgnoreCase);
+                int numeric = 0;
+                bool exact = !isTag && int.TryParse(query, out numeric);
                 int exactCast = exact ? numeric : 0;
                 if (exact && !choice.Casts.Any(n => n.Key == exactCast))
                 {
@@ -211,7 +212,6 @@ namespace CityManager
                 {
                     related.AddRange(choice.Ids);
                     if (level.HasValue || choice.Casts.All(n => n.Value == 0)) selected.Add(cast.Key);
-                    bool isTag = choice.Tags.Contains(query, StringComparer.OrdinalIgnoreCase);
                     requests.Add(isTag ? query : cast.Key.ToString());
                 }
                 else
