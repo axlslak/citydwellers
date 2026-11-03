@@ -116,6 +116,7 @@ namespace CityManager
 
         private readonly object _stateSync = new object();
         private readonly object _devSync = new object();
+        private readonly object _buddiesRequestSync = new object();
         private readonly Queue<string> _diagnosticHistory = new Queue<string>();
         private readonly Stopwatch _managerUptime = Stopwatch.StartNew();
         private readonly DateTime _managerStartedUtc = DateTime.UtcNow;
@@ -1813,6 +1814,10 @@ namespace CityManager
         {
             if (string.Equals(target, FlipperComponentName, StringComparison.Ordinal))
                 lock (CityRaidAutomation.FlipperRequestSync)
+                    return SendWorkerRequestCore(target, request, minimumTimeoutMs);
+            // Governor accepts one Buddies command at a time, including its outcome.
+            if (string.Equals(target, BuddiesComponentName, StringComparison.Ordinal))
+                lock (_buddiesRequestSync)
                     return SendWorkerRequestCore(target, request, minimumTimeoutMs);
             return SendWorkerRequestCore(target, request, minimumTimeoutMs);
         }
