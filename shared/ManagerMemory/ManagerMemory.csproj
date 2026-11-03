@@ -3,6 +3,7 @@
   <PropertyGroup>
     <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
     <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <RestoreProjectStyle>PackageReference</RestoreProjectStyle>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" />
   <PropertyGroup>
@@ -19,6 +20,9 @@
     <DebugType>pdbonly</DebugType>
     <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
