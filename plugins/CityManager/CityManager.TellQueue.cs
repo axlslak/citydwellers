@@ -160,32 +160,41 @@ namespace CityManager
                     return;
             }
 
-            ManagerChannelJob job;
-            string path;
-            if (!ManagerChannelQueue.TryReadNext(_dataDir, out job, out path))
-                return;
-
-            string source = string.IsNullOrWhiteSpace(job.SourceCharacter)
-                ? "CityDwellers"
-                : job.SourceCharacter;
-            try
+            // Quiet progress must not hold a final outcome behind an old debug backlog.
+            for (int drained = 0; drained < 32; drained++)
             {
-                if (Client.Chat == null)
+                ManagerChannelJob job;
+                string path;
+                if (!ManagerChannelQueue.TryReadNext(_dataDir, out job, out path))
                     return;
-                Client.Chat.SendPrivateGroupMessage(
-                    Client.Chat.CharId,
-                    CityBankers.Shared.CityBankersChatPalette.StyleMarkup(
-                        "<font color='#89D2E8'>[" + EscapeBlobText(source) + "]</font> " + job.Message));
-                ManagerChannelQueue.Complete(path);
-                Logger.Information(
-                    "MANAGER CHANNEL delivered " + job.Id + " from " + source +
-                    ": " + job.Message);
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning(
-                    "MANAGER CHANNEL delivery failed for " + job.Id + ": " +
-                    ex.Message + ". The message remains queued.");
+                string source = string.IsNullOrWhiteSpace(job.SourceCharacter)
+                    ? "CityDwellers" : job.SourceCharacter;
+                try
+                {
+                    if (Client.Chat == null) return;
+                    List<string> activityMessages;
+                    if (TryFormatBankActivity(job, out activityMessages))
+                    {
+                        foreach (string message in activityMessages)
+                            Client.Chat.SendPrivateGroupMessage(Client.Chat.CharId,
+                                CityBankers.Shared.CityBankersChatPalette.StyleMarkup(message));
+                        ManagerChannelQueue.Complete(path);
+                        if (activityMessages.Count == 0) continue;
+                        return;
+                    }
+                    Client.Chat.SendPrivateGroupMessage(Client.Chat.CharId,
+                        CityBankers.Shared.CityBankersChatPalette.StyleMarkup(
+                            "<font color='#89D2E8'>[" + EscapeBlobText(source) + "]</font> " + job.Message));
+                    ManagerChannelQueue.Complete(path);
+                    Logger.Information("MANAGER CHANNEL delivered " + job.Id + " from " + source + ": " + job.Message);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warning("MANAGER CHANNEL delivery failed for " + job.Id + ": " +
+                        ex.Message + ". The message remains queued.");
+                    return;
+                }
             }
         }
 

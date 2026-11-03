@@ -30,7 +30,8 @@ public class ManagerHost
     //      "Character": "Testchar2"
     //    }
     //  ],
-    //  "Bot": "Bobsan"
+    //  "Bot": "Bobsan",
+    //  "BankChatDebug": false // true: live banking progress; false: final outcomes only
     //}
 
     public static void InitializeMemory() => ManagerMemory.Start();

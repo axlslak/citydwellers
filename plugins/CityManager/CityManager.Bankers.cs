@@ -963,6 +963,14 @@ namespace CityManager
             // hint so a vegetative source banker enters its fast path immediately.
             WakeBankerActivity(request.SourceCharacter);
 
+            if (!_bankChatDebug)
+            {
+                Reply(target, BankMarkup("Requested " + BankItem(new LedgerItem {
+                    AoId = physical.AoId, HighId = physical.HighId, Ql = physical.Ql, Name = physical.Name }) +
+                    ". Added to your order (maximum three items). Ready items remain collectible; " +
+                    "the pickup clock resets to three minutes now and when this item arrives."));
+                return;
+            }
             Reply(target,
                 "Withdrawal " + request.Id.Substring(request.Id.Length - 8) +
                 " started for " + CityBankersChatPalette.ItemLabel(physical.AoId, physical.HighId, physical.Ql, physical.Name) +

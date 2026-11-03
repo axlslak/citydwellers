@@ -1582,6 +1582,8 @@ namespace CityBankers
                 null,
                 "AO server completed player donation; received items are now in Central normal inventory.",
                 received);
+            ReportBankOutcome("donation", "success", transactionId, donorName, null, received,
+                "AO completed the trade and the received inventory was verified.", _donationOpenedUtc);
 
             CurrentStockState stock = RetentionStock();
             var projectedCounts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -3687,7 +3689,7 @@ namespace CityBankers
         // Observability is independent of custody/accounting: a channel failure
         // must never retry a physical move or invalidate its verified result.
         private void ReportTransferProgress(string stage, string batchId, string message,
-            IEnumerable<TransferItemState> items = null)
+            IEnumerable<TransferItemState> items = null, string transactionId = null)
         {
             try
             {
@@ -3704,34 +3706,25 @@ namespace CityBankers
                     foreach (TransferItemState item in items.Where(item => item != null))
                     {
                         Logger.Information(prefix + item.Name + " QL" + item.Ql + " AOID=" + item.AoId);
-                        try
-                        {
-                            CityDwellers.Shared.ManagerChannelQueue.Enqueue(
-                                RuntimeStateStore.GetDataDirectory(_settingsDir), Client.CharacterName,
-                                CityBankersChatPalette.StyleMarkup("BANKERS " + CityBankersChatPalette.Stage(stage) +
-                                    " batch=" + System.Security.SecurityElement.Escape(batchId ?? "-") + " " +
-                                    CityBankersChatPalette.ItemLabel(item.AoId, item.HighId, item.Ql, item.Name)));
-                        }
-                        catch (Exception ex) { Logger.Warning("BANKERS item telemetry unavailable: " + ex.Message); }
                     }
                 foreach (string detail in details)
                 {
                     Logger.Information(prefix + detail);
-                    // Keep each channel message bounded, including long failure text.
-                    for (int offset = 0; offset < Math.Max(1, detail.Length); offset += 400)
-                    {
-                        string part = detail.Substring(offset, Math.Min(400, detail.Length - offset));
-                        try
-                        {
-                            CityDwellers.Shared.ManagerChannelQueue.Enqueue(
-                                RuntimeStateStore.GetDataDirectory(_settingsDir), Client.CharacterName,
-                                CityBankersChatPalette.StyleMarkup("BANKERS " + CityBankersChatPalette.Stage(stage) +
-                                    " batch=" + System.Security.SecurityElement.Escape(batchId ?? "-") + " " +
-                                    System.Security.SecurityElement.Escape(part)));
-                        }
-                        catch (Exception ex) { Logger.Warning("BANKERS telemetry channel unavailable: " + ex.Message); }
-                    }
                 }
+                // Preserve every diagnostic stage as one envelope. Manager decides
+                // whether to show it live; its item list/detail are no longer chat rows.
+                CityDwellers.Shared.ManagerChannelQueue.EnqueueBankActivity(Client.CharacterName,
+                    new CityDwellers.Shared.BankActivity
+                    {
+                        Kind = "progress", Utc = DateTime.UtcNow, Stage = stage,
+                        OperationId = batchId ?? transactionId ?? _donationTransactionId,
+                        Correlations = new[] { batchId, transactionId, _donationTransactionId },
+                        Source = Client.CharacterName, Detail = message,
+                        Destination = _activeBatch != null && _activeBatch.BatchId == batchId ? _activeBatch.Character :
+                            _workerCommand != null && _workerCommand.BatchId == batchId ? Client.CharacterName : null,
+                        Items = items?.Where(item => item != null)
+                            .Select(item => ToLedgerItem(item, null, null, null, null)).ToList()
+                    });
             }
             catch (Exception ex)
             {
@@ -3785,7 +3778,37 @@ namespace CityBankers
             if (batchId != null && (eventName == "dispatch_stored" || eventName == "dispatch_failed" ||
                 eventName == "dispatch_storage_failed")) _transferWaits.Remove(batchId);
             ReportTransferProgress(eventName, batchId,
-                "transaction=" + transactionId + "; role=" + role + "; " + message, items);
+                "transaction=" + transactionId + "; role=" + role + "; " + message, items, transactionId);
+        }
+
+        private void ReportBankOutcome(string kind, string outcome, string operationId,
+            string player, string main, IEnumerable<TransferItemState> items, string detail,
+            DateTime? startedUtc = null, string[] correlations = null, string[] coverageKeys = null)
+        {
+            try
+            {
+                var activity = new CityDwellers.Shared.BankActivity
+                {
+                    Kind = kind, Outcome = outcome, OperationId = operationId,
+                    Correlations = correlations ?? new[] { operationId },
+                    CoverageKeys = coverageKeys ?? new[] { kind + ":" + outcome + ":" + operationId },
+                    Utc = DateTime.UtcNow, StartedUtc = startedUtc,
+                    Player = player, Main = main, Source = Client.CharacterName,
+                    Destination = kind == "donation" ? Client.CharacterName : player,
+                    Detail = detail, Items = items?.Where(item => item != null)
+                        .Select(item => ToLedgerItem(item, null, null, null, null)).ToList()
+                };
+                if (CityDwellers.Shared.ManagerChannelQueue.EnqueueBankActivity(Client.CharacterName, activity) == null)
+                    return; // Already reported this actual receipt, including partial-order pickups.
+                Logger.Information("BANK OUTCOME " + JsonConvert.SerializeObject(activity));
+                CityDwellers.Shared.ServiceEvents.Report("bank.outcome",
+                    outcome == "failed" ? "error" : "info", kind + " " + outcome, activity);
+            }
+            catch (Exception ex)
+            {
+                // Presentation must never alter a native trade or its accounting.
+                try { Logger.Warning("BANK outcome reporting unavailable: " + ex.Message); } catch { }
+            }
         }
 
         private static LedgerItem ToLedgerItem(

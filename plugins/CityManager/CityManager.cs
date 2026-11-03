@@ -180,6 +180,7 @@ namespace CityManager
             }
 
             _diagnosticLogPath = Path.Combine(_dataDir, "citymanager-diagnostics.log");
+            InitializeBankActivity();
             LoadOrgBlobBudgetState();
 
             Logger.Information($"CityManager settings: {_settingsDir}");
@@ -630,7 +631,9 @@ namespace CityManager
             if (!adminControl && !AdmitPublicCommand(senderName, replyTarget)) return;
             if (rawCommand.Length > 2048)
             { Reply(replyTarget, "That command is too long."); return; }
-            DevTrace($"COMMAND {replyTarget.Kind} {senderName}: {rawCommand}");
+            string commandDiagnostic = $"COMMAND {replyTarget.Kind} {senderName}: {rawCommand}";
+            if (!_bankChatDebug && BankActivityCommands.Contains(command)) RecordDiagnostic(commandDiagnostic);
+            else DevTrace(commandDiagnostic);
 
             if (!isAdmin &&
                 !string.Equals(command, "leave", StringComparison.OrdinalIgnoreCase) &&

@@ -59,6 +59,9 @@ namespace CityBankers
         private bool _withdrawalAccepted;
         private Identity _withdrawalTradePartner = Identity.None;
         private bool _withdrawalPickupTrade;
+        // Presentation metadata only; the native partner identity remains authoritative.
+        private string _pickupCollectorName;
+        private DateTime? _pickupOpenedUtc;
         private bool _pickupDeclineSent;
         private bool _pickupPlayerAccepted;
         private bool _pickupConfirmSent;
@@ -109,6 +112,10 @@ namespace CityBankers
             foreach (var group in WithdrawalStore.ExpireUnfulfilled(_settingsDir).GroupBy(row => row.RequestedBy))
             {
                 Logger.Warning("[CityBankers] WITHDRAWAL reservations ended for " + group.Key + ": " + group.Count() + ".");
+                foreach (WithdrawalState ended in group)
+                    ReportBankOutcome("withdrawal", "released", ended.Id, ended.RequestedBy, ended.RecipientMain,
+                        new[] { ended.Item }, ended.Error + " No pickup was recorded; the item remained in storage.",
+                        ended.CreatedUtc, new[] { ended.Id, ended.OrderId });
                 try { TellPlayer(group.Key, group.Count() + " unfulfilled item reservation(s) ended. No pickup was recorded."); }
                 catch (Exception ex) { Logger.Warning("Withdrawal expiry notice unavailable: " + ex.Message); }
             }
@@ -163,6 +170,9 @@ namespace CityBankers
                 {
                     row.Status = "expired";
                     WithdrawalStore.Save(_settingsDir, row);
+                    ReportBankOutcome("withdrawal", "returned", row.Id, row.RequestedBy, row.RecipientMain,
+                        new[] { row.Item }, "The pickup window ended without collection; storage was verified.",
+                        row.CreatedUtc, new[] { row.Id, row.OrderId, row.ReturnBatchId });
                 }
                 else if (WithdrawalStore.HasStatus(row, "pickup-trading") && !Trade.IsTrading)
                 {
@@ -356,6 +366,8 @@ namespace CityBankers
             _pickupItems = ready;
             _withdrawal = ready[0];
             _withdrawalPickupTrade = true;
+            _pickupCollectorName = targetName;
+            _pickupOpenedUtc = DateTime.UtcNow;
             _withdrawalTradeOpened = true;
             _withdrawalTradePartner = target;
             _pickupOfferedIds.Clear();
@@ -436,6 +448,12 @@ namespace CityBankers
                         return true;
                     });
                     foreach (string id in ids) _centralWithdrawalItems.Remove(id);
+                    ReportBankOutcome("pickup", "success", state.OrderId,
+                        _pickupCollectorName ?? state.RequestedBy, state.RecipientMain,
+                        _pickupItems.Select(row => row.Item),
+                        "AO completed the pickup and the exact outgoing inventory change was verified.",
+                        _pickupOpenedUtc, ids.Concat(new[] { state.OrderId }).ToArray(),
+                        ids.Select(id => "pickup:success:" + id).ToArray());
                 }
                 else if (_isCentral)
                 {
@@ -1019,6 +1037,11 @@ namespace CityBankers
                 return true;
             });
             if (!completed) return;
+            // Recovery may finish accounting without this process seeing the original
+            // callback. The receipt keys suppress rows already included in a live pickup.
+            ReportBankOutcome("withdrawal", "success", state.OrderId, state.RequestedBy, state.RecipientMain,
+                new[] { state.Item }, "The saved AO-confirmed delivery was accounted for. The request is identified here; the original collecting character is not available in this recovery record.", state.CreatedUtc,
+                new[] { state.Id, state.OrderId }, new[] { "pickup:success:" + state.Id });
             TellPlayer(state.RequestedBy,
                 CityBankersChatPalette.Green("Pickup complete") + ": " +
                 CityBankersChatPalette.ItemLabel(state.Item.AoId, state.Item.HighId, state.Item.Ql, state.Item.Name) +
@@ -1032,6 +1055,9 @@ namespace CityBankers
             {
                 _centralWithdrawalItems.Remove(state.Id);
                 state.Status = "expired"; WithdrawalStore.Save(_settingsDir, state);
+                ReportBankOutcome("withdrawal", "released", state.Id, state.RequestedBy, state.RecipientMain,
+                    new[] { state.Item }, "The pickup window ended; the reserved CRU unit is available again.",
+                    state.CreatedUtc, new[] { state.Id, state.OrderId });
                 return; // Central restacks the released unit on its next idle tick.
             }
             DispatchQueueState queue = RuntimeStateStore.LoadDispatchQueue(_settingsDir);
@@ -1248,6 +1274,9 @@ namespace CityBankers
             TryDeclineTrade();
             ResetWithdrawalLocal();
             Logger.Error("[CityBankers] WITHDRAWAL FAILED " + state.Id + ": " + error);
+            if (!WithdrawalStore.HasConfirmedDelivery(state))
+                ReportBankOutcome("withdrawal", "failed", state.Id, state.RequestedBy, state.RecipientMain,
+                    new[] { state.Item }, error, state.CreatedUtc, new[] { state.Id, state.OrderId });
             try { TellPlayer(state.RequestedBy, "Retrieval failed; this reservation has ended. The item remains recorded for automatic recovery: " + error); }
             catch (Exception ex) { Logger.Warning("[CityBankers] Withdrawal failure notice unavailable: " + ex.Message); }
         }
@@ -1281,6 +1310,8 @@ namespace CityBankers
             _withdrawalAccepted = false;
             _withdrawalTradePartner = Identity.None;
             _withdrawalPickupTrade = false;
+            _pickupCollectorName = null;
+            _pickupOpenedUtc = null;
             _pickupDeclineSent = false;
             _pickupPlayerAccepted = false;
             _pickupConfirmSent = false;

@@ -1206,15 +1206,17 @@ namespace CityManager
             string title,
             string label,
             string content,
-            string headingMarkup = null)
+            string headingMarkup = null,
+            string linkColor = null,
+            int reservedBytes = 0)
         {
             if (target.IsOrg)
                 return BuildOrgBlobPreview(target, title, label, content, headingMarkup);
 
             int envelope = BlobEnvelope(title, label, headingMarkup);
-            List<string> pages = PaginateBlob(content, Math.Max(256, BlobPageSize(target) - envelope));
+            List<string> pages = PaginateBlob(content, Math.Max(256, BlobPageSize(target) - envelope - reservedBytes));
             return pages.Select((page, index) => RenderBlobPage(title, label, page,
-                headingMarkup, index, pages.Count, null)).ToList();
+                headingMarkup, index, pages.Count, null, linkColor)).ToList();
         }
 
         private int BlobEnvelope(string title, string label, string headingMarkup)
@@ -1225,18 +1227,19 @@ namespace CityManager
         }
 
         private string RenderBlobPage(string title, string label, string page,
-            string headingMarkup, int index, int count, string navigation)
+            string headingMarkup, int index, int count, string navigation, string linkColor = null)
         {
             string suffix = count == 1 ? string.Empty : " - Page " + (index + 1) + "/" + count;
             string heading = headingMarkup ??
                 ("<font color='" + ColorTitle + "'><b>" + EscapeBlobText(title + suffix) + "</b></font>");
-            if (headingMarkup != null) heading += suffix;
+            if (headingMarkup != null) heading += linkColor == null ? suffix :
+                "<font color='" + CityBankers.Shared.CityBankersChatPalette.ActivityTextHex + "'>" + suffix + "</font>";
             string payload = heading + "\n\n" +
                 CityBankers.Shared.CityBankersChatPalette.WhiteBaseMarkup(page) +
                 (string.IsNullOrEmpty(navigation) ? string.Empty : "\n\n" + navigation);
             string pageLabel = label + (count == 1 ? string.Empty : " " + (index + 1) + "/" + count);
             return "<a href=\"text://" + EscapeTextUri(payload) + "\">" +
-                "<font color='" + ColorCommand + "'>[" + EscapeBlobText(pageLabel) + "]</font></a>";
+                "<font color='" + (linkColor ?? ColorCommand) + "'>[" + EscapeBlobText(pageLabel) + "]</font></a>";
         }
 
         private int BlobPageSize(ReplyTarget target)

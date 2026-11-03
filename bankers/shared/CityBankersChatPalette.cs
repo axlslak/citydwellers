@@ -15,6 +15,17 @@ namespace CityBankers.Shared
     /// </summary>
     public static class CityBankersChatPalette
     {
+        // Activity feed on dark themes: warm cream prose, restrained semantic accents.
+        // Keep legacy diagnostics/tell colors available; the activity renderer opts in.
+        public const string ActivityTextHex = "#C8C6BC"; // RGB 200, 198, 188
+        public const string ActivityMutedHex = "#99978F";
+        public const string ActivityNameHex = "#93B5C2";
+        public const string ActivityItemHex = "#B3A5C1";
+        public const string ActivitySuccessHex = "#89AD8F";
+        public const string ActivityFailureHex = "#C18A87";
+        public const string ActivityReturnHex = "#B5AC8C";
+        public const string ActivityLinkHex = "#A3B2BE";
+
         public const string WhiteHex = "#FFFFFF";
         public const string CyanHex = "#00FFFF";
         public const string GreenHex = "#00FF00";
