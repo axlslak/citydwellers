@@ -1037,6 +1037,8 @@ namespace CityManager
         private void ReplyWithCloakHistory(ReplyTarget target, string summary, string city = "AP")
         {
             var body = new StringBuilder();
+            // A private fallback must contain the observed state, not just its history.
+            body.Append(summary).Append("\n\n");
             List<CloakEventRecord> events = LoadRecentCloakEvents(25, true, city);
             foreach (CloakEventRecord record in events)
             {
@@ -1057,8 +1059,22 @@ namespace CityManager
                 body.Append("No cloak changes have been observed yet.");
 
             string title = city + " Cloak History";
-            Reply(target, BuildBlobLinks(target, title, title, body.ToString())
-                .Select(link => summary + " " + link));
+            int reserve = Encoding.UTF8.GetByteCount(
+                CityBankers.Shared.CityBankersChatPalette.StyleMarkup(summary + " "));
+            foreach (string link in BuildBlobLinks(target, title, title, body.ToString(), reservedBytes: reserve))
+            {
+                string response = summary + " " + link;
+                if (target.IsOrg && Encoding.UTF8.GetByteCount(
+                    CityBankers.Shared.CityBankersChatPalette.StyleMarkup(response)) > CurrentOrgBlobPageSize())
+                {
+                    // An explicitly tiny org limit may not fit even summary + link.
+                    // Keep the status public and send its compact history link separately.
+                    string plain = System.Text.RegularExpressions.Regex.Replace(summary, "<[^>]*>", string.Empty);
+                    Reply(target, CityBankers.Shared.CityBankersChatPalette.WhiteBaseMarkup(plain));
+                    Reply(target, link);
+                }
+                else Reply(target, response);
+            }
         }
 
         private string BuildCloakHistoryForBlob(int limit)
@@ -1211,7 +1227,7 @@ namespace CityManager
             int reservedBytes = 0)
         {
             if (target.IsOrg)
-                return BuildOrgBlobPreview(target, title, label, content, headingMarkup);
+                return BuildOrgBlobPreview(target, title, label, content, headingMarkup, reservedBytes);
 
             int envelope = BlobEnvelope(title, label, headingMarkup);
             List<string> pages = PaginateBlob(content, Math.Max(256, BlobPageSize(target) - envelope - reservedBytes));

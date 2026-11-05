@@ -302,7 +302,7 @@ namespace CityManager
         }
 
         private List<string> BuildOrgBlobPreview(ReplyTarget target, string title, string label,
-            string content, string heading)
+            string content, string heading, int reservedBytes = 0)
         {
             int envelope = BlobEnvelope(title, label, heading) + 256; // tell navigation
             int privateBudget = Math.Max(256, TellBlobPageSize - envelope);
@@ -311,7 +311,7 @@ namespace CityManager
             try
             {
                 var orgPages = PaginateBlob(content, Math.Max(1,
-                    Math.Min(CurrentOrgBlobPageSize(), TellBlobPageSize) - envelope));
+                    Math.Min(CurrentOrgBlobPageSize() - Math.Max(0, reservedBytes), TellBlobPageSize) - envelope));
                 pages = new[] { orgPages[0] }.Concat(orgPages.Count > 1
                     ? PaginateBlob(string.Join("\n", orgPages.Skip(1)), privateBudget)
                     : Enumerable.Empty<string>()).ToArray();
@@ -344,7 +344,10 @@ namespace CityManager
             lock (_orgOutputSync)
             {
                 var reply = _replyPages.Values.FirstOrDefault(p => text.IndexOf(p.PreviewLink, StringComparison.Ordinal) >= 0);
-                if (reply != null) return PrivatePageLink(reply, 1, reply.Label + " (tell)");
+                if (reply != null)
+                    return linkOnly ? PrivatePageLink(reply, 1, reply.Label + " (tell)") :
+                        RenderBlobPage(reply.Title, reply.Label, reply.Pages[0], reply.Heading,
+                            0, reply.Pages.Length, ReplyPageNavigation(reply, 0));
             }
             // Plain replies already fit their caller's normal tell path.
             return linkOnly ? string.Empty : text;
