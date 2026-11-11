@@ -997,15 +997,6 @@ namespace CityManager
 
         private void ProcessBankerPickupsCommand(string[] parts, ReplyTarget target)
         {
-            bool itemSearch = parts != null && parts.Length > 1 &&
-                string.Equals(parts[1], "item", StringComparison.OrdinalIgnoreCase);
-            if (parts == null || parts.Length == 0 ||
-                (itemSearch ? parts.Length < 3 : parts.Length > 2))
-            {
-                Reply(target, Usage(target, "pickups [last|top|member|item <name or AOID>]"));
-                return;
-            }
-
             string[] commandParts = (string[])parts.Clone();
             QueuePublicWork(target, () =>
             {
@@ -1031,102 +1022,11 @@ namespace CityManager
 
         private void ProcessBankerPickupsCommandCore(string[] parts, ReplyTarget target)
         {
-            // DeliveredUtc is persisted only after verified physical delivery.
-            // Count delivered item records, including accounting retries, not trades.
-            var pickups = WithdrawalStore.LoadAll(_settingsDir)
-                .Where(row => row != null && row.DeliveredUtc.HasValue && row.Item != null)
-                .OrderByDescending(row => row.DeliveredUtc.Value)
-                .ThenBy(row => row.Id, StringComparer.Ordinal)
-                .Select(row => new { Row = row, Recipient = PickupRecipient(row) })
-                .ToList();
-            string view = parts.Length == 1 ? "overview" : parts[1].Trim();
-            string title = "CityBankers Pickups";
-            var body = new StringBuilder();
-            body.Append(CommandLink(target, "pickups", "Overview")).Append(" | ")
-                .Append(CommandLink(target, "pickups last", "Last")).Append(" | ")
-                .Append(CommandLink(target, "pickups top", "Top")).Append("\n\n");
-
-            if (string.Equals(view, "overview", StringComparison.OrdinalIgnoreCase))
-            {
-                body.Append(pickups.Count).Append(" confirmed items collected by ")
-                    .Append(pickups.Select(row => row.Recipient)
-                        .Distinct(StringComparer.OrdinalIgnoreCase).Count())
-                    .Append(" recipients, including CRU.\n\n")
-                    .Append("Use ").Append(EscapeBlobText("#pickups <member>")).Append(" for a member's history.\n")
-                    .Append("Use ").Append(EscapeBlobText("#pickups item <name or AOID>")).Append(" to find an item.\n")
-                    .Append("Alias: takers. Member records are grouped by main.\n");
-            }
-            else if (string.Equals(view, "top", StringComparison.OrdinalIgnoreCase))
-            {
-                title = "Top Pickup Recipients";
-                body.Append("Top 25 recipients by confirmed items collected, including CRU.\n\n");
-                int rank = 0;
-                foreach (var group in pickups.GroupBy(row => row.Recipient, StringComparer.OrdinalIgnoreCase)
-                    .OrderByDescending(group => group.Count())
-                    .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase).Take(25))
-                {
-                    body.Append(++rank).Append(". ")
-                        .Append(CommandLink(target, "pickups " + group.Key, group.Key))
-                        .Append(" — ").Append(group.Count()).Append(" items\n");
-                }
-                if (rank == 0) body.Append("No confirmed pickups recorded yet.\n");
-            }
-            else
-            {
-                var selected = pickups.AsEnumerable();
-                int limit = 25;
-                if (string.Equals(view, "item", StringComparison.OrdinalIgnoreCase))
-                {
-                    string query = string.Join(" ", parts.Skip(2)).Trim();
-                    int aoId;
-                    bool numeric = int.TryParse(query, NumberStyles.Integer,
-                        CultureInfo.InvariantCulture, out aoId) && aoId > 0;
-                    selected = selected.Where(entry => numeric
-                        ? entry.Row.Item.AoId == aoId || entry.Row.Item.HighId == aoId
-                        : (entry.Row.Item.Name ?? "").IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0);
-                    title = "Item Pickups";
-                    body.Append("Item: ").Append(EscapeBlobText(query)).Append("\n");
-                }
-                else if (!string.Equals(view, "last", StringComparison.OrdinalIgnoreCase))
-                {
-                    string canonical = ResolveCanonicalAltMain(view);
-                    selected = selected.Where(entry => string.Equals(entry.Recipient,
-                        canonical, StringComparison.OrdinalIgnoreCase));
-                    limit = 10;
-                    title = canonical + " - Pickups";
-                    body.Append("Member: ").Append(EscapeBlobText(canonical)).Append("\n");
-                }
-                else
-                {
-                    title = "Latest Pickups";
-                }
-
-                var matches = selected.ToList();
-                body.Append(matches.Count).Append(" confirmed items collected; showing latest ")
-                    .Append(Math.Min(limit, matches.Count)).Append(". Times are UTC.\n\n");
-                if (matches.Count == 0) body.Append("No matching confirmed pickups recorded.\n");
-                foreach (var entry in matches.Take(limit))
-                {
-                    var row = entry.Row;
-                    body.Append(FormatDonationUtc(row.DeliveredUtc.Value))
-                        .Append("  ").Append(CommandLink(target, "pickups " + entry.Recipient, entry.Recipient))
-                        .Append("\n    ").Append(CityBankersChatPalette.ItemLabel(
-                            row.Item.AoId, row.Item.HighId, row.Item.Ql, row.Item.Name, true))
-                        .Append("\n");
-                }
-            }
-
-            Reply(target, BuildBlobLinks(target, title, title, body.ToString()));
+            ProcessBankHistory(parts, target, false);
         }
 
         private void ProcessBankerDonorCommand(string[] parts, ReplyTarget target)
         {
-            if (parts == null || parts.Length > 2)
-            {
-                Reply(target, Usage(target, "donor [top|last|member]"));
-                return;
-            }
-
             string[] commandParts = (string[])parts.Clone();
             QueuePublicWork(target, () =>
             {
@@ -1146,48 +1046,7 @@ namespace CityManager
             string[] parts,
             ReplyTarget target)
         {
-            List<DonationRecord> donations = LoadDonationHistory();
-            string view = parts.Length == 1
-                ? "overview"
-                : parts[1].Trim();
-            string body;
-            string title;
-            string label;
-
-            if (string.Equals(view, "top", StringComparison.OrdinalIgnoreCase))
-            {
-                title = "Top Donors";
-                label = "Open top donors";
-                body = BuildTopDonorsWindow(donations, target);
-            }
-            else if (string.Equals(view, "last", StringComparison.OrdinalIgnoreCase))
-            {
-                title = "Latest Donations";
-                label = "Open latest donations";
-                body = BuildLatestDonationsWindow(donations, target, null, 25);
-            }
-            else if (string.Equals(view, "overview", StringComparison.OrdinalIgnoreCase))
-            {
-                title = "CityBankers Donors";
-                label = "Open donor records";
-                body = BuildDonorOverviewWindow(donations, target);
-            }
-            else
-            {
-                string canonical = ResolveCanonicalAltMain(view);
-                title = canonical + " - Donations";
-                label = "Open " + canonical + " donations";
-                body = BuildLatestDonationsWindow(
-                    donations,
-                    target,
-                    canonical,
-                    10);
-            }
-
-            Reply(
-                target,
-                BuildBlobLinks(target, title, label, body).Select(link =>
-                    "<font color='" + ColorTitle + "'>CityBankers donors</font> " + link));
+            ProcessBankHistory(parts, target, true);
         }
 
         private List<DonationRecord> LoadDonationHistory()
@@ -1276,9 +1135,12 @@ namespace CityManager
                 CanonicalDonor = ResolveCanonicalAltMain(donor),
                 ReceivedUtc = ParseDonationUtc(item["ReceivedUtc"]),
                 AoId = aoId,
-                HighId = detail?.HighId ?? 0,
-                Ql = detail?.Ql ?? 0,
-                Name = detail?.Name ?? ("Item " + aoId),
+                HighId = ParseDonationInt(item["HighId"]) > 0
+                    ? ParseDonationInt(item["HighId"]) : detail?.HighId ?? 0,
+                Ql = ParseDonationInt(item["Ql"]) > 0
+                    ? ParseDonationInt(item["Ql"]) : detail?.Ql ?? 0,
+                Name = !string.IsNullOrWhiteSpace((string)item["Name"])
+                    ? (string)item["Name"] : detail?.Name ?? ("Item " + aoId),
                 Available = available
             };
         }
@@ -1488,4 +1350,5 @@ namespace CityManager
         }
     }
 }
+
 

@@ -521,6 +521,8 @@ namespace CityManager
                 return false;
 
             string command = parts[0].ToLowerInvariant();
+            if (command == "donors") command = "donor";
+            if (command == "taker") command = "takers";
             bool hasCommandShape =
                 ((command == "cru" ||
                   command == "changelog" ||
@@ -546,7 +548,7 @@ namespace CityManager
                 (command == "trace" && parts.Length <= 2) ||
                 ((command == "inventory" || command == "inv") && parts.Length <= 2) ||
                 (command == "help" && parts.Length <= 3) ||
-                (command == "donor" && parts.Length <= 2) ||
+                command == "donor" ||
                 command == "pickups" || command == "takers" ||
                 command == "lost" || command == "found" ||
                 ((command == "withdraw" || command == "get") && (parts.Length == 2 || parts.Length == 3)) ||
@@ -615,6 +617,8 @@ namespace CityManager
 
             string command = parts[0].ToLowerInvariant();
             var commandSource = replyTarget;
+            if (command == "donors") command = "donor";
+            if (command == "taker") command = "takers";
             // LC replies, including its help and denial/load-limit messages,
             // never enter organization chat. Guest requests stay in the guest channel.
             if (replyTarget.IsOrg && (LandControlCommands.Contains(command) || command == "help" && parts.Length > 1 &&
@@ -645,7 +649,7 @@ namespace CityManager
                 return;
             }
 
-            if (!IsCommandSourceAuthorized(
+            if (!(command == "page" && IsBankHistoryContinuation(parts, senderName)) && !IsCommandSourceAuthorized(
                     senderName,
                     command,
                     parts,
@@ -744,9 +748,10 @@ namespace CityManager
             }
 
             replyTarget.AdminOnly = AdminCommands.Contains(command);
-            // Authorize against the original channel, then render banking and
-            // buffer details privately through the shared tell queue.
-            if (replyTarget.IsOrg && (IsBankerReplyCommand(command) ||
+            // History keeps its first page in the requesting channel.
+            // Other banking and buffer details still render privately.
+            bool bankHistory = command == "donor" || command == "pickups" || command == "takers";
+            if (replyTarget.IsOrg && ((!bankHistory && IsBankerReplyCommand(command)) ||
                 command == "buffers" || command == "bufflist" || command == "buff" || command == "buffs"))
                 replyTarget = ReplyTarget.ForTell(replyTarget.SenderId, senderName);
 
@@ -3005,3 +3010,4 @@ namespace CityManager
         }
     }
 }
+

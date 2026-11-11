@@ -284,6 +284,7 @@ namespace CityManager
             public string Token, Title, Label, Heading, PreviewLink;
             public string[] Pages;
             public bool AdminOnly;
+            public string HistoryRequester;
             public DateTime CreatedUtc = DateTime.UtcNow;
         }
         private readonly Dictionary<string, ReplyPages> _replyPages = new Dictionary<string, ReplyPages>(StringComparer.Ordinal);
@@ -378,3 +379,4 @@ namespace CityManager
         }
     }
 }
+

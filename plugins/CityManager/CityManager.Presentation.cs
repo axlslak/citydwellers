@@ -310,20 +310,21 @@ namespace CityManager
                     return true;
 
                 case "pickups":
+                case "taker":
                 case "takers":
                     title = "Pickup Records";
-                    body = CommandHelp(target, "pickups [last|top|member|item <name or AOID>]",
+                    body = CommandHelp(target, "takers [last|top] [player <name>] [item <name>] [aoid <id>]",
                         "Show confirmed pickup totals and history.",
-                        "last: latest 25 items; top: top 25 recipients; member: total and latest 10; item: name fragment or AOID, latest 25 matches.",
+                        "Search all saved confirmed deliveries. Combine player, item-name fragment and AOID filters with AND (optional &). Top ranks matching recipients; last lists newest first. Click Next page for more by tell.",
                         "Athen Paladins member", "Alias: takers. Includes CRU; alts are grouped by main. Only confirmed deliveries count. Times are UTC.");
                     return true;
 
                 case "donor":
                 case "donors":
                     title = "Donation Records";
-                    body = CommandHelp(target, "donor [top|last|member]",
+                    body = CommandHelp(target, "donors [last|top] [player <name>] [item <name>] [aoid <id>]",
                         "Browse donor totals and recorded donation history, including known alts.",
-                        "Top shows donor rankings; last shows the latest 25 donations; a member name shows their latest 10. Long results arrive in separate numbered windows.",
+                        "Search all saved donation records. Combine player, item-name fragment and AOID filters with AND (optional &). Example: donors player Kavey aoid 278892. Org queries show the first page there; Next page opens later pages by tell.",
                         "Athen Paladins member", "Item links show quality and icons in the window.");
                     return true;
 
@@ -1314,4 +1315,5 @@ namespace CityManager
         }
     }
 }
+
 
