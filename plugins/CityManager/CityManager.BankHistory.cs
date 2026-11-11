@@ -36,7 +36,7 @@ namespace CityManager
         private static string HistoryPlayerCommand(string command, string player, BankHistoryQuery query)
         {
             string result = command + " player " + player;
-            if (query.Item != null) result += " item \"" + query.Item + "\"";
+            if (query.Item != null) result += " item " + query.Item;
             if (query.AoId.HasValue) result += " aoid " + query.AoId.Value;
             return result;
         }
