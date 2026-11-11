@@ -313,19 +313,19 @@ namespace CityManager
                 case "taker":
                 case "takers":
                     title = "Pickup Records";
-                    body = CommandHelp(target, "takers [last|top] [player <name>] [item <name>] [aoid <id>]",
+                    body = CommandHelp(target, "takers [last|top|overview] [player <name ...>] [item <word ...>] [aoid <id ...>]",
                         "Show confirmed pickup totals and history.",
-                        "Search all saved confirmed deliveries. Each item word matches independently, in any order, ignoring case: item intel brain sup. Combine player, item and AOID filters with AND (optional &). Top ranks matching recipients; last lists newest first. Click Next page for more by tell.",
-                        "Athen Paladins member", "Alias: takers. Includes CRU; alts are grouped by main. Only confirmed deliveries count. Times are UTC.");
+                        "Each verb owns arguments until the next verb or end. Player and AOID lists mean any listed value; every item word must match, in any order, ignoring case. No quotes needed. Combine filters with AND (optional &). Bare takers lists all saved confirmed deliveries; top ranks matching mains. Next page continues by tell.",
+                        "Athen Paladins member", "Aliases: taker, takers, pickups. A named main includes their alts; a named alt selects that recorded requester only. Invalid/locally unknown names reject the query. Includes CRU; only confirmed deliveries count. Times UTC.");
                     return true;
 
                 case "donor":
                 case "donors":
                     title = "Donation Records";
-                    body = CommandHelp(target, "donors [last|top] [player <name>] [item <name>] [aoid <id>]",
+                    body = CommandHelp(target, "donors [last|top|overview] [player <name ...>] [item <word ...>] [aoid <id ...>]",
                         "Browse donor totals and recorded donation history, including known alts.",
-                        "Search all saved donation records. Each item word matches independently, in any order, ignoring case. Example: donors player Kavey item intel brain sup. Combine player, item and AOID filters with AND (optional &). Org queries show the first page there; Next page opens later pages by tell.",
-                        "Athen Paladins member", "Item links show quality and icons in the window.");
+                        "Each verb owns arguments until the next verb or end. Example: donors player Kavey Phobius item intel brain sup aoid 123 456. Any listed player AND all item fragments AND either AOID must match. No quotes needed. Bare donors lists all saved donations. Org shows one page there; later pages arrive by tell.",
+                        "Athen Paladins member", "A named main includes their alts; a named alt selects that donor only. Invalid/locally unknown player names reject the query. No silent spelling corrections.");
                     return true;
 
                 case "bank":
@@ -596,14 +596,14 @@ namespace CityManager
                 "type [number]", "Browse AI/LE biomaterials by type, QL and raw/processed form. Alias: types. Pickup links select the displayed QL."));
             body.Append(HelpSyntaxLine(
                 target,
-                "donor [top|last|member]",
+                "donors [last|top|overview] [player <name ...>] [item <word ...>] [aoid <id ...>]",
                 "Browse all-time donor rankings and donation history."));
             body.Append(HelpSyntaxLine(
                 target,
                 "get <AO item ID> [QL]",
                 "Reserve an item and collect it from Kbcentral within three minutes. Alias: withdraw."));
             body.Append(HelpSyntaxLine(target, "shutdown", "SC+/admins: stop ALL bots; manual start required."));
-            body.Append(HelpSyntaxLine(target, "pickups [last|top|member|item <name or AOID>]", "Confirmed pickup totals and history. Alias: takers."));
+            body.Append(HelpSyntaxLine(target, "takers [last|top|overview] [player <name ...>] [item <word ...>] [aoid <id ...>]", "Confirmed pickup totals and history. Alias: takers."));
             body.Append(HelpSyntaxLine(target, "cru", "Collect one CRU from Kbcentral within three minutes."));
             body.Append(HelpSyntaxLine(target, "raid", "Open or resume raid setup."));
             body.Append(HelpSyntaxLine(target, "raid status", "View current raid information."));
