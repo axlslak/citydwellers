@@ -168,9 +168,10 @@ namespace CityManager
                         When = r.DeliveredUtc.Value, AoId = r.Item.AoId, HighId = r.Item.HighId,
                         Ql = r.Item.Ql, Name = r.Item.Name
                     }).ToList();
+            var itemWords = (query.Item ?? "").Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
             var matches = rows.Where(r =>
                 (query.Player == null || string.Equals(r.Main, query.Player, StringComparison.OrdinalIgnoreCase)) &&
-                (query.Item == null || (r.Name ?? "").IndexOf(query.Item, StringComparison.OrdinalIgnoreCase) >= 0) &&
+                itemWords.All(word => (r.Name ?? "").IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0) &&
                 (!query.AoId.HasValue || r.AoId == query.AoId.Value || r.HighId == query.AoId.Value))
                 .OrderByDescending(r => r.When).ThenBy(r => r.Id, StringComparer.Ordinal).ToList();
 
@@ -181,7 +182,7 @@ namespace CityManager
                 .Append(CommandLink(target, command + " top", "Top")).Append("\n\n");
             var filters = new List<string>();
             if (query.Player != null) filters.Add("Player/main: " + query.Player);
-            if (query.Item != null) filters.Add("Item contains: " + query.Item);
+            if (query.Item != null) filters.Add("Item words (all): " + query.Item);
             if (query.AoId.HasValue) filters.Add("AOID: " + query.AoId.Value);
             body.Append(EscapeBlobText(filters.Count == 0 ? "All saved records" : string.Join(" AND ", filters)))
                 .Append("\n").Append(matches.Count).Append(donations ? " donated items" : " confirmed items collected")
@@ -194,7 +195,7 @@ namespace CityManager
                 body.Append(EscapeBlobText("#" + command + " " + BankHistorySyntax)).Append("\n")
                     .Append("Combine filters in any order; AND or & is optional.\n")
                     .Append(EscapeBlobText("#" + command + " player Kavey aoid 278892")).Append("\n")
-                    .Append("Item matches a case-insensitive name fragment. Quote names containing selector words.\n")
+                    .Append("Every item word must match a name fragment, in any order; case is ignored. Quote names containing selector words.\n")
                     .Append("AOID matches either template ID. A player filter includes known alts.\n")
                     .Append(donations ? "Includes donations no longer in stock; CRU is excluded from donor totals."
                         : "Only saved confirmed deliveries count; requests and returns are excluded. Includes CRU.");

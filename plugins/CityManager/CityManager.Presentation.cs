@@ -315,7 +315,7 @@ namespace CityManager
                     title = "Pickup Records";
                     body = CommandHelp(target, "takers [last|top] [player <name>] [item <name>] [aoid <id>]",
                         "Show confirmed pickup totals and history.",
-                        "Search all saved confirmed deliveries. Combine player, item-name fragment and AOID filters with AND (optional &). Top ranks matching recipients; last lists newest first. Click Next page for more by tell.",
+                        "Search all saved confirmed deliveries. Each item word matches independently, in any order, ignoring case: item intel brain sup. Combine player, item and AOID filters with AND (optional &). Top ranks matching recipients; last lists newest first. Click Next page for more by tell.",
                         "Athen Paladins member", "Alias: takers. Includes CRU; alts are grouped by main. Only confirmed deliveries count. Times are UTC.");
                     return true;
 
@@ -324,7 +324,7 @@ namespace CityManager
                     title = "Donation Records";
                     body = CommandHelp(target, "donors [last|top] [player <name>] [item <name>] [aoid <id>]",
                         "Browse donor totals and recorded donation history, including known alts.",
-                        "Search all saved donation records. Combine player, item-name fragment and AOID filters with AND (optional &). Example: donors player Kavey aoid 278892. Org queries show the first page there; Next page opens later pages by tell.",
+                        "Search all saved donation records. Each item word matches independently, in any order, ignoring case. Example: donors player Kavey item intel brain sup. Combine player, item and AOID filters with AND (optional &). Org queries show the first page there; Next page opens later pages by tell.",
                         "Athen Paladins member", "Item links show quality and icons in the window.");
                     return true;
 
