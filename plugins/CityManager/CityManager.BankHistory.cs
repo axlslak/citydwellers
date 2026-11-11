@@ -228,10 +228,11 @@ namespace CityManager
                 }
             }
             if (!query.Overview && matches.Count == 0) body.Append("No matching saved records.\n");
-            ReplyBankHistoryPage(target, title, body.ToString());
+            ReplyHistoryPage(target, title, body.ToString());
         }
 
-        private void ReplyBankHistoryPage(ReplyTarget target, string title, string body)
+        private void ReplyHistoryPage(ReplyTarget target, string title, string body, int page = 1,
+            IEnumerable<string> sections = null)
         {
             if (target.IsOrg)
             {
@@ -249,11 +250,13 @@ namespace CityManager
             int budget = Math.Max(256, TellBlobPageSize - BlobEnvelope(title, title, null) - 256);
             var reply = new ReplyPages {
                 Token = Guid.NewGuid().ToString("N"), Title = title, Label = title,
-                Pages = PaginateBlob(body, budget).ToArray(), AdminOnly = target.AdminOnly,
+                Pages = (sections ?? new[] { body }).SelectMany(section => PaginateBlob(section, budget)).ToArray(),
+                AdminOnly = target.AdminOnly,
                 HistoryRequester = target.SenderName
             };
-            reply.PreviewLink = RenderBlobPage(title, title, reply.Pages[0], null, 0,
-                reply.Pages.Length, ReplyPageNavigation(reply, 0));
+            int index = Math.Max(0, Math.Min(reply.Pages.Length - 1, page - 1));
+            reply.PreviewLink = RenderBlobPage(title, title, reply.Pages[index], null, index,
+                reply.Pages.Length, ReplyPageNavigation(reply, index));
             lock (_orgOutputSync)
             {
                 foreach (string old in _replyPages.Where(p => p.Value.CreatedUtc < DateTime.UtcNow.AddMinutes(-30))
@@ -267,7 +270,7 @@ namespace CityManager
 
         // An authorized org/guest query remains browsable by its requester in tells,
         // even before their membership cache catches up. This grants only that cached result.
-        private bool IsBankHistoryContinuation(string[] parts, string sender)
+        private bool IsHistoryContinuation(string[] parts, string sender)
         {
             int page;
             if (parts.Length != 3 || !int.TryParse(parts[2], out page)) return false;

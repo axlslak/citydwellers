@@ -80,6 +80,7 @@ namespace CityDwellers.Shared
                 entry.RecipientId == 0 || string.IsNullOrWhiteSpace(entry.Recipient) ||
                 string.IsNullOrWhiteSpace(entry.Caster) || entry.CompletedUtc == default(DateTime))
                 throw new ArgumentException("A completed buff and its actual recipient are required.");
+            BuffHistoryEntry completed;
             lock (_accountingSync)
             {
                 if (_buffHistoryPersistence == null) throw new InvalidOperationException("Buff history is not initialized.");
@@ -88,7 +89,20 @@ namespace CityDwellers.Shared
                 _buffHistoryPersistence.AppendBuffHistory(copy);
                 RememberBuffHistory(copy);
                 RecordBuffGiven(copy.Paid, copy.BuffProfession, copy.CasterProfession);
+                completed = copy;
             }
+            // Named public activity follows the saved positive completion, once.
+            // Startup replay uses RememberBuffHistory directly and stays quiet.
+            ReportBufferDiagnostic(completed.Caster + " buffed " + completed.Recipient +
+                " with " + completed.NanoName + ".");
+        }
+
+        // Reporting resolves current main/alt relationships in Manager. Return a
+        // detached snapshot; queries never rewrite or remove historical casts.
+        public BuffHistoryEntry[] ReadBuffHistoryEntries()
+        {
+            lock (_accountingSync)
+                return _buffHistory.Entries.Select(entry => entry.Copy()).ToArray();
         }
 
         private void RememberBuffHistory(BuffHistoryEntry entry)

@@ -202,6 +202,7 @@ namespace CityManager
                     CityBankers.Shared.SettingsPaths.InitialBankTerminalInstance, "initial");
             InitializeMembership();
             InitializeAlts();
+            InitializeBuffHistoryReporting();
             InitializePresence();
             PublishBufferAuthoritySnapshot(true);
             InitializeTellQueue();
@@ -649,7 +650,7 @@ namespace CityManager
                 return;
             }
 
-            if (!(command == "page" && IsBankHistoryContinuation(parts, senderName)) && !IsCommandSourceAuthorized(
+            if (!(command == "page" && IsHistoryContinuation(parts, senderName)) && !IsCommandSourceAuthorized(
                     senderName,
                     command,
                     parts,
@@ -3010,4 +3011,3 @@ namespace CityManager
         }
     }
 }
-

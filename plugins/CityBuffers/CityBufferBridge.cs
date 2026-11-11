@@ -167,7 +167,22 @@ namespace MalisBuffBots
         {
             string text = "BUFFER " + Client.CharacterName + " requester=" + recipient + ": " + message;
             Logger.Information(text);
-            ManagerMemory.Current.ReportBufferDiagnostic(text);
+            string name = null;
+            try { name = DynelManager.Players.FirstOrDefault(p => p.Identity.Instance == recipient)?.Name; }
+            catch { /* A reporting lookup must not change a cast or retry. */ }
+            if (string.IsNullOrWhiteSpace(name))
+                name = ManagerMemory.Current.ReadNearbyPlayers()
+                    .FirstOrDefault(p => p.CharacterId == recipient)?.Name;
+            if (string.IsNullOrWhiteSpace(name))
+                name = ManagerMemory.Current.ReadLearnedBuffProfile(recipient)?.Name;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(name) && Client.Chat != null)
+                    name = Client.Chat.NameToIdMap.FirstOrDefault(p => p.Value == unchecked((uint)recipient)).Key;
+            }
+            catch { /* A changing chat-name cache must not affect buff work. */ }
+            ManagerMemory.Current.ReportBufferDiagnostic("BUFFER " + Client.CharacterName +
+                " for " + (string.IsNullOrWhiteSpace(name) ? "an unresolved player" : name) + ": " + message);
         }
 
         internal static void PaidResult(int recipient, string message)

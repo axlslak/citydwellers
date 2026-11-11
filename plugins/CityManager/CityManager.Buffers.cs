@@ -147,7 +147,8 @@ namespace CityManager
                     DynelManager.LocalPlayer.Identity.Instance, members, _paidTeamBatchReady);
                 if (_paidTeamInviteId != 0 && members.Contains(_paidTeamInviteId))
                 {
-                    DevTrace("PAID TEAM team membership confirmed: " + _paidTeamInviteId + ".");
+                    RecordDiagnostic("PAID TEAM team membership confirmed: " + _paidTeamInviteId + ".");
+                    DevTrace("PAID TEAM team membership confirmed: " + BuffActivityRecipientName(_paidTeamInviteId) + ".");
                     _paidTeamInviteId = 0;
                     _paidTeamInviteUntil = DateTime.MinValue;
                     _nextPaidTeamInviteAttempt = DateTime.MinValue;
@@ -177,7 +178,9 @@ namespace CityManager
                             : (request.Arguments ?? new string[0]).Select(PaidBufferCatalogue.Find).ToArray())
                             if (nano != null && nano.IsTeam)
                                 memory.DeferPaidBuff(_paidTeamCharacter, _paidTeamInviteId, nano.Id);
-                        DevTrace("PAID TEAM invitation expired for " + _paidTeamInviteId +
+                        RecordDiagnostic("PAID TEAM invitation expired for " + _paidTeamInviteId +
+                            " after " + _paidTeamInviteAttempts + " attempts; gathering other requesters.");
+                        DevTrace("PAID TEAM invitation expired for " + BuffActivityRecipientName(_paidTeamInviteId) +
                             " after " + _paidTeamInviteAttempts + " attempts; gathering other requesters.");
                         _paidTeamInviteId = 0;
                     }

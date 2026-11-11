@@ -207,10 +207,10 @@ namespace CityManager
                         HelpSyntaxLine(target, "buff remove <tag, name or ID>", "Forget a buff and stop learning/automatically refreshing it until you add it again. Aliases: del, rem. Does not cancel a nano already in NCU.") +
                         HelpSyntaxLine(target, "buff redo", "Refresh recognized buffs currently active in your NCU. Alias: buff rebuff; rebuff still works.") +
                         HelpSyntaxLine(target, "buff macro", "Create a macro from recognized active buffs. buffmacro still works; generated macros use buff add.") +
-                        HelpSyntaxLine(target, "buff last [page]", "Show recent completed buff deliveries, newest first.") +
-                        HelpSyntaxLine(target, "buff top", "Show the most-given buffs and most-served characters.") +
-                        HelpSyntaxLine(target, "buff <person> [page]", "Show one character's totals, most-received buffs and recent deliveries. Older/Newer links browse saved history.") +
-                        "\nDelivery history is saved across full service restarts, beginning with this version. Self-buffs, failures and retries do not count. A team cast counts once for the requesting character; characters are not grouped by main. Existing host-run service counters remain separate.";
+                        HelpSyntaxLine(target, "buff last [page]", "Show the latest ten distinct mains served, their all-time saved buff totals and served alts; Next page continues through older mains by tell.") +
+                        HelpSyntaxLine(target, "buff top", "Rank all served mains by saved completed buffs, excluding our own bots. Click a main for alts and complete delivery details.") +
+                        HelpSyntaxLine(target, "buff <person> [page]", "Show a main and their served alts, totals and complete saved deliveries. Results open one window at a time; Next page continues by tell.") +
+                        "\nDelivery history is saved across full service restarts, beginning with this version. Self-buffs, failures and retries do not count. A team cast counts once for the requesting character. Known alts group under their main; service toons are excluded from top and last. Existing host-run service counters remain separate.";
                     return true;
 
                 case "bufflist":
@@ -1315,5 +1315,3 @@ namespace CityManager
         }
     }
 }
-
-
