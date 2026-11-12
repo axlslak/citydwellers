@@ -12,6 +12,9 @@ namespace CityManager
     public partial class CityManager
     {
         private static readonly string[] WorldBossNames = { "Tarasque", "Vizaresh", "The Hollow Reaper" };
+        // Seasonal availability is explicit, never inferred from an overdue spawn.
+        // Keep announcement parsing and saved observations available out of season.
+        private static readonly bool HollowReaperSeasonActive = false;
 
         private void HandleWorldBossVicinity(object sender, VicinityMsg message)
         {
@@ -86,11 +89,16 @@ namespace CityManager
             var body = new StringBuilder();
             var summary = new System.Collections.Generic.List<string>();
             var now = DateTime.UtcNow;
-            foreach (string boss in WorldBossNames.Where(name => selected == null || name == selected))
+            foreach (string boss in WorldBossNames.Where(name => selected == null
+                ? name != "The Hollow Reaper" || HollowReaperSeasonActive
+                : name == selected))
             {
                 var record = records.SingleOrDefault(row => row.Boss == boss);
+                bool seasonEnded = boss == "The Hollow Reaper" && !HollowReaperSeasonActive;
                 string status;
-                if (record == null)
+                if (seasonEnded)
+                    status = WorldBossText("seasonal event ended", ColorMuted);
+                else if (record == null)
                     status = WorldBossText("not observed yet", ColorMuted);
                 else if (record.Phase == "killed")
                 {
@@ -110,8 +118,9 @@ namespace CityManager
                 summary.Add(line);
                 body.Append(line).Append("\n");
                 string waypoint = boss == "Tarasque" ? "2092 3822 505" : boss == "Vizaresh" ? "299 28 4328" : "1760 2840 595";
-                body.Append("<a href='chatcmd:///waypoint ").Append(waypoint).Append("'>")
-                    .Append(WorldBossText("Waypoint", ColorCommand)).Append("</a>\n");
+                if (!seasonEnded)
+                    body.Append("<a href='chatcmd:///waypoint ").Append(waypoint).Append("'>")
+                        .Append(WorldBossText("Waypoint", ColorCommand)).Append("</a>\n");
                 if (record != null)
                     body.Append(WorldBossText("Last announcement: ", ColorMuted))
                         .Append(WorldBossText(record.ObservedUtc.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture), ColorCommand))
