@@ -18,6 +18,9 @@ namespace MalisBuffBots
         internal static int[] CatalogueSpellList { get; private set; }
         internal static BufferAdvertisedBuff[] CatalogueBuffs { get; private set; }
         public static bool Ready;
+        private static bool _requestedEngineerNanosRefreshed;
+        private static readonly int[] RequestedEngineerNanos =
+            { 29772, 29189, 227663, 227665, 227667, 227669, 227671 };
 
         private sealed class RequestBudget
         {
@@ -73,6 +76,7 @@ namespace MalisBuffBots
             TellQueue.EnsureDirectories(_dataDir);
             CatalogueSpellList = null;
             CatalogueBuffs = null;
+            _requestedEngineerNanosRefreshed = false;
             var saved = ManagerMemory.Current.ReadBufferCatalogue(Client.CharacterName);
             if (saved != null && saved.Paid == Main.PaidPilot &&
                 (!Main.PaidPilot || saved.Profession == Main.PaidProfession) &&
@@ -97,7 +101,10 @@ namespace MalisBuffBots
 
         internal static bool InitializeCatalogue()
         {
-            if (CatalogueSpellList != null) return true;
+            if (CatalogueSpellList != null)
+            {
+                return RefreshRequestedEngineerNanos();
+            }
             int[] known = Main.UploadedSpellList();
             if (known.Length == 0) return false;
             NanoCatalogue.Discover(known);
@@ -107,6 +114,33 @@ namespace MalisBuffBots
             CatalogueSpellList = known;
             CatalogueBuffs = advertised;
             LogCatalogueDiscovery(known, advertised);
+            return true;
+        }
+
+        private static bool RefreshRequestedEngineerNanos()
+        {
+            if (_requestedEngineerNanosRefreshed || Main.PaidPilot ||
+                DynelManager.LocalPlayer.Profession != Profession.Engineer) return true;
+            // This requested addition must work with an existing saved catalogue.
+            // Keep its other capabilities; learn only these seven requested IDs
+            // from the current uploaded list. No roster-wide or physical audit.
+            int[] uploaded = Main.UploadedSpellList();
+            if (uploaded.Length == 0) return false;
+            int[] known = CatalogueSpellList.Concat(uploaded
+                .Where(id => RequestedEngineerNanos.Contains(id))).Distinct().OrderBy(id => id).ToArray();
+            var advertised = BufferBotCache.BuildAdvertisedBuffs(known);
+            bool changed = !known.SequenceEqual(CatalogueSpellList.OrderBy(id => id)) ||
+                Newtonsoft.Json.JsonConvert.SerializeObject(advertised) !=
+                Newtonsoft.Json.JsonConvert.SerializeObject(CatalogueBuffs);
+            if (changed)
+            {
+                ManagerMemory.Current.SaveBufferCatalogue(Client.CharacterName,
+                    (int)Profession.Engineer, false, known, advertised);
+                CatalogueSpellList = known;
+                CatalogueBuffs = advertised;
+                Logger.Information("BUFFER engineer tradeskill catalogue refreshed from requested uploaded nanos and current aliases.");
+            }
+            _requestedEngineerNanosRefreshed = true;
             return true;
         }
 

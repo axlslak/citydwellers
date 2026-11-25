@@ -852,6 +852,119 @@
     ],
     "Engineer": [
         {
+            "Name": "Crowbar Subtlety",
+            "LevelToId": [
+                {
+                    "Level": 0,
+                    "Id": 29189
+                }
+            ],
+            "Type": 0,
+            "Description": "+32 Breaking and Entry",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "crowbar",
+                "crowbarsubtlety",
+                "bne"
+            ]
+        },
+        {
+            "Name": "Electrical Engineering Mastery",
+            "LevelToId": [
+                {
+                    "Level": 120,
+                    "Id": 227663
+                }
+            ],
+            "Type": 0,
+            "Description": "+125 Electrical Engineering; Shadowlands required to cast",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "eem",
+                "electricalmastery",
+                "electricalengineeringmastery"
+            ]
+        },
+        {
+            "Name": "Field Quantum Physics Mastery",
+            "LevelToId": [
+                {
+                    "Level": 120,
+                    "Id": 227665
+                }
+            ],
+            "Type": 0,
+            "Description": "+125 Field Quantum Physics; Shadowlands required to cast",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "qpm",
+                "fqpm",
+                "quantummastery",
+                "fieldquantumphysicsmastery"
+            ]
+        },
+        {
+            "Name": "Mechanical Engineering Mastery",
+            "LevelToId": [
+                {
+                    "Level": 125,
+                    "Id": 227667
+                }
+            ],
+            "Type": 0,
+            "Description": "+125 Mechanical Engineering; Shadowlands required to cast",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "mem",
+                "mechanicalmastery",
+                "mechanicalengineeringmastery"
+            ]
+        },
+        {
+            "Name": "Pharmaceuticals Mastery",
+            "LevelToId": [
+                {
+                    "Level": 125,
+                    "Id": 227669
+                }
+            ],
+            "Type": 0,
+            "Description": "+125 Pharmaceuticals; Shadowlands required to cast",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "pharmamastery",
+                "pharmaceuticalsmastery"
+            ]
+        },
+        {
+            "Name": "Weapon Smithing Mastery",
+            "LevelToId": [
+                {
+                    "Level": 130,
+                    "Id": 227671
+                }
+            ],
+            "Type": 0,
+            "Description": "+125 Weapon Smithing; Shadowlands required to cast",
+            "RemoveNanoIdUponCast": [
+                0
+            ],
+            "Tags": [
+                "wsm",
+                "weaponsmithingmastery"
+            ]
+        },
+        {
             "Name": "Gift of Assurance",
             "LevelToId": [
                 {
