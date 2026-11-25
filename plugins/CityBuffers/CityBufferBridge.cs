@@ -120,7 +120,7 @@ namespace MalisBuffBots
         private static bool RefreshRequestedEngineerNanos()
         {
             if (_requestedEngineerNanosRefreshed || Main.PaidPilot ||
-                DynelManager.LocalPlayer.Profession != Profession.Engineer) return true;
+                (int)DynelManager.LocalPlayer.Profession != (int)Profession.Engineer) return true;
             // This requested addition must work with an existing saved catalogue.
             // Keep its other capabilities; learn only these seven requested IDs
             // from the current uploaded list. No roster-wide or physical audit.
